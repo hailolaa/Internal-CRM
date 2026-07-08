@@ -20,6 +20,7 @@ function mapTask(row: any): TaskResponse {
     priority: row.priority,
     status: row.status,
     category: row.category,
+    contactId: row.contactId || null,
     contact: row.contactName,
     due: row.dueLabel,
     dueDate: row.dueDate || null,
@@ -92,6 +93,7 @@ export class TasksService {
   async listTasks(clinicId: string): Promise<TaskResponse[]> {
     const [rows]: any = await pool.execute(
       `SELECT id, title, description, priority, status, category,
+              contact_id as contactId,
               contact_name as contactName, due_label as dueLabel,
               DATE_FORMAT(due_date, '%Y-%m-%d') as dueDate,
               assigned_to as assignedTo,
@@ -109,11 +111,12 @@ export class TasksService {
   // Create standalone tasks without binding into the future contact module
   async createTask(clinicId: string, userId: string, data: CreateTaskDTO): Promise<string> {
     const id = uuidv4();
+    const linkedContact = await this.resolveTaskContact(clinicId, data.contactId, data.contact);
     await pool.execute(
       `INSERT INTO task
         (id, clinic_id, title, description, priority, status, category,
-         contact_name, due_label, due_date, assigned_to, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         contact_id, contact_name, due_label, due_date, assigned_to, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         clinicId,
@@ -122,7 +125,8 @@ export class TasksService {
         data.priority || "medium",
         data.status || "pending",
         data.category || null,
-        data.contact || null,
+        linkedContact.contactId,
+        linkedContact.contactName,
         data.due || null,
         data.dueDate || null,
         data.assignedTo || null,
@@ -149,6 +153,17 @@ export class TasksService {
       dueDate: "due_date",
       assignedTo: "assigned_to",
     };
+
+    if (ownKey(data, "contactId")) {
+      const linkedContact = await this.resolveTaskContact(clinicId, data.contactId, data.contact);
+      fields.push("contact_id = ?");
+      values.push(linkedContact.contactId);
+
+      if (!ownKey(data, "contact")) {
+        fields.push("contact_name = ?");
+        values.push(linkedContact.contactName);
+      }
+    }
 
     Object.entries(data).forEach(([key, value]) => {
       if (mapping[key]) {
@@ -271,6 +286,7 @@ export class TasksService {
 
   async createInternalTask(clinicId: string, userId: string, data: CreateInternalTaskDTO): Promise<string> {
     const links = await this.resolveInternalTaskLinks(clinicId, data.clientAccountProfileId, data.clientAccountServiceId);
+    const linkedContact = await this.resolveTaskContact(clinicId, data.contactId, data.contact);
     if (data.assignedUserId) {
       await this.ensureActiveUserInClinic(clinicId, data.assignedUserId);
     }
@@ -280,9 +296,9 @@ export class TasksService {
     await pool.execute(
       `INSERT INTO task
         (id, clinic_id, is_internal, title, description, priority, status, category, board_key, service_type,
-         client_account_profile_id, client_account_service_id, contact_name, due_label, due_date, assigned_to,
+         client_account_profile_id, client_account_service_id, contact_id, contact_name, due_label, due_date, assigned_to,
          assigned_user_id, proof_reference, workflow_month, template_key, recurrence_rule, completed_at, created_by)
-       VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         clinicId,
@@ -295,7 +311,8 @@ export class TasksService {
         data.serviceType || null,
         links.clientAccountProfileId,
         links.clientAccountServiceId,
-        null,
+        linkedContact.contactId,
+        linkedContact.contactName,
         data.due || null,
         toDateString(data.dueDate),
         data.assignedTo || null,
@@ -332,6 +349,7 @@ export class TasksService {
       priority: "priority",
       status: "status",
       category: "category",
+      contact: "contact_name",
       due: "due_label",
       assignedTo: "assigned_to",
       boardKey: "board_key",
@@ -340,6 +358,17 @@ export class TasksService {
       proofReference: "proof_reference",
       templateKey: "template_key",
     };
+
+    if (ownKey(data, "contactId")) {
+      const linkedContact = await this.resolveTaskContact(clinicId, data.contactId, data.contact);
+      fields.push("contact_id = ?");
+      values.push(linkedContact.contactId);
+
+      if (!ownKey(data, "contact")) {
+        fields.push("contact_name = ?");
+        values.push(linkedContact.contactName);
+      }
+    }
 
     if (ownKey(data, "clientAccountProfileId") || ownKey(data, "clientAccountServiceId")) {
       const links = await this.resolveInternalTaskLinks(clinicId, data.clientAccountProfileId, data.clientAccountServiceId);
@@ -469,6 +498,7 @@ export class TasksService {
   private taskSelectColumns() {
     return `id, title, description, priority, status, category,
             contact_name as contactName,
+            contact_id as contactId,
             due_label as dueLabel,
             DATE_FORMAT(due_date, '%Y-%m-%d') as dueDate,
             assigned_to as assignedTo,
@@ -527,7 +557,7 @@ export class TasksService {
         [resolvedServiceId, clinicId],
       );
 
-      if (rows.length === 0) throw ApiError.badRequest("Client account service must belong to this clinic");
+      if (rows.length === 0) throw ApiError.badRequest("Client account service must belong to this workspace");
       if (resolvedProfileId && resolvedProfileId !== rows[0].profileId) {
         throw ApiError.badRequest("Client account profile and service do not match");
       }
@@ -539,10 +569,37 @@ export class TasksService {
         `SELECT id FROM client_account_profile WHERE id = ? AND clinic_id = ? LIMIT 1`,
         [resolvedProfileId, clinicId],
       );
-      if (rows.length === 0) throw ApiError.badRequest("Client account profile must belong to this clinic");
+      if (rows.length === 0) throw ApiError.badRequest("Client account profile must belong to this workspace");
     }
 
     return { clientAccountProfileId: resolvedProfileId, clientAccountServiceId: resolvedServiceId };
+  }
+
+  private async resolveTaskContact(
+    clinicId: string,
+    contactId?: string | null,
+    contactName?: string | null,
+  ) {
+    const fallbackName = contactName?.trim() || null;
+    if (!contactId) return { contactId: null, contactName: fallbackName };
+
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              NULLIF(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), '') as name,
+              email,
+              phone
+       FROM contact
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL
+       LIMIT 1`,
+      [contactId, clinicId],
+    );
+
+    if (rows.length === 0) throw ApiError.badRequest("Prospect/contact must belong to this workspace");
+
+    return {
+      contactId,
+      contactName: fallbackName || rows[0].name || rows[0].email || rows[0].phone || "Linked prospect",
+    };
   }
 
   private async ensureActiveUserInClinic(clinicId: string, userId: string) {
@@ -558,7 +615,7 @@ export class TasksService {
       [userId, clinicId],
     );
 
-    if (rows.length === 0) throw ApiError.badRequest("Assigned user must be active in this clinic");
+    if (rows.length === 0) throw ApiError.badRequest("Assigned user must be active in this workspace");
   }
 
   async generateNextOccurrence(taskId: string): Promise<string | null> {
@@ -649,9 +706,9 @@ export class TasksService {
     await pool.execute(
       `INSERT INTO task
         (id, clinic_id, is_internal, title, description, priority, status, category, board_key, service_type,
-         client_account_profile_id, client_account_service_id, due_label, due_date, assigned_to,
+         client_account_profile_id, client_account_service_id, contact_id, contact_name, due_label, due_date, assigned_to,
          assigned_user_id, template_key, recurrence_rule, workflow_month, needs_qa, qa_checklist, created_by)
-       VALUES (?, ?, 1, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, 1, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nextId,
         task.clinic_id,
@@ -663,6 +720,8 @@ export class TasksService {
         task.service_type || null,
         profileId,
         serviceId,
+        task.contact_id || null,
+        task.contact_name || null,
         task.due_label || null,
         nextDueDateStr,
         task.assigned_to || null,

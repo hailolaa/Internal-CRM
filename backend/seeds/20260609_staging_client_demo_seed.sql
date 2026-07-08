@@ -182,15 +182,31 @@ INSERT INTO seed_gate (can_run)
 SELECT 1
 WHERE @seed_can_run;
 
+UPDATE clinic
+SET
+  name = 'Clinic Grower Operations',
+  email = 'ops@clinicgrower.com',
+  website = 'https://clinicgrower.com',
+  phone = '020 7946 1186',
+  address = '18 Harley Street',
+  city = 'London',
+  state = 'England',
+  postal_code = 'W1G 9QH',
+  country = 'UK',
+  timezone = 'Europe/London',
+  updated_at = CURRENT_TIMESTAMP
+WHERE id = @seed_clinic_id
+  AND @seed_can_run;
+
 INSERT INTO clinic (
   id, name, email, website, phone, address, city, state, postal_code,
   country, timezone, subscription_plan, subscription_status, max_users
 )
 SELECT
   @seed_second_clinic_id,
-  'Harbour Dental Studio',
-  'hello@harbour-dental.example',
-  'https://harbour-dental.example',
+    'Harbour Dental Studio Client Account',
+    'hello@harbour-client.example',
+    'https://harbour-client.example',
   '020 7946 1888',
   '18 Marina Walk',
   'Brighton',
@@ -323,14 +339,14 @@ FROM (
   SELECT
     '8a86514b-c15a-5fbc-a0ed-a05b261bb198' AS id,
     @seed_clinic_id AS clinic_id,
-    'Main Clinic' AS name,
+    'Main Office' AS name,
     '18 Harley Street' AS address,
     'London' AS city,
     'England' AS state,
     'W1G 9QH' AS postal_code,
     'UK' AS country,
     '020 7946 1186' AS phone,
-    'frontdesk@example-clinic.test' AS email,
+    'ops@example-client.test' AS email,
     JSON_OBJECT('mon', '08:00-18:00', 'tue', '08:00-18:00', 'wed', '08:00-18:00', 'thu', '08:00-18:00', 'fri', '08:00-16:00') AS working_hours,
     5 AS room_count,
     1 AS is_primary,
@@ -369,7 +385,7 @@ FROM (
     'medium' AS churn_risk,
     '2026-12-01' AS renewal_date,
     'active' AS contract_status,
-    'Staging demo account seeded with revenue, leakage, insight, and monthly action-plan data.' AS key_notes,
+    'Staging demo client account seeded with pipeline, delivery, insight, and monthly action-plan data.' AS key_notes,
     @seed_user_id AS created_by,
     @seed_user_id AS updated_by
 ) seed
@@ -393,7 +409,7 @@ INSERT INTO client_account_service (
 )
 SELECT *
 FROM (
-  SELECT '21c6bf54-49ac-539d-88ce-795df6d10b5b' AS id, @seed_clinic_id AS clinic_id, @seed_profile_id AS client_account_profile_id, 'ppc' AS service_type, 'Google Ads Management' AS name, 'active' AS status, '2026-01-01' AS start_date, '2026-12-01' AS renewal_date, @seed_user_id AS owner_id, 1800.00 AS recurring_value, 'GBP' AS currency, 'active' AS contract_status, 'High-intent patient acquisition campaigns.' AS notes, @seed_user_id AS created_by, @seed_user_id AS updated_by
+  SELECT '21c6bf54-49ac-539d-88ce-795df6d10b5b' AS id, @seed_clinic_id AS clinic_id, @seed_profile_id AS client_account_profile_id, 'ppc' AS service_type, 'Google Ads Management' AS name, 'active' AS status, '2026-01-01' AS start_date, '2026-12-01' AS renewal_date, @seed_user_id AS owner_id, 1800.00 AS recurring_value, 'GBP' AS currency, 'active' AS contract_status, 'High-intent client acquisition campaigns.' AS notes, @seed_user_id AS created_by, @seed_user_id AS updated_by
   UNION ALL SELECT '53ecadb7-9d6e-5502-aa7d-fd1296182bfe', @seed_clinic_id, @seed_profile_id, 'seo', 'Local SEO', 'active', '2026-01-01', '2026-12-01', @seed_user_id, 900.00, 'GBP', 'active', 'Local visibility and service-page optimisation.', @seed_user_id, @seed_user_id
   UNION ALL SELECT 'e9f06989-6c71-5646-9081-901967b532ba', @seed_clinic_id, @seed_profile_id, 'cro', 'Conversion Optimisation', 'active', '2026-03-01', '2026-12-01', @seed_user_id, 750.00, 'GBP', 'active', 'Landing-page and booking conversion improvements.', @seed_user_id, @seed_user_id
 ) seed
@@ -417,9 +433,9 @@ INSERT INTO campaign (
 )
 SELECT *
 FROM (
-  SELECT '3f9f07ed-5f01-5803-8b4e-7001f2e2a413' AS id, @seed_clinic_id AS clinic_id, 'June Invisalign Search' AS name, 'High-intent search campaign for Invisalign consults.' AS description, 'search' AS type, 'active' AS status, '2026-06-01' AS start_date, '2026-06-30' AS end_date, 4200.00 AS budget, 'Google Ads' AS channel
-  UNION ALL SELECT '1d53bf65-9a81-54d0-8761-0e6bea013cbd', @seed_clinic_id, 'June Skin Rejuvenation Social', 'Paid social lead campaign for skin rejuvenation consults.', 'paid_social', 'active', '2026-06-01', '2026-06-30', 2400.00, 'Meta'
-  UNION ALL SELECT '04460fb6-5959-539d-b91c-e6deb818928b', @seed_clinic_id, 'June Patient Referral Push', 'Referral activation for existing high-value patients.', 'referral', 'active', '2026-06-01', '2026-06-30', 600.00, 'Referral'
+  SELECT '3f9f07ed-5f01-5803-8b4e-7001f2e2a413' AS id, @seed_clinic_id AS clinic_id, 'June Google Ads Launch' AS name, 'High-intent search campaign for internal sales prospects.' AS description, 'search' AS type, 'active' AS status, '2026-06-01' AS start_date, '2026-06-30' AS end_date, 4200.00 AS budget, 'Google Ads' AS channel
+  UNION ALL SELECT '1d53bf65-9a81-54d0-8761-0e6bea013cbd', @seed_clinic_id, 'June Website Growth Social', 'Paid social lead campaign for website and funnel prospects.', 'paid_social', 'active', '2026-06-01', '2026-06-30', 2400.00, 'Meta'
+  UNION ALL SELECT '04460fb6-5959-539d-b91c-e6deb818928b', @seed_clinic_id, 'June Client Referral Push', 'Referral activation for existing high-value client relationships.', 'referral', 'active', '2026-06-01', '2026-06-30', 600.00, 'Referral'
 ) seed
 WHERE @seed_can_run
 ON DUPLICATE KEY UPDATE
@@ -464,14 +480,14 @@ INSERT INTO contact (
 )
 SELECT *
 FROM (
-  SELECT 'dbad85c3-ef8e-5905-b0b9-30df41248c75' AS id, @seed_clinic_id AS clinic_id, 'Ava' AS first_name, 'Morgan' AS last_name, 'ava.morgan@example-patient.test' AS email, '07700 910101' AS phone, '1988-02-14' AS date_of_birth, 'F' AS gender, 'London' AS city, 'England' AS state, 'W1G 9QH' AS postal_code, 'UK' AS country, JSON_ARRAY('lead', 'high-value') AS tags, 'active' AS status, 'Google Ads' AS source, 4500.00 AS value, JSON_ARRAY('Invisalign') AS treatment_interests, 'Booked after paid search enquiry.' AS notes, '2026-06-04 09:35:00' AS last_contact_at, 10 AS sla_target_minutes, '2026-06-04 09:25:00' AS sla_deadline_at, '2026-06-04 09:21:00' AS first_response_at, @seed_user_id AS first_response_by, NULL AS sla_breached_at, '2026-06-04 09:15:00' AS created_at
-  UNION ALL SELECT 'afdfc429-40d9-52a7-a4ce-115f3f0ec518', @seed_clinic_id, 'Ben', 'Carter', 'ben.carter@example-patient.test', '07700 910102', '1979-07-09', 'M', 'London', 'England', 'NW1 6XE', 'UK', JSON_ARRAY('lead', 'sla-breach'), 'active', 'Meta Ads', 3200.00, JSON_ARRAY('Skin Rejuvenation'), 'Response SLA breached; needs immediate follow-up.', NULL, 10, '2026-06-05 10:10:00', NULL, NULL, '2026-06-05 10:46:00', '2026-06-05 10:00:00'
-  UNION ALL SELECT '81f3ec77-dc71-59b8-bc1a-bfebedff64b3', @seed_clinic_id, 'Chloe', 'Singh', 'chloe.singh@example-patient.test', '07700 910103', '1992-11-20', 'F', 'London', 'England', 'SW3 2QY', 'UK', JSON_ARRAY('consult', 'no-show'), 'active', 'Google Ads', 2800.00, JSON_ARRAY('Dental Implants'), 'No-showed implant consult.', '2026-06-06 08:50:00', 10, '2026-06-03 12:10:00', '2026-06-03 12:05:00', @seed_user_id, NULL, '2026-06-03 12:00:00'
-  UNION ALL SELECT '57e78c83-41b1-55a8-8c16-c16de20beacb', @seed_clinic_id, 'Daniel', 'Hughes', 'daniel.hughes@example-patient.test', '07700 910104', '1984-04-03', 'M', 'London', 'England', 'E1 6AN', 'UK', JSON_ARRAY('lead', 'missed-call'), 'active', 'Call Tracking', 3900.00, JSON_ARRAY('Composite Bonding'), 'Missed inbound call from treatment enquiry.', NULL, 10, '2026-06-07 14:20:00', NULL, NULL, '2026-06-07 14:51:00', '2026-06-07 14:10:00'
-  UNION ALL SELECT '52faff48-b1db-542d-847d-f6e940b16b79', @seed_clinic_id, 'Emma', 'Patel', 'emma.patel@example-patient.test', '07700 910105', '1990-01-18', 'F', 'London', 'England', 'SE1 8XX', 'UK', JSON_ARRAY('patient', 'sold'), 'active', 'Referral', 5200.00, JSON_ARRAY('Invisalign'), 'Converted from referral consult.', '2026-06-08 13:15:00', 10, '2026-06-02 09:10:00', '2026-06-02 09:04:00', @seed_user_id, NULL, '2026-06-02 09:00:00'
-  UNION ALL SELECT '0c9b326c-8c4b-544f-9ac3-b2d9063cb0cd', @seed_clinic_id, 'Farah', 'Ali', 'farah.ali@example-patient.test', '07700 910106', '1986-09-29', 'F', 'London', 'England', 'N1 7GU', 'UK', JSON_ARRAY('lead', 'open'), 'active', 'Google Ads', 3600.00, JSON_ARRAY('Skin Rejuvenation'), 'Qualified consult, not yet booked.', '2026-06-08 16:45:00', 10, '2026-06-08 15:10:00', '2026-06-08 15:05:00', @seed_user_id, NULL, '2026-06-08 15:00:00'
-  UNION ALL SELECT '91a7b5a8-688a-55fe-8822-7f56a77c1e7a', @seed_clinic_id, 'George', 'Evans', 'george.evans@example-patient.test', '07700 910107', '1976-12-05', 'M', 'London', 'England', 'W8 5TT', 'UK', JSON_ARRAY('consult', 'lost'), 'active', 'Meta Ads', 2400.00, JSON_ARRAY('Dental Implants'), 'Consult attended but treatment not booked.', '2026-06-07 11:30:00', 10, '2026-06-01 11:10:00', '2026-06-01 11:03:00', @seed_user_id, NULL, '2026-06-01 11:00:00'
-  UNION ALL SELECT 'c95abd72-13d8-5ef2-95a8-be53e36b96a5', @seed_clinic_id, 'Hannah', 'Brooks', 'hannah.brooks@example-patient.test', '07700 910108', '1994-06-22', 'F', 'London', 'England', 'W2 6BD', 'UK', JSON_ARRAY('lead', 'high-value'), 'active', 'Organic Search', 4100.00, JSON_ARRAY('Composite Bonding'), 'Organic search lead awaiting consult booking.', NULL, 10, '2026-06-09 09:10:00', NULL, NULL, '2026-06-09 09:35:00', '2026-06-09 09:00:00'
+  SELECT 'dbad85c3-ef8e-5905-b0b9-30df41248c75' AS id, @seed_clinic_id AS clinic_id, 'Ava' AS first_name, 'Morgan' AS last_name, 'ava.morgan@example-prospect.test' AS email, '07700 910101' AS phone, '1988-02-14' AS date_of_birth, 'F' AS gender, 'London' AS city, 'England' AS state, 'W1G 9QH' AS postal_code, 'UK' AS country, JSON_ARRAY('prospect', 'high-value') AS tags, 'prospect' AS status, 'Google Ads' AS source, 4500.00 AS value, JSON_ARRAY('Google Ads Management') AS treatment_interests, 'Discovery call booked after paid search enquiry.' AS notes, '2026-06-04 09:35:00' AS last_contact_at, 10 AS sla_target_minutes, '2026-06-04 09:25:00' AS sla_deadline_at, '2026-06-04 09:21:00' AS first_response_at, @seed_user_id AS first_response_by, NULL AS sla_breached_at, '2026-06-04 09:15:00' AS created_at
+  UNION ALL SELECT 'afdfc429-40d9-52a7-a4ce-115f3f0ec518', @seed_clinic_id, 'Ben', 'Carter', 'ben.carter@example-prospect.test', '07700 910102', '1979-07-09', 'M', 'London', 'England', 'NW1 6XE', 'UK', JSON_ARRAY('prospect', 'sla-breach'), 'prospect', 'Meta Ads', 3200.00, JSON_ARRAY('Website Build'), 'Response SLA breached; needs immediate follow-up.', NULL, 10, '2026-06-05 10:10:00', NULL, NULL, '2026-06-05 10:46:00', '2026-06-05 10:00:00'
+  UNION ALL SELECT '81f3ec77-dc71-59b8-bc1a-bfebedff64b3', @seed_clinic_id, 'Chloe', 'Singh', 'chloe.singh@example-prospect.test', '07700 910103', '1992-11-20', 'F', 'London', 'England', 'SW3 2QY', 'UK', JSON_ARRAY('discovery', 'no-show'), 'prospect', 'Google Ads', 2800.00, JSON_ARRAY('SEO Growth Plan'), 'Missed discovery call; needs rebooking.', '2026-06-06 08:50:00', 10, '2026-06-03 12:10:00', '2026-06-03 12:05:00', @seed_user_id, NULL, '2026-06-03 12:00:00'
+  UNION ALL SELECT '57e78c83-41b1-55a8-8c16-c16de20beacb', @seed_clinic_id, 'Daniel', 'Hughes', 'daniel.hughes@example-prospect.test', '07700 910104', '1984-04-03', 'M', 'London', 'England', 'E1 6AN', 'UK', JSON_ARRAY('prospect', 'missed-call'), 'prospect', 'Call Tracking', 3900.00, JSON_ARRAY('Landing Page CRO'), 'Missed inbound call from service enquiry.', NULL, 10, '2026-06-07 14:20:00', NULL, NULL, '2026-06-07 14:51:00', '2026-06-07 14:10:00'
+  UNION ALL SELECT '52faff48-b1db-542d-847d-f6e940b16b79', @seed_clinic_id, 'Emma', 'Patel', 'emma.patel@example-client.test', '07700 910105', '1990-01-18', 'F', 'London', 'England', 'SE1 8XX', 'UK', JSON_ARRAY('client', 'won'), 'client', 'Referral', 5200.00, JSON_ARRAY('Google Ads Management'), 'Converted from referral discovery call.', '2026-06-08 13:15:00', 10, '2026-06-02 09:10:00', '2026-06-02 09:04:00', @seed_user_id, NULL, '2026-06-02 09:00:00'
+  UNION ALL SELECT '0c9b326c-8c4b-544f-9ac3-b2d9063cb0cd', @seed_clinic_id, 'Farah', 'Ali', 'farah.ali@example-prospect.test', '07700 910106', '1986-09-29', 'F', 'London', 'England', 'N1 7GU', 'UK', JSON_ARRAY('prospect', 'open'), 'prospect', 'Google Ads', 3600.00, JSON_ARRAY('Website Build'), 'Qualified prospect, discovery call not yet booked.', '2026-06-08 16:45:00', 10, '2026-06-08 15:10:00', '2026-06-08 15:05:00', @seed_user_id, NULL, '2026-06-08 15:00:00'
+  UNION ALL SELECT '91a7b5a8-688a-55fe-8822-7f56a77c1e7a', @seed_clinic_id, 'George', 'Evans', 'george.evans@example-prospect.test', '07700 910107', '1976-12-05', 'M', 'London', 'England', 'W8 5TT', 'UK', JSON_ARRAY('discovery', 'lost'), 'lost', 'Meta Ads', 2400.00, JSON_ARRAY('SEO Growth Plan'), 'Discovery call completed but proposal was not accepted.', '2026-06-07 11:30:00', 10, '2026-06-01 11:10:00', '2026-06-01 11:03:00', @seed_user_id, NULL, '2026-06-01 11:00:00'
+  UNION ALL SELECT 'c95abd72-13d8-5ef2-95a8-be53e36b96a5', @seed_clinic_id, 'Hannah', 'Brooks', 'hannah.brooks@example-prospect.test', '07700 910108', '1994-06-22', 'F', 'London', 'England', 'W2 6BD', 'UK', JSON_ARRAY('prospect', 'high-value'), 'prospect', 'Organic Search', 4100.00, JSON_ARRAY('Landing Page CRO'), 'Organic search prospect awaiting discovery booking.', NULL, 10, '2026-06-09 09:10:00', NULL, NULL, '2026-06-09 09:35:00', '2026-06-09 09:00:00'
 ) seed
 WHERE @seed_can_run
 ON DUPLICATE KEY UPDATE
@@ -507,9 +523,9 @@ FROM (
   SELECT
     'f7c27b6d-7970-5e38-af1f-9ed1ea9952da' AS id,
     @seed_clinic_id AS clinic_id,
-    'Seed Revenue Pipeline' AS name,
-    'Seeded pipeline for staging revenue and conversion demo data.' AS description,
-    JSON_ARRAY('New', 'Contacted', 'Qualified', 'Consult Booked', 'Consult Attended', 'Sold', 'Lost') AS stages
+    'Clinic Grower Sales Pipeline' AS name,
+    'Seeded pipeline for staging internal sales and conversion demo data.' AS description,
+    JSON_ARRAY('New Enquiry', 'Contacted', 'Qualified', 'Discovery Call Booked', 'Proposal Sent', 'Won', 'Lost') AS stages
 ) seed
 WHERE @seed_can_run
 ON DUPLICATE KEY UPDATE
@@ -584,13 +600,13 @@ INSERT INTO deal (
 )
 SELECT *
 FROM (
-  SELECT 'a620be17-6da7-55f4-8a39-55db85c060e0' AS id, @seed_clinic_id AS clinic_id, 'dbad85c3-ef8e-5905-b0b9-30df41248c75' AS contact_id, 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da' AS pipeline_id, 'Ava Morgan - Invisalign' AS title, 4500.00 AS value, 'Consult Booked' AS stage, 70 AS probability, '2026-06-20' AS expected_close_date, @seed_user_id AS owner_id, 'Google Ads' AS source, 'Invisalign' AS treatment, 'open' AS status, '2026-06-05 11:00:00' AS stage_changed_at, '2026-06-11 09:30:00' AS booked_at, NULL AS sold_at, NULL AS lost_at, NULL AS lost_reason, @seed_user_id AS created_by
-  UNION ALL SELECT '21e85a9b-2706-5915-a7b0-15ebb6ce4696', @seed_clinic_id, '52faff48-b1db-542d-847d-f6e940b16b79', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'Emma Patel - Invisalign', 5200.00, 'Sold', 100, '2026-06-03', @seed_user_id, 'Referral', 'Invisalign', 'won', '2026-06-03 15:00:00', '2026-06-03 14:00:00', '2026-06-03 15:10:00', NULL, NULL, @seed_user_id
-  UNION ALL SELECT '052ce6b9-25f1-5c6a-8619-6a8c5fa64bf1', @seed_clinic_id, '91a7b5a8-688a-55fe-8822-7f56a77c1e7a', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'George Evans - Dental Implants', 2400.00, 'Consult Attended', 75, '2026-06-10', @seed_user_id, 'Meta Ads', 'Dental Implants', 'open', '2026-06-04 17:00:00', '2026-06-04 16:00:00', NULL, NULL, NULL, @seed_user_id
-  UNION ALL SELECT '12acf62d-651a-54a6-a3f9-28be00eddcb5', @seed_clinic_id, '0c9b326c-8c4b-544f-9ac3-b2d9063cb0cd', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'Farah Ali - Skin Rejuvenation', 3600.00, 'Qualified', 55, '2026-06-24', @seed_user_id, 'Google Ads', 'Skin Rejuvenation', 'open', '2026-06-08 16:00:00', NULL, NULL, NULL, NULL, @seed_user_id
-  UNION ALL SELECT 'fd728dfa-0fe7-50e0-9cb1-350171997cd6', @seed_clinic_id, 'c95abd72-13d8-5ef2-95a8-be53e36b96a5', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'Hannah Brooks - Composite Bonding', 4100.00, 'New', 30, '2026-06-28', @seed_user_id, 'Organic Search', 'Composite Bonding', 'open', '2026-06-09 09:05:00', NULL, NULL, NULL, NULL, @seed_user_id
-  UNION ALL SELECT 'b44ed419-7e82-5e56-bef0-e30485e9f443', @seed_clinic_id, 'afdfc429-40d9-52a7-a4ce-115f3f0ec518', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'Ben Carter - Skin Rejuvenation', 3200.00, 'Contacted', 40, '2026-06-22', @seed_user_id, 'Meta Ads', 'Skin Rejuvenation', 'open', '2026-06-05 11:00:00', NULL, NULL, NULL, NULL, @seed_user_id
-  UNION ALL SELECT '7d62f7c8-c55f-5910-9b88-a1899f0b3da4', @seed_clinic_id, '81f3ec77-dc71-59b8-bc1a-bfebedff64b3', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'Chloe Singh - Dental Implants', 2800.00, 'Lost', 0, '2026-06-12', @seed_user_id, 'Google Ads', 'Dental Implants', 'lost', '2026-06-06 12:00:00', '2026-06-06 10:00:00', NULL, '2026-06-06 12:20:00', 'No-show did not rebook', @seed_user_id
+  SELECT 'a620be17-6da7-55f4-8a39-55db85c060e0' AS id, @seed_clinic_id AS clinic_id, 'dbad85c3-ef8e-5905-b0b9-30df41248c75' AS contact_id, 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da' AS pipeline_id, 'Ava Morgan - Google Ads Management' AS title, 4500.00 AS value, 'Discovery Call Booked' AS stage, 70 AS probability, '2026-06-20' AS expected_close_date, @seed_user_id AS owner_id, 'Google Ads' AS source, 'Google Ads Management' AS treatment, 'open' AS status, '2026-06-05 11:00:00' AS stage_changed_at, '2026-06-11 09:30:00' AS booked_at, NULL AS sold_at, NULL AS lost_at, NULL AS lost_reason, @seed_user_id AS created_by
+  UNION ALL SELECT '21e85a9b-2706-5915-a7b0-15ebb6ce4696', @seed_clinic_id, '52faff48-b1db-542d-847d-f6e940b16b79', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'Emma Patel - Google Ads Management', 5200.00, 'Won', 100, '2026-06-03', @seed_user_id, 'Referral', 'Google Ads Management', 'won', '2026-06-03 15:00:00', '2026-06-03 14:00:00', '2026-06-03 15:10:00', NULL, NULL, @seed_user_id
+  UNION ALL SELECT '052ce6b9-25f1-5c6a-8619-6a8c5fa64bf1', @seed_clinic_id, '91a7b5a8-688a-55fe-8822-7f56a77c1e7a', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'George Evans - SEO Growth Plan', 2400.00, 'Proposal Sent', 75, '2026-06-10', @seed_user_id, 'Meta Ads', 'SEO Growth Plan', 'open', '2026-06-04 17:00:00', '2026-06-04 16:00:00', NULL, NULL, NULL, @seed_user_id
+  UNION ALL SELECT '12acf62d-651a-54a6-a3f9-28be00eddcb5', @seed_clinic_id, '0c9b326c-8c4b-544f-9ac3-b2d9063cb0cd', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'Farah Ali - Website Build', 3600.00, 'Qualified', 55, '2026-06-24', @seed_user_id, 'Google Ads', 'Website Build', 'open', '2026-06-08 16:00:00', NULL, NULL, NULL, NULL, @seed_user_id
+  UNION ALL SELECT 'fd728dfa-0fe7-50e0-9cb1-350171997cd6', @seed_clinic_id, 'c95abd72-13d8-5ef2-95a8-be53e36b96a5', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'Hannah Brooks - Landing Page CRO', 4100.00, 'New Enquiry', 30, '2026-06-28', @seed_user_id, 'Organic Search', 'Landing Page CRO', 'open', '2026-06-09 09:05:00', NULL, NULL, NULL, NULL, @seed_user_id
+  UNION ALL SELECT 'b44ed419-7e82-5e56-bef0-e30485e9f443', @seed_clinic_id, 'afdfc429-40d9-52a7-a4ce-115f3f0ec518', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'Ben Carter - Website Build', 3200.00, 'Contacted', 40, '2026-06-22', @seed_user_id, 'Meta Ads', 'Website Build', 'open', '2026-06-05 11:00:00', NULL, NULL, NULL, NULL, @seed_user_id
+  UNION ALL SELECT '7d62f7c8-c55f-5910-9b88-a1899f0b3da4', @seed_clinic_id, '81f3ec77-dc71-59b8-bc1a-bfebedff64b3', 'f7c27b6d-7970-5e38-af1f-9ed1ea9952da', 'Chloe Singh - SEO Growth Plan', 2800.00, 'Lost', 0, '2026-06-12', @seed_user_id, 'Google Ads', 'SEO Growth Plan', 'lost', '2026-06-06 12:00:00', '2026-06-06 10:00:00', NULL, '2026-06-06 12:20:00', 'Discovery call no-show did not rebook', @seed_user_id
 ) seed
 WHERE @seed_can_run
 ON DUPLICATE KEY UPDATE

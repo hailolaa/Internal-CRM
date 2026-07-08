@@ -125,7 +125,7 @@ export function LegacyRolesSettingsPage() {
       <AlertBanner
         icon={Info}
         title="System roles are protected"
-        description="Custom clinic roles can be created and edited from the live role management view."
+        description="Custom workspace roles can be created and edited from the live role management view."
         variant="info"
       />
 
@@ -195,7 +195,7 @@ export function LegacyRolesSettingsPage() {
               <td colSpan={4} className="px-6 py-10 text-center text-sm text-[#5e8a8d]">
                 {query
                   ? "No roles match that search."
-                  : "No live roles are available for this clinic."}
+                  : "No live roles are available for this workspace."}
               </td>
             </tr>
           )}

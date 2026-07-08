@@ -166,6 +166,7 @@ export interface InternalTaskRecord {
   priority: InternalTaskPriority;
   status: InternalTaskStatus;
   category: string | null;
+  contactId?: string | null;
   contact: string | null;
   due: string | null;
   dueDate: string | null;
@@ -219,6 +220,8 @@ export interface InternalTaskPayload {
   priority?: InternalTaskPriority;
   status?: InternalTaskStatus;
   category?: string | null;
+  contactId?: string | null;
+  contact?: string | null;
   due?: string | null;
   dueDate?: string | null;
   assignedTo?: string | null;

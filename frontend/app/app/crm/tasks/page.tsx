@@ -8,14 +8,22 @@ import {
   Clock,
   AlertCircle,
   Filter,
-  Trash2,
+  Archive,
   AlertTriangle,
+  BriefcaseBusiness,
+  Link2,
+  UserRound,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api-client";
-import type { TaskRecord } from "@/lib/api-types";
+import type {
+  ClientAccountServiceRecord,
+  ClientAccountServiceType,
+  ClientAccountSummaryRecord,
+  InternalTaskRecord,
+} from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { AlertBanner, SkeletonLine } from "@/components/ui";
 
@@ -23,17 +31,36 @@ type TaskRow = {
   id: string;
   title: string;
   description: string;
+  contactId: string | null;
   contact: string | null;
   due: string;
   dueDate: string | null;
   priority: "low" | "medium" | "high";
   status: "pending" | "completed";
   category: string;
+  boardKey: string;
+  serviceType: ClientAccountServiceType | null;
+  clientAccountProfileId: string | null;
+  clientAccountServiceId: string | null;
+  assignedTo: string | null;
+  needsQa: boolean;
+  approvalStatus: InternalTaskRecord["approvalStatus"];
+  isOverdue: boolean;
   updatedAt: string;
 };
 
 type PriorityFilter = "all" | TaskRow["priority"];
 type DueFilter = "all" | "overdue" | "today" | "no-date";
+type WorkFilter =
+  | "all"
+  | "delivery"
+  | "operations"
+  | "website"
+  | "seo"
+  | "ppc"
+  | "strategy"
+  | "needs-qa"
+  | "unlinked";
 
 const priorityColors: Record<string, string> = {
   high: "bg-red-500/10 text-red-400 border-red-500/20",
@@ -41,7 +68,27 @@ const priorityColors: Record<string, string> = {
   low: "bg-[rgba(0,0,0,0.04)] text-[#6B7280] border-[rgba(0,0,0,0.06)]",
 };
 
-function formatDue(record: TaskRecord) {
+const workFilters: Array<{ value: WorkFilter; label: string }> = [
+  { value: "all", label: "All work" },
+  { value: "delivery", label: "Delivery" },
+  { value: "operations", label: "Operations" },
+  { value: "website", label: "Website" },
+  { value: "seo", label: "SEO" },
+  { value: "ppc", label: "Ads" },
+  { value: "strategy", label: "Strategy" },
+  { value: "needs-qa", label: "Needs QA" },
+  { value: "unlinked", label: "Unlinked" },
+];
+
+function formatLabel(value: string | null | undefined) {
+  if (!value) return "General";
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatDue(record: InternalTaskRecord) {
   if (record.due) return record.due;
   if (!record.dueDate) return "No due date";
   return new Intl.DateTimeFormat("en-GB", {
@@ -65,6 +112,7 @@ function isDueToday(dueDate: string | null) {
 }
 
 function isOverdue(task: TaskRow) {
+  if (task.isOverdue) return true;
   if (!task.dueDate || task.status === "completed") return false;
   return (
     startOfDay(new Date(task.dueDate)).getTime() <
@@ -72,17 +120,26 @@ function isOverdue(task: TaskRow) {
   );
 }
 
-function toTaskRow(record: TaskRecord): TaskRow {
+function toTaskRow(record: InternalTaskRecord): TaskRow {
   return {
     id: record.id,
     title: record.title,
     description: record.description || "",
+    contactId: record.contactId || null,
     contact: record.contact,
     due: formatDue(record),
     dueDate: record.dueDate,
     priority: record.priority,
     status: record.status,
-    category: record.category || "General",
+    category: record.category || "Delivery",
+    boardKey: record.boardKey || "delivery",
+    serviceType: record.serviceType || null,
+    clientAccountProfileId: record.clientAccountProfileId || null,
+    clientAccountServiceId: record.clientAccountServiceId || null,
+    assignedTo: record.assignedTo,
+    needsQa: Boolean(record.needsQa),
+    approvalStatus: record.approvalStatus || "not_required",
+    isOverdue: Boolean(record.isOverdue),
     updatedAt: record.updatedAt,
   };
 }
@@ -93,38 +150,69 @@ export default function TasksPage() {
   const requestedTaskId = searchParams.get("taskId");
   const token = session?.token;
   const [tasks, setTasks] = useState<TaskRow[]>([]);
+  const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
+  const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
   const [dueFilter, setDueFilter] = useState<DueFilter>("all");
+  const [workFilter, setWorkFilter] = useState<WorkFilter>("all");
   const [loadError, setLoadError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const taskRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const clientNameById = useMemo(() => {
+    return new Map(
+      clientAccounts
+        .filter((account) => account.id)
+        .map((account) => [account.id as string, account.clinicName]),
+    );
+  }, [clientAccounts]);
+  const serviceById = useMemo(() => {
+    return new Map(services.map((service) => [service.id, service]));
+  }, [services]);
   const pendingCount = tasks.filter((t) => t.status === "pending").length;
   const overdueCount = tasks.filter(isOverdue).length;
-  const dueTodayCount = tasks.filter((task) => isDueToday(task.dueDate)).length;
-  const completedCount = tasks.filter((t) => t.status === "completed").length;
+  const clientLinkedCount = tasks.filter((task) => task.clientAccountProfileId).length;
+  const qaCount = tasks.filter(
+    (task) => task.needsQa || task.approvalStatus === "pending",
+  ).length;
 
   useEffect(() => {
     if (!token) return;
 
     let isMounted = true;
-    api.tasks
-      .list(token)
-      .then((records) => {
+    setIsLoading(true);
+    Promise.allSettled([
+      api.internalTasks.list(token, { includeArchived: false }),
+      api.clientAccounts.list(token),
+      api.clientAccounts.listServices(token, { includeArchived: true }),
+    ])
+      .then(([taskResult, accountResult, serviceResult]) => {
         if (!isMounted) return;
-        const rows = records.map(toTaskRow);
-        setLoadError("");
-        setTasks(rows);
+        if (taskResult.status === "rejected") throw taskResult.reason;
+
+        setTasks(taskResult.value.map(toTaskRow));
+        setClientAccounts(
+          accountResult.status === "fulfilled" ? accountResult.value : [],
+        );
+        setServices(
+          serviceResult.status === "fulfilled" ? serviceResult.value : [],
+        );
+        setLoadError(
+          accountResult.status === "rejected" ||
+            serviceResult.status === "rejected"
+            ? "Tasks loaded, but client/service names could not be loaded."
+            : "",
+        );
       })
       .catch((err) => {
         if (!isMounted) return;
         setLoadError(
           err instanceof Error
             ? err.message
-            : "Unable to load tasks from the backend.",
+            : "Unable to load internal delivery tasks from the backend.",
         );
         setTasks([]);
       })
@@ -140,12 +228,21 @@ export default function TasksPage() {
   const filteredTasks = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return tasks.filter((task) => {
+      const clientName = task.clientAccountProfileId
+        ? clientNameById.get(task.clientAccountProfileId)
+        : "";
+      const service = task.clientAccountServiceId
+        ? serviceById.get(task.clientAccountServiceId)
+        : null;
       const matchesSearch =
         !query ||
         task.title.toLowerCase().includes(query) ||
         task.description.toLowerCase().includes(query) ||
         task.category.toLowerCase().includes(query) ||
-        task.contact?.toLowerCase().includes(query);
+        task.boardKey.toLowerCase().includes(query) ||
+        task.contact?.toLowerCase().includes(query) ||
+        clientName?.toLowerCase().includes(query) ||
+        service?.name.toLowerCase().includes(query);
       const matchesPriority =
         priorityFilter === "all" || task.priority === priorityFilter;
       const matchesDue =
@@ -153,10 +250,28 @@ export default function TasksPage() {
         (dueFilter === "overdue" && isOverdue(task)) ||
         (dueFilter === "today" && isDueToday(task.dueDate)) ||
         (dueFilter === "no-date" && !task.dueDate);
+      const matchesWork =
+        workFilter === "all" ||
+        task.boardKey === workFilter ||
+        task.serviceType === workFilter ||
+        (workFilter === "needs-qa" &&
+          (task.needsQa || task.approvalStatus === "pending")) ||
+        (workFilter === "unlinked" &&
+          !task.contactId &&
+          !task.clientAccountProfileId &&
+          !task.clientAccountServiceId);
 
-      return matchesSearch && matchesPriority && matchesDue;
+      return matchesSearch && matchesPriority && matchesDue && matchesWork;
     });
-  }, [dueFilter, priorityFilter, searchQuery, tasks]);
+  }, [
+    clientNameById,
+    dueFilter,
+    priorityFilter,
+    searchQuery,
+    serviceById,
+    tasks,
+    workFilter,
+  ]);
 
   useEffect(() => {
     if (!requestedTaskId || isLoading) return;
@@ -164,7 +279,7 @@ export default function TasksPage() {
     const scrollTimer = window.setTimeout(() => {
       const matchingTask = tasks.find((task) => task.id === requestedTaskId);
       if (!matchingTask) {
-        setActionError("The linked task was not found in this clinic.");
+        setActionError("The linked task was not found in this workspace.");
         return;
       }
 
@@ -172,6 +287,7 @@ export default function TasksPage() {
       setSearchQuery("");
       setPriorityFilter("all");
       setDueFilter("all");
+      setWorkFilter("all");
 
       taskRefs.current[requestedTaskId]?.scrollIntoView({
         behavior: "smooth",
@@ -196,10 +312,10 @@ export default function TasksPage() {
     if (!token) return;
 
     try {
-      await api.tasks.update(token, task.id, { status: nextStatus });
+      await api.internalTasks.update(token, task.id, { status: nextStatus });
       setActionMessage(
         `${task.title} marked as ${
-          nextStatus === "completed" ? "completed" : "pending"
+          nextStatus === "completed" ? "completed" : "open"
         }.`,
       );
     } catch (error) {
@@ -211,14 +327,14 @@ export default function TasksPage() {
       setActionError(
         error instanceof Error
           ? error.message
-          : "Unable to update task status.",
+          : "Unable to update internal task status.",
       );
     } finally {
       setUpdatingTaskId(null);
     }
   };
 
-  const deleteTask = async (task: TaskRow) => {
+  const archiveTask = async (task: TaskRow) => {
     if (!token) return;
 
     setUpdatingTaskId(task.id);
@@ -226,12 +342,12 @@ export default function TasksPage() {
     setActionError("");
 
     try {
-      await api.tasks.remove(token, task.id);
+      await api.internalTasks.archive(token, task.id);
       setTasks((current) => current.filter((item) => item.id !== task.id));
-      setActionMessage(`${task.title} deleted.`);
+      setActionMessage(`${task.title} archived.`);
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : "Unable to delete task.",
+        error instanceof Error ? error.message : "Unable to archive task.",
       );
     } finally {
       setUpdatingTaskId(null);
@@ -242,16 +358,18 @@ export default function TasksPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[#111111]">Tasks</h1>
+          <h1 className="text-2xl font-bold text-[#111111]">
+            Internal Delivery Tasks
+          </h1>
           <p className="text-[#6B7280] mt-1">
-            Stay on top of your to-dos and follow-ups.
+            Track sales hand-offs, delivery work, QA, fixes, and client deadlines.
           </p>
         </div>
         <Link
           href="/app/crm/tasks/new"
           className="bg-[#6E6AE8] hover:bg-[#5A56D4] text-white font-medium px-4 py-2.5 rounded-[14px] flex items-center gap-2 w-fit transition-colors"
         >
-          <Plus className="w-4 h-4" /> Add Task
+          <Plus className="w-4 h-4" /> Add Internal Task
         </Link>
       </div>
 
@@ -261,7 +379,7 @@ export default function TasksPage() {
           style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
         >
           <p className="text-2xl font-bold text-[#111111]">{pendingCount}</p>
-          <p className="text-sm text-[#6B7280]">Pending Tasks</p>
+          <p className="text-sm text-[#6B7280]">Open Work</p>
         </div>
         <div
           className="bg-[#FFFCF9] border border-[rgba(0,0,0,0.06)] rounded-[24px] p-4"
@@ -274,17 +392,17 @@ export default function TasksPage() {
           className="bg-[#FFFCF9] border border-[rgba(0,0,0,0.06)] rounded-[24px] p-4"
           style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
         >
-          <p className="text-2xl font-bold text-amber-400">{dueTodayCount}</p>
-          <p className="text-sm text-[#6B7280]">Due Today</p>
+          <p className="text-2xl font-bold text-[#6E6AE8]">
+            {clientLinkedCount}
+          </p>
+          <p className="text-sm text-[#6B7280]">Client Linked</p>
         </div>
         <div
           className="bg-[#FFFCF9] border border-[rgba(0,0,0,0.06)] rounded-[24px] p-4"
           style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
         >
-          <p className="text-2xl font-bold text-green-400">
-            {completedCount}
-          </p>
-          <p className="text-sm text-[#6B7280]">Completed</p>
+          <p className="text-2xl font-bold text-amber-400">{qaCount}</p>
+          <p className="text-sm text-[#6B7280]">Needs QA</p>
         </div>
       </div>
 
@@ -293,13 +411,28 @@ export default function TasksPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6B7280]" />
           <input
             type="text"
-            placeholder="Search tasks..."
+            placeholder="Search work, prospect, client, or service..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-[#FFFCF9] border border-[rgba(0,0,0,0.06)] rounded-[14px] pl-10 pr-4 py-2.5 text-sm text-[#111111] placeholder:text-[#6B7280] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] transition-all"
           />
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
+          <label className="flex items-center gap-2 px-3 py-2.5 bg-[#FFFCF9] border border-[rgba(0,0,0,0.06)] rounded-[14px] text-sm text-[#111111]">
+            <Filter className="w-4 h-4 text-[#6B7280]" />
+            <select
+              aria-label="Filter by work type"
+              value={workFilter}
+              onChange={(event) => setWorkFilter(event.target.value as WorkFilter)}
+              className="bg-transparent text-sm focus:outline-none"
+            >
+              {workFilters.map((filter) => (
+                <option key={filter.value} value={filter.value}>
+                  {filter.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="flex items-center gap-2 px-3 py-2.5 bg-[#FFFCF9] border border-[rgba(0,0,0,0.06)] rounded-[14px] text-sm text-[#111111]">
             <Filter className="w-4 h-4 text-[#6B7280]" />
             <select
@@ -336,7 +469,7 @@ export default function TasksPage() {
       {loadError && (
         <AlertBanner
           icon={AlertTriangle}
-          title="Backend tasks could not be loaded"
+          title="Internal task data could not be fully loaded"
           description={loadError}
           variant="warning"
         />
@@ -366,88 +499,136 @@ export default function TasksPage() {
               <SkeletonLine className="h-4 w-2/3" />
             </div>
           ))}
-        {!isLoading && filteredTasks.map((task) => (
-          <div
-            key={task.id}
-            ref={(element) => {
-              taskRefs.current[task.id] = element;
-            }}
-            className={`p-4 hover:bg-[rgba(110,106,232,0.03)] transition-colors ${
-              task.status === "completed" ? "opacity-60" : ""
-            } ${
-              requestedTaskId === task.id
-                ? "bg-[rgba(110,106,232,0.08)] ring-1 ring-inset ring-[rgba(110,106,232,0.35)]"
-                : ""
-            }`}
-          >
-            <div className="flex items-start gap-4">
-              <button
-                onClick={() => toggleTaskStatus(task)}
-                disabled={updatingTaskId === task.id}
-                aria-label={
-                  task.status === "completed"
-                    ? `Mark ${task.title} as incomplete`
-                    : `Mark ${task.title} as complete`
-                }
-                className="mt-0.5 flex-shrink-0 disabled:opacity-50"
+        {!isLoading &&
+          filteredTasks.map((task) => {
+            const clientName = task.clientAccountProfileId
+              ? clientNameById.get(task.clientAccountProfileId)
+              : null;
+            const service = task.clientAccountServiceId
+              ? serviceById.get(task.clientAccountServiceId)
+              : null;
+
+            return (
+              <div
+                key={task.id}
+                ref={(element) => {
+                  taskRefs.current[task.id] = element;
+                }}
+                className={`p-4 hover:bg-[rgba(110,106,232,0.03)] transition-colors ${
+                  task.status === "completed" ? "opacity-60" : ""
+                } ${
+                  requestedTaskId === task.id
+                    ? "bg-[rgba(110,106,232,0.08)] ring-1 ring-inset ring-[rgba(110,106,232,0.35)]"
+                    : ""
+                }`}
               >
-                {task.status === "completed" ? (
-                  <CheckCircle2 className="w-5 h-5 text-green-400" />
-                ) : (
-                  <Circle className="w-5 h-5 text-[#6B7280] hover:text-[#6E6AE8] transition-colors" />
-                )}
-              </button>
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <h3
-                    className={`font-medium text-[#111111] ${task.status === "completed" ? "line-through text-[#6B7280]" : ""}`}
+                <div className="flex items-start gap-4">
+                  <button
+                    onClick={() => toggleTaskStatus(task)}
+                    disabled={updatingTaskId === task.id}
+                    aria-label={
+                      task.status === "completed"
+                        ? `Reopen ${task.title}`
+                        : `Complete ${task.title}`
+                    }
+                    className="mt-0.5 flex-shrink-0 disabled:opacity-50"
                   >
-                    {task.title}
-                  </h3>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full border ${priorityColors[task.priority]}`}
-                  >
-                    {task.priority}
-                  </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.04)] text-[#6B7280]">
-                    {task.category}
-                  </span>
-                </div>
-                <p className="text-sm text-[#6B7280] mb-2">
-                  {task.description}
-                </p>
-                <div className="flex flex-wrap items-center gap-4 text-xs text-[#6B7280]">
-                  {task.contact && (
-                    <span className="flex items-center gap-1">
-                      <div className="w-4 h-4 rounded-full bg-[rgba(110,106,232,0.15)]" />
-                      {task.contact}
-                    </span>
-                  )}
-                  <span
-                    className={`flex items-center gap-1 ${isOverdue(task) ? "text-red-400" : ""}`}
-                  >
-                    {isOverdue(task) && (
-                      <AlertCircle className="w-3 h-3" />
+                    {task.status === "completed" ? (
+                      <CheckCircle2 className="w-5 h-5 text-green-400" />
+                    ) : (
+                      <Circle className="w-5 h-5 text-[#6B7280] hover:text-[#6E6AE8] transition-colors" />
                     )}
-                    <Clock className="w-3 h-3" />
-                    {task.due}
-                  </span>
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <h3
+                        className={`font-medium text-[#111111] ${task.status === "completed" ? "line-through text-[#6B7280]" : ""}`}
+                      >
+                        {task.title}
+                      </h3>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full border ${priorityColors[task.priority]}`}
+                      >
+                        {task.priority}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-[rgba(0,0,0,0.04)] text-[#6B7280]">
+                        {formatLabel(task.boardKey)}
+                      </span>
+                      {task.serviceType && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-[rgba(110,106,232,0.08)] text-[#5A56D4]">
+                          {formatLabel(task.serviceType)}
+                        </span>
+                      )}
+                      {(task.needsQa || task.approvalStatus === "pending") && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700">
+                          QA
+                        </span>
+                      )}
+                    </div>
+                    {task.description && (
+                      <p className="text-sm text-[#6B7280] mb-2">
+                        {task.description}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-[#6B7280]">
+                      {task.contact &&
+                        (task.contactId ? (
+                          <Link
+                            href={`/app/crm/contacts/detail?id=${task.contactId}`}
+                            className="flex items-center gap-1 rounded-full bg-[rgba(110,106,232,0.08)] px-2 py-1 text-[#5A56D4] hover:bg-[rgba(110,106,232,0.14)]"
+                          >
+                            <UserRound className="w-3 h-3" />
+                            Prospect: {task.contact}
+                          </Link>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <UserRound className="w-3 h-3" />
+                            Prospect: {task.contact}
+                          </span>
+                        ))}
+                      {task.clientAccountProfileId && (
+                        <Link
+                          href={`/app/ops/client-accounts?clientAccountProfileId=${task.clientAccountProfileId}`}
+                          className="flex items-center gap-1 rounded-full bg-[rgba(0,0,0,0.04)] px-2 py-1 text-[#111111] hover:bg-[rgba(0,0,0,0.07)]"
+                        >
+                          <BriefcaseBusiness className="w-3 h-3" />
+                          Client: {clientName || "Linked account"}
+                        </Link>
+                      )}
+                      {service && (
+                        <Link
+                          href={`/app/ops/client-accounts?serviceId=${service.id}`}
+                          className="flex items-center gap-1 rounded-full bg-[rgba(0,0,0,0.04)] px-2 py-1 text-[#111111] hover:bg-[rgba(0,0,0,0.07)]"
+                        >
+                          <Link2 className="w-3 h-3" />
+                          Service: {service.name}
+                        </Link>
+                      )}
+                      {task.assignedTo && <span>Owner: {task.assignedTo}</span>}
+                      <span
+                        className={`flex items-center gap-1 ${isOverdue(task) ? "text-red-400" : ""}`}
+                      >
+                        {isOverdue(task) && <AlertCircle className="w-3 h-3" />}
+                        <Clock className="w-3 h-3" />
+                        {task.due}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => void archiveTask(task)}
+                    disabled={updatingTaskId === task.id}
+                    aria-label={`Archive ${task.title}`}
+                    className="rounded-lg p-2 text-[#6B7280] hover:bg-[rgba(0,0,0,0.04)] hover:text-[#111111] disabled:opacity-50"
+                  >
+                    <Archive className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
-              <button
-                onClick={() => void deleteTask(task)}
-                disabled={updatingTaskId === task.id}
-                aria-label={`Delete ${task.title}`}
-                className="rounded-lg p-2 text-[#6B7280] hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        ))}
+            );
+          })}
         {!isLoading && filteredTasks.length === 0 && (
           <div className="p-8 text-sm text-[#6B7280]">
-            No tasks loaded yet.
+            No internal delivery tasks match the current filters.
           </div>
         )}
         <div className="p-4">
@@ -455,7 +636,7 @@ export default function TasksPage() {
             href="/app/crm/tasks/new"
             className="w-full py-3 border border-dashed border-[rgba(0,0,0,0.10)] rounded-[14px] text-sm text-[#6B7280] hover:border-[rgba(110,106,232,0.3)] hover:text-[#6E6AE8] transition-colors flex items-center justify-center gap-2"
           >
-            <Plus className="w-4 h-4" /> Add new task
+            <Plus className="w-4 h-4" /> Add internal task
           </Link>
         </div>
       </div>

@@ -9,7 +9,6 @@ import {
   Shield,
   FileText,
   MapPin,
-  Scissors,
 } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
@@ -23,8 +22,8 @@ import type {
 
 const settingsItems = [
   {
-    name: "Clinic Profile",
-    desc: "Clinic name, address, branding, and contact details.",
+    name: "Account Profile",
+    desc: "Account name, address, branding, and contact details.",
     href: "/app/settings/clinic",
     icon: Building2,
     color:
@@ -40,19 +39,11 @@ const settingsItems = [
   },
   {
     name: "Locations",
-    desc: "Manage clinic locations and branches.",
+    desc: "Manage office locations and operating branches.",
     href: "/app/settings/locations",
     icon: MapPin,
     color:
       "text-[#7D8F7A] bg-[rgba(125,143,122,0.08)] border border-[rgba(125,143,122,0.15)]",
-  },
-  {
-    name: "Treatments",
-    desc: "Manage services used for booking duration and pricing.",
-    href: "/app/settings/treatments",
-    icon: Scissors,
-    color:
-      "text-[#6E6AE8] bg-[rgba(110,106,232,0.08)] border border-[rgba(110,106,232,0.15)]",
   },
   {
     name: "Billing & Plans",
@@ -136,7 +127,7 @@ export default function SettingsPage() {
   );
 
   const cardMeta: Record<string, string> = {
-    "Clinic Profile": clinic
+    "Account Profile": clinic
       ? `${clinic.name} · ${clinic.city || clinic.country || "Profile loaded"}`
       : "Not loaded yet",
     "Team Members": teamMembers.length
@@ -147,7 +138,6 @@ export default function SettingsPage() {
           billing.usage.locations === 1 ? "" : "s"
         }`
       : "Location summary loading",
-    Treatments: "Live service catalogue",
     "Billing & Plans": billing
       ? `${billing.subscriptionPlan} · ${billing.subscriptionStatus}`
       : "Billing status loading",

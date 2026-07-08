@@ -53,7 +53,7 @@ const triggerOptions = [
   {
     value: "appointment_booked",
     label: "Appointment booked",
-    hint: "Runs after a booking is created.",
+    hint: "Runs after a scheduled sales or delivery event is created.",
   },
   {
     value: "appointment_scheduled",
@@ -68,17 +68,17 @@ const triggerOptions = [
   {
     value: "appointment_no_show",
     label: "Appointment marked no-show",
-    hint: "Runs when a patient misses an appointment.",
+    hint: "Runs when a scheduled prospect or client event is missed.",
   },
   {
     value: "appointment_completed",
     label: "Appointment completed",
-    hint: "Runs when a consult or treatment is completed.",
+    hint: "Runs when a discovery call or delivery milestone is completed.",
   },
   {
     value: "treatment_completed",
-    label: "Treatment completed",
-    hint: "Runs when a treatment is completed.",
+    label: "Delivery milestone completed",
+    hint: "Runs when a delivery milestone is completed.",
   },
   {
     value: "payment_completed",
@@ -121,7 +121,7 @@ const actionOptions = [
   {
     value: "send_survey",
     label: "Send survey",
-    hint: "Queues a patient feedback survey action.",
+    hint: "Queues a client feedback survey action.",
   },
   {
     value: "post_slack",
@@ -637,7 +637,7 @@ export default function AutomationsPage() {
             <div className="text-center text-sm text-[#7A746A]">
               {searchQuery || activeTab !== "all"
                 ? "No live automations match the current filters."
-                : "No live automations have been created for this clinic yet."}
+                : "No live automations have been created for this workspace yet."}
             </div>
           </Card>
         )}
@@ -781,7 +781,7 @@ export default function AutomationsPage() {
           <button type="button" onClick={openCreateEditor} className="text-left">
             <DashedAddCard
               label="Create New Automation"
-              sublabel="Build custom workflows for your clinic"
+              sublabel="Build custom workflows for internal operations"
             />
           </button>
         )}

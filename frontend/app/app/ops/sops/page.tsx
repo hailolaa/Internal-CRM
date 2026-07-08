@@ -144,7 +144,7 @@ export default function SOPsPage() {
     <div className="space-y-6">
       <PageHeader
         title="SOPs"
-        subtitle="Standard operating procedures for your clinic."
+        subtitle="Standard operating procedures for internal delivery and operations."
         right={
           <button
             onClick={handleCreateSop}
@@ -202,7 +202,7 @@ export default function SOPsPage() {
               <td colSpan={6} className="px-6 py-10 text-center text-sm text-[#5e8a8d]">
                 {searchQuery.trim()
                   ? "No live SOPs match that search."
-                  : "No SOPs have been created for this clinic yet."}
+                  : "No SOPs have been created for this workspace yet."}
               </td>
             </tr>
           )}

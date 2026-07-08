@@ -9,14 +9,12 @@ import {
   Shield,
   FileText,
   MapPin,
-  Scissors,
 } from "lucide-react";
 
 const SETTINGS_NAV = [
-  { label: "Clinic Profile", href: "/app/settings/clinic", icon: Building2 },
+  { label: "Account Profile", href: "/app/settings/clinic", icon: Building2 },
   { label: "Team", href: "/app/settings/team", icon: Users },
   { label: "Locations", href: "/app/settings/locations", icon: MapPin },
-  { label: "Treatments", href: "/app/settings/treatments", icon: Scissors },
   { label: "Billing & Plans", href: "/app/settings/billing", icon: CreditCard },
   { label: "Security", href: "/app/settings/security", icon: Shield },
   {

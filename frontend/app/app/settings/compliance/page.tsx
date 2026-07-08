@@ -66,7 +66,7 @@ const statusConfig: Record<
 const dataProtectionSettings = [
   {
     title: "Data Retention Period",
-    desc: "How long to keep patient records",
+    desc: "How long to keep contact and account records",
     type: "select" as const,
   },
   {
@@ -86,7 +86,7 @@ const dataProtectionSettings = [
 const FILTER_TABS = [
   "All",
   "GDPR",
-  "Clinical",
+  "Client",
   "Training",
   "Insurance",
   "Regulatory",

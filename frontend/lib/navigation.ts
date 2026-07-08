@@ -1,10 +1,8 @@
 import {
   Activity,
-  BarChart3,
   BellRing,
   BookOpen,
   BriefcaseBusiness,
-  Calendar,
   CheckSquare,
   FileText,
   Inbox,
@@ -25,7 +23,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Sales Pipeline", href: "/app/crm/pipeline", icon: Target },
       { label: "Prospect List", href: "/app/leads", icon: Users },
-      { label: "Sales Calendar", href: "/app/crm/calendar", icon: Calendar },
       { label: "Inbox", href: "/app/comms/inbox", icon: Inbox },
       { label: "Follow-Up Sequences", href: "/app/comms/sequences", icon: Zap },
     ],
@@ -42,7 +39,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Contacts", href: "/app/crm/contacts", icon: Users },
       { label: "Internal Tasks", href: "/app/crm/tasks", icon: CheckSquare },
       { label: "Forms", href: "/app/crm/forms", icon: FileText },
-      { label: "Reports", href: "/app/reports/overview", icon: BarChart3 },
     ],
   },
   {

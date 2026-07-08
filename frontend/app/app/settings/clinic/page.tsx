@@ -43,8 +43,8 @@ export default function ClinicSettingsPage() {
           if (!isMounted) return;
           setStatus(
             err instanceof Error
-              ? `Live clinic profile could not load: ${err.message}`
-              : "Live clinic profile could not load.",
+              ? `Live account profile could not load: ${err.message}`
+              : "Live account profile could not load.",
           );
           setProfile({});
         })
@@ -68,10 +68,10 @@ export default function ClinicSettingsPage() {
     try {
       setIsSaving(true);
       await api.profiles.updateClinic(session.token, profile);
-      setStatus("Clinic profile saved.");
+      setStatus("Account profile saved.");
     } catch (err) {
       setStatus(
-        err instanceof Error ? err.message : "Unable to save clinic profile.",
+        err instanceof Error ? err.message : "Unable to save account profile.",
       );
     } finally {
       setIsSaving(false);
@@ -81,17 +81,17 @@ export default function ClinicSettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Clinic Settings"
-        subtitle="Phase 1: clinic profile only."
+        title="Account Settings"
+        subtitle="Core account profile details for internal operations."
         icon={Building2}
         iconColor="text-[#6E6AE8]"
         iconBg="bg-[rgba(110,106,232,0.08)]"
       />
 
-      {status && status !== "Clinic profile saved." && (
+      {status && status !== "Account profile saved." && (
         <AlertBanner
           icon={AlertTriangle}
-          title="Clinic profile notice"
+          title="Account profile notice"
           description={status}
           variant="warning"
         />
@@ -99,13 +99,13 @@ export default function ClinicSettingsPage() {
 
       <Card>
         <h2 className="font-semibold flex items-center gap-2 mb-5">
-          <Building2 className="w-5 h-5 text-[#6E6AE8]" /> Clinic profile
+          <Building2 className="w-5 h-5 text-[#6E6AE8]" /> Account profile
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm text-[#6B7280] mb-1.5">
-              Clinic name
+              Account name
             </label>
             <input
               value={profile.name || ""}
@@ -138,9 +138,9 @@ export default function ClinicSettingsPage() {
         </div>
 
         {isLoading && (
-          <p className="mt-4 text-sm text-[#6B7280]">Loading live clinic profile...</p>
+          <p className="mt-4 text-sm text-[#6B7280]">Loading live account profile...</p>
         )}
-        {status === "Clinic profile saved." && (
+        {status === "Account profile saved." && (
           <p className="mt-4 text-sm text-[#6B7280]">{status}</p>
         )}
 
@@ -154,7 +154,7 @@ export default function ClinicSettingsPage() {
       </Card>
 
       <div className="text-xs text-[#6B7280]">
-        Phase 1 clinic settings currently expose profile fields only.
+        Account settings currently expose core profile fields only.
       </div>
     </div>
   );

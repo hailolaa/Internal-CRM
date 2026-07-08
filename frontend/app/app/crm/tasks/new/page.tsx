@@ -6,15 +6,22 @@ import {
   ArrowLeft,
   Save,
   CheckSquare,
-  User,
+  BriefcaseBusiness,
+  Link2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { ContactRecord, TaskRecord } from "@/lib/api-types";
+import type {
+  ClientAccountServiceRecord,
+  ClientAccountServiceType,
+  ClientAccountSummaryRecord,
+  ContactRecord,
+  InternalTaskPriority,
+} from "@/lib/api-types";
 
 const priorities: Array<{
-  id: TaskRecord["priority"];
+  id: InternalTaskPriority;
   name: string;
   color: string;
 }> = [
@@ -24,29 +31,59 @@ const priorities: Array<{
 ];
 
 const categories = [
-  "Follow-up",
-  "Call",
-  "Email",
-  "Documentation",
-  "Preparation",
+  "Sales Handoff",
+  "Onboarding",
+  "Website Build",
+  "SEO",
+  "Ads",
+  "Tracking",
+  "Reporting",
+  "Client Success",
+  "Fix",
   "Admin",
-  "Marketing",
+];
+
+const serviceTypes: Array<{ value: ClientAccountServiceType; label: string }> = [
+  { value: "website", label: "Website" },
+  { value: "seo", label: "SEO" },
+  { value: "ppc", label: "Ads" },
+  { value: "gbp", label: "GBP" },
+  { value: "landing_pages", label: "Landing Pages" },
+  { value: "cro", label: "CRO" },
+  { value: "strategy", label: "Strategy" },
+  { value: "other", label: "Other" },
+];
+
+const boardOptions = [
+  { value: "delivery", label: "Delivery" },
+  { value: "operations", label: "Operations" },
+  { value: "website", label: "Website" },
+  { value: "seo", label: "SEO" },
+  { value: "ppc", label: "Ads" },
+  { value: "strategy", label: "Strategy" },
 ];
 
 export default function NewTaskPage() {
   const router = useRouter();
   const { session } = useAuth();
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
-  const [priority, setPriority] = useState<TaskRecord["priority"]>("medium");
-  const [category, setCategory] = useState("Follow-up");
+  const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
+  const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
+  const [priority, setPriority] = useState<InternalTaskPriority>("medium");
+  const [category, setCategory] = useState("Sales Handoff");
+  const [boardKey, setBoardKey] = useState("delivery");
+  const [serviceType, setServiceType] = useState<ClientAccountServiceType>("website");
   const [selectedContact, setSelectedContact] = useState<string | null>(null);
+  const [selectedClientAccount, setSelectedClientAccount] = useState<string | null>(null);
+  const [selectedService, setSelectedService] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: "",
     description: "",
     dueDate: "",
     dueTime: "",
     assignedTo: "Me",
-    reminder: "None",
+    proofReference: "",
+    workflowMonth: "",
   });
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -56,21 +93,45 @@ export default function NewTaskPage() {
 
     let cancelled = false;
 
-    async function loadContacts() {
+    async function loadTaskLinks() {
       try {
-        const result = await api.contacts.list(session!.token, { pageSize: 3 });
-        if (!cancelled) setContacts(result.contacts);
+        const [contactsResult, accountsResult, servicesResult] =
+          await Promise.allSettled([
+            api.contacts.list(session!.token, { pageSize: 25 }),
+            api.clientAccounts.list(session!.token),
+            api.clientAccounts.listServices(session!.token, {
+              includeArchived: false,
+            }),
+          ]);
+
+        if (cancelled) return;
+        setContacts(
+          contactsResult.status === "fulfilled"
+            ? contactsResult.value.contacts
+            : [],
+        );
+        setClientAccounts(
+          accountsResult.status === "fulfilled" ? accountsResult.value : [],
+        );
+        setServices(
+          servicesResult.status === "fulfilled" ? servicesResult.value : [],
+        );
       } catch (error) {
-        console.error("Failed to load contacts for task form", error);
+        console.error("Failed to load internal task link options", error);
       }
     }
 
-    loadContacts();
+    loadTaskLinks();
 
     return () => {
       cancelled = true;
     };
   }, [session]);
+
+  const filteredServices = services.filter((service) => {
+    if (!selectedClientAccount) return true;
+    return service.clientAccountProfileId === selectedClientAccount;
+  });
 
   const handleSave = async () => {
     if (!session?.token || !form.title.trim()) {
@@ -83,23 +144,35 @@ export default function NewTaskPage() {
 
     const selectedContactName =
       contacts.find((contact) => contact.id === selectedContact)?.name ?? null;
+    const selectedServiceRecord =
+      services.find((service) => service.id === selectedService) ?? null;
+    const resolvedClientAccountId =
+      selectedServiceRecord?.clientAccountProfileId || selectedClientAccount;
+    const resolvedServiceType = selectedServiceRecord?.serviceType || serviceType;
     const due = [form.dueDate, form.dueTime].filter(Boolean).join(" ");
 
     try {
-      await api.tasks.create(session.token, {
+      await api.internalTasks.create(session.token, {
         title: form.title.trim(),
         description: form.description.trim() || null,
         priority,
+        boardKey,
+        serviceType: resolvedServiceType,
         category,
+        contactId: selectedContact,
         contact: selectedContactName,
         due: due || null,
         dueDate: form.dueDate || null,
         assignedTo: form.assignedTo,
+        clientAccountProfileId: resolvedClientAccountId || null,
+        clientAccountServiceId: selectedService || null,
+        proofReference: form.proofReference.trim() || null,
+        workflowMonth: form.workflowMonth || null,
       });
       router.push("/app/crm/tasks");
     } catch (error) {
-      console.error("Failed to create task", error);
-      setStatusMessage("Could not save task.");
+      console.error("Failed to create internal task", error);
+      setStatusMessage("Could not save internal delivery task.");
     } finally {
       setIsSaving(false);
     }
@@ -119,8 +192,12 @@ export default function NewTaskPage() {
           <ArrowLeft className="w-5 h-5 text-[#6B7280]" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-[#111111]">Create Task</h1>
-          <p className="text-[#6B7280] text-sm">Add a new task to your list</p>
+          <h1 className="text-2xl font-bold text-[#111111]">
+            Create Internal Task
+          </h1>
+          <p className="text-[#6B7280] text-sm">
+            Add delivery work and link it to a prospect or client account
+          </p>
         </div>
         <button
           onClick={handleSave}
@@ -128,7 +205,8 @@ export default function NewTaskPage() {
           className="bg-[#6E6AE8] hover:bg-[#5A56D4] text-white font-medium px-4 py-2.5 rounded-[14px] flex items-center gap-2 transition-colors"
           style={{ boxShadow: "0 2px 8px rgba(110,106,232,0.25)" }}
         >
-          <Save className="w-4 h-4" /> {isSaving ? "Saving..." : "Save Task"}
+          <Save className="w-4 h-4" />{" "}
+          {isSaving ? "Saving..." : "Save Internal Task"}
         </button>
       </div>
 
@@ -159,7 +237,7 @@ export default function NewTaskPage() {
                       title: event.target.value,
                     }))
                   }
-                  placeholder="e.g. Follow up with Sarah Johnson"
+                  placeholder="e.g. Build tracking checklist for new website client"
                   className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.06)] rounded-[14px] px-4 py-2.5 text-sm text-[#111111] placeholder:text-[#6B7280] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] transition-all"
                 />
               </div>
@@ -176,7 +254,7 @@ export default function NewTaskPage() {
                       description: event.target.value,
                     }))
                   }
-                  placeholder="Add more details about this task..."
+                  placeholder="Add internal hand-off notes, blockers, links, or acceptance criteria..."
                   className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.06)] rounded-[14px] px-4 py-3 text-sm text-[#111111] placeholder:text-[#6B7280] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] resize-none transition-all"
                 />
               </div>
@@ -222,23 +300,10 @@ export default function NewTaskPage() {
             style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
           >
             <h2 className="font-semibold text-[#111111] mb-4">
-              Link to Contact
+              Link to Prospect
             </h2>
-            <div className="relative mb-4">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6B7280]" />
-              <input
-                type="text"
-                placeholder="Search contacts..."
-                className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.06)] rounded-[14px] pl-10 pr-4 py-2.5 text-sm text-[#111111] placeholder:text-[#6B7280] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] transition-all"
-              />
-            </div>
             <div className="space-y-2">
-              {(contacts.length
-                ? contacts
-                : ["Sarah Johnson", "Emma Wilson", "Sophie Brown"].map(
-                    (name) => ({ id: name, name }) as ContactRecord,
-                  )
-              ).map((contact) => (
+              {contacts.map((contact) => (
                 <button
                   key={contact.id}
                   onClick={() => setSelectedContact(contact.id)}
@@ -259,6 +324,83 @@ export default function NewTaskPage() {
                   </span>
                 </button>
               ))}
+              {contacts.length === 0 && (
+                <div className="rounded-[14px] border border-dashed border-[rgba(0,0,0,0.10)] p-4 text-sm text-[#6B7280]">
+                  No prospects are available to link yet.
+                </div>
+              )}
+              {selectedContact && (
+                <button
+                  onClick={() => setSelectedContact(null)}
+                  className="text-sm text-[#6E6AE8] hover:text-[#5A56D4]"
+                >
+                  Clear prospect link
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div
+            className="bg-[#FFFCF9] border border-[rgba(0,0,0,0.06)] rounded-[24px] p-6"
+            style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
+          >
+            <h2 className="font-semibold text-[#111111] mb-4">
+              Link to Client Account
+            </h2>
+            <div className="space-y-4">
+              <label className="block">
+                <span className="block text-sm text-[#6B7280] mb-1.5">
+                  Client Account
+                </span>
+                <div className="relative">
+                  <BriefcaseBusiness className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6B7280]" />
+                  <select
+                    value={selectedClientAccount || ""}
+                    onChange={(event) => {
+                      setSelectedClientAccount(event.target.value || null);
+                      setSelectedService(null);
+                    }}
+                    className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.06)] rounded-[14px] pl-10 pr-4 py-2.5 text-sm text-[#111111] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] transition-all"
+                  >
+                    <option value="">No client account</option>
+                    {clientAccounts
+                      .filter((account) => account.id)
+                      .map((account) => (
+                        <option key={account.id!} value={account.id!}>
+                          {account.clinicName}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </label>
+              <label className="block">
+                <span className="block text-sm text-[#6B7280] mb-1.5">
+                  Client Service
+                </span>
+                <div className="relative">
+                  <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6B7280]" />
+                  <select
+                    value={selectedService || ""}
+                    onChange={(event) => {
+                      const serviceId = event.target.value || null;
+                      const service = services.find((item) => item.id === serviceId);
+                      setSelectedService(serviceId);
+                      if (service) {
+                        setSelectedClientAccount(service.clientAccountProfileId);
+                        setServiceType(service.serviceType);
+                      }
+                    }}
+                    className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.06)] rounded-[14px] pl-10 pr-4 py-2.5 text-sm text-[#111111] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] transition-all"
+                  >
+                    <option value="">No specific service</option>
+                    {filteredServices.map((service) => (
+                      <option key={service.id} value={service.id}>
+                        {service.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </label>
             </div>
           </div>
         </div>
@@ -283,6 +425,49 @@ export default function NewTaskPage() {
                   )}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div
+            className="bg-[#FFFCF9] border border-[rgba(0,0,0,0.06)] rounded-[24px] p-6"
+            style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
+          >
+            <h2 className="font-semibold text-[#111111] mb-4">Work Type</h2>
+            <div className="space-y-3">
+              <label className="block">
+                <span className="block text-sm text-[#6B7280] mb-1.5">
+                  Board
+                </span>
+                <select
+                  value={boardKey}
+                  onChange={(event) => setBoardKey(event.target.value)}
+                  className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.06)] rounded-[14px] px-4 py-2.5 text-sm text-[#111111] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] transition-all"
+                >
+                  {boardOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-sm text-[#6B7280] mb-1.5">
+                  Service Type
+                </span>
+                <select
+                  value={serviceType}
+                  onChange={(event) =>
+                    setServiceType(event.target.value as ClientAccountServiceType)
+                  }
+                  className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.06)] rounded-[14px] px-4 py-2.5 text-sm text-[#111111] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] transition-all"
+                >
+                  {serviceTypes.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
 
@@ -324,9 +509,11 @@ export default function NewTaskPage() {
               className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.06)] rounded-[14px] px-4 py-2.5 text-sm text-[#111111] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] transition-all"
             >
               <option>Me</option>
-              <option>Dr. Sarah Smith</option>
-              <option>Emma Johnson</option>
-              <option>Sophie Brown</option>
+              <option>Sales Team</option>
+              <option>Website Team</option>
+              <option>SEO Team</option>
+              <option>Ads Team</option>
+              <option>Client Success</option>
             </select>
           </div>
 
@@ -334,28 +521,43 @@ export default function NewTaskPage() {
             className="bg-[#FFFCF9] border border-[rgba(0,0,0,0.06)] rounded-[24px] p-6"
             style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
           >
-            <h2 className="font-semibold text-[#111111] mb-4">Reminder</h2>
-            <div className="space-y-2">
-              {["None", "15 mins before", "1 hour before", "1 day before"].map(
-                (reminder) => (
-                  <label
-                    key={reminder}
-                    className="flex items-center gap-3 p-2 rounded-[14px] hover:bg-[rgba(110,106,232,0.04)] cursor-pointer transition-colors"
-                  >
-                    <input
-                      type="radio"
-                      name="reminder"
-                      checked={form.reminder === reminder}
-                      onChange={() =>
-                        setForm((current) => ({ ...current, reminder }))
-                      }
-                      className="w-4 h-4"
-                      style={{ accentColor: "#6E6AE8" }}
-                    />
-                    <span className="text-sm text-[#111111]">{reminder}</span>
-                  </label>
-                ),
-              )}
+            <h2 className="font-semibold text-[#111111] mb-4">
+              Delivery Metadata
+            </h2>
+            <div className="space-y-3">
+              <label className="block">
+                <span className="block text-sm text-[#6B7280] mb-1.5">
+                  Proof or Work Link
+                </span>
+                <input
+                  type="text"
+                  value={form.proofReference}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      proofReference: event.target.value,
+                    }))
+                  }
+                  placeholder="Report, Drive folder, ClickUp task, or client asset link"
+                  className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.06)] rounded-[14px] px-4 py-2.5 text-sm text-[#111111] placeholder:text-[#6B7280] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] transition-all"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-sm text-[#6B7280] mb-1.5">
+                  Workflow Month
+                </span>
+                <input
+                  type="date"
+                  value={form.workflowMonth}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      workflowMonth: event.target.value,
+                    }))
+                  }
+                  className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.06)] rounded-[14px] px-4 py-2.5 text-sm text-[#111111] focus:outline-none focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] transition-all"
+                />
+              </label>
             </div>
           </div>
         </div>

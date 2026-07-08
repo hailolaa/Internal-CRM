@@ -384,7 +384,7 @@ export default function TeamPage() {
     <div className="space-y-6">
       <PageHeader
         title="Team Performance"
-        subtitle="Front desk response, call handling, booking conversion and access."
+        subtitle="Sales response, call handling, hand-off conversion and access."
         icon={Users}
         iconColor="text-[#5e8a8d]"
         right={
@@ -437,9 +437,9 @@ export default function TeamPage() {
           color={(slaSummary?.breachedLeadCount || 0) > 0 ? "amber" : "green"}
         />
         <StatCard
-          label="Call Booking"
+          label="Call Hand-Off"
           value={`${Math.round(callSummary?.callToBookingRate || 0)}%`}
-          sub={`${callSummary?.bookedConsults || 0} consults booked`}
+          sub={`${callSummary?.bookedConsults || 0} calls handed off`}
           icon={Phone}
           color="violet"
         />
@@ -453,7 +453,7 @@ export default function TeamPage() {
                 Accountability Scoreboard
               </h2>
               <p className="text-sm text-[#5e8a8d] mt-1">
-                Score blends SLA compliance, call connection, booking rate and
+                Score blends SLA compliance, call connection, hand-off rate and
                 missed-call pressure.
               </p>
             </div>
@@ -564,7 +564,7 @@ export default function TeamPage() {
           { label: "Score" },
           { label: "Response" },
           { label: "Calls" },
-          { label: "Bookings" },
+          { label: "Hand-Offs" },
           { label: "Risk" },
         ]}
       >
@@ -618,10 +618,10 @@ export default function TeamPage() {
             <TableCell>
               <div className="text-sm">
                 <p className="font-semibold text-[#151f21]">
-                  {row.bookedConsults} booked
+                  {row.bookedConsults} handed off
                 </p>
                 <p className="text-xs text-[#7A746A]">
-                  {row.bookingRate}% call booking rate
+                  {row.bookingRate}% call hand-off rate
                 </p>
               </div>
             </TableCell>

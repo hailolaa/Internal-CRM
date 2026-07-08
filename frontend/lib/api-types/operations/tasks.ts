@@ -5,6 +5,7 @@ export interface TaskRecord {
   priority: "low" | "medium" | "high";
   status: "pending" | "completed";
   category: string | null;
+  contactId?: string | null;
   contact: string | null;
   due: string | null;
   dueDate: string | null;

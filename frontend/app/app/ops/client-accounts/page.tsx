@@ -484,7 +484,7 @@ export default function ClientAccountsPage() {
               </h2>
               <p className="text-sm text-[#5e8a8d] mt-1">
                 {isLoading
-                  ? "Loading clinic package and account health..."
+                  ? "Loading client package and account health..."
                   : profile?.clinicName
                     ? `${profile.clinicName} package and account health.`
                     : "Client package profile is not available yet."}
@@ -850,7 +850,7 @@ export default function ClientAccountsPage() {
             <td colSpan={7} className="px-6 py-10 text-center text-sm text-[#5e8a8d]">
               {query
                 ? "No service plans match that search."
-                : "No live service plans are set up for this clinic yet."}
+                : "No live service plans are set up for this client account yet."}
             </td>
           </tr>
         )}

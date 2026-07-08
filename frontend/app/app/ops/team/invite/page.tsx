@@ -18,12 +18,12 @@ const roles = [
   {
     id: "manager",
     name: "Manager",
-    description: "Manage contacts, bookings, and view reports",
+    description: "Manage prospects, clients, delivery work, and reports",
   },
   {
     id: "staff",
-    name: "Reception",
-    description: "View contacts, manage own appointments",
+    name: "Coordinator",
+    description: "View contacts, update tasks, and manage assigned work",
   },
   {
     id: "readonly",
@@ -91,7 +91,7 @@ export default function InviteTeamPage() {
             Invite Team Member
           </h1>
           <p className="text-[#6B7280] text-sm">
-            Add new members to your clinic
+            Add new members to the internal CRM
           </p>
         </div>
       </div>
@@ -116,7 +116,7 @@ export default function InviteTeamPage() {
                 <textarea
                   rows={4}
                   placeholder={
-                    "Enter email addresses, one per line:\nsarah@clinic.com\nemma@clinic.com"
+                    "Enter email addresses, one per line:\nsarah@clinicgrower.com\nemma@clinicgrower.com"
                   }
                   value={emails}
                   onChange={(e) => setEmails(e.target.value)}
@@ -217,7 +217,7 @@ export default function InviteTeamPage() {
                 <p className="text-xs text-[#6B7280] mb-2">Email preview:</p>
                 <div className="bg-[rgba(0,0,0,0.02)] rounded p-3 text-xs text-[#111111]">
                   <p className="font-medium mb-2">
-                    You&apos;ve been invited to join Glow Clinic!
+                    You&apos;ve been invited to join Clinic Grower Internal CRM.
                   </p>
                   <p className="text-[#6B7280]">
                     Click the link below to create your account and get
@@ -277,7 +277,7 @@ export default function InviteTeamPage() {
                     <span>✓</span> View contacts
                   </div>
                   <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> Manage own calendar
+                    <span>✓</span> Manage assigned tasks
                   </div>
                   <div className="flex items-center gap-2 text-green-600">
                     <span>✓</span> Create tasks

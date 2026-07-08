@@ -30,7 +30,7 @@ export default function ApiDocsPage() {
         <div>
           <h1 className="text-2xl font-bold text-[#111111]">API Documentation</h1>
           <p className="text-sm text-[#6B7280]">
-            Use clinic-scoped API keys from Settings to authenticate server requests.
+            Use workspace-scoped API keys from Settings to authenticate server requests.
           </p>
         </div>
       </div>
@@ -38,7 +38,7 @@ export default function ApiDocsPage() {
       <div className="rounded-[24px] border border-[rgba(0,0,0,0.06)] bg-[#FFFCF9] p-6">
         <h2 className="font-semibold text-[#111111]">Authentication</h2>
         <p className="mt-2 text-sm leading-6 text-[#6B7280]">
-          Send your API key as a bearer token. Keys are scoped to the clinic that
+          Send your API key as a bearer token. Keys are scoped to the workspace that
           created them and should only be stored on secure servers.
         </p>
       </div>

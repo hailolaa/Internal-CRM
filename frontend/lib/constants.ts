@@ -30,7 +30,7 @@ export const ROUTES = {
   DEPOSITS: "/app/deposits",
 } as const;
 
-// Page title map for TopBar — ordered longest-first for accurate prefix matching
+// Page title map for TopBar - ordered longest-first for accurate prefix matching
 export const PAGE_TITLES: Record<string, string> = {
   // Sales
   "/app/revenue": "Operations Dashboard",
@@ -38,29 +38,29 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/consults": "Sales Call Tracking",
   "/app/sla": "Response Time Monitoring",
   "/app/retention": "Client Retention",
-  "/app/benchmarking": "Operations Benchmarking",
+  "/app/benchmarking": "Legacy Benchmarking",
   "/app/competitor-analysis": "Market Intelligence",
-  "/app/deposits": "Payment Tracking",
+  "/app/deposits": "Legacy Billing Module",
 
   // CRM
   "/app/crm/contacts": "Contacts",
   "/app/crm/pipeline": "Sales Pipeline",
-  "/app/crm/calendar": "Sales Calendar",
+  "/app/crm/calendar": "Legacy Calendar",
   "/app/crm/tasks": "Internal Tasks",
   "/app/crm/forms": "Forms",
-  "/app/treatment-plans": "Proposals",
+  "/app/treatment-plans": "Legacy Proposals",
 
   // Marketing
   "/app/marketing/attribution": "Attribution Reporting",
   "/app/marketing/campaigns": "Campaign Visibility",
   "/app/marketing/offers": "Offers",
-  "/app/marketing/reviews": "Reputation Tools",
+  "/app/marketing/reviews": "Legacy Marketing Tools",
 
   // Communications
   "/app/comms/inbox": "Communication Centre",
-  "/app/comms/calls/analysis": "AI Call Analysis",
-  "/app/comms/calls/analytics": "Call Analytics",
-  "/app/comms/calls/compliance": "Call Compliance",
+  "/app/comms/calls/analysis": "Legacy Communications Analysis",
+  "/app/comms/calls/analytics": "Legacy Communications Analytics",
+  "/app/comms/calls/compliance": "Legacy Communications Compliance",
   "/app/comms/calls": "Call Log",
   "/app/comms/templates": "Templates",
   "/app/comms/sequences": "Follow-Up Sequences",
@@ -82,22 +82,23 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/ai": "AI Growth Insights",
 
   // Reports
-  "/app/reports/overview": "Reports Overview",
-  "/app/reports/leads": "Leads & Bookings Report",
-  "/app/reports/ads": "Ads & ROI Report",
-  "/app/reports/noshows": "No-shows & Retention",
+  "/app/reports/overview": "Legacy Reports",
+  "/app/reports/leads": "Sales Pipeline Report",
+  "/app/reports/ads": "Marketing Spend Report",
+  "/app/reports/noshows": "Client Retention Report",
 
-  // Patients & Financials
-  "/app/patients": "Patient Management",
+  // Legacy modules
+  "/app/patients": "Legacy Contact Module",
   "/app/financials": "Financials",
 
   // Integrations
   "/app/integrations": "Integrations",
 
   // Settings
-  "/app/settings/clinic": "Workspace Settings",
+  "/app/settings/clinic": "Account Profile",
   "/app/settings/team": "Team Settings",
-  "/app/settings/locations": "Locations",
+  "/app/settings/locations": "Office Locations",
+  "/app/settings/treatments": "Legacy Service Catalogue",
   "/app/settings/billing": "Billing & Plans",
   "/app/settings/security": "Security",
   "/app/settings/compliance": "Compliance",

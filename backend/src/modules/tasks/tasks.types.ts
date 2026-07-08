@@ -5,6 +5,7 @@ export interface TaskResponse {
   priority: "low" | "medium" | "high";
   status: "pending" | "completed";
   category: string | null;
+  contactId?: string | null;
   contact: string | null;
   due: string | null;
   dueDate: string | null;
@@ -45,6 +46,7 @@ export interface CreateTaskDTO {
   priority?: "low" | "medium" | "high";
   status?: "pending" | "completed";
   category?: string;
+  contactId?: string | null;
   contact?: string;
   due?: string;
   dueDate?: string;

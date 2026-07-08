@@ -160,7 +160,7 @@ export default function LocationsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Locations"
-        subtitle="Manage your clinic locations and branches."
+        subtitle="Manage office locations and operating branches."
         right={
           <button
             onClick={handleAddLocation}
@@ -184,7 +184,7 @@ export default function LocationsPage() {
       <AlertBanner
         icon={MapPin}
         title="Live location records"
-        description="Locations are loaded from the backend. Booking counts and ratings are backend placeholders until those modules expose location-level metrics."
+        description="Locations are loaded from the backend. Activity counts and health ratings are backend placeholders until those modules expose location-level metrics."
         variant="info"
       />
 
@@ -210,7 +210,7 @@ export default function LocationsPage() {
               color="indigo"
             />
             <StatCard
-              label="Treatment Rooms"
+              label="Workspaces"
               value={String(locations.reduce((acc, l) => acc + l.roomCount, 0))}
               color="violet"
             />
@@ -240,7 +240,7 @@ export default function LocationsPage() {
                 {searchQuery.trim() ? "No locations match that search" : "No locations created yet"}
               </h3>
               <p className="mt-2 text-sm text-[#5e8a8d]">
-                Add a live clinic location to start tracking branches.
+                Add a live office location to start tracking branches.
               </p>
             </div>
           </Card>
@@ -294,7 +294,7 @@ export default function LocationsPage() {
                 {
                   icon: Calendar,
                   value: location.bookingCount,
-                  label: "Bookings",
+                  label: "Activity",
                 },
                 { icon: Star, value: location.rating || "-", label: "Rating" },
               ].map((stat) => (

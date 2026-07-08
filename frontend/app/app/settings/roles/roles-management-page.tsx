@@ -150,7 +150,7 @@ export default function RolesManagementPage() {
       setNotice({
         type: "warning",
         title: "System roles are protected",
-        description: "Create a custom role if this clinic needs different access.",
+        description: "Create a custom role if this workspace needs different access.",
       });
       return;
     }
@@ -264,7 +264,7 @@ export default function RolesManagementPage() {
     <div className="space-y-6">
       <PageHeader
         title="Roles"
-        subtitle="Manage clinic role definitions and assigned permissions."
+        subtitle="Manage workspace role definitions and assigned permissions."
         right={
           <button
             type="button"
@@ -466,7 +466,7 @@ export default function RolesManagementPage() {
           <div>
             <h2 className="font-semibold text-[#111111]">Role Registry</h2>
             <p className="text-sm text-[#6B7280]">
-              System roles are protected. Custom clinic roles can be edited here.
+              System roles are protected. Custom workspace roles can be edited here.
             </p>
           </div>
         </div>
@@ -489,7 +489,7 @@ export default function RolesManagementPage() {
               <td colSpan={5} className="px-6 py-10 text-center text-sm text-[#5e8a8d]">
                 {query
                   ? "No roles match that search."
-                  : "No live roles are available for this clinic."}
+                  : "No live roles are available for this workspace."}
               </td>
             </tr>
           )}
