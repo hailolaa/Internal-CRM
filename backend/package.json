@@ -1,0 +1,67 @@
+{
+  "name": "the-growth-group-internal-crm-backend",
+  "version": "1.0.0",
+  "description": "Backend for The Growth Group internal CRM, built on Express, TypeScript, and Node.",
+  "homepage": "https://github.com/The-Growth-Group/the-growth-group-internal-crm-backend#readme",
+  "bugs": {
+    "url": "https://github.com/The-Growth-Group/the-growth-group-internal-crm-backend/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/The-Growth-Group/the-growth-group-internal-crm-backend.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "start": "node dist/index.js",
+    "dev": "concurrently --raw \"npm run watch\" \"nodemon\"",
+    "db:backup": "node scripts/db-backup.mjs",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "db:migrate:status": "node scripts/db-migrate.mjs --status",
+    "db:restore": "node scripts/db-restore.mjs",
+    "seed:staging-demo": "node scripts/seed-staging-demo.mjs",
+    "test": "npm run build",
+    "test:smoke": "node --test dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js dist/test/test-performance-os-chain.js",
+    "test:client-accounts": "npm run build && node --test dist/test/test-client-accounts.js",
+    "test:integration": "npm run build && node --test dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js dist/test/test-client-accounts.js dist/test/test-performance-os-chain.js",
+    "qa:phase1": "node scripts/phase1-browser-qa.mjs"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-jwt": "^8.5.1",
+    "express-rate-limit": "^8.4.0",
+    "express-validator": "^7.3.2",
+    "helmet": "^8.1.0",
+    "jest": "^30.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.10.1",
+    "mysql2": "^3.22.2",
+    "nodemon": "^3.1.14",
+    "otplib": "^13.4.0",
+    "qrcode": "^1.5.4",
+    "stripe": "^22.1.1",
+    "typescript": "^6.0.3",
+    "uuid": "^14.0.0",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^25.6.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/uuid": "^10.0.0",
+    "concurrently": "^9.2.1"
+  }
+}

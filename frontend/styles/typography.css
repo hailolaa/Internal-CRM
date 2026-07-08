@@ -1,0 +1,30 @@
+/* ============================================================
+   Typography Refinements
+   ============================================================ */
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  color: #151f21;
+}
+
+h1 {
+  letter-spacing: -0.03em;
+  font-weight: 700;
+}
+
+p {
+  line-height: 1.7;
+  color: #4b5563;
+}
+
+/* Prose text in output panels */
+.prose-sm p {
+  line-height: 1.75;
+  color: #151f21;
+}

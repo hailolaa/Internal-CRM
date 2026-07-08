@@ -1,0 +1,48 @@
+/* ============================================================
+   Base / Reset Styles
+   ============================================================ */
+
+body {
+  background-color: var(--surface-base);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings:
+    "kern" 1,
+    "liga" 1;
+}
+
+/* ---- Custom Scrollbar ---- */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #5e8a8d;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #60b4af;
+}
+
+/* ---- Focus ring — accent green ---- */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(96, 180, 175, 0.2);
+  border-radius: inherit;
+}
+
+/* ---- Better select styling ---- */
+select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%235e8a8d' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
+  padding-right: 2.5rem;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}

@@ -1,0 +1,37 @@
+CREATE TABLE IF NOT EXISTS call_tracking_number (
+  id CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  clinic_id CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  phone_number VARCHAR(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  normalized_number VARCHAR(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  label VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_call_tracking_number_clinic_phone (clinic_id, normalized_number),
+  KEY idx_call_tracking_number_lookup (normalized_number, is_active),
+  CONSTRAINT fk_call_tracking_number_clinic FOREIGN KEY (clinic_id) REFERENCES clinic(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE ` call `
+  ADD COLUMN twilio_call_sid VARCHAR(64) COLLATE utf8mb4_unicode_ci NULL AFTER user_id,
+  ADD COLUMN twilio_account_sid VARCHAR(64) COLLATE utf8mb4_unicode_ci NULL AFTER twilio_call_sid,
+  ADD COLUMN twilio_parent_call_sid VARCHAR(64) COLLATE utf8mb4_unicode_ci NULL AFTER twilio_account_sid,
+  ADD COLUMN from_number VARCHAR(50) COLLATE utf8mb4_unicode_ci NULL AFTER twilio_parent_call_sid,
+  ADD COLUMN to_number VARCHAR(50) COLLATE utf8mb4_unicode_ci NULL AFTER from_number,
+  ADD COLUMN tracking_number VARCHAR(50) COLLATE utf8mb4_unicode_ci NULL AFTER to_number,
+  ADD COLUMN call_status VARCHAR(50) COLLATE utf8mb4_unicode_ci NULL AFTER direction,
+  ADD COLUMN answered_by VARCHAR(50) COLLATE utf8mb4_unicode_ci NULL AFTER call_status,
+  ADD COLUMN missed_call TINYINT(1) NOT NULL DEFAULT 0 AFTER answered_by,
+  ADD COLUMN started_at DATETIME NULL AFTER missed_call,
+  ADD COLUMN ended_at DATETIME NULL AFTER started_at,
+  ADD COLUMN recording_sid VARCHAR(64) COLLATE utf8mb4_unicode_ci NULL AFTER recording_url,
+  ADD COLUMN recording_status VARCHAR(50) COLLATE utf8mb4_unicode_ci NULL AFTER recording_sid,
+  ADD COLUMN recording_duration INT NULL AFTER recording_status,
+  ADD COLUMN recording_source VARCHAR(50) COLLATE utf8mb4_unicode_ci NULL AFTER recording_duration,
+  ADD COLUMN webhook_payload JSON NULL AFTER notes,
+  ADD UNIQUE KEY uq_call_twilio_call_sid (twilio_call_sid),
+  ADD KEY idx_call_tracking_number (clinic_id, tracking_number),
+  ADD KEY idx_call_missed (clinic_id, missed_call, created_at),
+  ADD KEY idx_call_recording_sid (recording_sid);

@@ -1,0 +1,754 @@
+import { v4 as uuidv4 } from "uuid";
+import pool from "../../config/database.js";
+import { ApiError } from "../../utils/ApiError.js";
+import { logAuditEvent } from "../../utils/audit.js";
+import type {
+  ClientAccountAuditContext,
+  ClientAccountListQuery,
+  ClientAccountProfileResponse,
+  ClientAccountServiceListQuery,
+  ClientAccountServiceResponse,
+  ClientAccountSummaryResponse,
+  CreateClientAccountServiceDTO,
+  UpdateClientAccountServiceDTO,
+  UpdateClientAccountProfileDTO,
+} from "./client-accounts.types.js";
+
+const DEFAULT_PROFILE = {
+  activeServices: [] as string[],
+  onboardingStatus: "not_started",
+  healthStatus: "attention_needed",
+  churnRisk: "low",
+  contractStatus: "pending",
+};
+
+function parseServices(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(String);
+
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function toDateString(value: unknown) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
+function toIsoString(value: unknown) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  return new Date(String(value)).toISOString();
+}
+
+function ownKey<T extends object>(data: T, key: keyof T) {
+  return Object.prototype.hasOwnProperty.call(data, key);
+}
+
+function normalizeServices(services: string[]) {
+  return Array.from(new Set(services.map((service) => service.trim()).filter(Boolean)));
+}
+
+export class ClientAccountsService {
+  async listAccounts(
+    clinicId: string,
+    options: { includeAllClinics: boolean; query?: ClientAccountListQuery },
+  ): Promise<ClientAccountSummaryResponse[]> {
+    const query = options.query || {};
+    const conditions = ["c.deleted_at IS NULL"];
+    const values: any[] = [];
+
+    if (!options.includeAllClinics) {
+      conditions.push("c.id = ?");
+      values.push(clinicId);
+    }
+
+    if (query.healthStatus && query.healthStatus !== "all") {
+      conditions.push("COALESCE(cap.health_status, ?) = ?");
+      values.push(DEFAULT_PROFILE.healthStatus, query.healthStatus);
+    }
+
+    if (query.churnRisk && query.churnRisk !== "all") {
+      conditions.push("COALESCE(cap.churn_risk, ?) = ?");
+      values.push(DEFAULT_PROFILE.churnRisk, query.churnRisk);
+    }
+
+    if (query.contractStatus && query.contractStatus !== "all") {
+      conditions.push("COALESCE(cap.contract_status, ?) = ?");
+      values.push(DEFAULT_PROFILE.contractStatus, query.contractStatus);
+    }
+
+    const search = query.search?.trim();
+    if (search) {
+      const wildcard = `%${search}%`;
+      conditions.push(
+        "(c.name LIKE ? OR c.email LIKE ? OR u.email LIKE ? OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)",
+      );
+      values.push(wildcard, wildcard, wildcard, wildcard);
+    }
+
+    const [rows]: any = await pool.execute(
+      `SELECT
+          c.id as clinicId,
+          c.name as clinicName,
+          c.updated_at as clinicUpdatedAt,
+          cap.id,
+          cap.account_manager_id as accountManagerId,
+          cap.active_services as activeServices,
+          cap.onboarding_status as onboardingStatus,
+          cap.health_status as healthStatus,
+          cap.churn_risk as churnRisk,
+          cap.renewal_date as renewalDate,
+          cap.contract_status as contractStatus,
+          cap.key_notes as keyNotes,
+          cap.updated_at as updatedAt,
+          u.first_name as accountManagerFirstName,
+          u.last_name as accountManagerLastName,
+          u.email as accountManagerEmail,
+          service_summary.serviceTypes as derivedActiveServices,
+          COALESCE(service_summary.activeServiceCount, 0) as activeServiceCount,
+          COALESCE(service_summary.renewalRiskCount, 0) as renewalRiskCount,
+          COALESCE(task_summary.pendingTaskCount, 0) as pendingTaskCount,
+          COALESCE(task_summary.overdueTaskCount, 0) as overdueTaskCount,
+          COALESCE(task_summary.qaTaskCount, 0) as qaTaskCount,
+          COALESCE(task_summary.missedTaskCount, 0) as missedTaskCount,
+          COALESCE(task_summary.escalatedTaskCount, 0) as escalatedTaskCount,
+          strategy_summary.lastStrategyLogAt as lastStrategyLogAt,
+          action_plan_summary.actionPlanId as actionPlanId,
+          action_plan_summary.actionPlanMonth as actionPlanMonth,
+          action_plan_summary.actionPlanStatus as actionPlanStatus,
+          COALESCE(action_plan_summary.actionPlanTotalItems, 0) as actionPlanTotalItems,
+          COALESCE(action_plan_summary.actionPlanCompletedItems, 0) as actionPlanCompletedItems,
+          COALESCE(action_plan_summary.actionPlanOpenItems, 0) as actionPlanOpenItems,
+          COALESCE(action_plan_summary.actionPlanHighPriorityOpenItems, 0) as actionPlanHighPriorityOpenItems,
+          action_plan_summary.actionPlanLastUpdatedAt as actionPlanLastUpdatedAt
+       FROM clinic c
+       LEFT JOIN client_account_profile cap ON cap.clinic_id = c.id
+       LEFT JOIN user u ON u.id = cap.account_manager_id AND u.deleted_at IS NULL
+       LEFT JOIN (
+          SELECT
+            clinic_id,
+            COUNT(*) as activeServiceCount,
+            SUM(
+              CASE
+                WHEN renewal_date IS NOT NULL
+                 AND renewal_date <= DATE_ADD(CURDATE(), INTERVAL 45 DAY)
+                 AND contract_status IN ('active', 'trial', 'pending')
+                THEN 1
+                ELSE 0
+              END
+            ) as renewalRiskCount,
+            GROUP_CONCAT(DISTINCT service_type ORDER BY service_type SEPARATOR ',') as serviceTypes
+          FROM client_account_service
+          WHERE archived_at IS NULL
+            AND status <> 'archived'
+          GROUP BY clinic_id
+       ) service_summary ON service_summary.clinic_id = c.id
+       LEFT JOIN (
+          SELECT
+            clinic_id,
+            SUM(CASE WHEN status <> 'completed' THEN 1 ELSE 0 END) as pendingTaskCount,
+            SUM(CASE WHEN status <> 'completed' AND due_date IS NOT NULL AND due_date < CURDATE() THEN 1 ELSE 0 END) as overdueTaskCount,
+            SUM(CASE WHEN needs_qa = 1 OR approval_status IN ('pending', 'needs_changes') THEN 1 ELSE 0 END) as qaTaskCount,
+            SUM(CASE WHEN status <> 'completed' AND missed_task = 1 THEN 1 ELSE 0 END) as missedTaskCount,
+            SUM(CASE WHEN escalation_flag = 1 THEN 1 ELSE 0 END) as escalatedTaskCount
+          FROM task
+          WHERE is_internal = 1
+            AND deleted_at IS NULL
+            AND archived_at IS NULL
+          GROUP BY clinic_id
+       ) task_summary ON task_summary.clinic_id = c.id
+       LEFT JOIN (
+          SELECT clinic_id, MAX(updated_at) as lastStrategyLogAt
+          FROM strategy_log
+          WHERE archived_at IS NULL
+          GROUP BY clinic_id
+       ) strategy_summary ON strategy_summary.clinic_id = c.id
+       LEFT JOIN (
+          SELECT
+            map.clinic_id,
+            map.id as actionPlanId,
+            DATE_FORMAT(map.plan_month, '%Y-%m') as actionPlanMonth,
+            map.status as actionPlanStatus,
+            COUNT(item.id) as actionPlanTotalItems,
+            SUM(CASE WHEN item.status = 'completed' THEN 1 ELSE 0 END) as actionPlanCompletedItems,
+            SUM(CASE WHEN item.status IN ('planned', 'in_progress') THEN 1 ELSE 0 END) as actionPlanOpenItems,
+            SUM(CASE WHEN item.priority = 'high' AND item.status IN ('planned', 'in_progress') THEN 1 ELSE 0 END) as actionPlanHighPriorityOpenItems,
+            MAX(COALESCE(item.updated_at, map.updated_at)) as actionPlanLastUpdatedAt
+          FROM monthly_action_plan map
+          LEFT JOIN monthly_action_plan_item item
+            ON item.plan_id = map.id
+           AND item.clinic_id = map.clinic_id
+           AND item.deleted_at IS NULL
+          WHERE map.deleted_at IS NULL
+            AND map.plan_month = DATE_FORMAT(CURDATE(), '%Y-%m-01')
+          GROUP BY map.clinic_id, map.id, map.plan_month, map.status
+       ) action_plan_summary ON action_plan_summary.clinic_id = c.id
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY
+         CASE COALESCE(cap.health_status, 'attention_needed')
+           WHEN 'critical' THEN 0
+           WHEN 'at_risk' THEN 1
+           WHEN 'attention_needed' THEN 2
+           ELSE 3
+         END,
+         COALESCE(task_summary.escalatedTaskCount, 0) DESC,
+         c.name ASC`,
+      values,
+    );
+
+    return rows.map((row: any) => this.mapAccountSummaryRow(row));
+  }
+
+  async getProfile(clinicId: string): Promise<ClientAccountProfileResponse> {
+    const [rows]: any = await pool.execute(
+      `SELECT
+          c.id as clinicId,
+          c.name as clinicName,
+          cap.id,
+          cap.account_manager_id as accountManagerId,
+          cap.active_services as activeServices,
+          cap.onboarding_status as onboardingStatus,
+          cap.health_status as healthStatus,
+          cap.churn_risk as churnRisk,
+          cap.renewal_date as renewalDate,
+          cap.contract_status as contractStatus,
+          cap.key_notes as keyNotes,
+          cap.updated_at as updatedAt,
+          u.first_name as accountManagerFirstName,
+          u.last_name as accountManagerLastName,
+          u.email as accountManagerEmail
+       FROM clinic c
+       LEFT JOIN client_account_profile cap ON cap.clinic_id = c.id
+       LEFT JOIN user u ON u.id = cap.account_manager_id AND u.deleted_at IS NULL
+       WHERE c.id = ? AND c.deleted_at IS NULL
+       LIMIT 1`,
+      [clinicId],
+    );
+
+    if (rows.length === 0) {
+      throw ApiError.notFound("Clinic account not found");
+    }
+
+    const row = rows[0];
+    return {
+      id: row.id || null,
+      clinicId: row.clinicId,
+      clinicName: row.clinicName,
+      accountManager: row.accountManagerId
+        ? {
+            id: row.accountManagerId,
+            firstName: row.accountManagerFirstName || null,
+            lastName: row.accountManagerLastName || null,
+            email: row.accountManagerEmail || null,
+          }
+        : null,
+      activeServices: parseServices(row.activeServices),
+      onboardingStatus: row.onboardingStatus || DEFAULT_PROFILE.onboardingStatus,
+      healthStatus: row.healthStatus || DEFAULT_PROFILE.healthStatus,
+      churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
+      renewalDate: toDateString(row.renewalDate),
+      contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
+      keyNotes: row.keyNotes || null,
+      updatedAt: toIsoString(row.updatedAt),
+    };
+  }
+
+  async updateProfile(
+    clinicId: string,
+    userId: string,
+    data: UpdateClientAccountProfileDTO,
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountProfileResponse> {
+    if (ownKey(data, "accountManagerId") && data.accountManagerId) {
+      await this.ensureAccountManagerBelongsToClinic(clinicId, data.accountManagerId);
+    }
+
+    const before = await this.getProfile(clinicId);
+    const profileId = before.id || uuidv4();
+    const fields: string[] = [];
+    const values: any[] = [];
+    const changes: Record<string, { before: unknown; after: unknown }> = {};
+
+    const addChange = (field: string, column: string, beforeValue: unknown, afterValue: unknown) => {
+      if (JSON.stringify(beforeValue) === JSON.stringify(afterValue)) return;
+      fields.push(`${column} = ?`);
+      values.push(Array.isArray(afterValue) ? JSON.stringify(afterValue) : afterValue);
+      changes[field] = { before: beforeValue, after: afterValue };
+    };
+
+    if (ownKey(data, "accountManagerId")) {
+      addChange("accountManagerId", "account_manager_id", before.accountManager?.id || null, data.accountManagerId || null);
+    }
+
+    if (ownKey(data, "activeServices") && data.activeServices) {
+      addChange("activeServices", "active_services", before.activeServices, normalizeServices(data.activeServices));
+    }
+
+    if (ownKey(data, "onboardingStatus")) {
+      addChange("onboardingStatus", "onboarding_status", before.onboardingStatus, data.onboardingStatus);
+    }
+
+    if (ownKey(data, "healthStatus")) {
+      addChange("healthStatus", "health_status", before.healthStatus, data.healthStatus);
+    }
+
+    if (ownKey(data, "churnRisk")) {
+      addChange("churnRisk", "churn_risk", before.churnRisk, data.churnRisk);
+    }
+
+    if (ownKey(data, "renewalDate")) {
+      addChange("renewalDate", "renewal_date", before.renewalDate, toDateString(data.renewalDate));
+    }
+
+    if (ownKey(data, "contractStatus")) {
+      addChange("contractStatus", "contract_status", before.contractStatus, data.contractStatus);
+    }
+
+    if (ownKey(data, "keyNotes")) {
+      addChange("keyNotes", "key_notes", before.keyNotes, data.keyNotes || null);
+    }
+
+    if (fields.length === 0) {
+      return before;
+    }
+
+    fields.push("updated_by = ?");
+    values.push(userId);
+
+    if (before.id) {
+      values.push(before.id, clinicId);
+      await pool.execute(
+        `UPDATE client_account_profile
+         SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ?`,
+        values,
+      );
+    } else {
+      await pool.execute(
+        `INSERT INTO client_account_profile
+          (id, clinic_id, created_by, ${fields.map((field) => field.split(" = ")[0]).join(", ")})
+         VALUES (?, ?, ?, ${fields.map(() => "?").join(", ")})`,
+        [profileId, clinicId, userId, ...values],
+      );
+    }
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_PROFILE_UPDATED",
+      entityType: "client_account_profile",
+      entityId: profileId,
+      changes,
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.getProfile(clinicId);
+  }
+
+  async listServices(
+    clinicId: string,
+    query: ClientAccountServiceListQuery,
+  ): Promise<ClientAccountServiceResponse[]> {
+    const conditions = ["cas.clinic_id = ?"];
+    const values: any[] = [clinicId];
+
+    if (String(query.includeArchived) !== "true") {
+      conditions.push("cas.archived_at IS NULL", "cas.status <> 'archived'");
+    }
+
+    if (query.status) {
+      conditions.push("cas.status = ?");
+      values.push(query.status);
+    }
+
+    if (query.contractStatus) {
+      conditions.push("cas.contract_status = ?");
+      values.push(query.contractStatus);
+    }
+
+    if (query.renewalFrom) {
+      conditions.push("cas.renewal_date >= ?");
+      values.push(toDateString(query.renewalFrom));
+    }
+
+    if (query.renewalTo) {
+      conditions.push("cas.renewal_date <= ?");
+      values.push(toDateString(query.renewalTo));
+    }
+
+    const [rows]: any = await pool.execute(
+      `SELECT ${this.serviceSelectColumns()}
+       FROM client_account_service cas
+       JOIN client_account_profile cap ON cap.id = cas.client_account_profile_id AND cap.clinic_id = cas.clinic_id
+       LEFT JOIN user owner ON owner.id = cas.owner_id AND owner.deleted_at IS NULL
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY cas.archived_at IS NULL DESC, cas.renewal_date IS NULL ASC, cas.renewal_date ASC, cas.name ASC`,
+      values,
+    );
+
+    return rows.map((row: any) => this.mapServiceRow(row));
+  }
+
+  async createService(
+    clinicId: string,
+    userId: string,
+    data: CreateClientAccountServiceDTO,
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountServiceResponse> {
+    if (data.ownerId) {
+      await this.ensureAccountManagerBelongsToClinic(clinicId, data.ownerId);
+    }
+
+    const profileId = await this.ensureProfileRow(clinicId, userId);
+    const serviceId = uuidv4();
+    const payload = {
+      serviceType: data.serviceType,
+      name: data.name.trim(),
+      status: data.status || "onboarding",
+      startDate: toDateString(data.startDate),
+      renewalDate: toDateString(data.renewalDate),
+      endDate: toDateString(data.endDate),
+      ownerId: data.ownerId || null,
+      recurringValue: this.normalizeMoney(data.recurringValue),
+      currency: (data.currency || "USD").trim().toUpperCase(),
+      contractStatus: data.contractStatus || "pending",
+      notes: data.notes || null,
+    };
+
+    await pool.execute(
+      `INSERT INTO client_account_service
+        (id, clinic_id, client_account_profile_id, service_type, name, status, start_date, renewal_date, end_date,
+         owner_id, recurring_value, currency, contract_status, notes, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        serviceId,
+        clinicId,
+        profileId,
+        payload.serviceType,
+        payload.name,
+        payload.status,
+        payload.startDate,
+        payload.renewalDate,
+        payload.endDate,
+        payload.ownerId,
+        payload.recurringValue,
+        payload.currency,
+        payload.contractStatus,
+        payload.notes,
+        userId,
+        userId,
+      ],
+    );
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_SERVICE_CREATED",
+      entityType: "client_account_service",
+      entityId: serviceId,
+      changes: payload,
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.getService(clinicId, serviceId);
+  }
+
+  async updateService(
+    clinicId: string,
+    userId: string,
+    serviceId: string,
+    data: UpdateClientAccountServiceDTO,
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountServiceResponse> {
+    if (ownKey(data, "ownerId") && data.ownerId) {
+      await this.ensureAccountManagerBelongsToClinic(clinicId, data.ownerId);
+    }
+
+    const before = await this.getService(clinicId, serviceId);
+    if (before.archivedAt || before.status === "archived") {
+      throw ApiError.badRequest("Archived services cannot be updated");
+    }
+
+    const fields: string[] = [];
+    const values: any[] = [];
+    const changes: Record<string, { before: unknown; after: unknown }> = {};
+
+    const addChange = (field: string, column: string, beforeValue: unknown, afterValue: unknown) => {
+      if (JSON.stringify(beforeValue) === JSON.stringify(afterValue)) return;
+      fields.push(`${column} = ?`);
+      values.push(afterValue);
+      changes[field] = { before: beforeValue, after: afterValue };
+    };
+
+    if (ownKey(data, "serviceType")) {
+      addChange("serviceType", "service_type", before.serviceType, data.serviceType);
+    }
+
+    if (ownKey(data, "name") && data.name) {
+      addChange("name", "name", before.name, data.name.trim());
+    }
+
+    if (ownKey(data, "status")) {
+      addChange("status", "status", before.status, data.status);
+    }
+
+    if (ownKey(data, "startDate")) {
+      addChange("startDate", "start_date", before.startDate, toDateString(data.startDate));
+    }
+
+    if (ownKey(data, "renewalDate")) {
+      addChange("renewalDate", "renewal_date", before.renewalDate, toDateString(data.renewalDate));
+    }
+
+    if (ownKey(data, "endDate")) {
+      addChange("endDate", "end_date", before.endDate, toDateString(data.endDate));
+    }
+
+    if (ownKey(data, "ownerId")) {
+      addChange("ownerId", "owner_id", before.owner?.id || null, data.ownerId || null);
+    }
+
+    if (ownKey(data, "recurringValue")) {
+      addChange("recurringValue", "recurring_value", before.recurringValue, this.normalizeMoney(data.recurringValue));
+    }
+
+    if (ownKey(data, "currency") && data.currency) {
+      addChange("currency", "currency", before.currency, data.currency.trim().toUpperCase());
+    }
+
+    if (ownKey(data, "contractStatus")) {
+      addChange("contractStatus", "contract_status", before.contractStatus, data.contractStatus);
+    }
+
+    if (ownKey(data, "notes")) {
+      addChange("notes", "notes", before.notes, data.notes || null);
+    }
+
+    if (fields.length === 0) {
+      return before;
+    }
+
+    fields.push("updated_by = ?");
+    values.push(userId, serviceId, clinicId);
+
+    await pool.execute(
+      `UPDATE client_account_service
+       SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND archived_at IS NULL`,
+      values,
+    );
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_SERVICE_UPDATED",
+      entityType: "client_account_service",
+      entityId: serviceId,
+      changes,
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.getService(clinicId, serviceId);
+  }
+
+  async archiveService(
+    clinicId: string,
+    userId: string,
+    serviceId: string,
+    auditContext: ClientAccountAuditContext,
+  ): Promise<void> {
+    const before = await this.getService(clinicId, serviceId);
+    if (before.archivedAt || before.status === "archived") {
+      return;
+    }
+
+    await pool.execute(
+      `UPDATE client_account_service
+       SET status = 'archived', archived_at = CURRENT_TIMESTAMP, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND archived_at IS NULL`,
+      [userId, serviceId, clinicId],
+    );
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_SERVICE_ARCHIVED",
+      entityType: "client_account_service",
+      entityId: serviceId,
+      changes: {
+        status: { before: before.status, after: "archived" },
+        archivedAt: { before: before.archivedAt, after: "CURRENT_TIMESTAMP" },
+      },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+  }
+
+  private async getService(clinicId: string, serviceId: string): Promise<ClientAccountServiceResponse> {
+    const [rows]: any = await pool.execute(
+      `SELECT ${this.serviceSelectColumns()}
+       FROM client_account_service cas
+       JOIN client_account_profile cap ON cap.id = cas.client_account_profile_id AND cap.clinic_id = cas.clinic_id
+       LEFT JOIN user owner ON owner.id = cas.owner_id AND owner.deleted_at IS NULL
+       WHERE cas.id = ? AND cas.clinic_id = ?
+       LIMIT 1`,
+      [serviceId, clinicId],
+    );
+
+    if (rows.length === 0) {
+      throw ApiError.notFound("Client service not found");
+    }
+
+    return this.mapServiceRow(rows[0]);
+  }
+
+  private serviceSelectColumns() {
+    return `cas.id,
+            cas.clinic_id as clinicId,
+            cas.client_account_profile_id as clientAccountProfileId,
+            cas.service_type as serviceType,
+            cas.name,
+            cas.status,
+            cas.start_date as startDate,
+            cas.renewal_date as renewalDate,
+            cas.end_date as endDate,
+            cas.owner_id as ownerId,
+            cas.recurring_value as recurringValue,
+            cas.currency,
+            cas.contract_status as contractStatus,
+            cas.notes,
+            cas.archived_at as archivedAt,
+            cas.updated_at as updatedAt,
+            owner.first_name as ownerFirstName,
+            owner.last_name as ownerLastName,
+            owner.email as ownerEmail`;
+  }
+
+  private mapServiceRow(row: any): ClientAccountServiceResponse {
+    return {
+      id: row.id,
+      clinicId: row.clinicId,
+      clientAccountProfileId: row.clientAccountProfileId,
+      serviceType: row.serviceType,
+      name: row.name,
+      status: row.status,
+      startDate: toDateString(row.startDate),
+      renewalDate: toDateString(row.renewalDate),
+      endDate: toDateString(row.endDate),
+      owner: row.ownerId
+        ? {
+            id: row.ownerId,
+            firstName: row.ownerFirstName || null,
+            lastName: row.ownerLastName || null,
+            email: row.ownerEmail || null,
+          }
+        : null,
+      recurringValue: row.recurringValue === null || row.recurringValue === undefined ? null : Number(row.recurringValue),
+      currency: row.currency,
+      contractStatus: row.contractStatus,
+      notes: row.notes || null,
+      archivedAt: toIsoString(row.archivedAt),
+      updatedAt: toIsoString(row.updatedAt),
+    };
+  }
+
+  private mapAccountSummaryRow(row: any): ClientAccountSummaryResponse {
+    const profileServices = parseServices(row.activeServices);
+    const derivedServices = row.derivedActiveServices
+      ? String(row.derivedActiveServices).split(",").filter(Boolean)
+      : [];
+
+    return {
+      id: row.id || null,
+      clinicId: row.clinicId,
+      clinicName: row.clinicName,
+      accountManager: row.accountManagerId
+        ? {
+            id: row.accountManagerId,
+            firstName: row.accountManagerFirstName || null,
+            lastName: row.accountManagerLastName || null,
+            email: row.accountManagerEmail || null,
+          }
+        : null,
+      activeServices: profileServices.length > 0 ? profileServices : derivedServices,
+      onboardingStatus: row.onboardingStatus || DEFAULT_PROFILE.onboardingStatus,
+      healthStatus: row.healthStatus || DEFAULT_PROFILE.healthStatus,
+      churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
+      renewalDate: toDateString(row.renewalDate),
+      contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
+      keyNotes: row.keyNotes || null,
+      updatedAt: toIsoString(row.updatedAt || row.clinicUpdatedAt),
+      activeServiceCount: Number(row.activeServiceCount || 0),
+      renewalRiskCount: Number(row.renewalRiskCount || 0),
+      pendingTaskCount: Number(row.pendingTaskCount || 0),
+      overdueTaskCount: Number(row.overdueTaskCount || 0),
+      qaTaskCount: Number(row.qaTaskCount || 0),
+      missedTaskCount: Number(row.missedTaskCount || 0),
+      escalatedTaskCount: Number(row.escalatedTaskCount || 0),
+      lastStrategyLogAt: toIsoString(row.lastStrategyLogAt),
+      actionPlanId: row.actionPlanId || null,
+      actionPlanMonth: row.actionPlanMonth || null,
+      actionPlanStatus: row.actionPlanStatus || null,
+      actionPlanTotalItems: Number(row.actionPlanTotalItems || 0),
+      actionPlanCompletedItems: Number(row.actionPlanCompletedItems || 0),
+      actionPlanOpenItems: Number(row.actionPlanOpenItems || 0),
+      actionPlanHighPriorityOpenItems: Number(row.actionPlanHighPriorityOpenItems || 0),
+      actionPlanProgressPercent: this.calculatePercent(row.actionPlanCompletedItems, row.actionPlanTotalItems),
+      actionPlanLastUpdatedAt: toIsoString(row.actionPlanLastUpdatedAt),
+    };
+  }
+
+  private calculatePercent(numerator: unknown, denominator: unknown) {
+    const total = Number(denominator || 0);
+    if (total <= 0) return 0;
+    return Math.round((Number(numerator || 0) / total) * 100);
+  }
+
+  private normalizeMoney(value: number | string | null | undefined) {
+    if (value === null || value === undefined || value === "") return null;
+    return Number(value).toFixed(2);
+  }
+
+  private async ensureProfileRow(clinicId: string, userId: string) {
+    const existing = await this.getProfile(clinicId);
+    if (existing.id) return existing.id;
+
+    const id = uuidv4();
+    await pool.execute(
+      `INSERT INTO client_account_profile (id, clinic_id, active_services, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, clinicId, JSON.stringify([]), userId, userId],
+    );
+
+    return id;
+  }
+
+  private async ensureAccountManagerBelongsToClinic(clinicId: string, userId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT id
+       FROM user
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+         AND status = 'active'
+         AND is_active = 1
+       LIMIT 1`,
+      [userId, clinicId],
+    );
+
+    if (rows.length === 0) {
+      throw ApiError.badRequest("Account manager must be an active user in this clinic");
+    }
+  }
+}
+
+export const clientAccountsService = new ClientAccountsService();

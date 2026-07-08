@@ -1,0 +1,42 @@
+/* ============================================================
+   Utility Overrides & Helpers
+   ============================================================ */
+
+/* Override dark-mode utility classes → warm palette */
+.bg-white\/5 {
+  background-color: rgba(255, 252, 249, 0.7) !important;
+}
+
+.border-white\/10 {
+  border-color: #e5ded6 !important;
+}
+
+.border-white\/5 {
+  border-color: #ede8e2 !important;
+}
+
+/* Sidebar & navigation */
+.nav-active {
+  background-color: rgba(96, 180, 175, 0.1);
+  color: #151f21;
+}
+
+/* Chart colour helpers — updated to new brand palette */
+.chart-sage {
+  color: #60b4af;
+}
+.chart-eucalyptus {
+  color: #5e8a8d;
+}
+.chart-emerald {
+  color: #60b4af;
+}
+.chart-amber {
+  color: #b7672e;
+}
+.chart-coral {
+  color: #d4914e;
+}
+.chart-error {
+  color: #9a5524;
+}

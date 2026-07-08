@@ -1,0 +1,276 @@
+@import "tailwindcss";
+
+/* ============================================================
+   The Growth Group Internal CRM - Global CSS Entry Point
+   Tokens, base, typography, animations, utilities are imported.
+   Component layer is defined INLINE so @tailwind components
+   is visible to the @layer directive.
+   ============================================================ */
+
+@import "../styles/tokens.css";
+@import "../styles/base.css";
+@import "../styles/typography.css";
+@import "../styles/animations.css";
+@import "../styles/utilities.css";
+
+/* ============================================================
+   Component Layer - The Growth Group brand palette
+   Primary accent: #60b4af (accent green)
+   Hover: #7eccc7 | Active: #4a9a95
+   Copper: #b7672e | Muted Teal: #5e8a8d
+   Dark: #151f21 | Light: #eaedeb
+   ============================================================ */
+
+@layer components {
+  /* --- Surface variants --- */
+  .surface-card {
+    @apply bg-[#FFFCF9] border border-[#E5DED6] rounded-2xl;
+    box-shadow: var(--shadow-card);
+  }
+  .surface-warm {
+    @apply bg-[#eaedeb] border border-[#d8ddda] rounded-2xl;
+  }
+  .surface-stone {
+    @apply bg-[#dfe3e0] border border-[#d8ddda] rounded-2xl;
+  }
+
+  /* --- Input base --- */
+  .input-base {
+    @apply w-full bg-white border border-[#d8ddda] rounded-xl px-4 py-3 text-sm text-[#151f21] outline-none transition-all duration-200 placeholder:text-[#A8A39B];
+    box-shadow: 0 1px 3px rgba(21, 31, 33, 0.04);
+  }
+  .input-base:focus {
+    border-color: #60b4af;
+    box-shadow:
+      0 0 0 3px rgba(96, 180, 175, 0.12),
+      0 1px 3px rgba(21, 31, 33, 0.04);
+  }
+  .input-with-icon {
+    @apply w-full bg-white border border-[#d8ddda] rounded-xl pl-11 pr-4 py-3 text-sm text-[#151f21] outline-none transition-all duration-200 placeholder:text-[#A8A39B];
+    box-shadow: 0 1px 3px rgba(21, 31, 33, 0.04);
+  }
+  .input-with-icon:focus {
+    border-color: #60b4af;
+    box-shadow: 0 0 0 3px rgba(96, 180, 175, 0.12);
+  }
+
+  /* --- Button variants --- */
+  /* Primary — accent green */
+  .btn-primary {
+    @apply bg-[#60b4af] text-white font-semibold px-4 py-2.5 rounded-xl inline-flex items-center gap-2 transition-all duration-200 disabled:opacity-50;
+    box-shadow: 0 2px 8px rgba(96, 180, 175, 0.3);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: #4a9a95;
+    box-shadow: 0 4px 16px rgba(96, 180, 175, 0.4);
+    transform: translateY(-1px);
+  }
+
+  /* Secondary — ivory with neutral text */
+  .btn-secondary {
+    @apply bg-white border border-[#d8ddda] text-[#4B5563] font-medium px-4 py-2.5 rounded-xl inline-flex items-center gap-2 transition-all duration-200;
+    box-shadow: 0 1px 3px rgba(21, 31, 33, 0.06);
+  }
+  .btn-secondary:hover {
+    border-color: #60b4af;
+    background-color: #eaedeb;
+    box-shadow: 0 2px 8px rgba(21, 31, 33, 0.08);
+  }
+
+  /* Ghost */
+  .btn-ghost {
+    @apply text-[#5e8a8d] px-3 py-2 rounded-xl transition-all duration-200;
+  }
+  .btn-ghost:hover {
+    background-color: rgba(94, 138, 141, 0.08);
+    color: #151f21;
+  }
+
+  /* Danger */
+  .btn-danger {
+    @apply bg-red-50 text-red-700 border border-red-200 px-4 py-2.5 rounded-xl inline-flex items-center gap-2 transition-all duration-200;
+  }
+  .btn-danger:hover {
+    background-color: #fee2e2;
+  }
+
+  /* --- Table styles --- */
+  .table-header {
+    @apply text-left text-[11px] uppercase tracking-wider text-[#5e8a8d] font-semibold px-5 py-3.5;
+  }
+  .table-cell {
+    @apply px-5 py-4;
+  }
+  .table-row {
+    @apply border-b border-[#d8ddda] transition-colors;
+  }
+  .table-row:hover {
+    background-color: rgba(96, 180, 175, 0.03);
+  }
+
+  /* --- Section label --- */
+  .section-label {
+    @apply text-[10px] font-bold uppercase tracking-[0.14em] text-[#5e8a8d];
+  }
+
+  /* --- Badge presets --- */
+  .badge-coming-soon {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[rgba(183,103,46,0.08)] text-[#b7672e] border border-[rgba(183,103,46,0.2)];
+  }
+  .badge-premium {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#eaedeb] text-[#151f21] border border-[#d8ddda];
+  }
+
+  /* --- Gradient text — accent green → teal muted --- */
+  .gradient-text {
+    @apply text-transparent bg-clip-text;
+    background-image: linear-gradient(135deg, #60b4af, #7eccc7);
+  }
+  .gradient-text-warm {
+    @apply text-transparent bg-clip-text;
+    background-image: linear-gradient(135deg, #151f21, #60b4af);
+  }
+
+  /* --- Pulse dot --- */
+  .pulse-dot {
+    @apply w-2 h-2 rounded-full animate-pulse;
+    background-color: #60b4af;
+  }
+
+  /* --- Icon container --- */
+  .icon-container {
+    @apply w-10 h-10 rounded-xl flex items-center justify-center;
+  }
+  .icon-container-lg {
+    @apply w-12 h-12 rounded-xl flex items-center justify-center;
+  }
+  .icon-container-sm {
+    @apply w-8 h-8 rounded-lg flex items-center justify-center;
+  }
+
+  /* --- Divider --- */
+  .divider {
+    @apply border-t border-[#d8ddda];
+  }
+  .divider-strong {
+    @apply border-t border-[#c0c5c1];
+  }
+
+  /* --- Site-wide Sonner toasts --- */
+  .cg-sonner[data-sonner-toaster] {
+    --border-radius: 14px;
+  }
+
+  .cg-sonner [data-sonner-toast] {
+    --normal-bg: #fffcf9;
+    --normal-border: #d8ddda;
+    --normal-text: #151f21;
+    --success-bg: #edf8f6;
+    --success-border: rgba(96, 180, 175, 0.28);
+    --success-text: #2f7f7a;
+    --info-bg: #eef5f5;
+    --info-border: rgba(94, 138, 141, 0.28);
+    --info-text: #426f72;
+    --warning-bg: #fff4e9;
+    --warning-border: rgba(183, 103, 46, 0.25);
+    --warning-text: #9a5524;
+    --error-bg: #fff0ec;
+    --error-border: rgba(154, 85, 36, 0.25);
+    --error-text: #8d3f24;
+    min-height: 52px;
+    border-radius: 14px !important;
+    border-width: 1px;
+    box-shadow:
+      0 18px 45px rgba(21, 31, 33, 0.16),
+      0 4px 14px rgba(21, 31, 33, 0.08);
+    font-family: inherit;
+  }
+
+  .cg-sonner-title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.35;
+  }
+
+  .cg-sonner-description {
+    color: #5e8a8d;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  .cg-sonner-icon {
+    margin-right: 0.125rem;
+  }
+
+  .cg-sonner-close {
+    border-color: #d8ddda;
+    color: #5e8a8d;
+  }
+
+  .cg-sonner-action {
+    background-color: #60b4af;
+    color: #ffffff;
+    font-weight: 700;
+  }
+
+  .cg-sonner-cancel {
+    background-color: #eaedeb;
+    color: #151f21;
+    font-weight: 700;
+  }
+
+  [data-gsap-scope] button,
+  [data-gsap-scope] a,
+  [data-gsap-interactive],
+  [data-gsap-reveal] {
+    will-change: transform;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .cg-sonner [data-sonner-toast] {
+    --normal-bg: #151f21;
+    --normal-border: rgba(126, 204, 199, 0.2);
+    --normal-text: #f5f1eb;
+    --success-bg: #132b2a;
+    --success-border: rgba(126, 204, 199, 0.34);
+    --success-text: #8ee1dc;
+    --info-bg: #162829;
+    --info-border: rgba(94, 138, 141, 0.42);
+    --info-text: #a7d2d4;
+    --warning-bg: #2e241a;
+    --warning-border: rgba(183, 103, 46, 0.42);
+    --warning-text: #f0bc87;
+    --error-bg: #321e19;
+    --error-border: rgba(183, 103, 46, 0.46);
+    --error-text: #f0a487;
+    box-shadow:
+      0 20px 50px rgba(0, 0, 0, 0.42),
+      0 4px 18px rgba(0, 0, 0, 0.24);
+  }
+
+  .cg-sonner-description {
+    color: #a7d2d4;
+  }
+
+  .cg-sonner-close {
+    border-color: rgba(126, 204, 199, 0.22);
+    color: #a7d2d4;
+  }
+
+  .cg-sonner-cancel {
+    background-color: #233033;
+    color: #f5f1eb;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-gsap-scope] *,
+  [data-gsap-reveal],
+  [data-gsap-interactive] {
+    animation-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+}

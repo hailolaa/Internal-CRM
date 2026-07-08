@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS report_share (
+  id CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  clinic_id CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  report_id CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  token_hash CHAR(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  created_by CHAR(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  expires_at TIMESTAMP NULL DEFAULT NULL,
+  last_accessed_at TIMESTAMP NULL DEFAULT NULL,
+  revoked_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL DEFAULT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY idx_report_share_token_hash (token_hash),
+  KEY idx_report_share_report (report_id),
+  KEY idx_report_share_clinic (clinic_id),
+  KEY idx_report_share_deleted (deleted_at),
+  CONSTRAINT fk_report_share_clinic FOREIGN KEY (clinic_id) REFERENCES clinic (id) ON DELETE CASCADE,
+  CONSTRAINT fk_report_share_report FOREIGN KEY (report_id) REFERENCES report (id) ON DELETE CASCADE,
+  CONSTRAINT fk_report_share_created_by FOREIGN KEY (created_by) REFERENCES user (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

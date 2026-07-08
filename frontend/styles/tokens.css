@@ -1,0 +1,99 @@
+/* ============================================================
+   Brand Tokens - The Growth Group Brand Palette
+   Dark (Primary): #151f21 | Light (Secondary): #eaedeb
+   Accent Green: #60b4af | Muted Teal: #5e8a8d | Copper: #b7672e
+   Derived: Accent Light #7eccc7 | Accent Dark #4a9a95
+   Derived: Copper Light #d4914e | Copper Dark #9a5524
+   ============================================================ */
+
+:root {
+  /* ---- Brand palette ---- */
+  --color-primary: #151f21;
+  --color-primary-dark: #101718;
+  --color-primary-light: #243134;
+
+  --color-secondary: #eaedeb;
+  --color-secondary-dark: #d8ddda;
+  --color-secondary-light: #f5f7f6;
+
+  --color-accent: #60b4af;
+  --color-accent-hover: #7eccc7;
+  --color-accent-active: #4a9a95;
+
+  --color-teal-muted: #5e8a8d;
+  --color-teal-muted-hover: #527d80;
+
+  --color-copper: #b7672e;
+  --color-copper-hover: #d4914e;
+  --color-copper-active: #9a5524;
+
+  --color-background: #eaedeb;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f5f7f6;
+
+  --color-text: #151f21;
+  --color-text-muted: #5e8a8d;
+  --color-border: rgba(21, 31, 33, 0.12);
+
+  /* ---- Core surfaces — warm ivory/bone (backwards compat) ---- */
+  --surface-base: #eaedeb;
+  --surface-secondary: #dfe3e0;
+  --surface-card: #fffcf9;
+  --surface-card-hover: #fff8f4;
+  --surface-elevated: rgba(255, 252, 249, 0.97);
+  --surface-overlay: rgba(21, 31, 33, 0.5);
+
+  /* ---- Borders ---- */
+  --border-default: rgba(21, 31, 33, 0.08);
+  --border-subtle: rgba(21, 31, 33, 0.04);
+  --border-strong: rgba(21, 31, 33, 0.14);
+
+  /* ---- Text hierarchy ---- */
+  --text-primary: #151f21;
+  --text-secondary: #4b5563;
+  --text-muted: #5e8a8d;
+  --text-disabled: #a8a39b;
+
+  /* ---- Primary Accent — brand accent green ---- */
+  --accent-primary: #60b4af;
+  --accent-primary-hover: #7eccc7;
+  --accent-primary-active: #4a9a95;
+  --accent-primary-light: #a0d4d1;
+  --accent-primary-subtle: rgba(96, 180, 175, 0.1);
+  --accent-primary-border: rgba(96, 180, 175, 0.25);
+
+  /* ---- Muted Teal ---- */
+  --accent-secondary: #5e8a8d;
+  --accent-secondary-subtle: rgba(94, 138, 141, 0.12);
+
+  /* ---- Deep accent for CTAs ---- */
+  --accent-cta: #151f21;
+  --accent-cta-hover: #101718;
+
+  /* ---- Copper accent ---- */
+  --accent-copper: #b7672e;
+  --accent-copper-hover: #d4914e;
+  --accent-copper-active: #9a5524;
+
+  /* ---- Functional colours ---- */
+  --accent-success: #60b4af;
+  --accent-warning: #b7672e;
+  --accent-error: #9a5524;
+  --accent-info: #5e8a8d;
+
+  /* ---- Layout ---- */
+  --sidebar-width: 15.5rem;
+  --topbar-height: 3.25rem;
+
+  /* ---- Shadows ---- */
+  --shadow-card: 0 2px 16px rgba(21, 31, 33, 0.06);
+  --shadow-elevated: 0 8px 32px rgba(21, 31, 33, 0.08);
+  --shadow-modal: 0 24px 64px rgba(21, 31, 33, 0.12);
+
+  /* ---- Radius scale ---- */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.5rem;
+}
