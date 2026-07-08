@@ -63,7 +63,7 @@ export default function AIGrowthSection() {
             className="mt-5 max-w-2xl mx-auto text-[15px] leading-relaxed"
             style={{ color: "#6B7280" }}
           >
-            The Growth Group Internal CRM doesn&apos;t just show you data — it tells you what it
+            ClinicGrower doesn&apos;t just show you data — it tells you what it
             means, what to do about it, and what revenue you&apos;re leaving on
             the table.
           </p>

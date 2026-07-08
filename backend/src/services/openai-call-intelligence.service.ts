@@ -182,7 +182,7 @@ export class OpenAICallIntelligenceService {
         body: JSON.stringify({
           model: config.openai.callIntelligenceModel,
           instructions: [
-            "You are The Growth Group's call intelligence analyst.",
+            "You are a ClinicGrower call intelligence analyst.",
             "Extract concise commercial call intelligence for a dental or aesthetics clinic.",
             "Do not invent facts. Use only the call metadata, notes and transcript.",
             "If a field is not evidenced, use unknown, none, null, or a conservative score.",

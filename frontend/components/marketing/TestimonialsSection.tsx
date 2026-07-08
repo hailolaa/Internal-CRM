@@ -5,7 +5,7 @@ import { Star } from "lucide-react";
 const testimonials = [
   {
     quote:
-      "We were spending £4k a month on ads with no idea what was converting. The Growth Group Internal CRM showed us 40% of our leads were going cold because of slow follow-up. We fixed it in a week and bookings jumped 22%.",
+      "We were spending £4k a month on ads with no idea what was converting. ClinicGrower showed us 40% of our leads were going cold because of slow follow-up. We fixed it in a week and bookings jumped 22%.",
     name: "Dr. Sarah Mitchell",
     role: "Owner, Glow Aesthetics London",
     metric: "+22% bookings",
@@ -21,7 +21,7 @@ const testimonials = [
   },
   {
     quote:
-      "As an agency managing 12 client accounts, The Growth Group Internal CRM gives us the attribution data we need to prove ROI. Client retention went from 6 months average to 14 months.",
+      "As an agency managing 12 clinic accounts, ClinicGrower gives us the attribution data we need to prove ROI. Client retention went from 6 months average to 14 months.",
     name: "Emma Chen",
     role: "Founder, Aesthetic Growth Agency",
     metric: "14-month retention",

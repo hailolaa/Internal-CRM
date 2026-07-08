@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * ClinicGrowerLogo - The Growth Group internal CRM brand mark.
+ * ClinicGrowerLogo - real uploaded ClinicGrower logo asset.
  *
  * Full variant: CG icon mark + wordmark + internal CRM subtitle
- * Compact variant: icon mark only
+ * Compact variant: CG icon mark only
  */
 
 interface ClinicGrowerLogoProps {
@@ -29,7 +29,7 @@ export default function ClinicGrowerLogo({
   if (variant === "compact") {
     return (
       <div
-        aria-label="The Growth Group"
+        aria-label="ClinicGrower"
         style={{
           width: 36,
           height: 36,
@@ -37,7 +37,7 @@ export default function ClinicGrowerLogo({
           background: "transparent",
         }}
       >
-        <img src={LOGO_ICON} alt="The Growth Group" style={imgStyle} />
+        <img src={LOGO_ICON} alt="ClinicGrower" style={imgStyle} />
       </div>
     );
   }
@@ -46,7 +46,7 @@ export default function ClinicGrowerLogo({
     <div
       className="flex items-center"
       style={{ gap: 10 }}
-      aria-label="The Growth Group"
+      aria-label="ClinicGrower"
     >
       <div
         style={{
@@ -56,20 +56,20 @@ export default function ClinicGrowerLogo({
           background: "transparent",
         }}
       >
-        <img src={LOGO_ICON} alt="The Growth Group" style={imgStyle} />
+        <img src={LOGO_ICON} alt="ClinicGrower" style={imgStyle} />
       </div>
 
       <div className="flex flex-col" style={{ gap: 0 }}>
         <div
           style={{
-            fontSize: 14,
+            fontSize: 16,
             lineHeight: 1.1,
             letterSpacing: "0.02em",
             color: "#151f21",
-            fontWeight: 700,
           }}
         >
-          The Growth Group
+          <span style={{ fontWeight: 500 }}>Clinic</span>
+          <span style={{ fontWeight: 700 }}>Grower</span>
         </div>
         <div
           className="hidden sm:block"

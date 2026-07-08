@@ -266,7 +266,7 @@ export default function TopBar({
                   className="text-sm font-semibold"
                   style={{ color: "#151f21" }}
                 >
-                  {user?.name || "The Growth Group team member"}
+                  {user?.name || "Clinic Grower team member"}
                 </p>
                 <p className="text-xs mt-0.5" style={{ color: "#5e8a8d" }}>
                   {user?.email || "Signed in"}

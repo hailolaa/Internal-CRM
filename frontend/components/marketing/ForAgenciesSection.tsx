@@ -44,7 +44,7 @@ export default function ForAgenciesSection() {
               style={{ color: "#4B5563" }}
             >
               Agencies that manage clinic marketing need more than ad
-              dashboards. The Growth Group Internal CRM connects your campaigns to actual
+              dashboards. ClinicGrower connects your campaigns to actual
               bookings and revenue — so you can prove ROI, reduce churn, and
               scale your retainer.
             </p>

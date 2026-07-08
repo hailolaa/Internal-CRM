@@ -37,7 +37,7 @@ const STEP_DESCRIPTIONS = [
   "Tell us about your clinic so we can personalise your experience.",
   "Where is your clinic located? This helps with local SEO features.",
   "How big is your team? This helps us recommend the right plan.",
-  "Customise how The Growth Group Internal CRM looks and feels for your team.",
+  "Customise how ClinicGrower looks and feels for your brand.",
   "Start your subscription securely with Stripe, then launch your dashboard.",
 ];
 

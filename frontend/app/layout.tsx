@@ -10,29 +10,29 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "The Growth Group Internal CRM | Sales and Delivery Operations",
+  title: "Clinic Grower Internal CRM | Sales and Delivery Operations",
   description:
-    "Internal The Growth Group CRM for prospects, client accounts, delivery tasks, and team operations.",
+    "Internal Clinic Grower CRM for prospects, client accounts, delivery tasks, and team operations.",
   keywords: [
-    "The Growth Group internal CRM",
+    "Clinic Grower internal CRM",
     "sales pipeline",
     "client account management",
     "delivery operations",
     "team task management",
   ],
   openGraph: {
-    title: "The Growth Group Internal CRM",
+    title: "Clinic Grower Internal CRM",
     description:
-      "Manage The Growth Group prospects, client accounts, internal tasks, and delivery operations.",
+      "Manage Clinic Grower prospects, client accounts, internal tasks, and delivery operations.",
     type: "website",
     locale: "en_GB",
-    siteName: "The Growth Group Internal CRM",
+    siteName: "Clinic Grower Internal CRM",
   },
   twitter: {
     card: "summary_large_image",
-    title: "The Growth Group Internal CRM",
+    title: "Clinic Grower Internal CRM",
     description:
-      "Internal sales and delivery operations for The Growth Group team.",
+      "Internal sales and delivery operations for the Clinic Grower team.",
   },
   robots: {
     index: true,

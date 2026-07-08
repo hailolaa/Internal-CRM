@@ -129,7 +129,7 @@ export default function AIGrowthInsightsPage() {
           AI Growth Insights
         </h1>
         <p className="mt-2" style={{ color: "#7A746A" }}>
-          The Growth Group&apos;s intelligence layer — surfacing revenue opportunities,
+          Clinic Grower&apos;s intelligence layer — surfacing revenue opportunities,
           campaign gaps, and growth signals across your clinic.
         </p>
       </div>
@@ -160,7 +160,7 @@ export default function AIGrowthInsightsPage() {
           </div>
           <div className="text-center md:text-left">
             <h2 className="text-xl font-bold mb-1" style={{ color: "#252421" }}>
-              Built on The Growth Group&apos;s growth methodology
+              Built on Clinic Grower&apos;s growth methodology
             </h2>
             <p className="text-sm" style={{ color: "#7A746A" }}>
               Each module surfaces specific insights — missed leads, slow

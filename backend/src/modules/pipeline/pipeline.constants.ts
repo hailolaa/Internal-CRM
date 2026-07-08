@@ -1,4 +1,4 @@
-export const defaultPipelineName = "The Growth Group Sales Pipeline";
+export const defaultPipelineName = "Clinic Grower Sales Pipeline";
 
 export const defaultPipelineStages = [
   { name: "New Enquiry", color: "bg-blue-500", kind: "open", position: 1 },

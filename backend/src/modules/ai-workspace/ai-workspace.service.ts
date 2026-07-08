@@ -782,7 +782,7 @@ export class AiWorkspaceService {
           finding: `${row.name} has ${row.seoStrength || "unknown"} SEO strength${row.offer ? " and an active offer" : ""}.`,
           action: threatLevel === "high"
             ? "Review treatment-page SEO, proof points, and consult offer positioning against this competitor."
-            : "Monitor messaging and keep The Growth Group Internal CRM reporting updated with offer changes.",
+            : "Monitor messaging and keep ClinicGrower reporting updated with offer changes.",
         };
       }),
       opportunities: [
@@ -900,7 +900,7 @@ export class AiWorkspaceService {
         body: JSON.stringify({
           model: config.openai.deepAuditModel,
           instructions: [
-            "You are The Growth Group's commercial performance analyst.",
+            "You are a ClinicGrower commercial performance analyst.",
             "Generate a Phase 1 Growth Brief for a clinic owner using only the provided backend data.",
             "Do not invent facts, records, values, patients, campaigns, treatments or recommendations.",
             "If a metric is manual, estimated or unknown, say so plainly.",

@@ -179,7 +179,7 @@ export default function PipelineSettingsPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Pipeline Settings</h1>
           <p className="text-gray-400 text-sm">
-            Configure the internal The Growth Group sales stages.
+            Configure the internal Clinic Grower sales stages.
           </p>
         </div>
         <button

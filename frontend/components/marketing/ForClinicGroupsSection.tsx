@@ -62,7 +62,7 @@ export default function ForClinicGroupsSection() {
             style={{ color: "#6B7280" }}
           >
             Multi-location clinic groups need visibility across every site
-            without the noise. The Growth Group Internal CRM scales with you — from 2 locations
+            without the noise. ClinicGrower scales with you — from 2 locations
             to 20.
           </p>
         </div>

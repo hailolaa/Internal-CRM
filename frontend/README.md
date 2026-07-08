@@ -1,8 +1,8 @@
-# The Growth Group Internal CRM Frontend
+# ClinicGrower CRM Frontend
 
-Next.js frontend for The Growth Group Internal CRM.
+Next.js frontend for the ClinicGrower CRM / Clinic Performance OS.
 
-The app is an authenticated, work-focused CRM and operations command centre for The Growth Group internal team. It connects to the Express/MySQL backend and exposes sales pipeline, client accounts, tasks, reports, operations, AI workspace and settings workflows.
+The app is an authenticated, work-focused CRM and performance command centre for clinics and the ClinicGrower internal team. It connects to the Express/MySQL backend and exposes revenue, leakage, leads, tasks, reports, operations, AI workspace and settings workflows.
 
 ## Current Features
 

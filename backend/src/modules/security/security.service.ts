@@ -21,7 +21,7 @@ export class SecurityService {
       strategy: "totp",
       secret,
       label: user.email,
-      issuer: clinicName || "The Growth Group",
+      issuer: clinicName || "ClinicGrower",
     });
     const qrCodeDataUrl = await QRCode.toDataURL(otpAuthUrl);
 

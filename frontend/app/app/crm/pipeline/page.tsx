@@ -825,7 +825,7 @@ export default function PipelinePage() {
         <div>
           <h1 className="text-2xl font-bold text-[#111111]">Sales Pipeline</h1>
           <p className="text-[#6B7280] mt-1">
-            Track The Growth Group prospects from enquiry through proposal, won, or lost.
+            Track Clinic Grower prospects from enquiry through proposal, won, or lost.
           </p>
         </div>
         <div className="flex items-center gap-3">

@@ -320,7 +320,7 @@ Commits:
 
 Checklist update:
 - Mark Monthly Action Plan v1 and internal-account plan status integration as complete.
-- Keep deeper source/treatment links and The Growth Group team delivery view refinements open.
+- Keep deeper source/treatment links and ClinicGrower team delivery view refinements open.
 ```
 
 Checklist items to add/complete:

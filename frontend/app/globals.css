@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ============================================================
-   The Growth Group Internal CRM - Global CSS Entry Point
+   ClinicGrower CRM — Global CSS Entry Point
    Tokens, base, typography, animations, utilities are imported.
    Component layer is defined INLINE so @tailwind components
    is visible to the @layer directive.
@@ -14,7 +14,7 @@
 @import "../styles/utilities.css";
 
 /* ============================================================
-   Component Layer - The Growth Group brand palette
+   Component Layer — ClinicGrower brand palette
    Primary accent: #60b4af (accent green)
    Hover: #7eccc7 | Active: #4a9a95
    Copper: #b7672e | Muted Teal: #5e8a8d

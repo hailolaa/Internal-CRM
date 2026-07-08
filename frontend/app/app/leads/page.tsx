@@ -217,7 +217,7 @@ export default function LeadsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Prospect List"
-        subtitle="Track incoming The Growth Group enquiries from sales opportunities and CRM contacts, including source, service/package, owner, stage, and value."
+        subtitle="Track incoming Clinic Grower enquiries from sales opportunities and CRM contacts, including source, service/package, owner, stage, and value."
         icon={Target}
         iconColor="text-[#6E6AE8]"
       />

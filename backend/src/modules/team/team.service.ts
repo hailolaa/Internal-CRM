@@ -38,7 +38,7 @@ export class TeamService{
             "SELECT name FROM clinic WHERE id = ?",
             [clinicId]
         );
-        const clinicName = clinics[0]?.name || "The Growth Group";
+        const clinicName = clinics[0]?.name || "Clinic Grower";
 
         for(const email of emails) {
             const [existing]: any = await pool.execute(
@@ -136,7 +136,7 @@ export class TeamService{
             email: invite.email,
             role: invite.role,
             inviteUrl,
-            clinicName: invite.clinicName || "The Growth Group",
+            clinicName: invite.clinicName || "Clinic Grower",
         });
 
         await logAuditEvent({

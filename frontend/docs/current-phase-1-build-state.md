@@ -261,7 +261,7 @@ Implemented:
 Still left:
 
 - Links from action tasks to sources and treatments beyond the current insight/task/monthly-plan link.
-- The Growth Group team delivery view focused on the monthly plan.
+- ClinicGrower team delivery view focused on the monthly plan.
 
 ### Reporting Centre
 

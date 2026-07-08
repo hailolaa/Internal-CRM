@@ -66,7 +66,7 @@ export default function LoginPage() {
             Welcome back
           </h1>
           <p className="text-sm leading-relaxed" style={{ color: "#6B7280" }}>
-            Sign in to The Growth Group Internal CRM.
+            Sign in to your ClinicGrower growth operating system.
           </p>
         </div>
 

@@ -1,6 +1,6 @@
-# The Growth Group Internal CRM Backend
+# ClinicGrower CRM Backend
 
-Express, TypeScript and MySQL backend for The Growth Group Internal CRM.
+Express, TypeScript and MySQL backend for the ClinicGrower CRM / Clinic Performance OS.
 
 The backend is a multi-tenant API for clinic CRM workflows, revenue reporting, leakage detection, insight generation, monthly action planning, internal delivery operations, integrations and admin settings.
 
@@ -22,7 +22,7 @@ The backend is a multi-tenant API for clinic CRM workflows, revenue reporting, l
 - Revenue leakage detail contract for missed calls, SLA breaches, no-shows and low consult conversion.
 - Insight v1 model and `/api/insights` endpoints for revenue leakage insight generation, OpenAI-backed enrichment with deterministic fallback, assignment, status updates and linked action task creation.
 - Monthly Action Plan v1 model and `/api/monthly-action-plans` endpoints for month-scoped plan generation, plan status updates and item status updates.
-- General tasks plus The Growth Group internal delivery tasks with boards, workflow month, QA, archive, missed/escalation flags and client account links.
+- General clinic tasks plus ClinicGrower internal delivery tasks with boards, workflow month, QA, archive, missed/escalation flags and client account links.
 - Client account profiles, services, all-client summaries, current-month action plan health, internal delivery pressure counts, SOPs and strategy logs.
 - AI workspace project/run persistence and AI tool scaffolding.
 - API keys, webhooks, integrations cards/connect/disconnect and background job state/run tracking.

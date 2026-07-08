@@ -112,7 +112,7 @@ export class OpenAIInsightsService {
         body: JSON.stringify({
           model: config.openai.insightsModel,
           instructions: [
-            "You are The Growth Group's revenue operations analyst.",
+            "You are a ClinicGrower revenue operations analyst.",
             "Turn revenue leakage records into concise, commercially useful CRM insights.",
             "Do not invent facts. Use only the provided record fields.",
             "Return one insight per input record using the same dedupeKey.",

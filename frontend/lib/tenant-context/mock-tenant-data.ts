@@ -4,7 +4,7 @@ import type { AuthUser, Clinic } from "./types";
 export const MOCK_CLINICS: Clinic[] = [
   {
     id: "cg_ops",
-    name: "The Growth Group Operations",
+    name: "Clinic Grower Operations",
     plan: "Enterprise",
     status: "active",
     maxUsers: 10,
@@ -35,7 +35,7 @@ export const MOCK_USERS: AuthUser[] = [
   {
     id: "user_001",
     name: "Sarah Smith",
-    email: "sarah@thegrowthgroup.com",
+    email: "sarah@clinicgrower.com",
     role: "CLINIC_ADMIN",
     clinicId: "cg_ops",
     permissions: getPermissionsForRole("CLINIC_ADMIN"),
@@ -43,7 +43,7 @@ export const MOCK_USERS: AuthUser[] = [
   {
     id: "user_002",
     name: "Emma Johnson",
-    email: "emma@thegrowthgroup.com",
+    email: "emma@clinicgrower.com",
     role: "RECEPTIONIST",
     clinicId: "cg_ops",
     permissions: getPermissionsForRole("RECEPTIONIST"),
@@ -51,7 +51,7 @@ export const MOCK_USERS: AuthUser[] = [
   {
     id: "user_003",
     name: "Max Sharpe",
-    email: "max@thegrowthgroup.com",
+    email: "max@clinicgrower.com",
     role: "SUPER_ADMIN",
     clinicId: "cg_ops",
     permissions: getPermissionsForRole("SUPER_ADMIN"),

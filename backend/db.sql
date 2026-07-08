@@ -1519,8 +1519,8 @@ LOCK TABLES `permission` WRITE;
 INSERT INTO `permission` VALUES
 ('perm-client-accounts-read','client_accounts:read','Read internal client account profiles','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
 ('perm-client-accounts-write','client_accounts:write','Update internal client account profiles','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
-('perm-internal-tasks-read','internal_tasks:read','Read The Growth Group internal delivery tasks','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
-('perm-internal-tasks-write','internal_tasks:write','Create and update The Growth Group internal delivery tasks','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('perm-internal-tasks-read','internal_tasks:read','Read Clinic Grower internal delivery tasks','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('perm-internal-tasks-write','internal_tasks:write','Create and update Clinic Grower internal delivery tasks','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
 ('perm-sops-read','sops:read','Read clinic SOPs','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
 ('perm-sops-write','sops:write','Create and update clinic SOPs','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
 ('perm-strategy-logs-read','strategy_logs:read','Read internal client strategy logs','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),

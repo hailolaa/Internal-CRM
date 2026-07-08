@@ -209,7 +209,7 @@ export default function LandingPage() {
                   className="text-sm leading-relaxed font-medium"
                   style={{ color: "#111111" }}
                 >
-                  The Growth Group Internal CRM surfaces these gaps before they become lost
+                  ClinicGrower surfaces these gaps before they become lost
                   revenue.
                 </p>
               </div>

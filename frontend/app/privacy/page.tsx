@@ -10,7 +10,7 @@ export default function PrivacyPage() {
         </Link>
         <h1 className="text-3xl font-semibold text-[#111111]">Privacy Policy</h1>
         <p className="mt-4 text-sm leading-6 text-[#6B7280]">
-          The Growth Group Internal CRM processes account, client, lead, appointment, communication,
+          ClinicGrower processes account, clinic, lead, appointment, communication,
           and performance data to provide the CRM and reporting service. Final legal
           copy should be reviewed before production launch.
         </p>

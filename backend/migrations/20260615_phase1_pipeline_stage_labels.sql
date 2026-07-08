@@ -1,6 +1,6 @@
 UPDATE pipeline
-SET name = 'The Growth Group Sales Pipeline',
-    description = 'Internal The Growth Group prospect pipeline from enquiry to won/lost',
+SET name = 'Clinic Grower Sales Pipeline',
+    description = 'Internal Clinic Grower prospect pipeline from enquiry to won/lost',
     stages = JSON_ARRAY(
       'New Enquiry',
       'Contacted',
@@ -13,7 +13,7 @@ SET name = 'The Growth Group Sales Pipeline',
     ),
     updated_at = CURRENT_TIMESTAMP
 WHERE deleted_at IS NULL
-  AND name IN ('Revenue Pipeline', 'Clinic Grower Sales Pipeline', 'The Growth Group Sales Pipeline');
+  AND name IN ('Revenue Pipeline', 'Clinic Grower Sales Pipeline');
 
 UPDATE pipeline_stage
 SET name = CASE name

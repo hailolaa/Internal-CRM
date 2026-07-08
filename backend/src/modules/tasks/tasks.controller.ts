@@ -51,7 +51,7 @@ export class TasksController {
   };
 
   // GET /api/tasks/internal
-  // List The Growth Group internal delivery tasks
+  // List Clinic Grower internal delivery tasks
   listInternalTasks = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId } = (req as any).user;
@@ -63,7 +63,7 @@ export class TasksController {
   };
 
   // POST /api/tasks/internal
-  // Create The Growth Group internal delivery task
+  // Create a Clinic Grower internal delivery task
   createInternalTask = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;
@@ -75,7 +75,7 @@ export class TasksController {
   };
 
   // PATCH /api/tasks/internal/:id
-  // Update The Growth Group internal delivery task
+  // Update a Clinic Grower internal delivery task
   updateInternalTask = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;
@@ -87,7 +87,7 @@ export class TasksController {
   };
 
   // POST /api/tasks/internal/:id/archive
-  // Archive The Growth Group internal delivery task
+  // Archive a Clinic Grower internal delivery task
   archiveInternalTask = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;
@@ -99,7 +99,7 @@ export class TasksController {
   };
 
   // PATCH /api/tasks/internal/:id/qa
-  // Update lightweight QA state for The Growth Group internal delivery task
+  // Update lightweight QA state for a Clinic Grower internal delivery task
   updateInternalTaskQa = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;

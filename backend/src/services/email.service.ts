@@ -23,13 +23,13 @@ function parseSender(value: string): Required<EmailAddress> {
   const match = value.match(/^\s*(.*?)\s*<([^>]+)>\s*$/);
   if (match?.[2]) {
     return {
-      name: match[1]?.trim() || "The Growth Group",
+      name: match[1]?.trim() || "Clinic Grower",
       email: match[2].trim(),
     };
   }
 
   return {
-    name: "The Growth Group",
+    name: "Clinic Grower",
     email: value.trim(),
   };
 }
@@ -149,10 +149,10 @@ export class EmailService {
   }) {
     return this.sendTransactionalEmail({
       to: [{ email: input.email }],
-      subject: "Reset your The Growth Group Internal CRM password",
+      subject: "Reset your Clinic Grower password",
       tags: ["password-reset"],
       textContent: [
-        "We received a request to reset your The Growth Group Internal CRM password.",
+        "We received a request to reset your Clinic Grower password.",
         `Reset your password: ${input.resetUrl}`,
         `This link expires in ${input.expiresMinutes} minutes.`,
         "If you did not request this, you can ignore this email.",
@@ -161,7 +161,7 @@ export class EmailService {
         <html>
           <body style="font-family:Arial,sans-serif;color:#111827;line-height:1.5">
             <h1 style="font-size:22px;margin:0 0 16px">Reset your password</h1>
-            <p style="margin:0 0 16px">We received a request to reset your The Growth Group Internal CRM password.</p>
+            <p style="margin:0 0 16px">We received a request to reset your Clinic Grower password.</p>
             <p style="margin:0 0 24px">This link expires in ${input.expiresMinutes} minutes.</p>
             ${buildButtonHtml("Reset password", input.resetUrl)}
             <p style="margin:24px 0 0;color:#6b7280;font-size:13px">If you did not request this, you can ignore this email.</p>
@@ -177,10 +177,10 @@ export class EmailService {
   }) {
     return this.sendTransactionalEmail({
       to: [{ email: input.email }],
-      subject: "Verify your The Growth Group Internal CRM email",
+      subject: "Verify your Clinic Grower email",
       tags: ["email-verification"],
       textContent: [
-        "Welcome to The Growth Group Internal CRM.",
+        "Welcome to Clinic Grower.",
         `Verify your email: ${input.verifyUrl}`,
         `This link expires in ${input.expiresHours} hours.`,
         "If you did not create this account, you can ignore this email.",
@@ -189,7 +189,7 @@ export class EmailService {
         <html>
           <body style="font-family:Arial,sans-serif;color:#111827;line-height:1.5">
             <h1 style="font-size:22px;margin:0 0 16px">Verify your email</h1>
-            <p style="margin:0 0 16px">Welcome to The Growth Group Internal CRM. Please verify your email address to finish securing your account.</p>
+            <p style="margin:0 0 16px">Welcome to Clinic Grower. Please verify your email address to finish securing your account.</p>
             <p style="margin:0 0 24px">This link expires in ${input.expiresHours} hours.</p>
             ${buildButtonHtml("Verify email", input.verifyUrl)}
             <p style="margin:24px 0 0;color:#6b7280;font-size:13px">If you did not create this account, you can ignore this email.</p>

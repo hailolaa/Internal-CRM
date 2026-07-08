@@ -49,7 +49,7 @@ export const config = {
     },
 
     email: {
-        from: process.env.EMAIL_FROM || "The Growth Group <noreply@thegrowthgroup.com>",
+        from: process.env.EMAIL_FROM || "Clinic Grower <noreply@clinicgrower.ai>",
         provider: process.env.EMAIL_PROVIDER || "log",
         brevoApiKey: process.env.BREVO_API_KEY || "",
         brevoApiUrl: process.env.BREVO_API_URL || "https://api.brevo.com/v3/smtp/email",

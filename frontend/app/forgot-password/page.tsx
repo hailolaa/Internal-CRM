@@ -52,7 +52,7 @@ export default function ForgotPasswordPage() {
           >
             {submitted
               ? "If an account exists with that email, a reset link is on its way."
-              : "Enter your email and we'll send instructions to get you back into The Growth Group Internal CRM."}
+              : "Enter your email and we'll send instructions to get you back into your ClinicGrower growth operating system."}
           </p>
         </div>
 

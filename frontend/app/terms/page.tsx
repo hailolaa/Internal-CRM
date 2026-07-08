@@ -10,9 +10,9 @@ export default function TermsPage() {
         </Link>
         <h1 className="text-3xl font-semibold text-[#111111]">Terms of Service</h1>
         <p className="mt-4 text-sm leading-6 text-[#6B7280]">
-          These terms cover access to The Growth Group Internal CRM, account security,
+          These terms cover access to the ClinicGrower platform, account security,
           acceptable use, billing, and service availability. Final legal copy should
-          be reviewed by The Growth Group before production launch.
+          be reviewed by ClinicGrower before production launch.
         </p>
         <div className="mt-8 space-y-5 text-sm leading-6 text-[#3F3A45]">
           <section>
@@ -27,13 +27,13 @@ export default function TermsPage() {
             <p>
               Paid subscriptions, onboarding fees, renewals, cancellations, and
               refunds are governed by the commercial agreement selected during signup
-              or agreed with The Growth Group team.
+              or agreed with the ClinicGrower team.
             </p>
           </section>
           <section>
             <h2 className="font-semibold text-[#111111]">Support</h2>
             <p>
-              Support requests should be sent through the agreed The Growth Group support
+              Support requests should be sent through the agreed ClinicGrower support
               channel. Platform availability may be affected by maintenance or third
               party provider outages.
             </p>

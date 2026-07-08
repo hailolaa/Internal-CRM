@@ -28,7 +28,7 @@ router.get("/", authorizePermission("events:read"), tasksController.listTasks);
 router.post("/", authorizePermission("events:write"), createTaskValidator, validate, tasksController.createTask);
 
 // @route   GET /api/tasks/internal
-// @desc    List The Growth Group internal delivery tasks
+// @desc    List Clinic Grower internal delivery tasks
 // @access  Private(internal tasks permission)
 router.get(
   "/internal",
@@ -39,7 +39,7 @@ router.get(
 );
 
 // @route   POST /api/tasks/internal
-// @desc    Create The Growth Group internal delivery task
+// @desc    Create a Clinic Grower internal delivery task
 // @access  Private(internal tasks permission)
 router.post(
   "/internal",
@@ -50,7 +50,7 @@ router.post(
 );
 
 // @route   PATCH /api/tasks/internal/:id
-// @desc    Update The Growth Group internal delivery task
+// @desc    Update a Clinic Grower internal delivery task
 // @access  Private(internal tasks permission)
 router.patch(
   "/internal/:id",
@@ -72,7 +72,7 @@ router.patch(
 );
 
 // @route   POST /api/tasks/internal/:id/archive
-// @desc    Archive The Growth Group internal delivery task
+// @desc    Archive a Clinic Grower internal delivery task
 // @access  Private(internal tasks permission)
 router.post(
   "/internal/:id/archive",

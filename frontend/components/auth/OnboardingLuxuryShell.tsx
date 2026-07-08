@@ -38,7 +38,7 @@ export default function OnboardingLuxuryShell({
             className="text-sm leading-relaxed max-w-sm mx-auto"
             style={{ color: "#6B7280" }}
           >
-            Tell us about your team so The Growth Group Internal CRM can personalise your
+            Tell us about your clinic so ClinicGrower can personalise your
             leads, calls, bookings and revenue dashboard.
           </p>
         </div>

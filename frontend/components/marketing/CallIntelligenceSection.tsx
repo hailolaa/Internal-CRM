@@ -74,7 +74,7 @@ export default function CallIntelligenceSection() {
             >
               Most clinics have no idea how many calls they miss, how long it
               takes to respond, or which team members convert enquiries into
-              bookings. The Growth Group Internal CRM changes that.
+              bookings. ClinicGrower changes that.
             </p>
 
             {/* Stat callout */}

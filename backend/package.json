@@ -1,14 +1,14 @@
 {
-  "name": "the-growth-group-internal-crm-backend",
+  "name": "clinic-grower-internal-crm-backend",
   "version": "1.0.0",
-  "description": "Backend for The Growth Group internal CRM, built on Express, TypeScript, and Node.",
-  "homepage": "https://github.com/The-Growth-Group/the-growth-group-internal-crm-backend#readme",
+  "description": "Backend for the Clinic Grower internal CRM, built on Express, TypeScript, and Node.",
+  "homepage": "https://github.com/The-Growth-Group/clinic-grower-internal-crm-backend#readme",
   "bugs": {
-    "url": "https://github.com/The-Growth-Group/the-growth-group-internal-crm-backend/issues"
+    "url": "https://github.com/The-Growth-Group/clinic-grower-internal-crm-backend/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/The-Growth-Group/the-growth-group-internal-crm-backend.git"
+    "url": "git+https://github.com/The-Growth-Group/clinic-grower-internal-crm-backend.git"
   },
   "license": "ISC",
   "author": "",

@@ -22,8 +22,8 @@ ALTER TABLE task
 
 INSERT IGNORE INTO permission (id, key_name, description)
 VALUES
-  ('perm-internal-tasks-read', 'internal_tasks:read', 'Read The Growth Group internal delivery tasks'),
-  ('perm-internal-tasks-write', 'internal_tasks:write', 'Create and update The Growth Group internal delivery tasks');
+  ('perm-internal-tasks-read', 'internal_tasks:read', 'Read Clinic Grower internal delivery tasks'),
+  ('perm-internal-tasks-write', 'internal_tasks:write', 'Create and update Clinic Grower internal delivery tasks');
 
 INSERT IGNORE INTO role_permission (role_id, permission_id)
 SELECT r.id, p.id

@@ -81,7 +81,7 @@ export default function MarketingFooter() {
           style={{ borderTop: "1px solid rgba(0,0,0,0.06)" }}
         >
           <p className="text-xs" style={{ color: "#9CA3AF" }}>
-            &copy; {new Date().getFullYear()} The Growth Group. All rights reserved.
+            &copy; {new Date().getFullYear()} ClinicGrower. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             <Link

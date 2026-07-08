@@ -6,7 +6,7 @@ export class SecurityController {
   setup2FA = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { userId } = (req as any).user;
-      const clinicName = req.body.clinicName || "The Growth Group";
+      const clinicName = req.body.clinicName || "ClinicGrower";
       const result = await securityService.setup2FA(userId, clinicName);
       res.status(200).json({ status: "success", data: result });
     } catch (error) {
