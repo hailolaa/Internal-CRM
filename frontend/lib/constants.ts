@@ -66,6 +66,7 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/comms/sequences": "Follow-Up Sequences",
 
   // Operations
+  "/app/ops/delivery": "Delivery Work",
   "/app/ops/automations": "Automation Engine",
   "/app/ops/team": "Team Members",
   "/app/ops/client-accounts": "Client Accounts",
@@ -112,6 +113,9 @@ export const PAGE_TITLES: Record<string, string> = {
   // Phase Three
   "/app/multi-location": "Multi-Location",
   "/app/ai-forecasting": "AI Forecasting",
+
+  // App landing
+  "/app": "Operations Dashboard",
 };
 
 // Breakpoints (for reference, Tailwind handles actual CSS)

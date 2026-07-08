@@ -3,6 +3,7 @@
 import {
   BookOpen,
   BriefcaseBusiness,
+  ClipboardList,
   FolderKanban,
   Shield,
   Users,
@@ -11,6 +12,7 @@ import {
 import { SubNav } from "@/components/sub-nav";
 
 const OPS_NAV = [
+  { label: "Dashboard", href: "/app", icon: ClipboardList },
   { label: "Client Accounts", href: "/app/ops/client-accounts", icon: BriefcaseBusiness },
   { label: "Delivery Work", href: "/app/ops/delivery", icon: FolderKanban },
   { label: "Team", href: "/app/ops/team", icon: Users },
