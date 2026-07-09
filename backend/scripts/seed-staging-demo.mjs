@@ -16,7 +16,7 @@ const db = {
   port: Number(process.env.DB_PORT || "3306"),
   user: process.env.DB_USER || "root",
   password: process.env.DB_PASSWORD || "",
-  name: process.env.DB_NAME || "clinic_grower_crm",
+  name: process.env.DB_NAME || "growth_group_internal_crm",
   ssl: process.env.DB_SSL === "true",
   sslRejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false",
 };

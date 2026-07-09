@@ -8,13 +8,12 @@ import { CommandPalette } from "@/components/command-palette";
 import { AppProviders } from "@/lib/providers";
 import { useAuth } from "@/lib/auth-context";
 import { ROUTES } from "@/lib/constants";
-import { getPostVerificationRoute } from "@/lib/signup-progress";
 import { ToastContainer } from "@/components/ui/toast";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, isLoading, session, user } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
@@ -42,16 +41,6 @@ function AppShell({ children }: { children: React.ReactNode }) {
       );
     }
   }, [isAuthenticated, isLoading, router, user]);
-
-  useEffect(() => {
-    if (!isLoading && isAuthenticated && session && user?.emailVerifiedAt) {
-      getPostVerificationRoute(session.token).then((route) => {
-        if (route === ROUTES.ONBOARDING) {
-          router.replace(ROUTES.ONBOARDING);
-        }
-      });
-    }
-  }, [isAuthenticated, isLoading, router, session, user]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

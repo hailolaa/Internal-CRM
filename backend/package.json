@@ -20,8 +20,6 @@
     "start": "node dist/index.js",
     "dev": "concurrently --raw \"npm run watch\" \"nodemon\"",
     "db:backup": "node scripts/db-backup.mjs",
-    "db:migrate": "node scripts/db-migrate.mjs",
-    "db:migrate:status": "node scripts/db-migrate.mjs --status",
     "db:restore": "node scripts/db-restore.mjs",
     "seed:staging-demo": "node scripts/seed-staging-demo.mjs",
     "test": "npm run build",

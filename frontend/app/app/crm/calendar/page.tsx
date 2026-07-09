@@ -154,7 +154,7 @@ const PROVIDER_COLOURS: ProviderColour[] = [
 function formatMoneyFromCents(valueCents: number) {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
-    currency: "GBP",
+    currency: "GBP",  
     maximumFractionDigits: 0,
   }).format(valueCents / 100);
 }

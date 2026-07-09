@@ -1,4 +1,7 @@
 
+CREATE DATABASE IF NOT EXISTS `growth_group_internal_crm` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE `growth_group_internal_crm`;
+
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
 /*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
@@ -231,7 +234,7 @@ CREATE TABLE `appointment` (
 
 LOCK TABLES `appointment` WRITE;
 /*!40000 ALTER TABLE `appointment` DISABLE KEYS */;
-INSERT INTO `appointment` VALUES ('appt-001','clinic-001','contact-001','user-002','2026-04-28 09:00:00','Scheduled','consult',NULL,0.00,30,NULL,NULL,'{\"consent_form\": true, \"medical_history\": true}',NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-002','clinic-001','contact-002','user-002','2026-04-29 10:00:00','Scheduled','consult',NULL,0.00,30,NULL,NULL,'{\"consent_form\": true, \"medical_history\": true}',NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-003','clinic-001','contact-003','user-002','2026-04-30 14:00:00','Completed','consult',NULL,0.00,30,NULL,'Patient responded well to treatment. Pain reduced.','{\"consent_form\": true, \"medical_history\": true}','{\"mobility\": \"improved\", \"pain_level\": 4}',NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-004','clinic-001','contact-004','user-002','2026-05-01 11:00:00','NoShow','consult',NULL,0.00,30,'Forgot appointment',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-005','clinic-002','contact-005','user-005','2026-04-27 09:30:00','Completed','consult',NULL,0.00,30,NULL,'Initial assessment completed successfully.','{\"consent_form\": true, \"medical_history\": true}','{\"assessment_complete\": true}',NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-006','clinic-002','contact-006','user-005','2026-05-02 15:00:00','Scheduled','consult',NULL,0.00,30,NULL,NULL,'{\"consent_form\": true, \"medical_history\": true}',NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-007','clinic-003','contact-007','user-007','2026-04-26 10:00:00','Completed','consult',NULL,0.00,30,NULL,'Sports injury assessment complete. Hamstring strain confirmed.','{\"consent_form\": true, \"medical_history\": true}','{\"diagnosis\": \"hamstring_strain\"}',NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-008','clinic-003','contact-008','user-007','2026-05-03 13:00:00','Scheduled','consult',NULL,0.00,30,NULL,NULL,'{\"consent_form\": true, \"medical_history\": true}',NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-009','clinic-004','contact-009','user-008','2026-04-25 11:00:00','Completed','consult',NULL,0.00,30,NULL,'Initial consultation completed. Patient engaged and motivated.','{\"consent_form\": true, \"medical_history\": true}','{\"consultation_complete\": true}',NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-010','clinic-004','contact-010','user-009','2026-05-04 16:00:00','Scheduled','consult',NULL,0.00,30,NULL,NULL,'{\"consent_form\": true, \"medical_history\": true}',NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL);
+INSERT INTO `appointment` (`id`,`clinic_id`,`contact_id`,`clinician_id`,`date_time`,`status`,`appointment_type`,`treatment`,`value`,`duration_minutes`,`no_show_reason`,`consult_notes`,`pre_consult_checklist`,`outcomes`,`follow_up_appointment_id`,`created_by`,`created_at`,`updated_at`,`deleted_at`) VALUES ('appt-001','clinic-001','contact-001','user-002','2026-04-28 09:00:00','Scheduled','consult',NULL,0.00,30,NULL,NULL,'{\"consent_form\": true, \"medical_history\": true}',NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-002','clinic-001','contact-002','user-002','2026-04-29 10:00:00','Scheduled','consult',NULL,0.00,30,NULL,NULL,'{\"consent_form\": true, \"medical_history\": true}',NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-003','clinic-001','contact-003','user-002','2026-04-30 14:00:00','Completed','consult',NULL,0.00,30,NULL,'Patient responded well to treatment. Pain reduced.','{\"consent_form\": true, \"medical_history\": true}','{\"mobility\": \"improved\", \"pain_level\": 4}',NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-004','clinic-001','contact-004','user-002','2026-05-01 11:00:00','NoShow','consult',NULL,0.00,30,'Forgot appointment',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-005','clinic-002','contact-005','user-005','2026-04-27 09:30:00','Completed','consult',NULL,0.00,30,NULL,'Initial assessment completed successfully.','{\"consent_form\": true, \"medical_history\": true}','{\"assessment_complete\": true}',NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-006','clinic-002','contact-006','user-005','2026-05-02 15:00:00','Scheduled','consult',NULL,0.00,30,NULL,NULL,'{\"consent_form\": true, \"medical_history\": true}',NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-007','clinic-003','contact-007','user-007','2026-04-26 10:00:00','Completed','consult',NULL,0.00,30,NULL,'Sports injury assessment complete. Hamstring strain confirmed.','{\"consent_form\": true, \"medical_history\": true}','{\"diagnosis\": \"hamstring_strain\"}',NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-008','clinic-003','contact-008','user-007','2026-05-03 13:00:00','Scheduled','consult',NULL,0.00,30,NULL,NULL,'{\"consent_form\": true, \"medical_history\": true}',NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-009','clinic-004','contact-009','user-008','2026-04-25 11:00:00','Completed','consult',NULL,0.00,30,NULL,'Initial consultation completed. Patient engaged and motivated.','{\"consent_form\": true, \"medical_history\": true}','{\"consultation_complete\": true}',NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL),('appt-010','clinic-004','contact-010','user-009','2026-05-04 16:00:00','Scheduled','consult',NULL,0.00,30,NULL,NULL,'{\"consent_form\": true, \"medical_history\": true}',NULL,NULL,NULL,'2026-04-24 13:22:35','2026-04-24 13:22:35',NULL);
 /*!40000 ALTER TABLE `appointment` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `attribution`;
@@ -1749,6 +1752,77 @@ LOCK TABLES `review` WRITE;
 INSERT INTO `review` VALUES ('review-001','clinic-001','contact-001',5,'Excellent service! Staff was very professional and caring.','google','published','2026-04-24 13:23:13','2026-04-24 13:23:13',NULL),('review-002','clinic-001','contact-002',4,'Good treatment and helpful advice. Would recommend.','trustpilot','published','2026-04-24 13:23:13','2026-04-24 13:23:13',NULL),('review-003','clinic-001','contact-003',5,'Outstanding results! Pain completely gone after treatment.','google','published','2026-04-24 13:23:13','2026-04-24 13:23:13',NULL),('review-004','clinic-001','contact-004',3,'Decent service but had to wait a long time.','trustpilot','published','2026-04-24 13:23:13','2026-04-24 13:23:13',NULL),('review-005','clinic-002','contact-005',5,'Very professional team. Great experience overall.','google','published','2026-04-24 13:23:13','2026-04-24 13:23:13',NULL),('review-006','clinic-002','contact-006',4,'Good treatment plan and follow-up care.','trustpilot','published','2026-04-24 13:23:13','2026-04-24 13:23:13',NULL),('review-007','clinic-003','contact-007',5,'Excellent sports medicine expertise. Highly recommended.','google','published','2026-04-24 13:23:13','2026-04-24 13:23:13',NULL),('review-008','clinic-003','contact-008',4,'Good pain management support. Very helpful staff.','trustpilot','published','2026-04-24 13:23:13','2026-04-24 13:23:13',NULL),('review-009','clinic-004','contact-009',5,'Fantastic mental health support. Changed my life!','google','published','2026-04-24 13:23:13','2026-04-24 13:23:13',NULL),('review-010','clinic-004','contact-010',5,'Excellent therapy sessions. Highly professional.','trustpilot','published','2026-04-24 13:23:13','2026-04-24 13:23:13',NULL);
 /*!40000 ALTER TABLE `review` ENABLE KEYS */;
 UNLOCK TABLES;
+DROP TABLE IF EXISTS `reputation_setting`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `reputation_setting` (
+  `clinic_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `google_review_link` varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `review_request_template` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `manual_review_received_count` int NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`clinic_id`),
+  CONSTRAINT `fk_reputation_setting_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `reputation_setting` WRITE;
+/*!40000 ALTER TABLE `reputation_setting` DISABLE KEYS */;
+/*!40000 ALTER TABLE `reputation_setting` ENABLE KEYS */;
+UNLOCK TABLES;
+DROP TABLE IF EXISTS `review_request`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `review_request` (
+  `id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `recipient_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `recipient_phone` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `recipient_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `message` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `sent_at` timestamp NULL DEFAULT NULL,
+  `created_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_review_request_clinic` (`clinic_id`,`status`),
+  KEY `idx_review_request_contact` (`contact_id`),
+  KEY `idx_review_request_deleted` (`deleted_at`),
+  CONSTRAINT `fk_review_request_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_review_request_contact` FOREIGN KEY (`contact_id`) REFERENCES `contact` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `review_request` WRITE;
+/*!40000 ALTER TABLE `review_request` DISABLE KEYS */;
+/*!40000 ALTER TABLE `review_request` ENABLE KEYS */;
+UNLOCK TABLES;
+DROP TABLE IF EXISTS `gbp_checklist_item`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `gbp_checklist_item` (
+  `id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `item_key` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `completed` tinyint(1) NOT NULL DEFAULT '0',
+  `updated_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_gbp_checklist_clinic_key` (`clinic_id`,`item_key`),
+  CONSTRAINT `fk_gbp_checklist_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `gbp_checklist_item` WRITE;
+/*!40000 ALTER TABLE `gbp_checklist_item` DISABLE KEYS */;
+/*!40000 ALTER TABLE `gbp_checklist_item` ENABLE KEYS */;
+UNLOCK TABLES;
 DROP TABLE IF EXISTS `role`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -1865,21 +1939,6 @@ INSERT INTO `role_permission` VALUES
 ('role-super-admin','perm-internal-tasks-write','2026-06-05 00:00:00');
 INSERT INTO `role_permission` VALUES ('role-clinic-admin','perm-appointments-delete','2026-06-01 22:07:33'),('role-clinic-admin','perm-appointments-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-appointments-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-audit-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-billing-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-billing-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-calls-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-calls-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-contacts-delete','2026-06-01 22:07:33'),('role-clinic-admin','perm-contacts-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-contacts-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-events-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-events-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-marketing-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-marketing-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-reports-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-reports-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-settings-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-settings-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-team-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-team-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-webhooks-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-webhooks-write','2026-06-01 22:07:33'),('role-clinician','perm-appointments-read','2026-06-01 22:07:33'),('role-clinician','perm-appointments-write','2026-06-01 22:07:33'),('role-clinician','perm-calls-read','2026-06-01 22:07:33'),('role-clinician','perm-calls-write','2026-06-01 22:07:33'),('role-clinician','perm-contacts-read','2026-06-01 22:07:33'),('role-clinician','perm-contacts-write','2026-06-01 22:07:33'),('role-clinician','perm-events-read','2026-06-01 22:07:33'),('role-clinician','perm-reports-read','2026-06-01 22:07:33'),('role-patient','perm-contacts-read','2026-06-01 22:07:33'),('role-patient','perm-contacts-write','2026-06-01 22:07:33'),('role-read-only','perm-appointments-read','2026-06-01 22:07:33'),('role-read-only','perm-audit-read','2026-06-01 22:07:33'),('role-read-only','perm-billing-read','2026-06-01 22:07:33'),('role-read-only','perm-calls-read','2026-06-01 22:07:33'),('role-read-only','perm-contacts-read','2026-06-01 22:07:33'),('role-read-only','perm-events-read','2026-06-01 22:07:33'),('role-read-only','perm-marketing-read','2026-06-01 22:07:33'),('role-read-only','perm-reports-read','2026-06-01 22:07:33'),('role-read-only','perm-settings-read','2026-06-01 22:07:33'),('role-read-only','perm-team-read','2026-06-01 22:07:33'),('role-read-only','perm-webhooks-read','2026-06-01 22:07:33'),('role-receptionist','perm-appointments-read','2026-06-01 22:07:33'),('role-receptionist','perm-appointments-write','2026-06-01 22:07:33'),('role-receptionist','perm-calls-read','2026-06-01 22:07:33'),('role-receptionist','perm-calls-write','2026-06-01 22:07:33'),('role-receptionist','perm-contacts-read','2026-06-01 22:07:33'),('role-receptionist','perm-contacts-write','2026-06-01 22:07:33'),('role-super-admin','perm-all','2026-06-01 22:07:33');
 /*!40000 ALTER TABLE `role_permission` ENABLE KEYS */;
-UNLOCK TABLES;
-DROP TABLE IF EXISTS `schema_migration`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `schema_migration` (
-  `filename` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `checksum_sha256` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `applied_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`filename`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
-LOCK TABLES `schema_migration` WRITE;
-/*!40000 ALTER TABLE `schema_migration` DISABLE KEYS */;
-/*!40000 ALTER TABLE `schema_migration` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `sla_breach`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -2055,6 +2114,7 @@ CREATE TABLE `task` (
   `service_type` enum('ppc','seo','gbp','website','landing_pages','cro','strategy','other') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `client_account_profile_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `client_account_service_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `contact_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `contact_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `due_label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `due_date` date DEFAULT NULL,
@@ -2085,6 +2145,7 @@ CREATE TABLE `task` (
   KEY `idx_task_internal_due` (`clinic_id`,`is_internal`,`due_date`,`status`,`archived_at`),
   KEY `idx_task_client_account` (`client_account_profile_id`),
   KEY `idx_task_client_service` (`client_account_service_id`),
+  KEY `idx_task_contact` (`clinic_id`,`contact_id`),
   KEY `idx_task_assigned_user` (`assigned_user_id`),
   KEY `idx_task_internal_qa` (`clinic_id`,`is_internal`,`needs_qa`,`approval_status`,`archived_at`),
   KEY `idx_task_internal_flags` (`clinic_id`,`is_internal`,`missed_task`,`escalation_flag`,`archived_at`),
@@ -2094,6 +2155,7 @@ CREATE TABLE `task` (
   CONSTRAINT `fk_task_client_account_profile` FOREIGN KEY (`client_account_profile_id`) REFERENCES `client_account_profile` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_task_client_account_service` FOREIGN KEY (`client_account_service_id`) REFERENCES `client_account_service` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_task_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_task_contact` FOREIGN KEY (`contact_id`) REFERENCES `contact` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_task_reviewer_user` FOREIGN KEY (`reviewer_user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_task_user` FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -2549,6 +2611,10 @@ CREATE TABLE ` call ` (
   `recording_status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `recording_duration` int DEFAULT NULL,
   `recording_source` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `consent_captured` tinyint(1) NOT NULL DEFAULT '0',
+  `consent_method` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `consent_timestamp` datetime DEFAULT NULL,
+  `retention_deadline` date DEFAULT NULL,
   `transcript` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `ai_summary` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `sentiment` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -2584,8 +2650,41 @@ CREATE TABLE ` call ` (
 
 LOCK TABLES ` call ` WRITE;
 /*!40000 ALTER TABLE ` call ` DISABLE KEYS */;
-INSERT INTO ` call ` VALUES ('call-001','clinic-001','contact-001','user-002',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','inbound',NULL,'existing_patient',NULL,NULL,'booked',NULL,0,NULL,NULL,NULL,NULL,300,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Patient called to confirm appointment',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-002','clinic-001','contact-002','user-002',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','outbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,600,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Follow-up call regarding treatment progress',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-003','clinic-001','contact-003','user-002',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','inbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,450,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Patient called with questions about exercises',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-004','clinic-001','contact-004','user-002',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','outbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,180,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No-show follow-up call',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-005','clinic-002','contact-005','user-005',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','inbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,420,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Patient inquiry about treatment options',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-006','clinic-002','contact-006','user-005',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','outbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,540,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Treatment plan discussion',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-007','clinic-003','contact-007','user-007',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','inbound',NULL,'existing_patient',NULL,NULL,'booked',NULL,0,NULL,NULL,NULL,NULL,360,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Patient called regarding appointment time',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-008','clinic-003','contact-008','user-007',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','outbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,480,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Pain management check-in',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-009','clinic-004','contact-009','user-008',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','inbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,240,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'New patient inquiry',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-010','clinic-004','contact-010','user-009',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','outbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,600,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Therapy progress discussion',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL);
+INSERT INTO ` call ` (`id`,`clinic_id`,`contact_id`,`user_id`,`twilio_call_sid`,`twilio_account_sid`,`twilio_parent_call_sid`,`from_number`,`to_number`,`tracking_number`,`source`,`direction`,`call_status`,`outcome`,`outcome_updated_by`,`outcome_updated_at`,`disposition`,`answered_by`,`missed_call`,`missed_recovery_status`,`missed_recovery_at`,`started_at`,`ended_at`,`duration`,`recording_url`,`recording_sid`,`recording_status`,`recording_duration`,`recording_source`,`transcript`,`ai_summary`,`sentiment`,`booking_intent`,`treatment_mentioned`,`quality_score`,`summary_generated_at`,`notes`,`webhook_payload`,`created_at`,`updated_at`,`deleted_at`) VALUES ('call-001','clinic-001','contact-001','user-002',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','inbound',NULL,'existing_patient',NULL,NULL,'booked',NULL,0,NULL,NULL,NULL,NULL,300,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Patient called to confirm appointment',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-002','clinic-001','contact-002','user-002',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','outbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,600,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Follow-up call regarding treatment progress',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-003','clinic-001','contact-003','user-002',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','inbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,450,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Patient called with questions about exercises',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-004','clinic-001','contact-004','user-002',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','outbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,180,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'No-show follow-up call',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-005','clinic-002','contact-005','user-005',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','inbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,420,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Patient inquiry about treatment options',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-006','clinic-002','contact-006','user-005',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','outbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,540,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Treatment plan discussion',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-007','clinic-003','contact-007','user-007',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','inbound',NULL,'existing_patient',NULL,NULL,'booked',NULL,0,NULL,NULL,NULL,NULL,360,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Patient called regarding appointment time',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-008','clinic-003','contact-008','user-007',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','outbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,480,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Pain management check-in',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-009','clinic-004','contact-009','user-008',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','inbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,240,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'New patient inquiry',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL),('call-010','clinic-004','contact-010','user-009',NULL,NULL,NULL,NULL,NULL,NULL,'Call log','outbound',NULL,'existing_patient',NULL,NULL,'none',NULL,0,NULL,NULL,NULL,NULL,600,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'Therapy progress discussion',NULL,'2026-04-24 13:22:59','2026-06-01 22:07:36',NULL);
 /*!40000 ALTER TABLE ` call ` ENABLE KEYS */;
+UNLOCK TABLES;
+DROP TABLE IF EXISTS `call_recording_deletion_request`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `call_recording_deletion_request` (
+  `id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `call_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('requested','approved','completed','rejected','cancelled') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'requested',
+  `reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `requested_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `requested_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `resolved_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `resolved_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_call_recording_deletion_clinic_call` (`clinic_id`,`call_id`,`deleted_at`),
+  KEY `idx_call_recording_deletion_status` (`clinic_id`,`status`,`deleted_at`),
+  KEY `idx_call_recording_deletion_call` (`call_id`),
+  KEY `idx_call_recording_deletion_requested_by` (`requested_by`),
+  KEY `idx_call_recording_deletion_resolved_by` (`resolved_by`),
+  CONSTRAINT `fk_call_recording_deletion_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_call_recording_deletion_call` FOREIGN KEY (`call_id`) REFERENCES ` call ` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_call_recording_deletion_requested_by` FOREIGN KEY (`requested_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_call_recording_deletion_resolved_by` FOREIGN KEY (`resolved_by`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `call_recording_deletion_request` WRITE;
+/*!40000 ALTER TABLE `call_recording_deletion_request` DISABLE KEYS */;
+/*!40000 ALTER TABLE `call_recording_deletion_request` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 

@@ -39,7 +39,7 @@ Phase 1 is still partial because several areas are currently foundation-level ra
 - `/app/revenue` now includes a plain-English executive summary using live revenue, spend, ROAS, consult attendance, open opportunity and leakage data.
 - Revenue Leakage v1 is connected to live report leakage endpoints at `/app/leakage`.
 - `/app/leakage` now uses a dedicated backend leakage detail endpoint for missed calls, SLA breaches, no-shows and low consult conversion source records.
-- Backend Insight v1 is implemented with `insight` migrations, `db.sql` schema, `/api/insights` endpoints, deterministic leakage insight generation, status updates, assignment and linked action task creation.
+- Backend Insight v1 is implemented in the `db.sql` schema, `/api/insights` endpoints, deterministic leakage insight generation, status updates, assignment and linked action task creation.
 - Insight generation now has an opt-in OpenAI enrichment layer using the Responses API, with deterministic fallback and provider/model/fallback metadata stored per insight.
 - `/app/leakage` now includes a Revenue Insights panel that can generate insights, resolve insights and create linked action tasks.
 - `/app/leakage` drill-down rows now show linked lead context counts, insight/task/action-plan status and open the lead drawer through `/app/leads?contactId=...`.
@@ -229,7 +229,7 @@ Implemented:
 
 - AI workspace projects/runs pages and several AI tool/agent templates exist.
 - Some dashboard/leakage UI includes static recommended action text.
-- Insight data model exists with migrations and `db.sql` schema.
+- Insight data model exists in the `db.sql` schema.
 - Backend `/api/insights` supports list, generate, resolve/archive/status updates, assignment and linked action task creation.
 - Insight generation currently creates deterministic revenue leakage insights from missed calls, SLA breaches, no-shows and low consult conversion details, with active insight dedupe.
 - Insight generation can enrich leakage insight title, summary, recommended action and severity through OpenAI when `OPENAI_INSIGHTS_ENABLED=true` and `OPENAI_API_KEY` are configured.
@@ -325,7 +325,7 @@ Still left:
 
 Passed on 2026-06-09:
 
-- Backend: `node scripts/db-migrate.mjs 20260609_report_shares.sql`
+- Backend: recreate/import from `backend/db.sql`
 - Backend: `npm run build`
 - Backend: `node dist/test/test-reports-dashboard.js`
 - Backend: `node dist/test/test-monthly-action-plans.js`

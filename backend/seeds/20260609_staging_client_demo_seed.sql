@@ -147,7 +147,7 @@
 -- seed-usage-storage => 4816d6a0-1df5-5eb8-9e38-75393ad996dc
 -- seed-webhook-lead-events => 187ed0cf-1bcd-54fd-ab83-55c2ff205485
 -- seed-webhook-secret => afa59501-14c5-548a-9d88-abf03db33850
--- Import this after db.sql and migrations have already been applied.
+-- Import this after db.sql has been applied.
 -- This file does not create or update the staging user; it only links demo data
 -- to the existing user/clinic pair below.
 

@@ -78,7 +78,7 @@ DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=your_password_here
-DB_NAME=clinic_grower_crm
+DB_NAME=growth_group_internal_crm
 DB_SSL=false
 JWT_SECRET=replace-with-a-long-random-secret
 FRONTEND_URL=http://localhost:3000
@@ -151,50 +151,13 @@ Setup audit:
 
 ## Database Setup
 
-There are two supported database workflows.
-
-### Option A: Import `db.sql`
-
-This is the fastest way to reset local/dev data when you are comfortable dropping and recreating the database.
+The internal CRM uses `db.sql` as the source of truth for fresh local/dev databases.
 
 ```bash
-mysql -u root -p -e "DROP DATABASE IF EXISTS clinic_grower_crm; CREATE DATABASE clinic_grower_crm CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-mysql -u root -p clinic_grower_crm < db.sql
-npm run db:migrate
+mysql -u root -p < db.sql
 ```
 
-Why run `db:migrate` after importing `db.sql`?
-
-- `db.sql` already contains the current schema.
-- `npm run db:migrate` creates/updates `schema_migration`.
-- The runner checks whether historical migrations are already satisfied and records them without replaying destructive or duplicate `ALTER TABLE` statements.
-- After this, future migrations can be applied normally.
-
-### Option B: Apply Migrations To An Existing DB
-
-```bash
-npm run db:migrate
-```
-
-The runner:
-
-- Reads SQL files from `migrations/` in filename order.
-- Creates `schema_migration` if missing.
-- Stores SHA256 checksums.
-- Skips already applied migrations.
-- Fails if an applied migration file changed.
-- Detects already-satisfied historical migrations from databases created by `db.sql`.
-
-Useful migration commands:
-
-```bash
-npm run db:migrate
-npm run db:migrate -- --dry-run
-npm run db:migrate -- 20260609_monthly_action_plans.sql
-npm run db:migrate -- --baseline
-```
-
-Use `--baseline` only when you intentionally want to mark pending migration files as applied without running them.
+When the schema changes, update `db.sql` directly and recreate the local/dev database from that file.
 
 ## Run
 
@@ -286,7 +249,5 @@ Most routes require JWT authentication and permission checks.
 ## Repository Notes
 
 - `db.sql` is the current full schema dump.
-- `migrations/` contains forward SQL migrations.
-- `schema_migration` tracks applied migration filenames and checksums.
-- Do not edit old applied migration files casually; add a new migration instead.
-- If `db.sql` is updated with a new table/column, add the corresponding migration in the same change.
+- This repo is now optimized for fresh internal CRM databases, so old clinic upgrade SQL files are not part of the active setup path.
+- If `db.sql` is updated with a new table/column, keep the change in `db.sql`.

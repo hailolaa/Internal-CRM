@@ -41,7 +41,7 @@ export default function SignupPage() {
         return;
       }
 
-      router.push(ROUTES.ONBOARDING);
+      router.push(ROUTES.APP);
     } catch (err) {
       setError(
         err instanceof ApiClientError

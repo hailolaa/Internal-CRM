@@ -24,7 +24,7 @@ export const config = {
         port: parseInt(process.env.DB_PORT || "3306", 10),
         user: process.env.DB_USER || "root",
         password: process.env.DB_PASSWORD || "",
-        name: process.env.DB_NAME || "clinic_grower_crm",
+        name: process.env.DB_NAME || "growth_group_internal_crm",
         ssl: parseBoolean(process.env.DB_SSL, false),
         sslRejectUnauthorized: parseBoolean(
             process.env.DB_SSL_REJECT_UNAUTHORIZED,

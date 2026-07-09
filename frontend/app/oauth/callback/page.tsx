@@ -133,12 +133,12 @@ export default function OAuthCallbackPage() {
         setState("success");
         setMessage(
           isNewUser
-            ? "Account created. Opening onboarding..."
+            ? "Account created. Opening your workspace..."
             : "Signed in. Opening your workspace...",
         );
 
         window.setTimeout(() => {
-          router.replace(isNewUser ? ROUTES.ONBOARDING : ROUTES.APP);
+          router.replace(ROUTES.APP);
           router.refresh();
         }, 350);
       } catch {

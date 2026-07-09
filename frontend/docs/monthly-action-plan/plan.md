@@ -26,7 +26,7 @@ Create durable, tenant-scoped monthly action plan records with linked plan items
 
 Context:
 
-The backend uses Express modules under `src/modules/<domain>`, MySQL migrations under `migrations`, and a canonical schema dump in `db.sql`. Insight work recently added the same pattern with `src/modules/insights`, migrations and `db.sql`.
+The backend uses Express modules under `src/modules/<domain>` and a canonical fresh-database schema dump in `db.sql`. Insight work follows the same pattern with `src/modules/insights` and `db.sql`.
 
 Relevant files:
 
@@ -34,7 +34,7 @@ Relevant files:
 - Backend: `clinicgrower-crm-backend/src/modules/insights/*`
 - Backend: `clinicgrower-crm-backend/src/modules/tasks/*`
 - Backend: `clinicgrower-crm-backend/db.sql`
-- Backend: `clinicgrower-crm-backend/migrations`
+- Backend schema: `clinicgrower-crm-backend/db.sql`
 
 Proposed approach:
 

@@ -20,7 +20,7 @@ const db = {
   port: process.env.DB_PORT || "3306",
   user: process.env.DB_USER || "root",
   password: process.env.DB_PASSWORD || "",
-  name: process.env.DB_NAME || "clinic_grower_crm",
+  name: process.env.DB_NAME || "growth_group_internal_crm",
 };
 
 await run(mysqlBin, [
