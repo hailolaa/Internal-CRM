@@ -20,7 +20,7 @@ type RoleRow = {
 };
 
 export class RolesService {
-  // List roles available to the clinic with resolved permission keys
+  // List roles available to the workspace with resolved permission keys
   async listRoles(clinicId: string) {
     const [rows]: any = await pool.execute(
       `SELECT r.id, r.name, r.display_name as displayName, r.description, r.is_system as isSystem,
@@ -29,6 +29,7 @@ export class RolesService {
        LEFT JOIN role_permission rp ON rp.role_id = r.id
        LEFT JOIN permission p ON p.id = rp.permission_id AND p.deleted_at IS NULL
        WHERE (r.clinic_id = ? OR r.clinic_id IS NULL) AND r.deleted_at IS NULL
+         AND r.name NOT IN ('CLINIC_ADMIN', 'CLINICIAN', 'RECEPTIONIST', 'READ_ONLY')
        GROUP BY r.id
        ORDER BY r.is_system DESC, r.name ASC`,
       [clinicId],

@@ -10,7 +10,7 @@ const router = Router();
 router.use(authenticate);
 
 // @route   GET /api/roles
-// @desc    List roles available to the clinic
+// @desc    List roles available to the workspace
 // @access  Private
 router.get("/", authorizePermission("settings:read"), rolesController.listRoles);
 
@@ -20,17 +20,17 @@ router.get("/", authorizePermission("settings:read"), rolesController.listRoles)
 router.get("/permissions", authorizePermission("settings:read"), rolesController.listPermissions);
 
 // @route   POST /api/roles
-// @desc    Create a clinic role
+// @desc    Create a workspace role
 // @access  Private
 router.post("/", authorizePermission("settings:write"), createRoleValidator, validate, rolesController.createRole);
 
 // @route   PATCH /api/roles/:id
-// @desc    Update a clinic role
+// @desc    Update a workspace role
 // @access  Private
 router.patch("/:id", authorizePermission("settings:write"), updateRoleValidator, validate, rolesController.updateRole);
 
 // @route   DELETE /api/roles/:id
-// @desc    Archive a clinic role
+// @desc    Archive a workspace role
 // @access  Private
 router.delete("/:id", authorizePermission("settings:write"), roleIdValidator, validate, rolesController.archiveRole);
 

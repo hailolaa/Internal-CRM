@@ -14,6 +14,7 @@ import {
   ExternalLink,
   AlertTriangle,
   Loader2,
+  Users,
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -339,7 +340,8 @@ export default function ContactsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Contacts"
-        subtitle="Manage The Growth Group prospects, client contacts, and account stakeholders in one place."
+        subtitle="Manage prospects, client contacts, and account stakeholders in one internal list."
+        icon={Users}
         right={
           <div className="flex gap-2">
             <button onClick={handleExport} className="btn-secondary text-sm">

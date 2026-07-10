@@ -1,20 +1,28 @@
 "use client";
 
-import { Users, Activity, Calendar, CheckSquare, FileText } from "lucide-react";
+import { BriefcaseBusiness, CheckSquare, FolderKanban, Target, Users } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { SubNav } from "@/components/sub-nav";
 
-const CRM_NAV = [
+const SALES_NAV = [
+  { label: "Prospect List", href: "/app/leads", icon: Users },
+  { label: "Sales Pipeline", href: "/app/crm/pipeline", icon: Target },
   { label: "Contacts", href: "/app/crm/contacts", icon: Users },
-  { label: "Pipeline", href: "/app/crm/pipeline", icon: Activity },
-  { label: "Calendar", href: "/app/crm/calendar", icon: Calendar },
-  { label: "Tasks", href: "/app/crm/tasks", icon: CheckSquare },
-  { label: "Forms", href: "/app/crm/forms", icon: FileText },
+];
+
+const DELIVERY_NAV = [
+  { label: "Client Accounts", href: "/app/ops/client-accounts", icon: BriefcaseBusiness },
+  { label: "Delivery Work", href: "/app/ops/delivery", icon: FolderKanban },
+  { label: "Internal Tasks", href: "/app/crm/tasks", icon: CheckSquare },
 ];
 
 export default function CRMLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const items = pathname.startsWith("/app/crm/tasks") ? DELIVERY_NAV : SALES_NAV;
+
   return (
     <div>
-      <SubNav items={CRM_NAV} />
+      <SubNav items={items} />
       {children}
     </div>
   );

@@ -12,11 +12,18 @@ import type { NavItem, NavSection } from "@/lib/types";
 
 export const NAV_SECTIONS: NavSection[] = [
   {
+    title: "Overview",
+    colorClass: "text-[#7A746A]/60",
+    items: [
+      { label: "Mission Control", href: "/app", icon: ClipboardList },
+    ],
+  },
+  {
     title: "Sales",
     colorClass: "text-[#7D8F7A]/60",
     items: [
-      { label: "Sales Pipeline", href: "/app/crm/pipeline", icon: Target },
       { label: "Prospect List", href: "/app/leads", icon: Users },
+      { label: "Sales Pipeline", href: "/app/crm/pipeline", icon: Target },
       { label: "Contacts", href: "/app/crm/contacts", icon: Users },
     ],
   },
@@ -34,18 +41,11 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: "Operations",
+    title: "Team & Admin",
     colorClass: "text-[#7A746A]/60",
     items: [
-      { label: "Mission Control", href: "/app", icon: ClipboardList },
       { label: "Team Members", href: "/app/ops/team", icon: Users },
-    ],
-  },
-  {
-    title: "Admin",
-    colorClass: "text-[#7A746A]/60",
-    items: [
-      { label: "Roles", href: "/app/ops/roles", icon: Shield },
+      { label: "Roles & Permissions", href: "/app/ops/roles", icon: Shield },
     ],
   },
 ];

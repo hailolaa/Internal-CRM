@@ -129,9 +129,7 @@ export default function RolesManagementPage() {
     );
   }, [query, roles]);
 
-  const assignedPermissionCount = new Set(
-    roles.flatMap((role) => role.permissions),
-  ).size;
+  const customRoleCount = roles.filter((role) => !role.isSystem).length;
 
   const startCreate = () => {
     setForm({
@@ -150,7 +148,7 @@ export default function RolesManagementPage() {
       setNotice({
         type: "warning",
         title: "System roles are protected",
-        description: "Create a custom role if this workspace needs different access.",
+        description: "Create a custom internal role if this team needs different access.",
       });
       return;
     }
@@ -263,8 +261,8 @@ export default function RolesManagementPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Roles"
-        subtitle="Manage workspace role definitions and assigned permissions."
+        title="Roles & Permissions"
+        subtitle="Manage internal role definitions and access permissions for the Mission Control team."
         right={
           <button
             type="button"
@@ -273,7 +271,7 @@ export default function RolesManagementPage() {
             className="btn-primary w-fit disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
-            New Role
+            New Internal Role
           </button>
         }
       />
@@ -299,39 +297,46 @@ export default function RolesManagementPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card>
           <p className="text-xs font-semibold uppercase tracking-widest text-[#5e8a8d]">
-            Roles
+            Internal Roles
           </p>
           <p className="mt-2 text-3xl font-bold text-[#151f21]">
             {isLoading ? "..." : roles.length}
           </p>
-          <p className="mt-1 text-sm text-[#7A746A]">Live role records</p>
+          <p className="mt-1 text-sm text-[#7A746A]">Team access profiles</p>
         </Card>
         <Card>
           <p className="text-xs font-semibold uppercase tracking-widest text-[#5e8a8d]">
-            Permissions
+            Permission Keys
           </p>
           <p className="mt-2 text-3xl font-bold text-[#151f21]">
             {isLoading ? "..." : permissions.length}
           </p>
-          <p className="mt-1 text-sm text-[#7A746A]">Assignable permission keys</p>
+          <p className="mt-1 text-sm text-[#7A746A]">Internal access controls</p>
         </Card>
         <Card>
           <p className="text-xs font-semibold uppercase tracking-widest text-[#5e8a8d]">
-            Assigned
+            Custom Roles
           </p>
           <p className="mt-2 text-3xl font-bold text-[#151f21]">
-            {isLoading ? "..." : assignedPermissionCount}
+            {isLoading ? "..." : customRoleCount}
           </p>
-          <p className="mt-1 text-sm text-[#7A746A]">Used by visible roles</p>
+          <p className="mt-1 text-sm text-[#7A746A]">Editable custom roles</p>
         </Card>
       </div>
+
+      <AlertBanner
+        icon={LockKeyhole}
+        title="Default roles are protected"
+        description="Super Admin, Admin, Sales, Delivery, Finance, and Internal Viewer are the fixed MVP roles. Create a custom internal role when you need something editable or archivable."
+        variant="info"
+      />
 
       {form && (
         <Card>
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="font-semibold text-[#111111]">
-                {form.id ? "Edit Role" : "Create Role"}
+                {form.id ? "Edit Internal Role" : "Create Internal Role"}
               </h2>
               <p className="text-sm text-[#6B7280]">
                 Select the exact permissions this role should grant.
@@ -353,7 +358,7 @@ export default function RolesManagementPage() {
                 htmlFor={`${formBaseId}-role-name`}
                 className="mb-1.5 block text-sm font-medium text-[#151f21]"
               >
-                Role Name
+                Role name
               </label>
               <input
                 id={`${formBaseId}-role-name`}
@@ -464,9 +469,9 @@ export default function RolesManagementPage() {
             <Shield className="h-5 w-5 text-[#6E6AE8]" />
           </div>
           <div>
-            <h2 className="font-semibold text-[#111111]">Role Registry</h2>
+            <h2 className="font-semibold text-[#111111]">Access Registry</h2>
             <p className="text-sm text-[#6B7280]">
-              System roles are protected. Custom workspace roles can be edited here.
+              Default internal roles are protected. Custom internal roles can be edited or archived here.
             </p>
           </div>
         </div>
@@ -489,7 +494,7 @@ export default function RolesManagementPage() {
               <td colSpan={5} className="px-6 py-10 text-center text-sm text-[#5e8a8d]">
                 {query
                   ? "No roles match that search."
-                  : "No live roles are available for this workspace."}
+                  : "No live roles are available for Mission Control."}
               </td>
             </tr>
           )}
@@ -497,17 +502,19 @@ export default function RolesManagementPage() {
             <TableRow key={role.id}>
               <TableCell>
                 <div className="flex items-center gap-2 font-medium text-[#111111]">
-                  <LockKeyhole className="h-4 w-4 text-[#6E6AE8]" />
+                  <LockKeyhole className={`h-4 w-4 ${role.isSystem ? "text-[#6E6AE8]" : "text-[#60b4af]"}`} />
                   {role.displayName}
                 </div>
-                <p className="mt-1 text-xs text-[#6B7280]">{role.name}</p>
+                <p className="mt-1 text-xs text-[#6B7280]">
+                  {role.isSystem ? "Protected default role" : "Custom internal role"}
+                </p>
               </TableCell>
               <TableCell className="text-sm text-[#6B7280]">
                 {role.description ?? "-"}
               </TableCell>
               <TableCell>
                 <Badge variant={role.isSystem ? "info" : "neutral"} size="xs">
-                  {role.isSystem ? "System" : "Custom"}
+                  {role.isSystem ? "Protected" : "Custom"}
                 </Badge>
               </TableCell>
               <TableCell className="text-sm text-[#6B7280]">
@@ -534,6 +541,11 @@ export default function RolesManagementPage() {
                     type="button"
                     onClick={() => startEdit(role)}
                     disabled={!canWriteRoles || role.isSystem}
+                    title={
+                      role.isSystem
+                        ? "Protected default roles cannot be edited. Create a custom internal role to edit permissions."
+                        : "Edit custom role"
+                    }
                     className="rounded-lg p-2 text-[#6B7280] hover:bg-[rgba(0,0,0,0.04)] disabled:opacity-40"
                     aria-label={`Edit ${role.displayName}`}
                   >
@@ -543,6 +555,11 @@ export default function RolesManagementPage() {
                     type="button"
                     onClick={() => void archiveRole(role)}
                     disabled={!canWriteRoles || role.isSystem || mutatingRoleId === role.id}
+                    title={
+                      role.isSystem
+                        ? "Protected default roles cannot be archived. Create a custom internal role to archive it later."
+                        : "Archive custom role"
+                    }
                     className="rounded-lg p-2 text-[#6B7280] hover:bg-[rgba(0,0,0,0.04)] disabled:opacity-40"
                     aria-label={`Archive ${role.displayName}`}
                   >

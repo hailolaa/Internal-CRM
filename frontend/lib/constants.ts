@@ -33,9 +33,9 @@ export const ROUTES = {
 // Page title map for TopBar - ordered longest-first for accurate prefix matching
 export const PAGE_TITLES: Record<string, string> = {
   // Sales
-  "/app/revenue": "Mission Control",
+  "/app/revenue": "Legacy Dashboard Redirect",
   "/app/leads": "Prospect List",
-  "/app/consults": "Sales Call Tracking",
+  "/app/consults": "Legacy Sales Calls",
   "/app/sla": "Response Time Monitoring",
   "/app/retention": "Client Retention",
   "/app/benchmarking": "Legacy Benchmarking",
@@ -68,6 +68,7 @@ export const PAGE_TITLES: Record<string, string> = {
   // Operations
   "/app/ops/delivery": "Delivery Work",
   "/app/ops/automations": "Automation Engine",
+  "/app/ops/team/invite": "Invite Team Member",
   "/app/ops/team": "Team Members",
   "/app/ops/client-accounts": "Client Accounts",
   "/app/ops/roles": "Roles & Permissions",
@@ -96,15 +97,15 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/integrations": "Integrations",
 
   // Settings
-  "/app/settings/clinic": "Account Profile",
-  "/app/settings/team": "Team Settings",
+  "/app/settings/clinic": "Mission Control Profile",
+  "/app/settings/team": "Team Members",
   "/app/settings/locations": "Office Locations",
   "/app/settings/treatments": "Legacy Service Catalogue",
   "/app/settings/billing": "Billing & Plans",
   "/app/settings/security": "Security",
   "/app/settings/compliance": "Compliance",
   "/app/settings/api": "API Keys",
-  "/app/settings/roles": "Roles",
+  "/app/settings/roles": "Roles & Permissions",
   "/app/settings": "Settings",
 
   // Admin

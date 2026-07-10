@@ -91,8 +91,8 @@ export default function TeamSettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Team"
-        subtitle="Phase 1: basic team management."
+        title="Team Members"
+        subtitle="Invite and manage internal users, roles, and access."
         right={
           <button
             onClick={() => router.push("/app/ops/team/invite")}
@@ -164,7 +164,7 @@ export default function TeamSettingsPage() {
       </DataTable>
 
       <div className="text-xs text-gray-500">
-        Advanced RBAC interface is removed in Phase 1.
+        Detailed access control is managed from Roles & Permissions.
       </div>
     </div>
   );

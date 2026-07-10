@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   CheckCircle,
   Info,
+  Target,
   UserRound,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -33,7 +34,7 @@ import {
   getPipelineStageKey,
 } from "@/lib/pipeline-stage-normalization";
 import { useReportCsvExport } from "@/hooks/use-report-csv-export";
-import { AlertBanner, PipelineSkeleton } from "@/components/ui";
+import { AlertBanner, PageHeader, PipelineSkeleton } from "@/components/ui";
 
 type PipelineDealData = {
   id: string;
@@ -821,14 +822,12 @@ export default function PipelinePage() {
 
   return (
     <div className="space-y-6 h-full">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[#111111]">Sales Pipeline</h1>
-          <p className="text-[#6B7280] mt-1">
-            Track The Growth Group prospects from enquiry through proposal, won, or lost.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+      <PageHeader
+        title="Sales Pipeline"
+        subtitle="Track prospects from enquiry through discovery, proposal, won, or lost."
+        icon={Target}
+        right={
+          <div className="flex flex-wrap items-center justify-end gap-3">
           <div className="text-right hidden sm:block">
             <p className="text-2xl font-bold text-[#6E6AE8]">
               GBP {totalValue.toLocaleString()}
@@ -857,8 +856,9 @@ export default function PipelinePage() {
           >
             <Plus className="w-4 h-4" /> Add Opportunity
           </button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {loadError && (
         <AlertBanner

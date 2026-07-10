@@ -9,8 +9,8 @@ import {
 } from "lucide-react";
 
 const SETTINGS_NAV = [
-  { label: "Account Profile", href: "/app/settings/clinic", icon: Building2 },
-  { label: "Team", href: "/app/settings/team", icon: Users },
+  { label: "Mission Control Profile", href: "/app/settings/clinic", icon: Building2 },
+  { label: "Team Members", href: "/app/settings/team", icon: Users },
   { label: "Security", href: "/app/settings/security", icon: Shield },
 ];
 

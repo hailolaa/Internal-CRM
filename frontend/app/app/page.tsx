@@ -290,7 +290,7 @@ export default function AppPage() {
     <div className="space-y-6">
       <PageHeader
         title="Mission Control"
-        subtitle="Internal sales, clients, delivery work, and task health at a glance."
+        subtitle="Internal sales pipeline, client accounts, delivery work, and task health at a glance."
         icon={ClipboardList}
       />
 
@@ -317,7 +317,7 @@ export default function AppPage() {
         ) : (
           <>
             <StatCard
-              label="New Leads"
+              label="New Prospects"
               value={String(metrics.newLeads.length)}
               sub="new enquiries and recent opportunities"
               icon={Users}
@@ -374,7 +374,7 @@ export default function AppPage() {
         >
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h2 className="font-semibold text-[#151f21]">Leads by Stage</h2>
+              <h2 className="font-semibold text-[#151f21]">Prospects by Stage</h2>
               <p className="text-sm text-[#5e8a8d]">
                 {deals.length} total sales opportunities
               </p>
@@ -383,7 +383,7 @@ export default function AppPage() {
               href="/app/crm/pipeline"
               className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb]"
             >
-              Pipeline
+              Sales Pipeline
             </Link>
           </div>
           <div className="space-y-3">
@@ -476,7 +476,7 @@ export default function AppPage() {
               href="/app/ops/client-accounts"
               className="text-sm font-medium text-[#5e8a8d] hover:text-[#151f21]"
             >
-              Clients
+              Client Accounts
             </Link>
           </div>
           <div className="divide-y divide-[rgba(21,31,33,0.05)]">

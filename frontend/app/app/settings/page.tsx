@@ -17,8 +17,8 @@ import type {
 
 const settingsItems = [
   {
-    name: "Account Profile",
-    desc: "Account name, address, branding, and contact details.",
+    name: "Mission Control Profile",
+    desc: "Internal account name, address, branding, and contact details.",
     href: "/app/settings/clinic",
     icon: Building2,
     color:
@@ -84,7 +84,7 @@ export default function SettingsPage() {
   }, [session]);
 
   const cardMeta: Record<string, string> = {
-    "Account Profile": clinic
+    "Mission Control Profile": clinic
       ? `${clinic.name} - ${clinic.city || clinic.country || "Profile loaded"}`
       : "Not loaded yet",
     "Team Members": teamMembers.length
@@ -111,7 +111,7 @@ export default function SettingsPage() {
           style={{ backgroundColor: "#FFFCF9", border: "1px solid #E5DED6" }}
         >
           <p className="text-xs" style={{ color: "#7A746A" }}>
-            Workspace
+            Mission Control
           </p>
           <p className="font-semibold" style={{ color: "#252421" }}>
             {clinic?.name || "Loading"}

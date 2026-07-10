@@ -9,6 +9,7 @@ import {
   StatCardSkeleton,
   TableRowSkeleton,
 } from "@/components/ui";
+import { SubNav } from "@/components/sub-nav";
 import {
   SortableHeader,
   PaginationControls,
@@ -22,6 +23,12 @@ import type {
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { PoundSterling, Target, TrendingUp, Users } from "lucide-react";
+
+const SALES_NAV = [
+  { label: "Prospect List", href: "/app/leads", icon: Users },
+  { label: "Sales Pipeline", href: "/app/crm/pipeline", icon: Target },
+  { label: "Contacts", href: "/app/crm/contacts", icon: Users },
+];
 
 interface Lead {
   id: string;
@@ -225,6 +232,8 @@ export default function LeadsPage() {
 
   return (
     <div className="space-y-6">
+      <SubNav items={SALES_NAV} />
+
       <PageHeader
         title="Prospect List"
         subtitle="Track incoming The Growth Group enquiries from sales opportunities and CRM contacts, including source, service/package, owner, stage, and value."

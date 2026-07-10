@@ -11,6 +11,7 @@ import {
   Archive,
   AlertTriangle,
   BriefcaseBusiness,
+  CheckSquare,
   Link2,
   UserRound,
 } from "lucide-react";
@@ -25,7 +26,7 @@ import type {
   InternalTaskRecord,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
-import { AlertBanner, SkeletonLine } from "@/components/ui";
+import { AlertBanner, PageHeader, SkeletonLine } from "@/components/ui";
 
 type TaskRow = {
   id: string;
@@ -356,22 +357,19 @@ export default function TasksPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[#111111]">
-            Internal Delivery Tasks
-          </h1>
-          <p className="text-[#6B7280] mt-1">
-            Track sales hand-offs, delivery work, QA, fixes, and client deadlines.
-          </p>
-        </div>
-        <Link
-          href="/app/crm/tasks/new"
-          className="bg-[#6E6AE8] hover:bg-[#5A56D4] text-white font-medium px-4 py-2.5 rounded-[14px] flex items-center gap-2 w-fit transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Add Internal Task
-        </Link>
-      </div>
+      <PageHeader
+        title="Internal Tasks"
+        subtitle="Track sales hand-offs, delivery work, QA, fixes, and client deadlines."
+        icon={CheckSquare}
+        right={
+          <Link
+            href="/app/crm/tasks/new"
+            className="bg-[#6E6AE8] hover:bg-[#5A56D4] text-white font-medium px-4 py-2.5 rounded-[14px] flex items-center gap-2 w-fit transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Add Task
+          </Link>
+        }
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div

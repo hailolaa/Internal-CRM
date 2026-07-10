@@ -3,7 +3,7 @@ import { rolesService } from "./roles.service.js";
 
 export class RolesController {
   // GET /api/roles
-  // List system and clinic roles
+  // List system and workspace roles
   listRoles = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId } = (req as any).user;
@@ -26,7 +26,7 @@ export class RolesController {
   };
 
   // POST /api/roles
-  // Create a clinic-scoped role
+  // Create a workspace-scoped role
   createRole = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;
@@ -38,7 +38,7 @@ export class RolesController {
   };
 
   // PATCH /api/roles/:id
-  // Update a clinic-scoped role
+  // Update a workspace-scoped role
   updateRole = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;
@@ -50,7 +50,7 @@ export class RolesController {
   };
 
   // DELETE /api/roles/:id
-  // Archive a clinic-scoped role
+  // Archive a workspace-scoped role
   archiveRole = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;
