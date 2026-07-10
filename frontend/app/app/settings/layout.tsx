@@ -6,18 +6,12 @@ import {
   Building2,
   Users,
   Shield,
-  FileText,
 } from "lucide-react";
 
 const SETTINGS_NAV = [
   { label: "Account Profile", href: "/app/settings/clinic", icon: Building2 },
   { label: "Team", href: "/app/settings/team", icon: Users },
   { label: "Security", href: "/app/settings/security", icon: Shield },
-  {
-    label: "Compliance & Audit",
-    href: "/app/settings/compliance",
-    icon: FileText,
-  },
 ];
 
 export default function SettingsLayout({

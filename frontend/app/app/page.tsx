@@ -399,7 +399,7 @@ export default function AppPage() {
                       {stage.name}
                     </span>
                     <span className="text-[#5e8a8d]">
-                      {stage.count} · {formatMoney(stage.valueCents)}
+                      {stage.count} - {formatMoney(stage.valueCents)}
                     </span>
                   </div>
                   <div className="h-2 rounded-full bg-[#eaedeb]">

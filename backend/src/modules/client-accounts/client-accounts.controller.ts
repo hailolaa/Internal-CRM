@@ -13,11 +13,7 @@ export class ClientAccountsController {
   listAccounts = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
-      const includeAllClinics = await userHasPermission(
-        user.userId,
-        user.clinicId,
-        "*",
-      );
+      const includeAllClinics = await userHasPermission(user.userId, user.clinicId, "client_accounts:read");
       const accounts = await clientAccountsService.listAccounts(user.clinicId, {
         includeAllClinics,
         query: req.query as any,
@@ -26,6 +22,43 @@ export class ClientAccountsController {
       res.status(200).json({
         status: "success",
         data: accounts,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createAccount = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const account = await clientAccountsService.createAccount(
+        user.userId,
+        req.body,
+        this.auditContext(req),
+      );
+
+      res.status(201).json({
+        status: "success",
+        data: account,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createAccountFromContact = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const account = await clientAccountsService.createAccountFromContact(
+        user.clinicId,
+        user.userId,
+        req.body,
+        this.auditContext(req),
+      );
+
+      res.status(201).json({
+        status: "success",
+        data: account,
       });
     } catch (error) {
       next(error);

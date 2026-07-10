@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  BriefcaseBusiness,
   CheckCircle,
   Clock,
   Edit3,
@@ -68,6 +69,7 @@ export default function ContactDetailPage() {
   const token = session?.token;
   const canDeleteContacts = hasPermission("contacts:delete");
   const canWriteContacts = hasPermission("contacts:write");
+  const canWriteClientAccounts = hasPermission("client_accounts:write");
   const [contact, setContact] = useState<ContactRecord | null>(null);
   const [activity, setActivity] = useState<ContactLinkedActivity | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,7 +77,7 @@ export default function ContactDetailPage() {
   const [loadError, setLoadError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
-  const [actionName, setActionName] = useState<"contacted" | "pipeline" | "delete" | null>(null);
+  const [actionName, setActionName] = useState<"contacted" | "pipeline" | "convert" | "delete" | null>(null);
 
   const loadContact = useCallback(async () => {
     if (!contactId) {
@@ -186,6 +188,44 @@ export default function ContactDetailPage() {
       setActionName(null);
     }
   }, [canWriteContacts, contact, token]);
+
+  const handleConvertToClient = useCallback(async () => {
+    if (!token || !contact || !canWriteClientAccounts) return;
+
+    const accountName = window.prompt(
+      "Client account name",
+      contact.name,
+    );
+    if (accountName === null) return;
+    const trimmedAccountName = accountName.trim();
+    if (!trimmedAccountName) {
+      setActionError("Client account name is required.");
+      return;
+    }
+
+    setActionName("convert");
+    setActionError("");
+    setActionMessage("");
+    try {
+      const account = await api.clientAccounts.createFromContact(token, {
+        contactId: contact.id,
+        accountName: trimmedAccountName,
+        clientStatus: "onboarding",
+        onboardingStatus: "in_progress",
+        healthStatus: "attention_needed",
+        contractStatus: "pending",
+      });
+      await loadContact();
+      setActionMessage(`${contact.name} converted to client account: ${account.clinicName}.`);
+      router.push("/app/ops/client-accounts");
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Could not convert prospect to client account.",
+      );
+    } finally {
+      setActionName(null);
+    }
+  }, [canWriteClientAccounts, contact, loadContact, router, token]);
 
   const handleDelete = useCallback(async () => {
     if (!token || !contact || !canDeleteContacts) return;
@@ -298,6 +338,18 @@ export default function ContactDetailPage() {
               <ExternalLink className="h-4 w-4" />
             )}
             Add to Pipeline
+          </button>
+          <button
+            onClick={handleConvertToClient}
+            disabled={!canWriteClientAccounts || actionName === "convert"}
+            className="btn-secondary text-sm disabled:opacity-60"
+          >
+            {actionName === "convert" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <BriefcaseBusiness className="h-4 w-4" />
+            )}
+            Convert to Client
           </button>
           <button
             onClick={handleDelete}

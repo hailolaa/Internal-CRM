@@ -5,6 +5,8 @@ import { validate } from "../../middleware/validate.js";
 import { clientAccountsController } from "./client-accounts.controller.js";
 import {
   clientAccountServiceIdParamValidator,
+  createClientAccountFromContactValidator,
+  createClientAccountValidator,
   createClientAccountServiceValidator,
   listClientAccountsValidator,
   listClientAccountServicesValidator,
@@ -22,6 +24,22 @@ router.get(
   listClientAccountsValidator,
   validate,
   clientAccountsController.listAccounts,
+);
+
+router.post(
+  "/",
+  authorizePermission("client_accounts:write"),
+  createClientAccountValidator,
+  validate,
+  clientAccountsController.createAccount,
+);
+
+router.post(
+  "/from-contact",
+  authorizePermission("client_accounts:write"),
+  createClientAccountFromContactValidator,
+  validate,
+  clientAccountsController.createAccountFromContact,
 );
 
 router.get(

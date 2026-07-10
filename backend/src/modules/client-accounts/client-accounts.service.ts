@@ -9,6 +9,8 @@ import type {
   ClientAccountServiceListQuery,
   ClientAccountServiceResponse,
   ClientAccountSummaryResponse,
+  CreateClientAccountDTO,
+  CreateClientAccountFromContactDTO,
   CreateClientAccountServiceDTO,
   UpdateClientAccountServiceDTO,
   UpdateClientAccountProfileDTO,
@@ -212,6 +214,182 @@ export class ClientAccountsService {
     );
 
     return rows.map((row: any) => this.mapAccountSummaryRow(row));
+  }
+
+  async createAccount(
+    userId: string,
+    data: CreateClientAccountDTO,
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountSummaryResponse> {
+    if (data.accountManagerId) {
+      await this.ensureActiveInternalUser(data.accountManagerId);
+    }
+
+    const clinicId = uuidv4();
+    const profileId = uuidv4();
+    const payload = this.normalizeAccountPayload(data);
+
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      await connection.execute(
+        `INSERT INTO clinic
+          (id, name, email, website, phone, address, city, state, postal_code, country,
+           timezone, subscription_plan, subscription_status, max_users)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Europe/London', 'professional', 'active', 20)`,
+        [
+          clinicId,
+          payload.name,
+          payload.email,
+          payload.website,
+          payload.phone,
+          payload.address,
+          payload.city,
+          payload.state,
+          payload.postalCode,
+          payload.country,
+        ],
+      );
+
+      await connection.execute(
+        `INSERT INTO client_account_profile
+          (id, clinic_id, account_manager_id, active_services, onboarding_status, health_status,
+           client_status, current_package, churn_risk, renewal_date, contract_status, key_notes,
+           created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          profileId,
+          clinicId,
+          payload.accountManagerId,
+          JSON.stringify(payload.activeServices),
+          payload.onboardingStatus,
+          payload.healthStatus,
+          payload.clientStatus,
+          payload.currentPackage,
+          payload.churnRisk,
+          payload.renewalDate,
+          payload.contractStatus,
+          payload.keyNotes,
+          userId,
+          userId,
+        ],
+      );
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_CREATED",
+      entityType: "client_account_profile",
+      entityId: profileId,
+      changes: payload,
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.getAccountSummary(clinicId);
+  }
+
+  async createAccountFromContact(
+    sourceClinicId: string,
+    userId: string,
+    data: CreateClientAccountFromContactDTO,
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountSummaryResponse> {
+    const [rows]: any = await pool.execute(
+      `SELECT id, first_name as firstName, last_name as lastName, email, phone,
+              address, city, state, postal_code as postalCode, country, value,
+              treatment_interests as treatmentInterests, package_interest as packageInterest,
+              recommended_package as recommendedPackage, notes
+       FROM contact
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL
+       LIMIT 1`,
+      [data.contactId, sourceClinicId],
+    );
+
+    if (rows.length === 0) {
+      throw ApiError.notFound("Prospect not found");
+    }
+
+    const contact = rows[0];
+    const contactName = [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim();
+    const treatmentInterests = parseServices(contact.treatmentInterests);
+    const recommendedPackage =
+      data.currentPackage ||
+      contact.recommendedPackage ||
+      contact.packageInterest ||
+      treatmentInterests[0] ||
+      null;
+
+    const account = await this.createAccount(
+      userId,
+      {
+        ...data,
+        name: data.accountName || contactName || contact.email || "New Client Account",
+        email: contact.email || null,
+        phone: contact.phone || null,
+        address: contact.address || null,
+        city: contact.city || null,
+        state: contact.state || null,
+        postalCode: contact.postalCode || null,
+        country: contact.country || null,
+        activeServices: data.activeServices || treatmentInterests,
+        clientStatus: data.clientStatus || "onboarding",
+        onboardingStatus: data.onboardingStatus || "in_progress",
+        currentPackage: recommendedPackage,
+        keyNotes:
+          data.keyNotes ||
+          [
+            contact.notes,
+            `Converted from prospect ${contactName || contact.email || data.contactId}.`,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+      },
+      auditContext,
+    );
+
+    const nextNotes = [
+      contact.notes,
+      `Converted to client account: ${account.clinicName}.`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    await pool.execute(
+      `UPDATE contact
+       SET status = 'active',
+           lead_status = 'converted',
+           notes = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+      [nextNotes, data.contactId, sourceClinicId],
+    );
+
+    await logAuditEvent({
+      clinicId: sourceClinicId,
+      userId,
+      action: "PROSPECT_CONVERTED_TO_CLIENT_ACCOUNT",
+      entityType: "contact",
+      entityId: data.contactId,
+      changes: {
+        clientAccountClinicId: account.clinicId,
+        clientAccountProfileId: account.id,
+        clientAccountName: account.clinicName,
+      },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return account;
   }
 
   async getProfile(clinicId: string): Promise<ClientAccountProfileResponse> {
@@ -682,6 +860,30 @@ export class ClientAccountsService {
     };
   }
 
+  private async getAccountSummary(clinicId: string): Promise<ClientAccountSummaryResponse> {
+    const profile = await this.getProfile(clinicId);
+    return {
+      ...profile,
+      activeServiceCount: 0,
+      renewalRiskCount: 0,
+      pendingTaskCount: 0,
+      overdueTaskCount: 0,
+      qaTaskCount: 0,
+      missedTaskCount: 0,
+      escalatedTaskCount: 0,
+      lastStrategyLogAt: null,
+      actionPlanId: null,
+      actionPlanMonth: null,
+      actionPlanStatus: null,
+      actionPlanTotalItems: 0,
+      actionPlanCompletedItems: 0,
+      actionPlanOpenItems: 0,
+      actionPlanHighPriorityOpenItems: 0,
+      actionPlanProgressPercent: 0,
+      actionPlanLastUpdatedAt: null,
+    };
+  }
+
   private mapAccountSummaryRow(row: any): ClientAccountSummaryResponse {
     const profileServices = parseServices(row.activeServices);
     const derivedServices = row.derivedActiveServices
@@ -741,6 +943,30 @@ export class ClientAccountsService {
     return Number(value).toFixed(2);
   }
 
+  private normalizeAccountPayload(data: CreateClientAccountDTO) {
+    return {
+      name: data.name.trim(),
+      email: data.email?.trim() || null,
+      phone: data.phone?.trim() || null,
+      website: data.website?.trim() || null,
+      address: data.address?.trim() || null,
+      city: data.city?.trim() || null,
+      state: data.state?.trim() || null,
+      postalCode: data.postalCode?.trim() || null,
+      country: data.country?.trim() || "UK",
+      accountManagerId: data.accountManagerId || null,
+      activeServices: normalizeServices(data.activeServices || []),
+      onboardingStatus: data.onboardingStatus || DEFAULT_PROFILE.onboardingStatus,
+      healthStatus: data.healthStatus || DEFAULT_PROFILE.healthStatus,
+      clientStatus: data.clientStatus || "onboarding",
+      currentPackage: data.currentPackage?.trim() || null,
+      churnRisk: data.churnRisk || DEFAULT_PROFILE.churnRisk,
+      renewalDate: toDateString(data.renewalDate),
+      contractStatus: data.contractStatus || DEFAULT_PROFILE.contractStatus,
+      keyNotes: data.keyNotes?.trim() || null,
+    };
+  }
+
   private async ensureProfileRow(clinicId: string, userId: string) {
     const existing = await this.getProfile(clinicId);
     if (existing.id) return existing.id;
@@ -770,6 +996,23 @@ export class ClientAccountsService {
 
     if (rows.length === 0) {
       throw ApiError.badRequest("Account manager must be an active user in this clinic");
+    }
+  }
+
+  private async ensureActiveInternalUser(userId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT id
+       FROM user
+       WHERE id = ?
+         AND deleted_at IS NULL
+         AND status = 'active'
+         AND is_active = 1
+       LIMIT 1`,
+      [userId],
+    );
+
+    if (rows.length === 0) {
+      throw ApiError.badRequest("Account manager must be an active internal user");
     }
   }
 }

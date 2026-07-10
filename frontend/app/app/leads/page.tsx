@@ -67,9 +67,9 @@ function toLead(contact: ContactRecord): Lead {
   return {
     id: contact.id,
     name: contact.name,
-    email: contact.email || "—",
+    email: contact.email || "-",
     source: contact.source || "Unknown",
-    campaign: contact.treatmentInterests?.[0] || contact.tags?.[0] || "—",
+    campaign: contact.treatmentInterests?.[0] || contact.tags?.[0] || "-",
     owner: "Unassigned",
     stage: contact.status || "New",
     revenue: contact.value,
@@ -88,9 +88,9 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
   return {
     id: deal.contactId || deal.id,
     name: deal.contactName || deal.title,
-    email: deal.contactEmail || "—",
+    email: deal.contactEmail || "-",
     source: deal.source || "Unknown",
-    campaign: deal.treatment || deal.title || "—",
+    campaign: deal.treatment || deal.title || "-",
     owner: deal.ownerName || "Unassigned",
     stage: deal.stageName || deal.status || "New",
     revenue: deal.valueCents / 100,
@@ -243,7 +243,7 @@ export default function LeadsPage() {
             />
             <StatCard
               label="Avg. Lead Cost"
-              value={leadStats.costPerLead > 0 ? formatMoney(leadStats.costPerLead) : "—"}
+              value={leadStats.costPerLead > 0 ? formatMoney(leadStats.costPerLead) : "-"}
               sub={
                 leadStats.costPerLead > 0
                   ? "From live spend and prospects"
@@ -392,7 +392,7 @@ export default function LeadsPage() {
                       color: lead.revenue > 0 ? "#059669" : "#9E9890",
                     }}
                   >
-                    {lead.revenue > 0 ? formatMoney(lead.revenue) : "—"}
+                    {lead.revenue > 0 ? formatMoney(lead.revenue) : "-"}
                   </td>
                   <td
                     className="px-5 py-4 text-sm text-right"

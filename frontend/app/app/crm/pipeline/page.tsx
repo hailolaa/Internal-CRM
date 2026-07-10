@@ -116,8 +116,8 @@ function toPipelineDeal(deal: PipelineDealRecord): PipelineDealData {
     source: deal.source || "Unknown",
     daysInStage: deal.daysInStage,
     avatar: deal.contactAvatar,
-    email: deal.contactEmail || "—",
-    phone: deal.contactPhone || "—",
+    email: deal.contactEmail || "-",
+    phone: deal.contactPhone || "-",
     raw: deal,
   };
 }
@@ -169,7 +169,7 @@ function toPipelineStages(
 //   - focus-visible ring  → visible keyboard focus indicator
 //
 // Inner action buttons remain as <button> elements and receive
-// focus independently — this is the correct pattern for "card with
+// focus independently - this is the correct pattern for "card with
 // actions" (ARIA APG: https://www.w3.org/WAI/ARIA/apg/patterns/).
 // ============================================================
 
@@ -245,7 +245,7 @@ function DealCard({
         </div>
       )}
 
-      {/* Action buttons — real <button> elements, not nested inside a <button> */}
+      {/* Action buttons - real <button> elements, not nested inside a <button> */}
       <div className="flex gap-2 mt-3 pt-3 border-t border-[rgba(0,0,0,0.05)]">
         <a
           href={deal.raw.contactPhone ? `tel:${deal.raw.contactPhone}` : undefined}
@@ -831,10 +831,10 @@ export default function PipelinePage() {
         <div className="flex items-center gap-3">
           <div className="text-right hidden sm:block">
             <p className="text-2xl font-bold text-[#6E6AE8]">
-              £{totalValue.toLocaleString()}
+              GBP {totalValue.toLocaleString()}
             </p>
             <p className="text-xs text-[#6B7280]">
-              {dealsCount} active opportunities - £{avgDealValue} avg
+              {dealsCount} active opportunities - GBP {avgDealValue} avg
             </p>
           </div>
           <button
@@ -915,7 +915,7 @@ export default function PipelinePage() {
                 </span>
               </div>
               <p className="text-lg font-bold text-[#111111]">
-                £{stageValue.toLocaleString()}
+                GBP {stageValue.toLocaleString()}
               </p>
               <p className="text-xs text-[#6B7280]">
                 {stage.deals.length} opportunities

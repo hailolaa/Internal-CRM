@@ -35,6 +35,7 @@ import { useToast } from "@/lib/toast-context";
 import type {
   ClientAccountChurnRisk,
   ClientAccountContractStatus,
+  ClientAccountCreatePayload,
   ClientAccountHealthStatus,
   ClientAccountOnboardingStatus,
   ClientAccountProfilePayload,
@@ -206,6 +207,21 @@ const emptyServiceForm: ClientAccountServicePayload = {
   notes: "",
 };
 
+const emptyAccountForm: ClientAccountCreatePayload = {
+  name: "",
+  email: "",
+  phone: "",
+  website: "",
+  clientStatus: "onboarding",
+  onboardingStatus: "in_progress",
+  healthStatus: "attention_needed",
+  contractStatus: "pending",
+  churnRisk: "low",
+  currentPackage: "",
+  activeServices: [],
+  keyNotes: "",
+};
+
 export default function ClientAccountsPage() {
   const { session } = useAuth();
   const { addToast } = useToast();
@@ -216,11 +232,14 @@ export default function ClientAccountsPage() {
     useState<ClientAccountProfilePayload | null>(null);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [accountForm, setAccountForm] =
+    useState<ClientAccountCreatePayload>(emptyAccountForm);
   const [serviceForm, setServiceForm] =
     useState<ClientAccountServicePayload>(emptyServiceForm);
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [isCreatingService, setIsCreatingService] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
 
@@ -324,6 +343,16 @@ export default function ClientAccountsPage() {
     updateProfileDraft("activeServices", next);
   };
 
+  const toggleAccountService = (serviceType: ClientAccountServiceType) => {
+    const current = accountForm.activeServices || [];
+    setAccountForm((form) => ({
+      ...form,
+      activeServices: current.includes(serviceType)
+        ? current.filter((service) => service !== serviceType)
+        : [...current, serviceType],
+    }));
+  };
+
   const saveProfile = async () => {
     if (!token || !profileDraft) return;
     setIsSavingProfile(true);
@@ -340,6 +369,33 @@ export default function ClientAccountsPage() {
       );
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  const createAccount = async () => {
+    if (!token || !accountForm.name.trim()) return;
+    setIsCreatingAccount(true);
+    try {
+      const created = await api.clientAccounts.create(token, {
+        ...accountForm,
+        name: accountForm.name.trim(),
+        email: accountForm.email || null,
+        phone: accountForm.phone || null,
+        website: accountForm.website || null,
+        currentPackage: accountForm.currentPackage || null,
+        keyNotes: accountForm.keyNotes || null,
+      });
+      setAccounts((current) => [created, ...current]);
+      setAccountForm(emptyAccountForm);
+      addToast("Client account added.", "success");
+      void loadData();
+    } catch (error) {
+      addToast(
+        error instanceof Error ? error.message : "Could not add client account.",
+        "error",
+      );
+    } finally {
+      setIsCreatingAccount(false);
     }
   };
 
@@ -474,6 +530,138 @@ export default function ClientAccountsPage() {
           </>
         )}
       </div>
+
+      <Card>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="font-semibold text-[#151f21] flex items-center gap-2">
+              <Plus className="w-5 h-5 text-[#5e8a8d]" />
+              Add Client Account
+            </h2>
+            <p className="mt-1 text-sm text-[#5e8a8d]">
+              Create an internal client/account record for delivery and task linking.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void createAccount()}
+            disabled={isCreatingAccount || !accountForm.name.trim() || !token}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#5e8a8d] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#507b7e] disabled:opacity-60"
+          >
+            {isCreatingAccount ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Plus className="w-4 h-4" />
+            )}
+            Add Account
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <input
+            value={accountForm.name}
+            onChange={(event) =>
+              setAccountForm((form) => ({ ...form, name: event.target.value }))
+            }
+            className="rounded-xl border border-[#d8ddda] bg-white px-3 py-2 text-sm text-[#151f21]"
+            placeholder="Client account name"
+          />
+          <input
+            value={accountForm.email || ""}
+            onChange={(event) =>
+              setAccountForm((form) => ({ ...form, email: event.target.value }))
+            }
+            className="rounded-xl border border-[#d8ddda] bg-white px-3 py-2 text-sm text-[#151f21]"
+            placeholder="Main email"
+          />
+          <input
+            value={accountForm.phone || ""}
+            onChange={(event) =>
+              setAccountForm((form) => ({ ...form, phone: event.target.value }))
+            }
+            className="rounded-xl border border-[#d8ddda] bg-white px-3 py-2 text-sm text-[#151f21]"
+            placeholder="Phone"
+          />
+          <input
+            value={accountForm.website || ""}
+            onChange={(event) =>
+              setAccountForm((form) => ({ ...form, website: event.target.value }))
+            }
+            className="rounded-xl border border-[#d8ddda] bg-white px-3 py-2 text-sm text-[#151f21]"
+            placeholder="Website"
+          />
+          <select
+            value={accountForm.accountManagerId || ""}
+            onChange={(event) =>
+              setAccountForm((form) => ({
+                ...form,
+                accountManagerId: event.target.value || null,
+              }))
+            }
+            className="rounded-xl border border-[#d8ddda] bg-white px-3 py-2 text-sm text-[#151f21]"
+          >
+            <option value="">Unassigned manager</option>
+            {teamMembers.map((member) => (
+              <option key={member.id} value={member.id}>
+                {personName(member)}
+              </option>
+            ))}
+          </select>
+          <select
+            value={accountForm.clientStatus || "onboarding"}
+            onChange={(event) =>
+              setAccountForm((form) => ({
+                ...form,
+                clientStatus: event.target.value as ClientAccountCreatePayload["clientStatus"],
+              }))
+            }
+            className="rounded-xl border border-[#d8ddda] bg-white px-3 py-2 text-sm text-[#151f21]"
+          >
+            {["prospect", "onboarding", "active", "paused", "at_risk"].map((status) => (
+              <option key={status} value={status}>
+                {formatLabel(status)}
+              </option>
+            ))}
+          </select>
+          <input
+            value={accountForm.currentPackage || ""}
+            onChange={(event) =>
+              setAccountForm((form) => ({ ...form, currentPackage: event.target.value }))
+            }
+            className="rounded-xl border border-[#d8ddda] bg-white px-3 py-2 text-sm text-[#151f21]"
+            placeholder="Current package"
+          />
+          <input
+            value={accountForm.keyNotes || ""}
+            onChange={(event) =>
+              setAccountForm((form) => ({ ...form, keyNotes: event.target.value }))
+            }
+            className="rounded-xl border border-[#d8ddda] bg-white px-3 py-2 text-sm text-[#151f21]"
+            placeholder="Key notes"
+          />
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {SERVICE_TYPES.map((service) => {
+            const selected = accountForm.activeServices?.includes(service.value);
+            return (
+              <button
+                key={service.value}
+                type="button"
+                onClick={() => toggleAccountService(service.value)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  selected
+                    ? "border-[rgba(96,180,175,0.25)] bg-[rgba(96,180,175,0.1)] text-[#151f21]"
+                    : "border-[#d8ddda] bg-white text-[#5e8a8d]"
+                }`}
+              >
+                {selected && <CheckCircle2 className="w-3 h-3" />}
+                {service.label}
+              </button>
+            );
+          })}
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.75fr)] gap-6">
         <Card>
@@ -964,7 +1152,7 @@ export default function ClientAccountsPage() {
                     {account.clinicName}
                   </p>
                   <p className="text-xs text-[#7A746A]">
-                    {formatLabel(account.healthStatus)} · {formatLabel(account.churnRisk)} risk
+                    {formatLabel(account.healthStatus)} - {formatLabel(account.churnRisk)} risk
                   </p>
                 </div>
               </TableCell>

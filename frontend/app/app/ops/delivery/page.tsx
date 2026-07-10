@@ -396,7 +396,7 @@ export default function DeliveryWorkPage() {
                   </div>
                   <p className="text-sm font-semibold text-[#151f21]">{view.label}</p>
                   <p className="mt-1 text-xs text-[#5e8a8d]">
-                    {view.openTasks} open · {view.activeServices} projects
+                    {view.openTasks} open - {view.activeServices} projects
                   </p>
                 </button>
               );
@@ -584,7 +584,7 @@ export default function DeliveryWorkPage() {
               >
                 <p className="font-medium text-[#151f21]">{task.title}</p>
                 <p className="mt-1 text-sm text-[#5e8a8d]">
-                  {task.assignedTo || "Unassigned"} · {formatLabel(task.category || "Delivery")}
+                  {task.assignedTo || "Unassigned"} - {formatLabel(task.category || "Delivery")}
                 </p>
               </Link>
             ))}

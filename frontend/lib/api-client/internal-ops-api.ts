@@ -1,5 +1,7 @@
 import type {
   ClientAccountListParams,
+  ClientAccountCreatePayload,
+  ClientAccountFromContactPayload,
   ClientAccountProfilePayload,
   ClientAccountProfileRecord,
   ClientAccountServiceListParams,
@@ -46,6 +48,28 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
         const response = await apiRequest<ClientAccountSummaryRecord[]>(
           `/api/client-accounts${buildQuery(params)}`,
           { token },
+        );
+        return response.data!;
+      },
+      async create(token: string, payload: ClientAccountCreatePayload) {
+        const response = await apiRequest<ClientAccountSummaryRecord>(
+          "/api/client-accounts",
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async createFromContact(token: string, payload: ClientAccountFromContactPayload) {
+        const response = await apiRequest<ClientAccountSummaryRecord>(
+          "/api/client-accounts/from-contact",
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
         );
         return response.data!;
       },

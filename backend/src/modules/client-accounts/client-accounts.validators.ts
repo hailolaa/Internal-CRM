@@ -16,6 +16,45 @@ export const listClientAccountsValidator = [
   query("contractStatus").optional().isIn([...contractStatuses, "all"]),
 ];
 
+export const createClientAccountValidator = [
+  body("name").trim().isLength({ min: 1, max: 255 }).withMessage("Client account name is required"),
+  body("email").optional({ nullable: true }).trim().isEmail().withMessage("Email must be valid"),
+  body("phone").optional({ nullable: true }).trim().isLength({ max: 20 }).withMessage("Phone must be 20 characters or fewer"),
+  body("website").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Website must be 255 characters or fewer"),
+  body("address").optional({ nullable: true }).trim().isLength({ max: 1000 }).withMessage("Address must be 1000 characters or fewer"),
+  body("city").optional({ nullable: true }).trim().isLength({ max: 100 }).withMessage("City must be 100 characters or fewer"),
+  body("state").optional({ nullable: true }).trim().isLength({ max: 100 }).withMessage("State must be 100 characters or fewer"),
+  body("postalCode").optional({ nullable: true }).trim().isLength({ max: 20 }).withMessage("Postal code must be 20 characters or fewer"),
+  body("country").optional({ nullable: true }).trim().isLength({ max: 100 }).withMessage("Country must be 100 characters or fewer"),
+  body("accountManagerId").optional({ nullable: true }).isUUID().withMessage("Account manager ID must be a valid UUID"),
+  body("activeServices").optional().isArray().withMessage("Active services must be an array"),
+  body("activeServices.*").optional().trim().isLength({ min: 1, max: 100 }).withMessage("Active service names must be 1-100 characters"),
+  body("onboardingStatus").optional().isIn(["not_started", "in_progress", "completed", "paused"]),
+  body("healthStatus").optional().isIn(["healthy", "attention_needed", "at_risk", "critical"]),
+  body("clientStatus").optional().isIn(clientStatuses),
+  body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
+  body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
+  body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
+  body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),
+  body("keyNotes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Key notes must be 10000 characters or fewer"),
+];
+
+export const createClientAccountFromContactValidator = [
+  body("contactId").isUUID().withMessage("A valid contact ID is required"),
+  body("accountName").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Client account name must be 255 characters or fewer"),
+  body("accountManagerId").optional({ nullable: true }).isUUID().withMessage("Account manager ID must be a valid UUID"),
+  body("activeServices").optional().isArray().withMessage("Active services must be an array"),
+  body("activeServices.*").optional().trim().isLength({ min: 1, max: 100 }).withMessage("Active service names must be 1-100 characters"),
+  body("onboardingStatus").optional().isIn(["not_started", "in_progress", "completed", "paused"]),
+  body("healthStatus").optional().isIn(["healthy", "attention_needed", "at_risk", "critical"]),
+  body("clientStatus").optional().isIn(clientStatuses),
+  body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
+  body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
+  body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
+  body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),
+  body("keyNotes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Key notes must be 10000 characters or fewer"),
+];
+
 export const updateClientAccountProfileValidator = [
   body("accountManagerId").optional({ nullable: true }).isUUID().withMessage("Account manager ID must be a valid UUID"),
   body("activeServices").optional().isArray().withMessage("Active services must be an array"),

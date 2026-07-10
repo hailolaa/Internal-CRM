@@ -118,6 +118,27 @@ export interface ClientAccountProfilePayload {
   keyNotes?: string | null;
 }
 
+export interface ClientAccountCreatePayload extends ClientAccountProfilePayload {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
+}
+
+export interface ClientAccountFromContactPayload
+  extends Omit<
+    ClientAccountCreatePayload,
+    "name" | "email" | "phone" | "address" | "city" | "state" | "postalCode" | "country"
+  > {
+  contactId: string;
+  accountName?: string | null;
+}
+
 export interface ClientAccountServiceRecord {
   id: string;
   clinicId: string;

@@ -63,8 +63,6 @@ type PaletteItem =
 
 const ACTION_ROUTE_OVERRIDES: Record<string, string> = {
   create_lead: "/app/crm/contacts/new",
-  log_call: "/app/comms/calls?log=1",
-  create_booking: "/app/crm/tasks/new",
   create_task: "/app/crm/tasks/new",
   search_contacts: "/app/crm/contacts",
   open_reports: "/app",

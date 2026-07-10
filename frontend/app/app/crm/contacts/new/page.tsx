@@ -376,7 +376,7 @@ export default function NewContactPage() {
                   type="text"
                   value={fields.value}
                   onChange={handleInputChange("value")}
-                  placeholder="£350"
+                  placeholder="GBP 350"
                   className={inputBase}
                 />
               </div>

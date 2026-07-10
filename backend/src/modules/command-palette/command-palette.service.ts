@@ -22,27 +22,6 @@ const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> =
     requiredPermission: "contacts:write",
   },
   {
-    id: "log_call",
-    label: "Log sales call",
-    description: "Record a sales or client follow-up call.",
-    group: "create",
-    keywords: ["call", "phone", "sales", "follow up", "outcome"],
-    targetType: "route",
-    route: "/app/comms/calls?log=1",
-    requiredPermission: "calls:write",
-  },
-  {
-    id: "create_booking",
-    label: "Add follow-up task",
-    description: "Create a task for a discovery call, proposal, or client action.",
-    group: "create",
-    keywords: ["follow up", "discovery", "proposal", "task", "action"],
-    targetType: "route",
-    route: "/app/crm/tasks/new",
-    api: { method: "POST", path: "/api/tasks" },
-    requiredPermission: "events:write",
-  },
-  {
     id: "create_task",
     label: "Create task",
     description: "Open the task creation workflow.",
@@ -50,8 +29,8 @@ const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> =
     keywords: ["task", "todo", "follow up"],
     targetType: "route",
     route: "/app/crm/tasks/new",
-    api: { method: "POST", path: "/api/tasks" },
-    requiredPermission: "events:write",
+    api: { method: "POST", path: "/api/tasks/internal" },
+    requiredPermission: "internal_tasks:write",
   },
   {
     id: "search_contacts",
@@ -72,7 +51,7 @@ const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> =
     keywords: ["dashboard", "operations", "tasks", "clients", "pipeline"],
     targetType: "route",
     route: "/app",
-    requiredPermission: "reports:read",
+    requiredPermission: null,
   },
   {
     id: "switch_clinic",
@@ -99,7 +78,7 @@ const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> =
 
 const PERMISSIONS = Array.from(new Set([
   ...ACTIONS.map((action) => action.requiredPermission).filter(Boolean),
-  "events:read",
+  "internal_tasks:read",
 ])) as string[];
 
 export class CommandPaletteService {
@@ -176,7 +155,7 @@ export class CommandPaletteService {
       records.push(...await this.searchContacts(clinicId, like, perTypeLimit));
     }
 
-    if (permissions["events:read"]) {
+    if (permissions["internal_tasks:read"]) {
       records.push(...await this.searchTasks(clinicId, like, perTypeLimit));
     }
 
@@ -196,7 +175,7 @@ export class CommandPaletteService {
     if (permissions["contacts:read"]) {
       records.push(...await this.searchContacts(clinicId, "%", perTypeLimit));
     }
-    if (permissions["events:read"]) {
+    if (permissions["internal_tasks:read"]) {
       records.push(...await this.searchTasks(clinicId, "%", perTypeLimit));
     }
 
@@ -235,7 +214,7 @@ export class CommandPaletteService {
       id: row.id,
       type: "contact",
       label: row.name || row.email || row.phone || "Unnamed contact",
-      description: [row.status, row.source, row.email].filter(Boolean).join(" · ") || null,
+      description: [row.status, row.source, row.email].filter(Boolean).join(" - ") || null,
       route: `/app/crm/contacts/detail?id=${encodeURIComponent(row.id)}`,
       updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
       metadata: {
@@ -272,7 +251,7 @@ export class CommandPaletteService {
       id: row.id,
       type: "report",
       label: row.name,
-      description: [row.type, row.description].filter(Boolean).join(" · ") || null,
+      description: [row.type, row.description].filter(Boolean).join(" - ") || null,
       route: "/app",
       updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
       metadata: {
@@ -313,7 +292,7 @@ export class CommandPaletteService {
       id: row.id,
       type: "appointment",
       label: `${row.treatment || "Delivery"} event`,
-      description: [row.contactName, row.status, row.dateTime ? new Date(row.dateTime).toISOString() : null].filter(Boolean).join(" · ") || null,
+      description: [row.contactName, row.status, row.dateTime ? new Date(row.dateTime).toISOString() : null].filter(Boolean).join(" - ") || null,
       route: "/app/ops/delivery",
       updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
       metadata: {
@@ -333,7 +312,7 @@ export class CommandPaletteService {
               updated_at as updatedAt
        FROM task
        WHERE clinic_id = ?
-         AND is_internal = 0
+         AND is_internal = 1
          AND deleted_at IS NULL
          AND (
            ? = '%'
@@ -351,7 +330,7 @@ export class CommandPaletteService {
       id: row.id,
       type: "task",
       label: row.title,
-      description: [row.status, row.priority, row.contactName].filter(Boolean).join(" · ") || null,
+      description: [row.status, row.priority, row.contactName].filter(Boolean).join(" - ") || null,
       route: `/app/crm/tasks?taskId=${encodeURIComponent(row.id)}`,
       updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
       metadata: {

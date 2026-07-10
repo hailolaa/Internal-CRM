@@ -44,7 +44,7 @@ export function TenantSwitcher() {
             {clinic.name}
           </p>
           <p className="text-[10px]" style={{ color: "#5e8a8d" }}>
-            {clinic.id} · {clinic.plan}
+            {clinic.id} - {clinic.plan}
           </p>
         </div>
         {isSuperAdmin && <ChevronDown className="w-3 h-3 text-[#A8A39B]" />}
@@ -135,9 +135,9 @@ export function TenantSwitcher() {
                       style={{ color: "#5e8a8d" }}
                     >
                       <span>{c.id}</span>
-                      <span>·</span>
+                      <span>-</span>
                       <span>{c.plan}</span>
-                      <span>·</span>
+                      <span>-</span>
                       <span
                         style={{
                           color: c.status === "active" ? "#60b4af" : "#b7672e",

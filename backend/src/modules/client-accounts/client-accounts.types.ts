@@ -20,6 +20,24 @@ export interface UpdateClientAccountProfileDTO {
   keyNotes?: string | null;
 }
 
+export interface CreateClientAccountDTO extends UpdateClientAccountProfileDTO {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
+}
+
+export interface CreateClientAccountFromContactDTO
+  extends Omit<CreateClientAccountDTO, "name" | "email" | "phone" | "address" | "city" | "state" | "postalCode" | "country"> {
+  contactId: string;
+  accountName?: string | null;
+}
+
 export interface ClientAccountProfileResponse {
   id: string | null;
   clinicId: string;
