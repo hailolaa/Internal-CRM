@@ -66,7 +66,7 @@ export default function LoginPage() {
             Welcome back
           </h1>
           <p className="text-sm leading-relaxed" style={{ color: "#6B7280" }}>
-            Sign in to your ClinicGrower growth operating system.
+            Sign in to The Growth Group Internal CRM.
           </p>
         </div>
 
@@ -96,7 +96,7 @@ export default function LoginPage() {
                 />
                 <input
                   type="email"
-                  placeholder="you@clinic.com"
+                  placeholder="you@thegrowthgroup.com"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}

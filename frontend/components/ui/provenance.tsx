@@ -28,14 +28,14 @@ const PROVENANCE_CONFIG: Record<
 > = {
   exact: {
     label: "Verified",
-    description: "Directly calculated from live clinic records.",
+    description: "Directly calculated from live workspace records.",
     confidence: 95,
     variant: "success",
     icon: CheckCircle,
   },
   live: {
     label: "Live",
-    description: "Loaded from the live backend for this clinic.",
+    description: "Loaded from the live backend for this workspace.",
     confidence: 90,
     variant: "success",
     icon: CheckCircle,

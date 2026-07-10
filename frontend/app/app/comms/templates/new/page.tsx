@@ -19,10 +19,10 @@ import { useAuth } from "@/lib/auth-context";
 
 const variables = [
   { name: "first_name", label: "First Name" },
-  { name: "clinic_name", label: "Clinic Name" },
-  { name: "treatment", label: "Treatment" },
-  { name: "appointment_date", label: "Appointment Date" },
-  { name: "appointment_time", label: "Appointment Time" },
+  { name: "workspace_name", label: "Workspace Name" },
+  { name: "service_package", label: "Service / Package" },
+  { name: "meeting_date", label: "Meeting Date" },
+  { name: "meeting_time", label: "Meeting Time" },
 ];
 
 export default function NewTemplatePage() {
@@ -32,7 +32,7 @@ export default function NewTemplatePage() {
   const [channel, setChannel] = useState<"email" | "sms">("email");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [category, setCategory] = useState("Booking");
+  const [category, setCategory] = useState("Sales Follow-up");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -119,7 +119,7 @@ export default function NewTemplatePage() {
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Booking Confirmation"
+                    placeholder="e.g. Discovery Call Follow-up"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.08)] rounded-[12px] px-4 py-2.5 text-sm text-[#111111] placeholder:text-[#6B7280] focus:outline-none focus:border-[rgba(110,106,232,0.4)] transition-colors"
@@ -159,7 +159,7 @@ export default function NewTemplatePage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Your appointment is confirmed!"
+                    placeholder="e.g. Your discovery call is confirmed"
                     value={subject}
                     onChange={(event) => setSubject(event.target.value)}
                     className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.08)] rounded-[12px] px-4 py-2.5 text-sm text-[#111111] placeholder:text-[#6B7280] focus:outline-none focus:border-[rgba(110,106,232,0.4)] transition-colors"
@@ -220,7 +220,7 @@ export default function NewTemplatePage() {
                   </div>
                   <textarea
                     rows={8}
-                    placeholder={`Hi {{first_name}},\n\nThank you for booking with {{clinic_name}}!\n\nYour appointment details:\n- Treatment: {{treatment}}\n- Date: {{appointment_date}}\n- Time: {{appointment_time}}\n\nWe look forward to seeing you!\n\nBest regards,\nThe {{clinic_name}} Team`}
+                    placeholder={`Hi {{first_name}},\n\nThanks for speaking with The Growth Group.\n\nNext step:\n- Service: {{service_package}}\n- Date: {{meeting_date}}\n- Time: {{meeting_time}}\n\nBest regards,\nThe {{workspace_name}} Team`}
                     value={body}
                     onChange={(event) => setBody(event.target.value)}
                     className="w-full bg-transparent px-4 py-3 text-sm text-[#111111] placeholder:text-[#6B7280] focus:outline-none resize-none"
@@ -263,11 +263,12 @@ export default function NewTemplatePage() {
               onChange={(event) => setCategory(event.target.value)}
               className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.08)] rounded-[12px] px-4 py-2.5 text-sm text-[#111111] focus:outline-none focus:border-[rgba(110,106,232,0.4)] transition-colors"
             >
-              <option>Booking</option>
+              <option>Sales Follow-up</option>
+              <option>Discovery Call</option>
+              <option>Proposal</option>
               <option>Reminder</option>
               <option>Follow-up</option>
-              <option>Marketing</option>
-              <option>Recovery</option>
+              <option>Client Delivery</option>
             </select>
           </div>
 

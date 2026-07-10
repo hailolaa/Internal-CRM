@@ -339,7 +339,7 @@ export default function ContactsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Contacts"
-        subtitle="Manage Clinic Grower prospects, client contacts, and account stakeholders in one place."
+        subtitle="Manage The Growth Group prospects, client contacts, and account stakeholders in one place."
         right={
           <div className="flex gap-2">
             <button onClick={handleExport} className="btn-secondary text-sm">

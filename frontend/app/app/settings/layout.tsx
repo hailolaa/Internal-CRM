@@ -5,17 +5,13 @@ import { usePathname } from "next/navigation";
 import {
   Building2,
   Users,
-  CreditCard,
   Shield,
   FileText,
-  MapPin,
 } from "lucide-react";
 
 const SETTINGS_NAV = [
   { label: "Account Profile", href: "/app/settings/clinic", icon: Building2 },
   { label: "Team", href: "/app/settings/team", icon: Users },
-  { label: "Locations", href: "/app/settings/locations", icon: MapPin },
-  { label: "Billing & Plans", href: "/app/settings/billing", icon: CreditCard },
   { label: "Security", href: "/app/settings/security", icon: Shield },
   {
     label: "Compliance & Audit",

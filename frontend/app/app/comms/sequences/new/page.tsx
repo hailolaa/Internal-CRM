@@ -19,8 +19,8 @@ import { useAuth } from "@/lib/auth-context";
 
 const triggerTypes = [
   { id: "new_lead", name: "New lead created", icon: Zap },
-  { id: "booking", name: "Booking confirmed", icon: CheckCircle },
-  { id: "no_show", name: "No-show detected", icon: Bell },
+  { id: "booking", name: "Discovery call booked", icon: CheckCircle },
+  { id: "no_show", name: "Follow-up missed", icon: Bell },
   { id: "time_delay", name: "Time delay", icon: Clock },
 ];
 
@@ -47,11 +47,11 @@ export default function NewSequencePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [exitOnGoal, setExitOnGoal] = useState(true);
   const [sendOnWeekends, setSendOnWeekends] = useState(false);
-  const [goal, setGoal] = useState("Book consultation");
+  const [goal, setGoal] = useState("Book discovery call");
   const [steps, setSteps] = useState<SequenceStep[]>([
-    { id: 1, type: "email", delay: 0, subject: "Welcome to our clinic!" },
-    { id: 2, type: "email", delay: 2, subject: "Your consultation guide" },
-    { id: 3, type: "sms", delay: 5, subject: "Quick reminder about booking" },
+    { id: 1, type: "email", delay: 0, subject: "Thanks for reaching out" },
+    { id: 2, type: "email", delay: 2, subject: "Next steps for your growth plan" },
+    { id: 3, type: "sms", delay: 5, subject: "Quick reminder about the next step" },
   ]);
 
   const handleSave = async () => {
@@ -278,8 +278,8 @@ export default function NewSequencePage() {
                   onChange={(event) => setGoal(event.target.value)}
                   className="w-full bg-[#FAF8F5] border border-[rgba(0,0,0,0.08)] rounded-[12px] px-4 py-2.5 text-sm text-[#111111] focus:outline-none focus:border-[rgba(110,106,232,0.4)] transition-colors"
                 >
-                  <option>Book consultation</option>
-                  <option>Complete purchase</option>
+                  <option>Book discovery call</option>
+                  <option>Accept proposal</option>
                   <option>Reply to message</option>
                 </select>
               </div>

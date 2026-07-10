@@ -30,11 +30,11 @@ type FieldKey =
   | "notes";
 
 const TAG_OPTIONS = [
-  "Botox",
-  "Lip Filler",
-  "Dermal Filler",
-  "Skin",
-  "VIP",
+  "Website build",
+  "SEO",
+  "Ads",
+  "Tracking",
+  "Client",
   "High Intent",
 ];
 

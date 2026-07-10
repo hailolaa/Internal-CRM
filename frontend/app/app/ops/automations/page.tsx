@@ -52,27 +52,27 @@ const triggerOptions = [
   },
   {
     value: "appointment_booked",
-    label: "Appointment booked",
+    label: "Discovery or delivery event booked",
     hint: "Runs after a scheduled sales or delivery event is created.",
   },
   {
     value: "appointment_scheduled",
-    label: "Appointment scheduled",
-    hint: "Runs after an appointment is scheduled.",
+    label: "Sales or delivery event scheduled",
+    hint: "Runs after an internal sales or delivery event is scheduled.",
   },
   {
     value: "appointment_created",
-    label: "Appointment created",
-    hint: "Runs after an appointment record is created.",
+    label: "Sales or delivery event created",
+    hint: "Runs after an internal event record is created.",
   },
   {
     value: "appointment_no_show",
-    label: "Appointment marked no-show",
+    label: "Discovery call missed",
     hint: "Runs when a scheduled prospect or client event is missed.",
   },
   {
     value: "appointment_completed",
-    label: "Appointment completed",
+    label: "Sales or delivery event completed",
     hint: "Runs when a discovery call or delivery milestone is completed.",
   },
   {
@@ -481,7 +481,7 @@ export default function AutomationsPage() {
                       name: event.target.value,
                     }))
                   }
-                  placeholder="e.g. No-show recovery follow-up"
+                  placeholder="e.g. Missed discovery call follow-up"
                   className="w-full rounded-xl border border-[#E5DED6] bg-[#FFFCF9] px-4 py-3 text-sm text-[#252421] outline-none focus:border-[#60b4af] focus:ring-2 focus:ring-[#60b4af]/10"
                 />
               </label>

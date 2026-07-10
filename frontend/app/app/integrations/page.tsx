@@ -5,12 +5,12 @@ import {
   AlertCircle,
   AlertTriangle,
   BarChart3,
+  Building2,
   CheckCircle,
   CircleSlash,
   Clock,
   Crosshair,
   CreditCard,
-  Building2,
   Loader2,
   Mail,
   Megaphone,
@@ -19,7 +19,6 @@ import {
   RefreshCw,
   Search,
   Smartphone,
-  Syringe,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -111,7 +110,7 @@ const UNSUPPORTED_CONNECTORS: UnsupportedConnector[] = [
   {
     name: "Stripe",
     description:
-      "Billing and deposit checkout use Stripe, but a marketing connector sync is not available here.",
+      "Billing and payment setup can use Stripe, but a marketing connector sync is not available here.",
     category: "Payments",
     icon: CreditCard,
   },
@@ -121,20 +120,6 @@ const UNSUPPORTED_CONNECTORS: UnsupportedConnector[] = [
       "Audience sync is not implemented in the production connector workflow yet.",
     category: "Marketing",
     icon: Megaphone,
-  },
-  {
-    name: "Cliniko",
-    description:
-      "Practice management sync is a future connector and is not live in this frontend flow.",
-    category: "Practice Management",
-    icon: Building2,
-  },
-  {
-    name: "Pabau",
-    description:
-      "Clinic software sync is a future connector and is not live in this frontend flow.",
-    category: "Practice Management",
-    icon: Syringe,
   },
   {
     name: "Zapier",
@@ -210,7 +195,7 @@ function formatFreshness(connector: ConnectorStatusRecord) {
 
 function getSetupMessage(connector: ConnectorStatusRecord) {
   if (connector.selectionRequired) {
-    return "OAuth is connected. Choose the account, property, or location this clinic should use.";
+    return "OAuth is connected. Choose the account, property, or location this workspace should use.";
   }
   if (connector.selectedAccountLabel) {
     return `Connected to ${connector.selectedAccountLabel}.`;
@@ -222,9 +207,9 @@ function getSetupMessage(connector: ConnectorStatusRecord) {
     return "OAuth is required before this connector can be considered connected.";
   }
   if (connector.setupStatus === "not_configured") {
-    return "No connector setup has been saved for this clinic.";
+    return "No connector setup has been saved for this workspace.";
   }
-  return "Backend connector setup is ready for this clinic.";
+  return "Backend connector setup is ready for this workspace.";
 }
 
 function getConnectorConfigValues(
@@ -380,7 +365,7 @@ export default function IntegrationsPage() {
         items.map((item) => (item.type === updated.type ? updated : item)),
       );
       showNotice(
-        `${connector.name} setup saved for this clinic. Vendor OAuth is not implied; manual fallback data remains explicit.`,
+        `${connector.name} setup saved for this workspace. Vendor OAuth is not implied; manual fallback data remains explicit.`,
       );
     } catch (error) {
       showNotice(
@@ -459,7 +444,7 @@ export default function IntegrationsPage() {
           ...current,
           [connector.type]: current[connector.type] || choices[0].id,
         }));
-        showNotice(`Choose the ${connector.name} account for this clinic.`);
+        showNotice(`Choose the ${connector.name} account for this workspace.`);
       }
     } catch (error) {
       const message = error instanceof ApiClientError
@@ -523,7 +508,7 @@ export default function IntegrationsPage() {
       setConnectors((items) =>
         items.map((item) => (item.type === updated.type ? updated : item)),
       );
-      showNotice(`${connector.name} is disconnected for the active clinic.`);
+      showNotice(`${connector.name} is disconnected for the active workspace.`);
     } catch (error) {
       showNotice(
         error instanceof ApiClientError
@@ -576,7 +561,7 @@ export default function IntegrationsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Integrations"
-        subtitle="Production connector setup, status, and sync health for the active clinic."
+        subtitle="Production connector setup, status, and sync health for the active workspace."
         right={
           <div className="flex flex-wrap items-center justify-end gap-2 text-sm">
             <button
@@ -608,7 +593,7 @@ export default function IntegrationsPage() {
       <AlertBanner
         icon={Plug}
         title="Production connector state"
-        description={`Backend connector status is loaded per active clinic${
+        description={`Backend connector status is loaded per active workspace${
           clinicId ? ` (${clinicId})` : ""
         }. Supported marketing connectors can save setup state and record backend sync attempts; unsupported vendors are shown as not integrated and cannot be activated here.`}
         variant="info"
@@ -655,7 +640,7 @@ export default function IntegrationsPage() {
             Supported marketing connectors
           </h2>
           <span className="text-xs text-[#5e8a8d]">
-            Status refreshes after clinic switch
+            Status refreshes after workspace switch
           </span>
         </div>
 
@@ -683,7 +668,7 @@ export default function IntegrationsPage() {
                   No supported connectors in this view
                 </h3>
                 <p className="mt-2 text-sm text-[#5e8a8d]">
-                  Change the filter or refresh after switching clinics.
+                  Change the filter or refresh after switching workspaces.
                 </p>
               </div>
             </Card>

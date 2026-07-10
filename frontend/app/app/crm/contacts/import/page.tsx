@@ -34,6 +34,7 @@ const templateHeaders = [
   "tags",
   "source",
   "status",
+  "servicePackage",
   "notes",
 ];
 
@@ -60,6 +61,10 @@ const headerAliases: Record<string, keyof ContactImportRow | "tags"> = {
   status: "status",
   notes: "notes",
   note: "notes",
+  service: "treatmentInterests",
+  servicepackage: "treatmentInterests",
+  package: "treatmentInterests",
+  packageinterest: "treatmentInterests",
   treatment: "treatmentInterests",
   treatmentinterest: "treatmentInterests",
   treatmentinterests: "treatmentInterests",
@@ -156,12 +161,12 @@ function parseContactImportText(text: string): PreviewRow[] {
 }
 
 function downloadTemplate() {
-  const csv = `${templateHeaders.join(",")}\nSarah,Johnson,sarah@example.com,07700 900123,\"imported; botox\",CSV,lead,Initial enquiry`;
+  const csv = `${templateHeaders.join(",")}\nSarah,Johnson,sarah@example.com,07700 900123,imported,CSV,lead,Website build,Initial enquiry`;
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "clinicgrower-contact-import-template.csv";
+  link.download = "growth-group-contact-import-template.csv";
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -445,7 +450,7 @@ export default function ImportContactsPage() {
                     aria-label="Pasted contact rows"
                     value={pasteText}
                     onChange={(event) => setPasteText(event.target.value)}
-                    placeholder={`firstName\tlastName\temail\tphone\ttags\nSarah\tJohnson\tsarah@example.com\t07700 900123\tbotox`}
+                    placeholder={`firstName\tlastName\temail\tphone\ttags\nSarah\tJohnson\tsarah@example.com\t07700 900123\twebsite build`}
                     className="min-h-28 w-full resize-y rounded-[14px] border border-[rgba(0,0,0,0.06)] bg-[#FAF8F5] p-3 text-xs text-[#111111] focus:outline-none focus:border-[#6E6AE8]"
                   />
                   <button

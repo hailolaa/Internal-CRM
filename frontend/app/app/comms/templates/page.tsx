@@ -36,13 +36,12 @@ interface Template {
 }
 
 const DEFAULT_VARIABLE_VALUES: Record<string, string> = {
-  patient_name: "Test Patient",
   first_name: "Test",
-  last_name: "Patient",
-  clinic_name: "Growth Clinic",
-  appointment_date: "June 1, 2026",
-  appointment_time: "10:00 AM",
-  treatment: "Consultation",
+  last_name: "Prospect",
+  workspace_name: "The Growth Group",
+  meeting_date: "June 1, 2026",
+  meeting_time: "10:00 AM",
+  service_package: "Website build",
 };
 
 function extractPlaceholderKeys(...values: Array<string | null | undefined>) {

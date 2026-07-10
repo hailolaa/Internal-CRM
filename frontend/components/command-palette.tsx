@@ -13,7 +13,6 @@ import {
   AlertCircle,
   ArrowRight,
   Building2,
-  Calendar,
   CheckSquare,
   FileText,
   Loader2,
@@ -65,10 +64,10 @@ type PaletteItem =
 const ACTION_ROUTE_OVERRIDES: Record<string, string> = {
   create_lead: "/app/crm/contacts/new",
   log_call: "/app/comms/calls?log=1",
-  create_booking: "/app/crm/calendar/new",
+  create_booking: "/app/crm/tasks/new",
   create_task: "/app/crm/tasks/new",
   search_contacts: "/app/crm/contacts",
-  open_reports: "/app/reports/overview",
+  open_reports: "/app",
   open_settings: "/app/settings",
 };
 
@@ -86,7 +85,7 @@ function getRecordRoute(record: CommandPaletteRecord) {
   }
 
   if (record.type === "appointment") {
-    return `/app/crm/calendar?appointmentId=${encodeURIComponent(record.id)}`;
+    return "/app/ops/delivery";
   }
 
   if (record.type === "task") {
@@ -94,14 +93,7 @@ function getRecordRoute(record: CommandPaletteRecord) {
   }
 
   if (record.type === "report") {
-    const reportType = String(record.metadata.reportType || "").toLowerCase();
-    if (reportType.includes("lead")) return "/app/reports/leads";
-    if (reportType.includes("ad")) return "/app/reports/ads";
-    if (reportType.includes("no-show") || reportType.includes("noshow")) {
-      return "/app/reports/noshows";
-    }
-    if (reportType.includes("attribution")) return "/app/marketing/attribution";
-    return "/app/reports/overview";
+    return "/app";
   }
 
   return record.route;
@@ -111,7 +103,7 @@ function getItemIcon(item: PaletteItem) {
   if (item.kind === "clinic") return Building2;
 
   if (item.kind === "record") {
-    if (item.record.type === "appointment") return Calendar;
+    if (item.record.type === "appointment") return CheckSquare;
     if (item.record.type === "task") return CheckSquare;
     if (item.record.type === "report") return FileText;
     return UserPlus;
@@ -145,16 +137,27 @@ function buildPaletteItems(
       kind: "record" as const,
       id: `record-${record.type}-${record.id}`,
       title: record.label,
-      description: record.description || `Open ${record.type}`,
+      description:
+        record.description ||
+        (record.type === "appointment"
+          ? "Open delivery work"
+          : record.type === "report"
+            ? "Open operations dashboard"
+            : `Open ${record.type}`),
       record,
-      badge: record.type,
+      badge:
+        record.type === "appointment"
+          ? "event"
+          : record.type === "report"
+            ? "dashboard"
+            : record.type,
     })),
     ...clinics.map((clinic) => ({
       kind: "clinic" as const,
       id: `clinic-${clinic.id}`,
       title: clinic.name,
       description: clinic.isCurrent
-        ? "Current clinic"
+        ? "Current workspace"
         : `${clinic.role} - ${clinic.status}`,
       clinic,
       badge: clinic.isCurrent ? "Current" : "Switch",
@@ -261,7 +264,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         setIsSwitchingClinic(false);
 
         if (!switched) {
-          setErrorMessage("Clinic switch failed. Please try again.");
+          setErrorMessage("Workspace switch failed. Please try again.");
           return;
         }
 
@@ -285,7 +288,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       }
 
       if (item.action.targetType === "clinic_switch") {
-        setStatusMessage("Select a clinic result below to switch clinics.");
+        setStatusMessage("Select a workspace result below to switch workspaces.");
         return;
       }
 
@@ -378,7 +381,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
               setStatusMessage(null);
             }}
             className="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#151f21] outline-none placeholder:text-[#A8A39B]"
-            placeholder="Search commands, contacts, reports, tasks..."
+            placeholder="Search commands, prospects, clients, tasks..."
             aria-controls="command-palette-results"
             aria-activedescendant={selectedItem?.id}
           />
@@ -446,7 +449,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                   {emptyMessage}
                 </p>
                 <p className="mt-1 text-xs text-[#5e8a8d]">
-                  Try a contact name, report, task, or app page.
+                  Try a prospect, client, task, or app page.
                 </p>
               </div>
             )}

@@ -98,7 +98,7 @@ export function CallDetailPanel({
             {call.assignedTo}
           </span>
         </DetailItem>
-        <DetailItem icon={FileText} label="Treatment">
+        <DetailItem icon={FileText} label="Service / package">
           <span className="text-sm" style={{ color: "#252421" }}>
             {call.treatment}
           </span>

@@ -1,11 +1,9 @@
 import {
   Activity,
-  BellRing,
   BookOpen,
   BriefcaseBusiness,
   CheckSquare,
   ClipboardList,
-  FileText,
   FolderKanban,
   Inbox,
   Mail,
@@ -41,7 +39,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Delivery Work", href: "/app/ops/delivery", icon: FolderKanban },
       { label: "Contacts", href: "/app/crm/contacts", icon: Users },
       { label: "Internal Tasks", href: "/app/crm/tasks", icon: CheckSquare },
-      { label: "Forms", href: "/app/crm/forms", icon: FileText },
     ],
   },
   {
@@ -53,7 +50,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "SOPs", href: "/app/ops/sops", icon: BookOpen },
       { label: "Automation", href: "/app/ops/automations", icon: Zap },
       { label: "Templates", href: "/app/comms/templates", icon: Mail },
-      { label: "Alert Inbox", href: "/app/alerts", icon: BellRing },
     ],
   },
   {

@@ -529,7 +529,7 @@ function AddDealModal({
                   onChange={(event) =>
                     onUpdateForm({ treatment: event.target.value })
                   }
-                  placeholder="Consultation"
+                  placeholder="Website build"
                   className="w-full rounded-xl border border-[rgba(0,0,0,0.06)] bg-[#FAF8F5] px-3 py-2.5 text-sm text-[#111111] outline-none focus:border-[#6E6AE8]/50"
                 />
               </div>
@@ -567,7 +567,7 @@ function AddDealModal({
           >
             <span className="inline-flex items-center gap-2">
               {isCreating && <Loader2 className="h-4 w-4 animate-spin" />}
-              {isCreating ? "Creating..." : "Create Deal"}
+              {isCreating ? "Creating..." : "Create Opportunity"}
             </span>
           </button>
         </div>
@@ -825,7 +825,7 @@ export default function PipelinePage() {
         <div>
           <h1 className="text-2xl font-bold text-[#111111]">Sales Pipeline</h1>
           <p className="text-[#6B7280] mt-1">
-            Track Clinic Grower prospects from enquiry through proposal, won, or lost.
+            Track The Growth Group prospects from enquiry through proposal, won, or lost.
           </p>
         </div>
         <div className="flex items-center gap-3">

@@ -109,7 +109,7 @@ export class ErrorBoundary extends Component<
                 <RefreshCw className="w-4 h-4" /> Try Again
               </button>
               <Link
-                href="/app/revenue"
+                href="/app"
                 className="px-4 py-2.5 rounded-[14px] flex items-center gap-2 text-sm font-medium transition-colors"
                 style={{
                   backgroundColor: "#60b4af",

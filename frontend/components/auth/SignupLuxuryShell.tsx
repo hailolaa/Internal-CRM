@@ -32,14 +32,14 @@ export default function SignupLuxuryShell({
             className="text-[1.75rem] font-semibold tracking-tight mb-3"
             style={{ color: "#111111" }}
           >
-            Start your clinic growth OS
+            Create an internal CRM workspace
           </h1>
           <p
             className="text-sm leading-relaxed max-w-xs mx-auto"
             style={{ color: "#6B7280" }}
           >
-            Create your account and bring leads, calls, bookings and revenue
-            into one calm operating system.
+            Create a workspace for The Growth Group sales, clients, delivery work,
+            and internal team tasks.
           </p>
         </div>
 

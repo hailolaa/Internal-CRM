@@ -534,7 +534,7 @@ export default function TeamPage() {
                 </div>
                 <p className="text-xs text-[#7A746A] mt-2">
                   {row.breachCount > 0
-                    ? `${row.breachCount} SLA breaches need review.`
+                    ? `${row.breachCount} response issues need review.`
                     : row.missedCalls > 0
                       ? `${row.missedCalls} missed calls need recovery.`
                       : "Review response quality and conversion consistency."}

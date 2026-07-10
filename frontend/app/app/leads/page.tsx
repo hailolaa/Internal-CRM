@@ -28,7 +28,7 @@ interface Lead {
   email: string;
   source: string;
   campaign: string;
-  practitioner: string;
+  owner: string;
   stage: string;
   revenue: number;
   date: string;
@@ -52,7 +52,7 @@ const searchFn = (lead: Lead, query: string) =>
   lead.email.toLowerCase().includes(query) ||
   lead.source.toLowerCase().includes(query) ||
   lead.campaign.toLowerCase().includes(query) ||
-  lead.practitioner.toLowerCase().includes(query) ||
+  lead.owner.toLowerCase().includes(query) ||
   lead.stage.toLowerCase().includes(query);
 
 function formatMoney(value: number) {
@@ -70,7 +70,7 @@ function toLead(contact: ContactRecord): Lead {
     email: contact.email || "—",
     source: contact.source || "Unknown",
     campaign: contact.treatmentInterests?.[0] || contact.tags?.[0] || "—",
-    practitioner: "Unassigned",
+    owner: "Unassigned",
     stage: contact.status || "New",
     revenue: contact.value,
     date: new Intl.DateTimeFormat("en-GB", {
@@ -91,7 +91,7 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     email: deal.contactEmail || "—",
     source: deal.source || "Unknown",
     campaign: deal.treatment || deal.title || "—",
-    practitioner: deal.ownerName || "Unassigned",
+    owner: deal.ownerName || "Unassigned",
     stage: deal.stageName || deal.status || "New",
     revenue: deal.valueCents / 100,
     date: new Intl.DateTimeFormat("en-GB", {
@@ -182,7 +182,7 @@ export default function LeadsPage() {
 
   const leadStats = useMemo(() => {
     const unassigned = leads.filter(
-      (lead) => lead.practitioner === "Unassigned",
+      (lead) => lead.owner === "Unassigned",
     ).length;
     const revenue = leads.reduce((total, lead) => total + lead.revenue, 0);
     const costPerLead = dashboardSummary?.financials.costPerLead ?? 0;
@@ -217,7 +217,7 @@ export default function LeadsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Prospect List"
-        subtitle="Track incoming Clinic Grower enquiries from sales opportunities and CRM contacts, including source, service/package, owner, stage, and value."
+        subtitle="Track incoming The Growth Group enquiries from sales opportunities and CRM contacts, including source, service/package, owner, stage, and value."
         icon={Target}
         iconColor="text-[#6E6AE8]"
       />
@@ -313,8 +313,8 @@ export default function LeadsPage() {
                 />
                 <SortableHeader
                   label="Owner"
-                  sortKey="practitioner"
-                  direction={getSortDirection("practitioner")}
+                  sortKey="owner"
+                  direction={getSortDirection("owner")}
                   onSort={toggleSort}
                 />
                 <SortableHeader
@@ -377,7 +377,7 @@ export default function LeadsPage() {
                     className="px-5 py-4 text-sm"
                     style={{ color: "#6F6A66" }}
                   >
-                    {lead.practitioner}
+                    {lead.owner}
                   </td>
                   <td className="px-5 py-4">
                     <span

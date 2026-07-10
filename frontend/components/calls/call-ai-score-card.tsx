@@ -7,7 +7,7 @@ import type { CallAiBreakdownRecord, CallLogRecord } from "@/lib/api-types";
 const categoryLabels: Record<CallAiBreakdownRecord["categoryType"], string> = {
   sentiment: "Sentiment",
   booking_intent: "Booking Intent",
-  treatment: "Treatment",
+  treatment: "Service / package",
   outcome: "Outcome",
 };
 

@@ -8,7 +8,6 @@ import {
   Clock,
   Edit3,
   ExternalLink,
-  FileText,
   Loader2,
   Mail,
   MessageSquare,
@@ -45,6 +44,10 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function labelForTimeline(activity: ContactLinkedActivity["timeline"][number]) {
+  const rawType = activity.type.toLowerCase();
+  if (rawType.includes("appointment")) return "Sales or delivery event";
+  if (rawType.includes("form")) return "Lead submission";
+  if (rawType.includes("treatment")) return "Service/package update";
   const type = activity.type.replace(/_/g, " ");
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
@@ -369,8 +372,7 @@ export default function ContactDetailPage() {
             <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
                 ["Calls", activity?.counts.calls || 0],
-                ["Appointments", activity?.counts.appointments || 0],
-                ["Forms", activity?.counts.forms || 0],
+                ["Linked events", activity?.counts.appointments || 0],
                 ["Messages", activity?.counts.messages || 0],
               ].map(([label, value]) => (
                 <div
@@ -431,7 +433,7 @@ export default function ContactDetailPage() {
 
             <Card padding="p-5 sm:p-6">
               <h2 className="mb-4 text-base font-semibold text-[#151f21]">
-                Appointments
+                Linked sales/delivery events
               </h2>
               <div className="space-y-3">
                 {(activity?.appointments || []).slice(0, 5).map((appointment) => (
@@ -440,7 +442,7 @@ export default function ContactDetailPage() {
                     className="rounded-xl bg-[#FAF8F5] p-4"
                   >
                     <p className="text-sm font-semibold text-[#151f21]">
-                      {appointment.treatment || "Appointment"}
+                      {appointment.treatment || "Sales or delivery event"}
                     </p>
                     <p className="text-xs text-[#6F6A66]">
                       {appointment.status} - {formatDateTime(appointment.dateTime)}
@@ -448,7 +450,7 @@ export default function ContactDetailPage() {
                   </div>
                 ))}
                 {(!activity || activity.appointments.length === 0) && (
-                  <EmptyState label="No linked appointments found." />
+                  <EmptyState label="No linked sales or delivery events found." />
                 )}
               </div>
             </Card>
@@ -464,7 +466,7 @@ export default function ContactDetailPage() {
               {formatMoney(contact.value)}
             </p>
             <p className="mt-1 text-xs text-[#6F6A66]">
-              Estimated contact value
+              Estimated opportunity value
             </p>
           </Card>
 
@@ -524,22 +526,9 @@ export default function ContactDetailPage() {
 
           <Card padding="p-5 sm:p-6">
             <h2 className="mb-4 text-base font-semibold text-[#151f21]">
-              Other linked records
+              Linked messages
             </h2>
             <div className="space-y-3">
-              {(activity?.forms || []).slice(0, 3).map((form) => (
-                <div key={form.id} className="flex items-start gap-3">
-                  <FileText className="mt-0.5 h-4 w-4 text-[#6E6AE8]" />
-                  <div>
-                    <p className="text-sm font-medium text-[#151f21]">
-                      {form.formName}
-                    </p>
-                    <p className="text-xs text-[#6F6A66]">
-                      {formatDateTime(form.submittedAt)}
-                    </p>
-                  </div>
-                </div>
-              ))}
               {(activity?.messages || []).slice(0, 3).map((message) => (
                 <div key={message.id} className="flex items-start gap-3">
                   <MessageSquare className="mt-0.5 h-4 w-4 text-[#6E6AE8]" />
@@ -554,9 +543,8 @@ export default function ContactDetailPage() {
                   </div>
                 </div>
               ))}
-              {(!activity ||
-                (activity.forms.length === 0 && activity.messages.length === 0)) && (
-                <EmptyState label="No linked forms or messages found." />
+              {(!activity || activity.messages.length === 0) && (
+                <EmptyState label="No linked messages found." />
               )}
             </div>
           </Card>

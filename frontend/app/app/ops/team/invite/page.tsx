@@ -116,7 +116,7 @@ export default function InviteTeamPage() {
                 <textarea
                   rows={4}
                   placeholder={
-                    "Enter email addresses, one per line:\nsarah@clinicgrower.com\nemma@clinicgrower.com"
+                    "Enter email addresses, one per line:\nsarah@thegrowthgroup.com\nemma@thegrowthgroup.com"
                   }
                   value={emails}
                   onChange={(e) => setEmails(e.target.value)}
@@ -217,7 +217,7 @@ export default function InviteTeamPage() {
                 <p className="text-xs text-[#6B7280] mb-2">Email preview:</p>
                 <div className="bg-[rgba(0,0,0,0.02)] rounded p-3 text-xs text-[#111111]">
                   <p className="font-medium mb-2">
-                    You&apos;ve been invited to join Clinic Grower Internal CRM.
+                    You&apos;ve been invited to join The Growth Group Internal CRM.
                   </p>
                   <p className="text-[#6B7280]">
                     Click the link below to create your account and get

@@ -14,7 +14,7 @@ export default function SignupPage() {
   const { value: showPassword, toggle: togglePassword } = useToggle(false);
   const [isLoading, setIsLoading] = useState(false);
   const [fullName, setFullName] = useState("");
-  const [clinicName, setClinicName] = useState("");
+  const [workspaceName, setWorkspaceName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -28,10 +28,10 @@ export default function SignupPage() {
 
     try {
       const session = await api.auth.registerClinic({
-        clinicName: clinicName.trim(),
+        clinicName: workspaceName.trim(),
         adminEmail: email.trim(),
         adminPassword: password,
-        firstName: firstName || "Clinic",
+        firstName: firstName || "Team",
         lastName: restName.join(" ") || "Admin",
       });
       if (!session.user.emailVerifiedAt) {
@@ -68,7 +68,7 @@ export default function SignupPage() {
             <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6F6875]" />
             <input
               type="text"
-              placeholder="Dr. Sarah Smith"
+              placeholder="Sarah Smith"
               required
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
@@ -78,16 +78,16 @@ export default function SignupPage() {
         </div>
         <div>
           <label className="block text-sm text-[#6F6875] mb-1.5">
-            Clinic name
+            Workspace name
           </label>
           <div className="relative">
             <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6F6875]" />
             <input
               type="text"
-              placeholder="Glow Aesthetics"
+              placeholder="The Growth Group"
               required
-              value={clinicName}
-              onChange={(e) => setClinicName(e.target.value)}
+              value={workspaceName}
+              onChange={(e) => setWorkspaceName(e.target.value)}
               className="input-with-icon"
             />
           </div>
@@ -100,7 +100,7 @@ export default function SignupPage() {
             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6F6875]" />
             <input
               type="email"
-              placeholder="sarah@glowclinic.co.uk"
+              placeholder="sarah@thegrowthgroup.com"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}

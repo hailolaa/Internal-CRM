@@ -10,10 +10,10 @@ import type {
 } from "@/lib/api-types";
 
 const outcomeOptions: Array<{ value: CallCommercialOutcome; label: string }> = [
-  { value: "booked_consult", label: "Booked consult" },
+  { value: "booked_consult", label: "Discovery call booked" },
   { value: "asked_for_prices", label: "Asked for prices" },
   { value: "follow_up_required", label: "Follow-up required" },
-  { value: "existing_patient", label: "Existing patient" },
+  { value: "existing_patient", label: "Existing client/contact" },
   { value: "not_suitable", label: "Not suitable" },
   { value: "missed_no_answer", label: "No answer / missed" },
   { value: "lost", label: "Lost" },
@@ -252,12 +252,12 @@ export function LogCallModal({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-2 block text-sm font-medium text-[#252421]">
-                Treatment
+                Service / package
               </label>
               <input
                 value={treatment}
                 onChange={(event) => setTreatment(event.target.value)}
-                placeholder="Consultation"
+                placeholder="Website build"
                 className="w-full rounded-xl border border-[#E5DED6] bg-[#F7F5F2] px-3 py-2.5 text-sm text-[#252421] outline-none focus:border-[#7D8F7A]"
               />
             </div>

@@ -118,7 +118,7 @@ function toCallRecord(call: CallLogRecord): CallRecord {
     summaryGeneratedAt: call.summaryGeneratedAt,
     assignedTo: call.assignedTo,
     recordingUrl: call.recordingUrl,
-    treatment: call.treatment || call.treatmentMentioned || "Consultation",
+    treatment: call.treatment || call.treatmentMentioned || "Service/package",
     source: call.source || "Unknown",
     createdAt: new Intl.DateTimeFormat("en-GB", {
       day: "2-digit",
@@ -341,7 +341,7 @@ export default function CallsPage() {
       Outcome: call.outcome,
       Disposition: call.disposition,
       Duration: formatCallDuration(call.duration),
-      Treatment: call.treatment,
+      "Service / Package": call.treatment,
       "Handled By": call.assignedTo,
       Source: call.source,
       Date: call.createdAt,
@@ -410,7 +410,7 @@ export default function CallsPage() {
         <SearchInput
           value={searchQuery}
           onChange={setSearchQuery}
-          placeholder="Search by name, phone, treatment..."
+          placeholder="Search by name, phone, service/package..."
           className="flex-1 max-w-md"
         />
         <FilterTabs
@@ -456,7 +456,7 @@ export default function CallsPage() {
                     Duration
                   </th>
                   <th className="text-left text-[11px] uppercase tracking-wider font-bold px-5 py-3.5 text-[#7A746A] hidden lg:table-cell">
-                    Treatment
+                    Service / Package
                   </th>
                   <th className="text-left text-[11px] uppercase tracking-wider font-bold px-5 py-3.5 text-[#7A746A] hidden xl:table-cell">
                     Handled By

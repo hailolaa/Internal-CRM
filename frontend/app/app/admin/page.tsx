@@ -119,7 +119,7 @@ export default function AdminPage() {
     <div className="space-y-6">
       <PageHeader
         title="Platform Admin"
-        subtitle="Tenant health, access, billing, jobs, and audit activity."
+        subtitle="Workspace health, access, billing, jobs, and audit activity."
         icon={Shield}
         iconColor="text-[#8A4A4A]"
         iconBg="bg-[rgba(138,74,74,0.08)]"
@@ -128,7 +128,7 @@ export default function AdminPage() {
       <AlertBanner
         icon={AlertTriangle}
         title="Admin Access"
-        description="You are viewing live operational data for the selected clinic."
+        description="You are viewing live operational data for the selected internal workspace."
         variant="warning"
       />
 

@@ -12,10 +12,10 @@ import type {
 const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> = [
   {
     id: "create_lead",
-    label: "Create lead",
-    description: "Open the lead creation workflow.",
+    label: "Add prospect",
+    description: "Create a new prospect or internal sales lead.",
     group: "create",
-    keywords: ["lead", "contact", "enquiry", "new"],
+    keywords: ["prospect", "lead", "contact", "enquiry", "new"],
     targetType: "route",
     route: "/app/crm/contacts/new",
     api: { method: "POST", path: "/api/contacts" },
@@ -23,24 +23,24 @@ const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> =
   },
   {
     id: "log_call",
-    label: "Log call",
-    description: "Open the call logging workflow.",
+    label: "Log sales call",
+    description: "Record a sales or client follow-up call.",
     group: "create",
-    keywords: ["call", "phone", "outcome"],
+    keywords: ["call", "phone", "sales", "follow up", "outcome"],
     targetType: "route",
     route: "/app/comms/calls?log=1",
     requiredPermission: "calls:write",
   },
   {
     id: "create_booking",
-    label: "Create booking",
-    description: "Open the appointment booking workflow.",
+    label: "Add follow-up task",
+    description: "Create a task for a discovery call, proposal, or client action.",
     group: "create",
-    keywords: ["booking", "appointment", "consult", "calendar"],
+    keywords: ["follow up", "discovery", "proposal", "task", "action"],
     targetType: "route",
-    route: "/app/crm/calendar/new",
-    api: { method: "POST", path: "/api/appointments" },
-    requiredPermission: "appointments:write",
+    route: "/app/crm/tasks/new",
+    api: { method: "POST", path: "/api/tasks" },
+    requiredPermission: "events:write",
   },
   {
     id: "create_task",
@@ -66,21 +66,20 @@ const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> =
   },
   {
     id: "open_reports",
-    label: "Open reports",
-    description: "Open the performance dashboard and saved reports.",
+    label: "Open operations dashboard",
+    description: "View leads, clients, projects, overdue tasks, and upcoming deadlines.",
     group: "navigate",
-    keywords: ["report", "dashboard", "revenue", "performance"],
+    keywords: ["dashboard", "operations", "tasks", "clients", "pipeline"],
     targetType: "route",
-    route: "/app/reports/overview",
-    api: { method: "GET", path: "/api/reports/dashboard/summary" },
+    route: "/app",
     requiredPermission: "reports:read",
   },
   {
     id: "switch_clinic",
-    label: "Switch clinic",
-    description: "Choose another clinic available to your user.",
+    label: "Switch workspace",
+    description: "Choose another internal workspace available to your user.",
     group: "switch",
-    keywords: ["switch", "clinic", "tenant", "account"],
+    keywords: ["switch", "workspace", "tenant", "account"],
     targetType: "clinic_switch",
     route: "/app",
     api: { method: "POST", path: "/api/auth/switch-clinic" },
@@ -89,9 +88,9 @@ const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> =
   {
     id: "open_settings",
     label: "Open settings",
-    description: "Open clinic and account settings.",
+    description: "Open internal CRM settings.",
     group: "settings",
-    keywords: ["settings", "account", "clinic", "team"],
+    keywords: ["settings", "account", "workspace", "team"],
     targetType: "route",
     route: "/app/settings",
     requiredPermission: "settings:read",
@@ -100,18 +99,8 @@ const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> =
 
 const PERMISSIONS = Array.from(new Set([
   ...ACTIONS.map((action) => action.requiredPermission).filter(Boolean),
-  "appointments:read",
   "events:read",
 ])) as string[];
-
-function getReportRoute(type: unknown) {
-  const reportType = String(type || "").toLowerCase();
-  if (reportType.includes("lead")) return "/app/reports/leads";
-  if (reportType.includes("ad") || reportType.includes("roas")) return "/app/reports/ads";
-  if (reportType.includes("no-show") || reportType.includes("noshow")) return "/app/reports/noshows";
-  if (reportType.includes("attribution")) return "/app/marketing/attribution";
-  return "/app/reports/overview";
-}
 
 export class CommandPaletteService {
   async getCommandPalette(
@@ -132,7 +121,7 @@ export class CommandPaletteService {
     return {
       query: search,
       actions,
-      commonActions: actions.filter((action) => ["create_lead", "create_booking", "create_task", "open_reports"].includes(action.id)),
+      commonActions: actions.filter((action) => ["create_lead", "create_task", "open_reports"].includes(action.id)),
       records,
       recentRecords,
       clinics,
@@ -187,14 +176,6 @@ export class CommandPaletteService {
       records.push(...await this.searchContacts(clinicId, like, perTypeLimit));
     }
 
-    if (permissions["reports:read"]) {
-      records.push(...await this.searchReports(clinicId, like, perTypeLimit));
-    }
-
-    if (permissions["appointments:read"]) {
-      records.push(...await this.searchAppointments(clinicId, like, perTypeLimit));
-    }
-
     if (permissions["events:read"]) {
       records.push(...await this.searchTasks(clinicId, like, perTypeLimit));
     }
@@ -214,9 +195,6 @@ export class CommandPaletteService {
 
     if (permissions["contacts:read"]) {
       records.push(...await this.searchContacts(clinicId, "%", perTypeLimit));
-    }
-    if (permissions["reports:read"]) {
-      records.push(...await this.searchReports(clinicId, "%", perTypeLimit));
     }
     if (permissions["events:read"]) {
       records.push(...await this.searchTasks(clinicId, "%", perTypeLimit));
@@ -295,7 +273,7 @@ export class CommandPaletteService {
       type: "report",
       label: row.name,
       description: [row.type, row.description].filter(Boolean).join(" · ") || null,
-      route: getReportRoute(row.type),
+      route: "/app",
       updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
       metadata: {
         reportType: row.type || null,
@@ -334,9 +312,9 @@ export class CommandPaletteService {
     return rows.map((row: any) => ({
       id: row.id,
       type: "appointment",
-      label: `${row.treatment || "Consult"} booking`,
+      label: `${row.treatment || "Delivery"} event`,
       description: [row.contactName, row.status, row.dateTime ? new Date(row.dateTime).toISOString() : null].filter(Boolean).join(" · ") || null,
-      route: `/app/crm/calendar?appointmentId=${encodeURIComponent(row.id)}`,
+      route: "/app/ops/delivery",
       updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
       metadata: {
         status: row.status || null,
