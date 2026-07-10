@@ -21,7 +21,7 @@ interface RequestMeta {
 
 
 export class TeamService{
-    // Invite multiple members to a clinic
+    // Invite multiple internal team members into the active workspace
     async inviteMembers(
         clinicId: string,
         invitedBy: string,
@@ -38,7 +38,7 @@ export class TeamService{
             "SELECT name FROM clinic WHERE id = ?",
             [clinicId]
         );
-        const clinicName = clinics[0]?.name || "Clinic Grower";
+        const clinicName = clinics[0]?.name || "ClinicGrower Mission Control";
 
         for(const email of emails) {
             const [existing]: any = await pool.execute(
@@ -136,7 +136,7 @@ export class TeamService{
             email: invite.email,
             role: invite.role,
             inviteUrl,
-            clinicName: invite.clinicName || "Clinic Grower",
+            clinicName: invite.clinicName || "ClinicGrower Mission Control",
         });
 
         await logAuditEvent({

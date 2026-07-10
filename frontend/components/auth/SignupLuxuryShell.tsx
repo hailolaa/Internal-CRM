@@ -5,10 +5,14 @@ import ClinicGrowerLogo from "@/components/brand/ClinicGrowerLogo";
 
 interface SignupLuxuryShellProps {
   children: React.ReactNode;
+  title?: string;
+  description?: string;
 }
 
 export default function SignupLuxuryShell({
   children,
+  title = "Join Mission Control",
+  description = "Accept your ClinicGrower team invitation to access internal sales, client, and delivery operations.",
 }: SignupLuxuryShellProps) {
   return (
     <div
@@ -32,14 +36,13 @@ export default function SignupLuxuryShell({
             className="text-[1.75rem] font-semibold tracking-tight mb-3"
             style={{ color: "#111111" }}
           >
-            Create a Mission Control workspace
+            {title}
           </h1>
           <p
             className="text-sm leading-relaxed max-w-xs mx-auto"
             style={{ color: "#6B7280" }}
           >
-            Create a workspace for ClinicGrower sales, clients, delivery work,
-            and internal team tasks.
+            {description}
           </p>
         </div>
 

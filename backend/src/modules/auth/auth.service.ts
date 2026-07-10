@@ -63,6 +63,10 @@ export class AuthService {
     mode: "login" | "signup",
     rememberMe: boolean,
   ): string {
+    if (mode === "signup") {
+      throw ApiError.forbidden("Mission Control access is invitation-only. Ask an admin to invite you.");
+    }
+
     const state = jwt.sign({ provider, mode, rememberMe }, config.jwt.secret, {
       expiresIn: "10m",
     });
@@ -144,7 +148,6 @@ export class AuthService {
       );
 
       let userId = linkedAccounts[0]?.user_id as string | undefined;
-      let isNewUser = false;
       let linkedNow = false;
 
       if (!userId) {
@@ -156,32 +159,7 @@ export class AuthService {
         userId = existingUsers[0]?.id;
 
         if (!userId) {
-          isNewUser = true;
-          const clinicId = uuidv4();
-          const fallbackClinicName = `${profile.firstName || profile.email.split("@")[0]}'s Clinic`;
-          await connection.execute(
-            "INSERT INTO clinic (id, name, email) VALUES (?, ?, ?)",
-            [clinicId, fallbackClinicName, profile.email],
-          );
-
-          userId = uuidv4();
-          const randomPasswordHash = await hashPassword(uuidv4());
-          await connection.execute(
-            "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
-            [
-              userId,
-              clinicId,
-              profile.email,
-              randomPasswordHash,
-              profile.firstName || "",
-              profile.lastName || "",
-              "SUPER_ADMIN",
-            ],
-          );
-          await connection.execute(
-            "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
-            [userId, clinicId, "SUPER_ADMIN"],
-          );
+          throw ApiError.forbidden("Mission Control access is invitation-only. Ask an admin to invite you before using OAuth.");
         }
 
         await connection.execute(
@@ -212,7 +190,7 @@ export class AuthService {
       await logAuditEvent({
         clinicId: user.clinic_id,
         userId: user.id,
-        action: isNewUser ? "SIGNUP_OAUTH" : "LOGIN_SUCCESS",
+        action: "LOGIN_SUCCESS",
         entityType: "user",
         entityId: user.id,
         changes: { provider },
@@ -232,7 +210,7 @@ export class AuthService {
       }
 
       return {
-        isNewUser,
+        isNewUser: false,
         rememberMe: oauthState.rememberMe,
         user: this.toAuthUser(user),
         tokens: {
@@ -252,75 +230,9 @@ export class AuthService {
     data: RegisterClinicDTO,
     meta: AuthRequestMeta = {},
   ): Promise<AuthResponse> {
-    const connection = await pool.getConnection();
-    await connection.beginTransaction();
-    try {
-      const [existingUsers]: any = await connection.execute(
-        "SELECT id FROM user WHERE email = ?",
-        [data.adminEmail],
-      );
-      if (existingUsers.length > 0) {
-        throw ApiError.conflict("Email already registered");
-      }
-
-      const clinicId = uuidv4();
-      await connection.execute(
-        "INSERT INTO clinic (id, name, email, phone) VALUES (?, ?, ?, ?)",
-        [clinicId, data.clinicName, data.adminEmail, data.phone || null],
-      );
-
-      const userId = uuidv4();
-      const hashedPassword = await hashPassword(data.adminPassword);
-      await connection.execute(
-        "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, phone, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-          userId,
-          clinicId,
-          data.adminEmail,
-          hashedPassword,
-          data.firstName,
-          data.lastName,
-          data.phone || null,
-          "SUPER_ADMIN",
-        ],
-      );
-      await connection.execute(
-        "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
-        [userId, clinicId, "SUPER_ADMIN"],
-      );
-      await connection.commit();
-
-      const tokenUser: TokenUser = {
-        id: userId,
-        clinic_id: clinicId,
-        email: data.adminEmail,
-        first_name: data.firstName,
-        last_name: data.lastName,
-        role: "SUPER_ADMIN",
-      };
-      const tokens = await this.createTokenPair(tokenUser, true, meta);
-      await this.sendEmailVerification(tokenUser, meta);
-      await logAuditEvent({
-        clinicId,
-        userId,
-        action: "SIGNUP",
-        entityType: "user",
-        entityId: userId,
-        changes: { email: data.adminEmail, clinicName: data.clinicName },
-        ipAddress: meta.ipAddress,
-        userAgent: meta.userAgent,
-      });
-
-      return {
-        user: this.toAuthUser(tokenUser),
-        tokens: { ...tokens, requires2FA: false },
-      };
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+    void data;
+    void meta;
+    throw ApiError.forbidden("Public workspace signup is disabled for Mission Control. Ask an admin to invite you.");
   }
 
   async registerPatient(

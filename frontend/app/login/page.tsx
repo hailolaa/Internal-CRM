@@ -323,14 +323,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-sm mt-6" style={{ color: "#6B7280" }}>
-          Don&apos;t have an account?{" "}
-          <Link
-            href={ROUTES.SIGNUP}
-            className="font-medium transition-opacity hover:opacity-70"
-            style={{ color: "#6E6AE8" }}
-          >
-            Start free trial
-          </Link>
+          Access is limited to invited ClinicGrower team members.
         </p>
       </div>
     </div>
