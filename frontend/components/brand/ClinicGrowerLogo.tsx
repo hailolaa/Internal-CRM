@@ -3,7 +3,7 @@
 /**
  * ClinicGrowerLogo - shared app logo component.
  *
- * Full variant: CG icon mark + wordmark + internal CRM subtitle
+ * Full variant: CG icon mark + wordmark + Mission Control subtitle
  * Compact variant: CG icon mark only
  */
 
@@ -29,7 +29,7 @@ export default function ClinicGrowerLogo({
   if (variant === "compact") {
     return (
       <div
-        aria-label="The Growth Group"
+        aria-label="ClinicGrower Mission Control"
         style={{
           width: 36,
           height: 36,
@@ -37,7 +37,7 @@ export default function ClinicGrowerLogo({
           background: "transparent",
         }}
       >
-        <img src={LOGO_ICON} alt="The Growth Group" style={imgStyle} />
+        <img src={LOGO_ICON} alt="ClinicGrower Mission Control" style={imgStyle} />
       </div>
     );
   }
@@ -46,7 +46,7 @@ export default function ClinicGrowerLogo({
     <div
       className="flex items-center"
       style={{ gap: 10 }}
-      aria-label="The Growth Group Internal CRM"
+      aria-label="ClinicGrower Mission Control"
     >
       <div
         style={{
@@ -56,7 +56,7 @@ export default function ClinicGrowerLogo({
           background: "transparent",
         }}
       >
-        <img src={LOGO_ICON} alt="The Growth Group" style={imgStyle} />
+        <img src={LOGO_ICON} alt="ClinicGrower Mission Control" style={imgStyle} />
       </div>
 
       <div className="flex flex-col" style={{ gap: 0 }}>
@@ -68,8 +68,8 @@ export default function ClinicGrowerLogo({
             color: "#151f21",
           }}
         >
-          <span style={{ fontWeight: 500 }}>The Growth</span>
-          <span style={{ fontWeight: 700 }}> Group</span>
+          <span style={{ fontWeight: 500 }}>Clinic</span>
+          <span style={{ fontWeight: 700 }}>Grower</span>
         </div>
         <div
           className="hidden sm:block"
@@ -83,7 +83,7 @@ export default function ClinicGrowerLogo({
             marginTop: 3,
           }}
         >
-          Internal CRM
+          Mission Control
         </div>
       </div>
     </div>

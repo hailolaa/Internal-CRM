@@ -3,8 +3,13 @@ import { readFile } from "node:fs/promises";
 import bcrypt from "bcrypt";
 import mysql from "mysql2/promise";
 
-const seedSqlPath = process.env.DEMO_SEED_SQL || "seeds/20260609_staging_client_demo_seed.sql";
+const seedSqlPath = process.env.DEMO_SEED_SQL;
 const demoPassword = process.env.DEMO_SEED_PASSWORD;
+
+if (!seedSqlPath) {
+  console.error("DEMO_SEED_SQL must be set explicitly. Do not load legacy clinic demo data into Mission Control by default.");
+  process.exit(1);
+}
 
 if (!demoPassword || demoPassword.length < 12) {
   console.error("DEMO_SEED_PASSWORD must be set and at least 12 characters long.");
@@ -27,7 +32,7 @@ const secondClinicId = "aac89185-939b-5449-bea2-a0a6e902436b";
 const demoUsers = [
   {
     id: "f9326ac6-5d15-4b2a-8ec5-dc5c3ff06f35",
-    email: "owner@phase1-demo.clinicgrower.ai",
+    email: "owner@mission-control-demo.example",
     firstName: "Olivia",
     lastName: "Owner",
     phone: "07700 900101",
@@ -37,34 +42,34 @@ const demoUsers = [
   },
   {
     id: "38ccda5f-a8f4-5a30-8f40-55f3ace8917f",
-    email: "manager@phase1-demo.clinicgrower.ai",
+    email: "manager@mission-control-demo.example",
     firstName: "Maya",
     lastName: "Manager",
     phone: "07700 900102",
     role: "MANAGER",
-    label: "Manager",
+    label: "Operations Manager",
   },
   {
     id: "c9d7d89d-e71d-52b8-8e85-511f6e8f6a90",
-    email: "reception@phase1-demo.clinicgrower.ai",
+    email: "sales@mission-control-demo.example",
     firstName: "Ria",
-    lastName: "Reception",
+    lastName: "Sales",
     phone: "07700 900103",
     role: "RECEPTIONIST",
-    label: "Reception",
+    label: "Sales Coordinator",
   },
   {
     id: "27f94d7f-bf0f-5084-9e15-5424f2a6728c",
-    email: "practitioner@phase1-demo.clinicgrower.ai",
+    email: "delivery@mission-control-demo.example",
     firstName: "Priya",
-    lastName: "Practitioner",
+    lastName: "Delivery",
     phone: "07700 900104",
     role: "CLINICIAN",
-    label: "Practitioner",
+    label: "Delivery Lead",
   },
   {
     id: "a805af99-922f-575e-8eac-62b5e5f57e93",
-    email: "analyst@phase1-demo.clinicgrower.ai",
+    email: "analyst@mission-control-demo.example",
     firstName: "Alex",
     lastName: "Analyst",
     phone: "07700 900105",
@@ -97,8 +102,8 @@ try {
   await connection.query(seedSql);
 
   const evidence = await collectEvidence(connection);
-  console.log("Phase 1 staging demo seed complete.");
-  console.log(`Demo clinic id: ${primaryClinicId}`);
+  console.log("Mission Control staging demo seed complete.");
+  console.log(`Demo account id: ${primaryClinicId}`);
   console.log("Demo users:");
   for (const user of demoUsers) {
     console.log(`- ${user.label}: ${user.email}`);
@@ -142,11 +147,11 @@ async function ensureDemoClinics(connection) {
        deleted_at = NULL`,
     [
       primaryClinicId,
-      "Phase 1 Demo Aesthetics Clinic",
-      "hello@phase1-demo.clinicgrower.ai",
-      "https://phase1-demo.clinicgrower.ai",
+      "Mission Control Demo Account",
+      "hello@mission-control-demo.example",
+      "https://mission-control-demo.example",
       "020 7946 1186",
-      "42 Harley Street",
+      "42 Operations Way",
       "London",
       "England",
       "W1G 9QH",
@@ -181,9 +186,9 @@ async function ensureDemoClinics(connection) {
        deleted_at = NULL`,
     [
       secondClinicId,
-      "Harbour Dental Studio",
-      "hello@harbour-dental.example",
-      "https://harbour-dental.example",
+      "Growth Group Client Sandbox",
+      "hello@growth-client-sandbox.example",
+      "https://growth-client-sandbox.example",
       "020 7946 1888",
       "18 Marina Walk",
       "Brighton",
@@ -250,7 +255,7 @@ async function ensureDemoUser(connection, user, passwordHash) {
 
 async function collectEvidence(connection) {
   const checks = {
-    users: "SELECT COUNT(*) AS count FROM user WHERE email LIKE '%@phase1-demo.clinicgrower.ai' AND deleted_at IS NULL",
+    users: "SELECT COUNT(*) AS count FROM user WHERE email LIKE '%@mission-control-demo.example' AND deleted_at IS NULL",
     memberships: "SELECT COUNT(*) AS count FROM clinic_membership WHERE clinic_id = ? AND status = 'active'",
     onboarding: "SELECT COUNT(*) AS count FROM onboarding_state WHERE clinic_id = ? AND completed_at IS NOT NULL",
     contacts: "SELECT COUNT(*) AS count FROM contact WHERE clinic_id = ? AND deleted_at IS NULL",

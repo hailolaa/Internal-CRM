@@ -10,29 +10,29 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Clinic Grower Internal CRM | Sales and Delivery Operations",
+  title: "ClinicGrower Mission Control | Internal Operations",
   description:
-    "Internal Clinic Grower CRM for prospects, client accounts, delivery tasks, and team operations.",
+    "ClinicGrower Mission Control for internal sales, client accounts, delivery tasks, and team operations.",
   keywords: [
-    "Clinic Grower internal CRM",
+    "ClinicGrower Mission Control",
     "sales pipeline",
     "client account management",
     "delivery operations",
     "team task management",
   ],
   openGraph: {
-    title: "Clinic Grower Internal CRM",
+    title: "ClinicGrower Mission Control",
     description:
-      "Manage Clinic Grower prospects, client accounts, internal tasks, and delivery operations.",
+      "Manage ClinicGrower prospects, client accounts, internal tasks, and delivery operations.",
     type: "website",
     locale: "en_GB",
-    siteName: "Clinic Grower Internal CRM",
+    siteName: "ClinicGrower Mission Control",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Clinic Grower Internal CRM",
+    title: "ClinicGrower Mission Control",
     description:
-      "Internal sales and delivery operations for the Clinic Grower team.",
+      "Internal sales and delivery operations for the ClinicGrower team.",
   },
   robots: {
     index: true,

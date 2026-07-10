@@ -9,8 +9,9 @@ import {
 } from "react";
 
 // ============================================================
-// Webhook Ingestion — mock webhook receiver + log
-// Production: POST /webhooks/leads, /webhooks/twilio/calls, /webhooks/stripe
+// Webhook Ingestion - internal mock receiver + log.
+// This provider never calls external webhook URLs; real endpoints must be
+// configured per Mission Control environment.
 // ============================================================
 
 export type WebhookSource =
@@ -64,9 +65,9 @@ const ENDPOINTS: WebhookEndpoint[] = [
   {
     path: "/webhooks/leads",
     source: "google_ads",
-    description: "Inbound leads from Google Ads, Meta Ads, and website forms",
+    description: "Sandbox inbound opportunities from internal lead sources",
     signatureHeader: "X-Webhook-Signature",
-    status: "active",
+    status: "inactive",
     eventsReceived: 234,
     lastReceived: "3 min ago",
   },
@@ -74,9 +75,9 @@ const ENDPOINTS: WebhookEndpoint[] = [
     path: "/webhooks/twilio/calls",
     source: "twilio",
     description:
-      "Twilio call status callbacks (connected, completed, no-answer)",
+      "Sandbox call status callbacks for internal QA",
     signatureHeader: "X-Twilio-Signature",
-    status: "active",
+    status: "inactive",
     eventsReceived: 567,
     lastReceived: "12 min ago",
   },
@@ -84,9 +85,9 @@ const ENDPOINTS: WebhookEndpoint[] = [
     path: "/webhooks/stripe",
     source: "stripe",
     description:
-      "Stripe payment events (payment_intent.succeeded, invoice.paid)",
+      "Sandbox payment events for internal QA",
     signatureHeader: "Stripe-Signature",
-    status: "active",
+    status: "inactive",
     eventsReceived: 89,
     lastReceived: "1 hour ago",
   },
@@ -105,8 +106,8 @@ const SEED_EVENTS: WebhookEvent[] = [
       name: "Jessica Williams",
       email: "jessica@email.com",
       phone: "07700 900999",
-      campaign: "Spring Botox Promo",
-      treatment: "Botox",
+      campaign: "Website Build Pipeline",
+      service: "Website Build",
     },
     headers: {
       "Content-Type": "application/json",
@@ -162,7 +163,7 @@ const SEED_EVENTS: WebhookEvent[] = [
           amount: 35000,
           currency: "gbp",
           customer: "cus_abc",
-          description: "Deposit — Full Face Rejuvenation",
+          description: "Sandbox payment - onboarding setup",
         },
       },
     },
@@ -190,8 +191,8 @@ const SEED_EVENTS: WebhookEvent[] = [
       name: "Amelia Carter",
       email: "amelia@email.com",
       phone: "07700 900888",
-      campaign: "Lip Filler Feb",
-      treatment: "Lip Filler",
+      campaign: "SEO Retainer Pipeline",
+      service: "SEO Retainer",
     },
     headers: {
       "Content-Type": "application/json",
@@ -212,12 +213,12 @@ const SEED_EVENTS: WebhookEvent[] = [
     method: "POST",
     status: "failed",
     statusCode: 422,
-    payload: { name: "Test", email: "invalid-email", phone: "", treatment: "" },
+    payload: { name: "Test", email: "invalid-email", phone: "", service: "" },
     headers: { "Content-Type": "application/json" },
     signatureValid: false,
     processingTimeMs: 12,
     createdEntity: null,
-    error: "Validation failed: email format invalid, treatment required",
+    error: "Validation failed: email format invalid, service required",
     clinicId: "clinic_001",
     timestamp: "2026-05-05T07:00:00Z",
     relativeTime: "2 hours ago",

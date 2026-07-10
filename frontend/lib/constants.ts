@@ -5,8 +5,8 @@
 export const LOGO_URL =
   "https://eu.chat-img.sintra.ai/57e4b3da-c2ee-48f8-956d-828adc30d734/0588879f-1cbe-4b7a-8b40-812b6a74b739/Copy_20of_20Copy_20of_20Clinic-Grower-Logo-Trademark-Light-Centralised-NO-slogan-withBG.png";
 
-export const APP_NAME = "Clinic Grower Internal CRM";
-export const APP_TAGLINE = "Internal sales and delivery operations";
+export const APP_NAME = "ClinicGrower Mission Control";
+export const APP_TAGLINE = "Internal sales, client, and delivery operations";
 
 // Route paths
 export const ROUTES = {
@@ -33,7 +33,7 @@ export const ROUTES = {
 // Page title map for TopBar - ordered longest-first for accurate prefix matching
 export const PAGE_TITLES: Record<string, string> = {
   // Sales
-  "/app/revenue": "Operations Dashboard",
+  "/app/revenue": "Mission Control",
   "/app/leads": "Prospect List",
   "/app/consults": "Sales Call Tracking",
   "/app/sla": "Response Time Monitoring",
@@ -115,7 +115,7 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/ai-forecasting": "AI Forecasting",
 
   // App landing
-  "/app": "Operations Dashboard",
+  "/app": "Mission Control",
 };
 
 // Breakpoints (for reference, Tailwind handles actual CSS)

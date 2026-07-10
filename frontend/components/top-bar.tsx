@@ -46,7 +46,7 @@ export default function TopBar({
     for (const [path, title] of sortedEntries) {
       if (pathname === path || pathname.startsWith(path + "/")) return title;
     }
-    return "Dashboard";
+    return "Mission Control";
   };
 
   return (
@@ -224,7 +224,7 @@ export default function TopBar({
             className="text-[11px] font-semibold"
             style={{ color: "#60b4af" }}
           >
-            Internal CRM
+            Mission Control
           </span>
         </div>
 

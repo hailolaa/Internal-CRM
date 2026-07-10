@@ -71,7 +71,7 @@ describe("Phase 1 frontend smoke coverage", () => {
   it("recognises manual reputation and fallback reply states", () => {
     const summary: ReputationSummaryRecord = {
       googleReviewLink: "https://g.page/r/demo/review",
-      reviewRequestTemplate: "Hi {{patient_name}}, please review us.",
+      reviewRequestTemplate: "Hi {{client_name}}, please review us.",
       manualReviewReceivedCount: 42,
       reviewRequestsSentCount: 3,
       reviewRequestsTotalCount: 4,

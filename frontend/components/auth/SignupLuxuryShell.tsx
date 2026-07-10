@@ -32,13 +32,13 @@ export default function SignupLuxuryShell({
             className="text-[1.75rem] font-semibold tracking-tight mb-3"
             style={{ color: "#111111" }}
           >
-            Create an internal CRM workspace
+            Create a Mission Control workspace
           </h1>
           <p
             className="text-sm leading-relaxed max-w-xs mx-auto"
             style={{ color: "#6B7280" }}
           >
-            Create a workspace for The Growth Group sales, clients, delivery work,
+            Create a workspace for ClinicGrower sales, clients, delivery work,
             and internal team tasks.
           </p>
         </div>

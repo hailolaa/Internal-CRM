@@ -289,7 +289,7 @@ export default function AppPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Operations Dashboard"
+        title="Mission Control"
         subtitle="Internal sales, clients, delivery work, and task health at a glance."
         icon={ClipboardList}
       />

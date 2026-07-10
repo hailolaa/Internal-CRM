@@ -1,8 +1,8 @@
-# The Growth Group Internal CRM
+# ClinicGrower Mission Control
 
-Internal operations CRM forked from the existing clinic CRM codebase.
+Internal Mission Control system forked from the existing clinic CRM codebase.
 
-This repository is the isolated internal system for The Growth Group team. It must not be used as the clinic-facing production launch project, and clinic-facing production API, app, database, email, Stripe, Twilio, or OAuth settings should not be copied into this environment.
+This repository is the isolated internal system for the ClinicGrower/The Growth Group team. It must not be used as the clinic-facing production launch project, and clinic-facing production API, app, database, email, Stripe, Twilio, or OAuth settings should not be copied into this environment.
 
 ## MC-001 Isolation Notes
 
@@ -84,3 +84,7 @@ Then open `http://localhost:3000`.
 ## Environment And Rollback Notes
 
 Dev, staging, production, secrets, backup and rollback guidance lives in [docs/mission-control-environments.md](docs/mission-control-environments.md).
+
+## Data And Webhook Isolation
+
+Clinic-facing demo data, patient/medical seed records, and webhook credential rules are documented in [docs/mission-control-data-isolation.md](docs/mission-control-data-isolation.md).

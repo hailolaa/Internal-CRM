@@ -10,17 +10,17 @@ export default function PrivacyPage() {
         </Link>
         <h1 className="text-3xl font-semibold text-[#111111]">Privacy Policy</h1>
         <p className="mt-4 text-sm leading-6 text-[#6B7280]">
-          ClinicGrower processes account, clinic, lead, appointment, communication,
-          and performance data to provide the CRM and reporting service. Final legal
+          ClinicGrower Mission Control processes account, prospect, client,
+          delivery, communication, and performance data for internal operations. Final legal
           copy should be reviewed before production launch.
         </p>
         <div className="mt-8 space-y-5 text-sm leading-6 text-[#3F3A45]">
           <section>
             <h2 className="font-semibold text-[#111111]">Data We Process</h2>
             <p>
-              The platform stores user profile details, clinic configuration, CRM
-              records, operational notes, integrations metadata, and reporting data
-              needed to run the service.
+              The platform stores user profile details, workspace configuration,
+              CRM records, operational notes, integrations metadata, and reporting
+              data needed to run the internal system.
             </p>
           </section>
           <section>

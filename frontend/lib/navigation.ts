@@ -45,7 +45,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: "Operations",
     colorClass: "text-[#7A746A]/60",
     items: [
-      { label: "Operations Dashboard", href: "/app", icon: ClipboardList },
+      { label: "Mission Control", href: "/app", icon: ClipboardList },
       { label: "Team Members", href: "/app/ops/team", icon: Users },
       { label: "SOPs", href: "/app/ops/sops", icon: BookOpen },
       { label: "Automation", href: "/app/ops/automations", icon: Zap },

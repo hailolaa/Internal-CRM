@@ -1,3 +1,8 @@
+-- LEGACY CLINIC-FACING STAGING DEMO SEED.
+-- This file is retained for compatibility/reference only.
+-- Do not use it for Mission Control demo data, staging, production, or fresh internal CRM setup.
+-- Mission Control fresh databases should be created from backend/db.sql.
+--
 -- Staging client demo seed for an existing account.
 -- Deterministic seed UUID reference:
 -- seed-activity-ava-booked => 9612a91d-111f-5a12-9f9a-ed038ffa7db4
