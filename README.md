@@ -80,3 +80,7 @@ Then open `http://localhost:3000`.
 - Do not use the clinic production database name.
 - Keep `.env` files local and uncommitted.
 - When schema or seed data changes, update `backend/db.sql` because this internal project is expected to start from a fresh DB.
+
+## Environment And Rollback Notes
+
+Dev, staging, production, secrets, backup and rollback guidance lives in [docs/mission-control-environments.md](docs/mission-control-environments.md).

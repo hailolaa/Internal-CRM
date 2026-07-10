@@ -1,1 +1,22 @@
 docs/internal-crm-phase-plan.md
+
+# Local environment files
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!.env.*.example
+!**/.env.example
+!**/.env.*.example
+
+# Dependencies and build output
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.next/
+**/.next/
+out/
+**/out/
+*.tsbuildinfo
