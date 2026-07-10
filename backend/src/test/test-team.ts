@@ -1,7 +1,27 @@
 import { authService } from "../modules/auth/auth.service.js";
 import { teamService } from "../modules/team/team.service.js";
 import { testConnection } from "../config/database.js";
+import pool from "../config/database.js";
+import { hashPassword } from "../utils/helpers.js";
 import logger from "../utils/logger.js";
+import { v4 as uuidv4 } from "uuid";
+
+async function createInternalTestUser(clinicId: string, email: string, role = "SALES") {
+  const userId = uuidv4();
+  const passwordHash = await hashPassword("password123");
+
+  await pool.execute(
+    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+    [userId, clinicId, email, passwordHash, "Internal", "User", role],
+  );
+
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
+    [userId, clinicId, role],
+  );
+
+  return userId;
+}
 
 async function runTest() {
   try {
@@ -13,7 +33,7 @@ async function runTest() {
     // ─── Setup: Create a fresh clinic + admin ───
     const testEmail = `team_admin_${Date.now()}@test.com`;
     const regResult = await authService.registerClinic({
-      clinicName: "Team Test Clinic",
+      clinicName: "Team Test Workspace",
       adminEmail: testEmail,
       adminPassword: "password123",
       firstName: "Team",
@@ -27,12 +47,12 @@ async function runTest() {
     // ─── Test 1: Invite Members ───
     logger.info("\n--- Test 1: Invite Members ---");
     const inviteEmails = [
-      `staff1_${Date.now()}@test.com`,
-      `staff2_${Date.now()}@test.com`,
+      `team1_${Date.now()}@test.com`,
+      `team2_${Date.now()}@test.com`,
     ];
     await teamService.inviteMembers(clinicId, adminUserId, {
       emails: inviteEmails,
-      role: "STAFF",
+      role: "SALES",
     });
     logger.info("✅ Invitations sent successfully");
 
@@ -54,7 +74,7 @@ async function runTest() {
     logger.info("\n--- Test 3: Duplicate Invite (should skip) ---");
     await teamService.inviteMembers(clinicId, adminUserId, {
       emails: [testEmail], // admin email already exists
-      role: "STAFF",
+      role: "SALES",
     });
     const membersAfterDupe = await teamService.getTeamMembers(clinicId);
     const pendingAfterDupe = membersAfterDupe.filter((m) => m.isInvitation).length;
@@ -67,21 +87,15 @@ async function runTest() {
     // ─── Test 4: Update Member Role ───
     logger.info("\n--- Test 4: Update Member Role ---");
     const roleTargetEmail = `role_target_${Date.now()}@test.com`;
-    const roleTarget = await authService.registerPatient({
-      clinicId,
-      email: roleTargetEmail,
-      password: "password123",
-      firstName: "Role",
-      lastName: "Target",
-    });
+    const roleTargetUserId = await createInternalTestUser(clinicId, roleTargetEmail);
     await teamService.updateMemberRole(
       clinicId,
       adminUserId,
-      roleTarget.user.id,
+      roleTargetUserId,
       "ADMIN",
     );
     const membersAfterRole = await teamService.getTeamMembers(clinicId);
-    const updatedUser = membersAfterRole.find((m) => m.id === roleTarget.user.id);
+    const updatedUser = membersAfterRole.find((m) => m.id === roleTargetUserId);
     if (updatedUser?.role === "ADMIN") {
       logger.info("✅ Role updated to ADMIN");
     } else {
@@ -91,17 +105,11 @@ async function runTest() {
     // ─── Test 5: Remove Member (soft delete) ───
     logger.info("\n--- Test 5: Remove Member ---");
     // Create a second user to remove
-    const staffEmail = `removable_${Date.now()}@test.com`;
-    const staffReg = await authService.registerPatient({
-      clinicId,
-      email: staffEmail,
-      password: "password123",
-      firstName: "Removable",
-      lastName: "Staff",
-    });
-    await teamService.removeMember(clinicId, adminUserId, staffReg.user.id);
+    const teamMemberEmail = `removable_${Date.now()}@test.com`;
+    const teamMemberUserId = await createInternalTestUser(clinicId, teamMemberEmail);
+    await teamService.removeMember(clinicId, adminUserId, teamMemberUserId);
     const membersAfterRemove = await teamService.getTeamMembers(clinicId);
-    const removedStillExists = membersAfterRemove.find((m) => m.id === staffReg.user.id);
+    const removedStillExists = membersAfterRemove.find((m) => m.id === teamMemberUserId);
     if (!removedStillExists) {
       logger.info("✅ Member removed (soft deleted) successfully");
     } else {

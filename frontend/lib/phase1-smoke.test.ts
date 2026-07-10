@@ -93,11 +93,12 @@ describe("Phase 1 frontend smoke coverage", () => {
   });
 
   it("maps Phase 1 role labels", () => {
-    expect(getRoleLabel("ADMIN")).toBe("Owner");
-    expect(getRoleLabel("MANAGER")).toBe("Manager");
-    expect(getRoleLabel("RECEPTIONIST")).toBe("Sales Coordinator");
-    expect(getRoleLabel("PRACTITIONER")).toBe("Team Member");
-    expect(getRoleLabel("READ_ONLY")).toBe("Agency / Analyst");
+    expect(getRoleLabel("ADMIN")).toBe("Admin");
+    expect(getRoleLabel("SALES")).toBe("Sales");
+    expect(getRoleLabel("RECEPTIONIST")).toBe("Sales");
+    expect(getRoleLabel("PRACTITIONER")).toBe("Delivery / Team Member");
+    expect(getRoleLabel("FINANCE")).toBe("Finance");
+    expect(getRoleLabel("READ_ONLY")).toBe("Internal Viewer");
     expect(getRoleLabel("SUPER_ADMIN")).toBe("Super Admin");
   });
 

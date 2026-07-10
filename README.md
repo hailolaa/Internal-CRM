@@ -88,3 +88,7 @@ Dev, staging, production, secrets, backup and rollback guidance lives in [docs/m
 ## Data And Webhook Isolation
 
 Clinic-facing demo data, patient/medical seed records, and webhook credential rules are documented in [docs/mission-control-data-isolation.md](docs/mission-control-data-isolation.md).
+
+## Data Model
+
+Accounts, contacts, leads, deals, clients, proposals, Growth Scores, and the migration path from legacy clinic CRM tables are documented in [docs/mission-control-data-model.md](docs/mission-control-data-model.md).

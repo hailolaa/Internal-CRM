@@ -1,4 +1,4 @@
-export type BackendTeamRole = "ADMIN" | "MANAGER" | "STAFF" | "READ_ONLY";
+export type BackendTeamRole = "ADMIN" | "SALES" | "DELIVERY" | "FINANCE" | "READ_ONLY";
 
 export interface TeamMember {
   id: string;

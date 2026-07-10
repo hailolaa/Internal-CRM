@@ -70,9 +70,12 @@ export function normalizeContactData(data: Partial<ContactMutationDTO>): Normali
     country: cleanString(data.country),
     tags: normalizeStringList(data.tags),
     status: cleanString(data.status),
+    leadStatus: cleanString(data.leadStatus),
     source: cleanString(data.source),
     value: normalizeMoney(data.value),
     treatmentInterests: normalizeStringList(data.treatmentInterests),
+    packageInterest: cleanString(data.packageInterest),
+    recommendedPackage: cleanString(data.recommendedPackage),
     notes: cleanString(data.notes),
     lastContactAt: normalizeDateTime(data.lastContactAt),
   };
@@ -83,12 +86,14 @@ export function normalizeImportRow(row: ContactImportRow): NormalizedImportConta
   const normalized = normalizeContactData({
     ...row,
     status: row.status || "lead",
+    leadStatus: row.leadStatus || row.status || "new",
     source: row.source || "import",
   });
 
   return {
     ...normalized,
     status: normalized.status || "lead",
+    leadStatus: normalized.leadStatus || "new",
     source: normalized.source || "import",
   };
 }

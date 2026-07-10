@@ -1,6 +1,6 @@
 import { body, param } from "express-validator";
 
-const validRoles = ["ADMIN", "MANAGER", "STAFF", "READ_ONLY"];
+const validRoles = ["ADMIN", "SALES", "DELIVERY", "FINANCE", "READ_ONLY"];
 
 //Validation for the invite process
 export const inviteMembersValidator = [

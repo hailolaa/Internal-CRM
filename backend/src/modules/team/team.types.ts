@@ -1,6 +1,6 @@
 export interface InviteMembersDTO {
     emails: string[];
-    role: 'ADMIN' | 'MANAGER' | 'STAFF' | 'READ_ONLY';
+    role: 'ADMIN' | 'SALES' | 'DELIVERY' | 'FINANCE' | 'READ_ONLY';
     personalMessage?: string;
 }
 
@@ -12,7 +12,7 @@ export interface AcceptInvitationDTO {
 }
 
 export interface UpdateMemberRoleDTO {
-    role: 'ADMIN' | 'MANAGER' | 'STAFF' | 'READ_ONLY';
+    role: 'ADMIN' | 'SALES' | 'DELIVERY' | 'FINANCE' | 'READ_ONLY';
 }
 
 

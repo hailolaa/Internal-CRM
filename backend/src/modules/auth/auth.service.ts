@@ -327,92 +327,9 @@ export class AuthService {
     data: RegisterPatientDTO,
     meta: AuthRequestMeta = {},
   ): Promise<AuthResponse> {
-    const connection = await pool.getConnection();
-    await connection.beginTransaction();
-    try {
-      const [clinics]: any = await connection.execute(
-        "SELECT id FROM clinic WHERE id = ?",
-        [data.clinicId],
-      );
-      if (clinics.length === 0) {
-        throw ApiError.notFound("Clinic not found");
-      }
-
-      const [existingUsers]: any = await connection.execute(
-        "SELECT id FROM user WHERE email = ?",
-        [data.email],
-      );
-      if (existingUsers.length > 0) {
-        throw ApiError.conflict("Email already registered");
-      }
-
-      const userId = uuidv4();
-      const hashedPassword = data.password
-        ? await hashPassword(data.password)
-        : await hashPassword(uuidv4());
-
-      await connection.execute(
-        "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, phone, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-          userId,
-          data.clinicId,
-          data.email,
-          hashedPassword,
-          data.firstName,
-          data.lastName,
-          data.phone || null,
-          "patient",
-        ],
-      );
-      await connection.execute(
-        "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
-        [userId, data.clinicId, "patient"],
-      );
-
-      await connection.execute(
-        "INSERT INTO contact (id, clinic_id, email, first_name, last_name, phone) VALUES (?, ?, ?, ?, ?, ?)",
-        [
-          uuidv4(),
-          data.clinicId,
-          data.email,
-          data.firstName,
-          data.lastName,
-          data.phone || null,
-        ],
-      );
-      await connection.commit();
-
-      const tokenUser: TokenUser = {
-        id: userId,
-        clinic_id: data.clinicId,
-        email: data.email,
-        first_name: data.firstName,
-        last_name: data.lastName,
-        role: "patient",
-      };
-      const tokens = await this.createTokenPair(tokenUser, false, meta);
-      await this.sendEmailVerification(tokenUser, meta);
-      await logAuditEvent({
-        clinicId: data.clinicId,
-        userId,
-        action: "SIGNUP_PATIENT",
-        entityType: "user",
-        entityId: userId,
-        changes: { email: data.email },
-        ipAddress: meta.ipAddress,
-        userAgent: meta.userAgent,
-      });
-
-      return {
-        user: this.toAuthUser(tokenUser),
-        tokens: { ...tokens, requires2FA: false },
-      };
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
-    }
+    void data;
+    void meta;
+    throw ApiError.forbidden("Client and prospect self-registration is disabled for Mission Control MVP.");
   }
 
   async login(data: LoginDTO, meta: AuthRequestMeta = {}): Promise<AuthResponse> {

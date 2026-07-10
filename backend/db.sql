@@ -564,6 +564,8 @@ CREATE TABLE `client_account_profile` (
   `active_services` json DEFAULT NULL,
   `onboarding_status` enum('not_started','in_progress','completed','paused') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'not_started',
   `health_status` enum('healthy','attention_needed','at_risk','critical') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'attention_needed',
+  `client_status` enum('prospect','onboarding','active','paused','at_risk','churned','inactive') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'prospect',
+  `current_package` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `churn_risk` enum('low','medium','high','critical') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'low',
   `renewal_date` date DEFAULT NULL,
   `contract_status` enum('active','trial','pending','paused','cancelled','expired') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
@@ -575,6 +577,7 @@ CREATE TABLE `client_account_profile` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_client_account_profile_clinic` (`clinic_id`),
   KEY `idx_client_account_profile_manager` (`account_manager_id`),
+  KEY `idx_client_account_profile_client_status` (`clinic_id`,`client_status`),
   KEY `fk_client_account_profile_created_by` (`created_by`),
   KEY `fk_client_account_profile_updated_by` (`updated_by`),
   CONSTRAINT `fk_client_account_profile_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
@@ -888,9 +891,12 @@ CREATE TABLE `contact` (
   `country` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `tags` json DEFAULT NULL,
   `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'active',
+  `lead_status` enum('new','contacted','qualified','unqualified','nurture','converted','lost') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'new',
   `source` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `value` decimal(12,2) NOT NULL DEFAULT '0.00',
   `treatment_interests` json DEFAULT NULL,
+  `package_interest` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `recommended_package` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `external_id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `import_batch_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -908,6 +914,7 @@ CREATE TABLE `contact` (
   KEY `idx_email_clinic` (`clinic_id`,`email`),
   KEY `idx_phone_clinic` (`clinic_id`,`phone`),
   KEY `idx_contact_status` (`clinic_id`,`status`),
+  KEY `idx_contact_lead_status` (`clinic_id`,`lead_status`),
   KEY `idx_contact_source` (`clinic_id`,`source`),
   KEY `idx_contact_last_contact` (`clinic_id`,`last_contact_at`),
   KEY `idx_contact_sla_queue` (`clinic_id`,`first_response_at`,`sla_deadline_at`),
@@ -922,7 +929,7 @@ CREATE TABLE `contact` (
 
 LOCK TABLES `contact` WRITE;
 /*!40000 ALTER TABLE `contact` DISABLE KEYS */;
-INSERT INTO `contact` VALUES ('contact-001','clinic-001','Olivia','Carter','olivia.carter@example.com','07700 900001','1985-03-15','F','10 Main St','London','England','SW1A 1AA','UK','["new", "priority", "website-build"]','lead','referral',12000.00,NULL,NULL,NULL,'Interested in website rebuild and tracking setup',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-002','clinic-001','Ethan','Brooks','ethan.brooks@example.com','07700 900002','1990-07-22','M','20 High St','London','England','SW1A 2AA','UK','["seo", "proposal"]','lead','website',9000.00,NULL,NULL,NULL,'Asked for SEO and ads proposal',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-003','clinic-001','Maya','Singh','maya.singh@example.com','07700 900003','1978-11-08','F','30 Park Lane','London','England','SW1A 3AA','UK','["client", "tracking"]','active','referral',15000.00,NULL,NULL,NULL,'Client account needs tracking QA',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-004','clinic-001','Noah','Reed','noah.reed@example.com','07700 900004','1988-05-30','M','40 Oxford St','London','England','SW1A 4AA','UK','["cold", "follow-up"]','lead','website',6000.00,NULL,NULL,NULL,'Needs follow-up after missed discovery call',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-005','clinic-002','Ava','Mitchell','ava.mitchell@example.com','07700 900005','1982-09-12','F','50 Deansgate','Manchester','England','M1 1AA','UK','["ads", "new"]','lead','phone',11000.00,NULL,NULL,NULL,'Inbound ads enquiry assigned to sales',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-006','clinic-002','Leo','Turner','leo.turner@example.com','07700 900006','1995-01-25','M','60 Market St','Manchester','England','M1 2AA','UK','["reporting", "client"]','active','referral',14000.00,NULL,NULL,NULL,'Existing client needs monthly report follow-up',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-007','clinic-003','Sofia','Grant','sofia.grant@example.com','07700 900007','1980-12-03','F','70 Princes St','Edinburgh','Scotland','EH2 1AA','UK','["onboarding", "priority"]','lead','website',10000.00,NULL,NULL,NULL,'Ready for onboarding once proposal is accepted',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-008','clinic-003','Lucas','Hall','lucas.hall@example.com','07700 900008','1992-06-18','M','80 George St','Edinburgh','Scotland','EH2 2AA','UK','["seo", "content"]','lead','referral',8000.00,NULL,NULL,NULL,'Asked about SEO content package',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-009','clinic-004','Amelia','Price','amelia.price@example.com','07700 900009','1987-04-09','F','90 Park St','Bristol','England','BS1 1AA','UK','["fixes", "tracking"]','active','website',7000.00,NULL,NULL,NULL,'Client account opened tracking fix request',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-010','clinic-004','Henry','Foster','henry.foster@example.com','07700 900010','1993-08-14','M','100 Clifton','Bristol','England','BS1 2AA','UK','["website", "delivery"]','active','referral',13000.00,NULL,NULL,NULL,'Website build is in delivery handoff',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL);
+INSERT INTO `contact` (`id`,`clinic_id`,`first_name`,`last_name`,`email`,`phone`,`date_of_birth`,`gender`,`address`,`city`,`state`,`postal_code`,`country`,`tags`,`status`,`lead_status`,`source`,`value`,`treatment_interests`,`package_interest`,`recommended_package`,`external_id`,`import_batch_id`,`notes`,`last_contact_at`,`sla_target_minutes`,`sla_deadline_at`,`first_response_at`,`first_response_by`,`sla_breached_at`,`created_at`,`updated_at`,`deleted_at`) VALUES ('contact-001','clinic-001','Olivia','Carter','olivia.carter@example.com','07700 900001','1985-03-15','F','10 Main St','London','England','SW1A 1AA','UK','["new", "priority", "website-build"]','lead','qualified','referral',12000.00,'["website-build"]','Website Build','Website Build + Tracking',NULL,NULL,'Interested in website rebuild and tracking setup',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-002','clinic-001','Ethan','Brooks','ethan.brooks@example.com','07700 900002','1990-07-22','M','20 High St','London','England','SW1A 2AA','UK','["seo", "proposal"]','lead','contacted','website',9000.00,'["seo","ads"]','SEO','SEO + Ads',NULL,NULL,'Asked for SEO and ads proposal',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-003','clinic-001','Maya','Singh','maya.singh@example.com','07700 900003','1978-11-08','F','30 Park Lane','London','England','SW1A 3AA','UK','["client", "tracking"]','active','converted','referral',15000.00,'["tracking","reports"]','Tracking','Tracking + Reports',NULL,NULL,'Client account needs tracking QA',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-004','clinic-001','Noah','Reed','noah.reed@example.com','07700 900004','1988-05-30','M','40 Oxford St','London','England','SW1A 4AA','UK','["cold", "follow-up"]','lead','new','website',6000.00,'["discovery"]','Discovery','Starter Growth Package',NULL,NULL,'Needs follow-up after missed discovery call',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-005','clinic-002','Ava','Mitchell','ava.mitchell@example.com','07700 900005','1982-09-12','F','50 Deansgate','Manchester','England','M1 1AA','UK','["ads", "new"]','lead','qualified','phone',11000.00,'["ads"]','Paid Ads','Paid Ads Launch',NULL,NULL,'Inbound ads enquiry assigned to sales',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-006','clinic-002','Leo','Turner','leo.turner@example.com','07700 900006','1995-01-25','M','60 Market St','Manchester','England','M1 2AA','UK','["reporting", "client"]','active','converted','referral',14000.00,'["reports"]','Reporting','Monthly Reporting',NULL,NULL,'Existing client needs monthly report follow-up',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-007','clinic-003','Sofia','Grant','sofia.grant@example.com','07700 900007','1980-12-03','F','70 Princes St','Edinburgh','Scotland','EH2 1AA','UK','["onboarding", "priority"]','lead','qualified','website',10000.00,'["onboarding","website"]','Onboarding','Website Build',NULL,NULL,'Ready for onboarding once proposal is accepted',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-008','clinic-003','Lucas','Hall','lucas.hall@example.com','07700 900008','1992-06-18','M','80 George St','Edinburgh','Scotland','EH2 2AA','UK','["seo", "content"]','lead','contacted','referral',8000.00,'["seo","content"]','SEO Content','SEO Content Package',NULL,NULL,'Asked about SEO content package',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-009','clinic-004','Amelia','Price','amelia.price@example.com','07700 900009','1987-04-09','F','90 Park St','Bristol','England','BS1 1AA','UK','["fixes", "tracking"]','active','converted','website',7000.00,'["fixes","tracking"]','Tracking Fix','Tracking QA',NULL,NULL,'Client account opened tracking fix request',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('contact-010','clinic-004','Henry','Foster','henry.foster@example.com','07700 900010','1993-08-14','M','100 Clifton','Bristol','England','BS1 2AA','UK','["website", "delivery"]','active','converted','referral',13000.00,'["website","delivery"]','Website Build','Website Delivery',NULL,NULL,'Website build is in delivery handoff',NULL,5,'2026-04-24 13:27:26',NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL);
 /*!40000 ALTER TABLE `contact` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `contact_duplicate_candidate`;
@@ -1072,6 +1079,86 @@ LOCK TABLES `deal` WRITE;
 /*!40000 ALTER TABLE `deal` DISABLE KEYS */;
 INSERT INTO `deal` VALUES ('deal-001','clinic-001','contact-001','pipeline-001',NULL,'John Doe - Discovery Call',1500.00,'Discovery Call',75,'2026-05-15','user-002','referral',NULL,'open','2026-04-24 13:22:26',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('deal-002','clinic-001','contact-002','pipeline-001',NULL,'Jane Smith - Assessment',2000.00,'Assessment',85,'2026-05-20','user-002','website',NULL,'open','2026-04-24 13:22:26',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('deal-003','clinic-001','contact-003','pipeline-002',NULL,'Robert Williams - Active Delivery',3500.00,'Active Delivery',95,'2026-06-30','user-002','referral',NULL,'open','2026-04-24 13:22:26',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('deal-004','clinic-001','contact-004','pipeline-003',NULL,'Patricia Brown - Program Start',1200.00,'Program Start',60,'2026-05-10','user-003','website',NULL,'open','2026-04-24 13:22:26',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('deal-005','clinic-002','contact-005','pipeline-004',NULL,'Michael Johnson - Discovery Booked',1800.00,'Discovery Booked',70,'2026-05-12','user-005','phone',NULL,'open','2026-04-24 13:22:26',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('deal-006','clinic-002','contact-006','pipeline-005',NULL,'Sarah Davis - Project Kickoff',2500.00,'Project Kickoff',80,'2026-06-15','user-005','referral',NULL,'open','2026-04-24 13:22:26',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('deal-007','clinic-003','contact-007','pipeline-006',NULL,'David Miller - Diagnosis',2200.00,'Diagnosis',75,'2026-05-25','user-007','website',NULL,'open','2026-04-24 13:22:26',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('deal-008','clinic-003','contact-008','pipeline-007',NULL,'Emma Wilson - Proposal',1900.00,'Proposal',65,'2026-05-18','user-007','referral',NULL,'open','2026-04-24 13:22:26',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('deal-009','clinic-004','contact-009','pipeline-008',NULL,'Christopher Taylor - Proposal',2100.00,'Proposal',78,'2026-05-22','user-008','website',NULL,'open','2026-04-24 13:22:26',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL),('deal-010','clinic-004','contact-010','pipeline-009',NULL,'Lisa Anderson - Delivery Start',1600.00,'Delivery Start',72,'2026-05-16','user-009','referral',NULL,'open','2026-04-24 13:22:26',NULL,NULL,NULL,NULL,NULL,'2026-04-24 13:22:26','2026-06-01 22:07:36',NULL);
 /*!40000 ALTER TABLE `deal` ENABLE KEYS */;
+UNLOCK TABLES;
+DROP TABLE IF EXISTS `proposal`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `proposal` (
+  `id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deal_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `client_account_profile_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `proposal_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `package_name` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('draft','sent','accepted','declined','expired','archived') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `value` decimal(12,2) DEFAULT NULL,
+  `currency` char(3) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'USD',
+  `sent_at` datetime DEFAULT NULL,
+  `accepted_at` datetime DEFAULT NULL,
+  `declined_at` datetime DEFAULT NULL,
+  `expires_at` datetime DEFAULT NULL,
+  `proposal_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_proposal_clinic_status` (`clinic_id`,`status`,`deleted_at`),
+  KEY `idx_proposal_contact` (`contact_id`),
+  KEY `idx_proposal_deal` (`deal_id`),
+  KEY `idx_proposal_client_account` (`client_account_profile_id`),
+  KEY `idx_proposal_package` (`clinic_id`,`package_name`),
+  KEY `fk_proposal_created_by` (`created_by`),
+  KEY `fk_proposal_updated_by` (`updated_by`),
+  CONSTRAINT `fk_proposal_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_proposal_contact` FOREIGN KEY (`contact_id`) REFERENCES `contact` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_proposal_deal` FOREIGN KEY (`deal_id`) REFERENCES `deal` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_proposal_client_account` FOREIGN KEY (`client_account_profile_id`) REFERENCES `client_account_profile` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_proposal_created_by` FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_proposal_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `proposal` WRITE;
+/*!40000 ALTER TABLE `proposal` DISABLE KEYS */;
+/*!40000 ALTER TABLE `proposal` ENABLE KEYS */;
+UNLOCK TABLES;
+DROP TABLE IF EXISTS `account_growth_score`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `account_growth_score` (
+  `id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `client_account_profile_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `score` decimal(5,2) NOT NULL DEFAULT '0.00',
+  `score_band` enum('excellent','good','attention_needed','at_risk','critical') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'attention_needed',
+  `score_date` date NOT NULL,
+  `source` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
+  `components` json DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_growth_score_client_date` (`client_account_profile_id`,`score_date`),
+  KEY `idx_growth_score_clinic_band` (`clinic_id`,`score_band`,`score_date`),
+  KEY `idx_growth_score_contact` (`contact_id`),
+  KEY `fk_growth_score_created_by` (`created_by`),
+  CONSTRAINT `fk_growth_score_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_growth_score_client_account` FOREIGN KEY (`client_account_profile_id`) REFERENCES `client_account_profile` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_growth_score_contact` FOREIGN KEY (`contact_id`) REFERENCES `contact` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_growth_score_created_by` FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `account_growth_score` WRITE;
+/*!40000 ALTER TABLE `account_growth_score` DISABLE KEYS */;
+/*!40000 ALTER TABLE `account_growth_score` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `deposit_record`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1524,11 +1611,14 @@ INSERT INTO `permission` VALUES
 ('perm-client-accounts-write','client_accounts:write','Update internal client account profiles','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
 ('perm-internal-tasks-read','internal_tasks:read','Read Clinic Grower internal delivery tasks','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
 ('perm-internal-tasks-write','internal_tasks:write','Create and update Clinic Grower internal delivery tasks','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
-('perm-sops-read','sops:read','Read clinic SOPs','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
-('perm-sops-write','sops:write','Create and update clinic SOPs','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('perm-sops-read','sops:read','Read internal SOPs','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('perm-sops-write','sops:write','Create and update internal SOPs','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
 ('perm-strategy-logs-read','strategy_logs:read','Read internal client strategy logs','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
-('perm-strategy-logs-write','strategy_logs:write','Create and update internal client strategy logs','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL);
-INSERT INTO `permission` VALUES ('perm-all','*','All permissions','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-appointments-delete','appointments:delete','Delete appointments','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-appointments-read','appointments:read','Read appointments','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-appointments-write','appointments:write','Create and update appointments','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-audit-read','audit:read','Read audit log','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-billing-read','billing:read','Read billing data','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-billing-write','billing:write','Manage billing','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-calls-read','calls:read','Read call records','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-calls-write','calls:write','Create and update call records','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-contacts-delete','contacts:delete','Delete contacts','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-contacts-read','contacts:read','Read contacts and prospect profiles','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-contacts-write','contacts:write','Create and update contacts and prospect profiles','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-events-read','events:read','Read events','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-events-write','events:write','Create and update events','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-marketing-read','marketing:read','Read marketing data','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-marketing-write','marketing:write','Manage marketing data','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-reports-read','reports:read','Read reports','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-reports-write','reports:write','Manage report adjustments and manual entries','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-settings-read','settings:read','Read clinic and security settings','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-settings-write','settings:write','Update clinic and security settings','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-team-read','team:read','Read team members','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-team-write','team:write','Invite and update team members','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-webhooks-read','webhooks:read','Read webhook settings','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-webhooks-write','webhooks:write','Manage webhook settings','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL);
+('perm-strategy-logs-write','strategy_logs:write','Create and update internal client strategy logs','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('perm-internal-notes-read','internal_notes:read','Read internal report and delivery notes','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('perm-internal-notes-write','internal_notes:write','Create and update internal report and delivery notes','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('perm-sensitive-read','sensitive:read','Read sensitive internal finance and account fields','2026-06-05 00:00:00','2026-06-05 00:00:00',NULL);
+INSERT INTO `permission` VALUES ('perm-all','*','All permissions','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-appointments-delete','appointments:delete','Delete appointments','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-appointments-read','appointments:read','Read appointments','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-appointments-write','appointments:write','Create and update appointments','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-audit-read','audit:read','Read audit log','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-billing-read','billing:read','Read billing data','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-billing-write','billing:write','Manage billing','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-calls-read','calls:read','Read call records','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-calls-write','calls:write','Create and update call records','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-contacts-delete','contacts:delete','Delete contacts','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-contacts-read','contacts:read','Read contacts and prospect profiles','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-contacts-write','contacts:write','Create and update contacts and prospect profiles','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-events-read','events:read','Read events','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-events-write','events:write','Create and update events','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-marketing-read','marketing:read','Read marketing data','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-marketing-write','marketing:write','Manage marketing data','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-reports-read','reports:read','Read reports','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-reports-write','reports:write','Manage report adjustments and manual entries','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-settings-read','settings:read','Read Mission Control and security settings','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-settings-write','settings:write','Update Mission Control and security settings','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-team-read','team:read','Read team members','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-team-write','team:write','Invite and update team members','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-webhooks-read','webhooks:read','Read webhook settings','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('perm-webhooks-write','webhooks:write','Manage webhook settings','2026-06-01 22:07:33','2026-06-01 22:07:33',NULL);
 /*!40000 ALTER TABLE `permission` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `pipeline`;
@@ -1848,7 +1938,17 @@ CREATE TABLE `role` (
 
 LOCK TABLES `role` WRITE;
 /*!40000 ALTER TABLE `role` DISABLE KEYS */;
-INSERT INTO `role` VALUES ('role-001','clinic-001','SUPER_ADMIN','Super admin with full access',NULL,'{\"manage_roles\": true, \"manage_users\": true, \"view_all_clinics\": true}',0,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('role-002','clinic-001','CLINIC_ADMIN','Workspace admin',NULL,'{\"manage_roles\": true, \"manage_users\": true, \"view_reports\": true}',0,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('role-003','clinic-001','CLINICIAN','Team Member',NULL,'{\"edit_contacts\": true, \"view_contacts\": true, \"create_appointments\": true}',0,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('role-004','clinic-001','RECEPTIONIST','Coordinator',NULL,'{\"view_contacts\": true, \"manage_calendar\": true, \"create_appointments\": true}',0,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('role-005','clinic-002','SUPER_ADMIN','Super admin with full access',NULL,'{\"manage_roles\": true, \"manage_users\": true, \"view_all_clinics\": true}',0,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('role-006','clinic-002','CLINIC_ADMIN','Workspace admin',NULL,'{\"manage_roles\": true, \"manage_users\": true, \"view_reports\": true}',0,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('role-007','clinic-003','CLINICIAN','Team Member',NULL,'{\"edit_contacts\": true, \"view_contacts\": true, \"create_appointments\": true}',0,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('role-008','clinic-003','RECEPTIONIST','Coordinator',NULL,'{\"view_contacts\": true, \"manage_calendar\": true, \"create_appointments\": true}',0,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('role-009','clinic-004','SUPER_ADMIN','Super admin with full access',NULL,'{\"manage_roles\": true, \"manage_users\": true, \"view_all_clinics\": true}',0,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('role-010','clinic-004','CLINIC_ADMIN','Workspace admin',NULL,'{\"manage_roles\": true, \"manage_users\": true, \"view_reports\": true}',0,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('role-clinic-admin',NULL,'CLINIC_ADMIN',NULL,'Workspace Admin',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('role-clinician',NULL,'CLINICIAN',NULL,'Team Member',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('role-prospect',NULL,'prospect',NULL,'Prospect',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('role-read-only',NULL,'READ_ONLY',NULL,'Read Only',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('role-receptionist',NULL,'RECEPTIONIST',NULL,'Coordinator',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),('role-super-admin',NULL,'SUPER_ADMIN',NULL,'Super Admin',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL);
+INSERT INTO `role` VALUES
+('role-super-admin',NULL,'SUPER_ADMIN','Full Mission Control access','Super Admin',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),
+('role-admin',NULL,'ADMIN','Manage Mission Control users, settings, client accounts, delivery work, and reporting','Admin',NULL,1,'2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('role-sales',NULL,'SALES','Manage prospects, sales activity, follow-ups, and sales tasks','Sales',NULL,1,'2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('role-delivery',NULL,'DELIVERY','Manage internal delivery work, client accounts, reports, and delivery notes','Delivery / Team Member',NULL,1,'2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('role-finance',NULL,'FINANCE','Manage billing, finance reporting, and sensitive account fields','Finance',NULL,1,'2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('role-internal-viewer',NULL,'INTERNAL_VIEWER','Read-only internal access for Mission Control','Internal Viewer',NULL,1,'2026-06-05 00:00:00','2026-06-05 00:00:00',NULL),
+('role-clinic-admin',NULL,'CLINIC_ADMIN','Legacy alias for Admin','Admin',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),
+('role-clinician',NULL,'CLINICIAN','Legacy alias for Delivery / Team Member','Delivery / Team Member',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),
+('role-read-only',NULL,'READ_ONLY','Legacy alias for Internal Viewer','Internal Viewer',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL),
+('role-receptionist',NULL,'RECEPTIONIST','Legacy alias for Sales','Sales',NULL,1,'2026-06-01 22:07:33','2026-06-01 22:07:33',NULL);
 /*!40000 ALTER TABLE `role` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `role_permission`;
@@ -1868,76 +1968,152 @@ CREATE TABLE `role_permission` (
 LOCK TABLES `role_permission` WRITE;
 /*!40000 ALTER TABLE `role_permission` DISABLE KEYS */;
 INSERT INTO `role_permission` VALUES
-('role-001','perm-client-accounts-read','2026-06-05 00:00:00'),
-('role-001','perm-client-accounts-write','2026-06-05 00:00:00'),
-('role-001','perm-sops-read','2026-06-05 00:00:00'),
-('role-001','perm-sops-write','2026-06-05 00:00:00'),
-('role-001','perm-strategy-logs-read','2026-06-05 00:00:00'),
-('role-001','perm-strategy-logs-write','2026-06-05 00:00:00'),
-('role-002','perm-client-accounts-read','2026-06-05 00:00:00'),
-('role-002','perm-client-accounts-write','2026-06-05 00:00:00'),
-('role-002','perm-sops-read','2026-06-05 00:00:00'),
-('role-002','perm-sops-write','2026-06-05 00:00:00'),
-('role-002','perm-strategy-logs-read','2026-06-05 00:00:00'),
-('role-002','perm-strategy-logs-write','2026-06-05 00:00:00'),
-('role-005','perm-client-accounts-read','2026-06-05 00:00:00'),
-('role-005','perm-client-accounts-write','2026-06-05 00:00:00'),
-('role-005','perm-sops-read','2026-06-05 00:00:00'),
-('role-005','perm-sops-write','2026-06-05 00:00:00'),
-('role-005','perm-strategy-logs-read','2026-06-05 00:00:00'),
-('role-005','perm-strategy-logs-write','2026-06-05 00:00:00'),
-('role-006','perm-client-accounts-read','2026-06-05 00:00:00'),
-('role-006','perm-client-accounts-write','2026-06-05 00:00:00'),
-('role-006','perm-sops-read','2026-06-05 00:00:00'),
-('role-006','perm-sops-write','2026-06-05 00:00:00'),
-('role-006','perm-strategy-logs-read','2026-06-05 00:00:00'),
-('role-006','perm-strategy-logs-write','2026-06-05 00:00:00'),
-('role-009','perm-client-accounts-read','2026-06-05 00:00:00'),
-('role-009','perm-client-accounts-write','2026-06-05 00:00:00'),
-('role-009','perm-sops-read','2026-06-05 00:00:00'),
-('role-009','perm-sops-write','2026-06-05 00:00:00'),
-('role-009','perm-strategy-logs-read','2026-06-05 00:00:00'),
-('role-009','perm-strategy-logs-write','2026-06-05 00:00:00'),
-('role-010','perm-client-accounts-read','2026-06-05 00:00:00'),
-('role-010','perm-client-accounts-write','2026-06-05 00:00:00'),
-('role-010','perm-sops-read','2026-06-05 00:00:00'),
-('role-010','perm-sops-write','2026-06-05 00:00:00'),
-('role-010','perm-strategy-logs-read','2026-06-05 00:00:00'),
-('role-010','perm-strategy-logs-write','2026-06-05 00:00:00'),
+('role-super-admin','perm-all','2026-06-05 00:00:00'),
+('role-admin','perm-contacts-read','2026-06-05 00:00:00'),
+('role-admin','perm-contacts-write','2026-06-05 00:00:00'),
+('role-admin','perm-contacts-delete','2026-06-05 00:00:00'),
+('role-admin','perm-appointments-read','2026-06-05 00:00:00'),
+('role-admin','perm-appointments-write','2026-06-05 00:00:00'),
+('role-admin','perm-appointments-delete','2026-06-05 00:00:00'),
+('role-admin','perm-reports-read','2026-06-05 00:00:00'),
+('role-admin','perm-reports-write','2026-06-05 00:00:00'),
+('role-admin','perm-settings-read','2026-06-05 00:00:00'),
+('role-admin','perm-settings-write','2026-06-05 00:00:00'),
+('role-admin','perm-team-read','2026-06-05 00:00:00'),
+('role-admin','perm-team-write','2026-06-05 00:00:00'),
+('role-admin','perm-billing-read','2026-06-05 00:00:00'),
+('role-admin','perm-billing-write','2026-06-05 00:00:00'),
+('role-admin','perm-calls-read','2026-06-05 00:00:00'),
+('role-admin','perm-calls-write','2026-06-05 00:00:00'),
+('role-admin','perm-events-read','2026-06-05 00:00:00'),
+('role-admin','perm-events-write','2026-06-05 00:00:00'),
+('role-admin','perm-internal-tasks-read','2026-06-05 00:00:00'),
+('role-admin','perm-internal-tasks-write','2026-06-05 00:00:00'),
+('role-admin','perm-internal-notes-read','2026-06-05 00:00:00'),
+('role-admin','perm-internal-notes-write','2026-06-05 00:00:00'),
+('role-admin','perm-client-accounts-read','2026-06-05 00:00:00'),
+('role-admin','perm-client-accounts-write','2026-06-05 00:00:00'),
+('role-admin','perm-marketing-read','2026-06-05 00:00:00'),
+('role-admin','perm-marketing-write','2026-06-05 00:00:00'),
+('role-admin','perm-audit-read','2026-06-05 00:00:00'),
+('role-admin','perm-sensitive-read','2026-06-05 00:00:00'),
+('role-admin','perm-sops-read','2026-06-05 00:00:00'),
+('role-admin','perm-sops-write','2026-06-05 00:00:00'),
+('role-admin','perm-strategy-logs-read','2026-06-05 00:00:00'),
+('role-admin','perm-strategy-logs-write','2026-06-05 00:00:00'),
+('role-admin','perm-webhooks-read','2026-06-05 00:00:00'),
+('role-admin','perm-webhooks-write','2026-06-05 00:00:00'),
+('role-sales','perm-contacts-read','2026-06-05 00:00:00'),
+('role-sales','perm-contacts-write','2026-06-05 00:00:00'),
+('role-sales','perm-calls-read','2026-06-05 00:00:00'),
+('role-sales','perm-calls-write','2026-06-05 00:00:00'),
+('role-sales','perm-events-read','2026-06-05 00:00:00'),
+('role-sales','perm-events-write','2026-06-05 00:00:00'),
+('role-sales','perm-internal-tasks-read','2026-06-05 00:00:00'),
+('role-sales','perm-internal-tasks-write','2026-06-05 00:00:00'),
+('role-sales','perm-client-accounts-read','2026-06-05 00:00:00'),
+('role-sales','perm-marketing-read','2026-06-05 00:00:00'),
+('role-sales','perm-sops-read','2026-06-05 00:00:00'),
+('role-delivery','perm-contacts-read','2026-06-05 00:00:00'),
+('role-delivery','perm-calls-read','2026-06-05 00:00:00'),
+('role-delivery','perm-events-read','2026-06-05 00:00:00'),
+('role-delivery','perm-events-write','2026-06-05 00:00:00'),
+('role-delivery','perm-reports-read','2026-06-05 00:00:00'),
+('role-delivery','perm-internal-tasks-read','2026-06-05 00:00:00'),
+('role-delivery','perm-internal-tasks-write','2026-06-05 00:00:00'),
+('role-delivery','perm-internal-notes-read','2026-06-05 00:00:00'),
+('role-delivery','perm-internal-notes-write','2026-06-05 00:00:00'),
+('role-delivery','perm-client-accounts-read','2026-06-05 00:00:00'),
+('role-delivery','perm-client-accounts-write','2026-06-05 00:00:00'),
+('role-delivery','perm-sops-read','2026-06-05 00:00:00'),
+('role-delivery','perm-strategy-logs-read','2026-06-05 00:00:00'),
+('role-delivery','perm-strategy-logs-write','2026-06-05 00:00:00'),
+('role-finance','perm-contacts-read','2026-06-05 00:00:00'),
+('role-finance','perm-reports-read','2026-06-05 00:00:00'),
+('role-finance','perm-reports-write','2026-06-05 00:00:00'),
+('role-finance','perm-billing-read','2026-06-05 00:00:00'),
+('role-finance','perm-billing-write','2026-06-05 00:00:00'),
+('role-finance','perm-internal-tasks-read','2026-06-05 00:00:00'),
+('role-finance','perm-client-accounts-read','2026-06-05 00:00:00'),
+('role-finance','perm-audit-read','2026-06-05 00:00:00'),
+('role-finance','perm-sensitive-read','2026-06-05 00:00:00'),
+('role-internal-viewer','perm-contacts-read','2026-06-05 00:00:00'),
+('role-internal-viewer','perm-reports-read','2026-06-05 00:00:00'),
+('role-internal-viewer','perm-calls-read','2026-06-05 00:00:00'),
+('role-internal-viewer','perm-events-read','2026-06-05 00:00:00'),
+('role-internal-viewer','perm-internal-tasks-read','2026-06-05 00:00:00'),
+('role-internal-viewer','perm-client-accounts-read','2026-06-05 00:00:00'),
+('role-internal-viewer','perm-marketing-read','2026-06-05 00:00:00'),
+('role-internal-viewer','perm-sops-read','2026-06-05 00:00:00'),
+('role-internal-viewer','perm-strategy-logs-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-contacts-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-contacts-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-contacts-delete','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-appointments-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-appointments-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-appointments-delete','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-reports-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-reports-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-settings-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-settings-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-team-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-team-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-billing-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-billing-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-calls-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-calls-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-events-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-events-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-internal-tasks-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-internal-tasks-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-internal-notes-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-internal-notes-write','2026-06-05 00:00:00'),
 ('role-clinic-admin','perm-client-accounts-read','2026-06-05 00:00:00'),
 ('role-clinic-admin','perm-client-accounts-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-marketing-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-marketing-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-audit-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-sensitive-read','2026-06-05 00:00:00'),
 ('role-clinic-admin','perm-sops-read','2026-06-05 00:00:00'),
 ('role-clinic-admin','perm-sops-write','2026-06-05 00:00:00'),
 ('role-clinic-admin','perm-strategy-logs-read','2026-06-05 00:00:00'),
 ('role-clinic-admin','perm-strategy-logs-write','2026-06-05 00:00:00'),
-('role-read-only','perm-client-accounts-read','2026-06-05 00:00:00'),
-('role-read-only','perm-sops-read','2026-06-05 00:00:00'),
-('role-read-only','perm-strategy-logs-read','2026-06-05 00:00:00'),
-('role-super-admin','perm-client-accounts-read','2026-06-05 00:00:00'),
-('role-super-admin','perm-client-accounts-write','2026-06-05 00:00:00'),
-('role-super-admin','perm-sops-read','2026-06-05 00:00:00'),
-('role-super-admin','perm-sops-write','2026-06-05 00:00:00'),
-('role-super-admin','perm-strategy-logs-read','2026-06-05 00:00:00'),
-('role-super-admin','perm-strategy-logs-write','2026-06-05 00:00:00');
-INSERT INTO `role_permission` VALUES
-('role-001','perm-internal-tasks-read','2026-06-05 00:00:00'),
-('role-001','perm-internal-tasks-write','2026-06-05 00:00:00'),
-('role-002','perm-internal-tasks-read','2026-06-05 00:00:00'),
-('role-002','perm-internal-tasks-write','2026-06-05 00:00:00'),
-('role-005','perm-internal-tasks-read','2026-06-05 00:00:00'),
-('role-005','perm-internal-tasks-write','2026-06-05 00:00:00'),
-('role-006','perm-internal-tasks-read','2026-06-05 00:00:00'),
-('role-006','perm-internal-tasks-write','2026-06-05 00:00:00'),
-('role-009','perm-internal-tasks-read','2026-06-05 00:00:00'),
-('role-009','perm-internal-tasks-write','2026-06-05 00:00:00'),
-('role-010','perm-internal-tasks-read','2026-06-05 00:00:00'),
-('role-010','perm-internal-tasks-write','2026-06-05 00:00:00'),
-('role-clinic-admin','perm-internal-tasks-read','2026-06-05 00:00:00'),
-('role-clinic-admin','perm-internal-tasks-write','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-webhooks-read','2026-06-05 00:00:00'),
+('role-clinic-admin','perm-webhooks-write','2026-06-05 00:00:00'),
+('role-receptionist','perm-contacts-read','2026-06-05 00:00:00'),
+('role-receptionist','perm-contacts-write','2026-06-05 00:00:00'),
+('role-receptionist','perm-calls-read','2026-06-05 00:00:00'),
+('role-receptionist','perm-calls-write','2026-06-05 00:00:00'),
+('role-receptionist','perm-events-read','2026-06-05 00:00:00'),
+('role-receptionist','perm-events-write','2026-06-05 00:00:00'),
+('role-receptionist','perm-internal-tasks-read','2026-06-05 00:00:00'),
+('role-receptionist','perm-internal-tasks-write','2026-06-05 00:00:00'),
+('role-receptionist','perm-client-accounts-read','2026-06-05 00:00:00'),
+('role-receptionist','perm-marketing-read','2026-06-05 00:00:00'),
+('role-receptionist','perm-sops-read','2026-06-05 00:00:00'),
+('role-clinician','perm-contacts-read','2026-06-05 00:00:00'),
+('role-clinician','perm-calls-read','2026-06-05 00:00:00'),
+('role-clinician','perm-events-read','2026-06-05 00:00:00'),
+('role-clinician','perm-events-write','2026-06-05 00:00:00'),
+('role-clinician','perm-reports-read','2026-06-05 00:00:00'),
+('role-clinician','perm-internal-tasks-read','2026-06-05 00:00:00'),
+('role-clinician','perm-internal-tasks-write','2026-06-05 00:00:00'),
+('role-clinician','perm-internal-notes-read','2026-06-05 00:00:00'),
+('role-clinician','perm-internal-notes-write','2026-06-05 00:00:00'),
+('role-clinician','perm-client-accounts-read','2026-06-05 00:00:00'),
+('role-clinician','perm-client-accounts-write','2026-06-05 00:00:00'),
+('role-clinician','perm-sops-read','2026-06-05 00:00:00'),
+('role-clinician','perm-strategy-logs-read','2026-06-05 00:00:00'),
+('role-clinician','perm-strategy-logs-write','2026-06-05 00:00:00'),
+('role-read-only','perm-contacts-read','2026-06-05 00:00:00'),
+('role-read-only','perm-reports-read','2026-06-05 00:00:00'),
+('role-read-only','perm-calls-read','2026-06-05 00:00:00'),
+('role-read-only','perm-events-read','2026-06-05 00:00:00'),
 ('role-read-only','perm-internal-tasks-read','2026-06-05 00:00:00'),
-('role-super-admin','perm-internal-tasks-read','2026-06-05 00:00:00'),
-('role-super-admin','perm-internal-tasks-write','2026-06-05 00:00:00');
-INSERT INTO `role_permission` VALUES ('role-clinic-admin','perm-appointments-delete','2026-06-01 22:07:33'),('role-clinic-admin','perm-appointments-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-appointments-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-audit-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-billing-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-billing-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-calls-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-calls-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-contacts-delete','2026-06-01 22:07:33'),('role-clinic-admin','perm-contacts-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-contacts-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-events-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-events-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-marketing-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-marketing-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-reports-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-reports-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-settings-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-settings-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-team-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-team-write','2026-06-01 22:07:33'),('role-clinic-admin','perm-webhooks-read','2026-06-01 22:07:33'),('role-clinic-admin','perm-webhooks-write','2026-06-01 22:07:33'),('role-clinician','perm-appointments-read','2026-06-01 22:07:33'),('role-clinician','perm-appointments-write','2026-06-01 22:07:33'),('role-clinician','perm-calls-read','2026-06-01 22:07:33'),('role-clinician','perm-calls-write','2026-06-01 22:07:33'),('role-clinician','perm-contacts-read','2026-06-01 22:07:33'),('role-clinician','perm-contacts-write','2026-06-01 22:07:33'),('role-clinician','perm-events-read','2026-06-01 22:07:33'),('role-clinician','perm-reports-read','2026-06-01 22:07:33'),('role-prospect','perm-contacts-read','2026-06-01 22:07:33'),('role-prospect','perm-contacts-write','2026-06-01 22:07:33'),('role-read-only','perm-appointments-read','2026-06-01 22:07:33'),('role-read-only','perm-audit-read','2026-06-01 22:07:33'),('role-read-only','perm-billing-read','2026-06-01 22:07:33'),('role-read-only','perm-calls-read','2026-06-01 22:07:33'),('role-read-only','perm-contacts-read','2026-06-01 22:07:33'),('role-read-only','perm-events-read','2026-06-01 22:07:33'),('role-read-only','perm-marketing-read','2026-06-01 22:07:33'),('role-read-only','perm-reports-read','2026-06-01 22:07:33'),('role-read-only','perm-settings-read','2026-06-01 22:07:33'),('role-read-only','perm-team-read','2026-06-01 22:07:33'),('role-read-only','perm-webhooks-read','2026-06-01 22:07:33'),('role-receptionist','perm-appointments-read','2026-06-01 22:07:33'),('role-receptionist','perm-appointments-write','2026-06-01 22:07:33'),('role-receptionist','perm-calls-read','2026-06-01 22:07:33'),('role-receptionist','perm-calls-write','2026-06-01 22:07:33'),('role-receptionist','perm-contacts-read','2026-06-01 22:07:33'),('role-receptionist','perm-contacts-write','2026-06-01 22:07:33'),('role-super-admin','perm-all','2026-06-01 22:07:33');
+('role-read-only','perm-client-accounts-read','2026-06-05 00:00:00'),
+('role-read-only','perm-marketing-read','2026-06-05 00:00:00'),
+('role-read-only','perm-sops-read','2026-06-05 00:00:00'),
+('role-read-only','perm-strategy-logs-read','2026-06-05 00:00:00');
 /*!40000 ALTER TABLE `role_permission` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `sla_breach`;
@@ -2487,7 +2663,7 @@ CREATE TABLE `user` (
 
 LOCK TABLES `user` WRITE;
 /*!40000 ALTER TABLE `user` DISABLE KEYS */;
-INSERT INTO `user` VALUES ('user-001','clinic-001','admin@thegrowthgroup.com','$2b$12$hash1','Sarah','Johnson','07700 900001','SUPER_ADMIN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-002','clinic-001','sales@thegrowthgroup.com','$2b$12$hash2','James','Smith','07700 900002','CLINICIAN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-003','clinic-001','delivery@thegrowthgroup.com','$2b$12$hash3','Emma','Brown','07700 900003','RECEPTIONIST',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-004','clinic-002','admin.sales@thegrowthgroup.com','$2b$12$hash4','Michael','Wilson','07700 900004','SUPER_ADMIN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-005','clinic-002','ads@thegrowthgroup.com','$2b$12$hash5','Lisa','Davis','07700 900005','CLINICIAN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-006','clinic-003','delivery.lead@thegrowthgroup.com','$2b$12$hash6','Robert','Miller','07700 900006','CLINIC_ADMIN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-007','clinic-003','web@thegrowthgroup.com','$2b$12$hash7','Jennifer','Taylor','07700 900007','CLINICIAN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-008','clinic-004','seo@thegrowthgroup.com','$2b$12$hash8','David','Anderson','07700 900008','SUPER_ADMIN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-009','clinic-004','success@thegrowthgroup.com','$2b$12$hash9','Sophie','Thomas','07700 900009','RECEPTIONIST',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-010','clinic-005','reports@thegrowthgroup.com','$2b$12$hash10','Christopher','Jackson','07700 900010','SUPER_ADMIN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL);
+INSERT INTO `user` VALUES ('user-001','clinic-001','admin@thegrowthgroup.com','$2b$12$hash1','Sarah','Johnson','07700 900001','SUPER_ADMIN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-002','clinic-001','sales@thegrowthgroup.com','$2b$12$hash2','James','Smith','07700 900002','SALES',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-003','clinic-001','delivery@thegrowthgroup.com','$2b$12$hash3','Emma','Brown','07700 900003','DELIVERY',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-004','clinic-002','admin.sales@thegrowthgroup.com','$2b$12$hash4','Michael','Wilson','07700 900004','SUPER_ADMIN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-005','clinic-002','ads@thegrowthgroup.com','$2b$12$hash5','Lisa','Davis','07700 900005','SALES',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-006','clinic-003','delivery.lead@thegrowthgroup.com','$2b$12$hash6','Robert','Miller','07700 900006','ADMIN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-007','clinic-003','web@thegrowthgroup.com','$2b$12$hash7','Jennifer','Taylor','07700 900007','DELIVERY',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-008','clinic-004','seo@thegrowthgroup.com','$2b$12$hash8','David','Anderson','07700 900008','SUPER_ADMIN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-009','clinic-004','success@thegrowthgroup.com','$2b$12$hash9','Sophie','Thomas','07700 900009','DELIVERY',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL),('user-010','clinic-005','reports@thegrowthgroup.com','$2b$12$hash10','Christopher','Jackson','07700 900010','SUPER_ADMIN',0,NULL,NULL,NULL,0,NULL,'active',1,NULL,'2026-04-24 13:22:11','2026-04-24 13:22:11',NULL);
 /*!40000 ALTER TABLE `user` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `clinic_membership`;
@@ -2695,6 +2871,3 @@ UNLOCK TABLES;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
-
-
-

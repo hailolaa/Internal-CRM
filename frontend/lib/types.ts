@@ -9,6 +9,12 @@ import type { LucideIcon } from "lucide-react";
 /** User roles — single source of truth for both auth-context and tenant-context. */
 export type UserRole =
   | "SUPER_ADMIN"
+  | "ADMIN"
+  | "SALES"
+  | "DELIVERY"
+  | "FINANCE"
+  | "INTERNAL_VIEWER"
+  | "READ_ONLY"
   | "CLINIC_ADMIN"
   | "MANAGER"
   | "CLINICIAN"

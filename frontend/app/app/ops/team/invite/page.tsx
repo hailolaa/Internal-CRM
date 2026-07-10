@@ -12,37 +12,43 @@ import { getRoleLabel } from "@/lib/roles";
 const roles = [
   {
     id: "admin",
-    name: "Owner",
-    description: "Full access to all features and settings",
+    name: "Admin",
+    description: "Manage Mission Control settings, team access, and operations",
   },
   {
-    id: "manager",
-    name: "Manager",
-    description: "Manage prospects, clients, delivery work, and reports",
+    id: "sales",
+    name: "Sales",
+    description: "Manage prospects, calls, follow-up, and sales tasks",
   },
   {
-    id: "staff",
-    name: "Coordinator",
-    description: "View contacts, update tasks, and manage assigned work",
+    id: "delivery",
+    name: "Delivery / Team Member",
+    description: "Manage client delivery work, tasks, SOPs, and internal notes",
+  },
+  {
+    id: "finance",
+    name: "Finance",
+    description: "View billing, reporting, and sensitive commercial fields",
   },
   {
     id: "readonly",
-    name: "Agency / Analyst",
-    description: "View-only access to dashboard and reports",
+    name: "Internal Viewer",
+    description: "View-only access for internal team members",
   },
 ];
 
 const roleMap: Record<string, BackendTeamRole> = {
   admin: "ADMIN",
-  manager: "MANAGER",
-  staff: "STAFF",
+  sales: "SALES",
+  delivery: "DELIVERY",
+  finance: "FINANCE",
   readonly: "READ_ONLY",
 };
 
 export default function InviteTeamPage() {
   const router = useRouter();
   const { session } = useAuth();
-  const [selectedRole, setSelectedRole] = useState("staff");
+  const [selectedRole, setSelectedRole] = useState("sales");
   const [emails, setEmails] = useState("");
   const [personalMessage, setPersonalMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -91,7 +97,7 @@ export default function InviteTeamPage() {
             Invite Team Member
           </h1>
           <p className="text-[#6B7280] text-sm">
-            Add new members to the internal CRM
+            Add new internal users to Mission Control
           </p>
         </div>
       </div>
@@ -217,7 +223,7 @@ export default function InviteTeamPage() {
                 <p className="text-xs text-[#6B7280] mb-2">Email preview:</p>
                 <div className="bg-[rgba(0,0,0,0.02)] rounded p-3 text-xs text-[#111111]">
                   <p className="font-medium mb-2">
-                    You&apos;ve been invited to join The Growth Group Internal CRM.
+                    You&apos;ve been invited to join ClinicGrower Mission Control.
                   </p>
                   <p className="text-[#6B7280]">
                     Click the link below to create your account and get
@@ -235,78 +241,46 @@ export default function InviteTeamPage() {
             <div className="space-y-2 text-sm">
               {selectedRole === "admin" && (
                 <>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> Full system access
-                  </div>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> Manage team members
-                  </div>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> Billing & subscriptions
-                  </div>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> All CRM features
-                  </div>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> Marketing & campaigns
-                  </div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> Manage settings and team access</div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> Manage prospects, clients, and delivery</div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> View sensitive commercial fields</div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> Read and write internal notes</div>
                 </>
               )}
-              {selectedRole === "manager" && (
+              {selectedRole === "sales" && (
                 <>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> All CRM features
-                  </div>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> View reports
-                  </div>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> Marketing & campaigns
-                  </div>
-                  <div className="flex items-center gap-2 text-[#6B7280]">
-                    <span>✗</span> Manage team members
-                  </div>
-                  <div className="flex items-center gap-2 text-[#6B7280]">
-                    <span>✗</span> Billing access
-                  </div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> Manage prospects and pipeline follow-up</div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> Log calls and sales tasks</div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> View client account context</div>
+                  <div className="flex items-center gap-2 text-[#6B7280]"><span>-</span> No sensitive commercial fields</div>
+                  <div className="flex items-center gap-2 text-[#6B7280]"><span>-</span> No team or billing settings</div>
                 </>
               )}
-              {selectedRole === "staff" && (
+              {selectedRole === "delivery" && (
                 <>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> View contacts
-                  </div>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> Manage assigned tasks
-                  </div>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> Create tasks
-                  </div>
-                  <div className="flex items-center gap-2 text-[#6B7280]">
-                    <span>✗</span> Delete contacts
-                  </div>
-                  <div className="flex items-center gap-2 text-[#6B7280]">
-                    <span>✗</span> View reports
-                  </div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> Manage client delivery work</div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> Manage internal tasks and SOPs</div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> Read and write internal notes</div>
+                  <div className="flex items-center gap-2 text-[#6B7280]"><span>-</span> No billing or sensitive commercial fields</div>
+                  <div className="flex items-center gap-2 text-[#6B7280]"><span>-</span> No team settings</div>
+                </>
+              )}
+              {selectedRole === "finance" && (
+                <>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> Billing and reporting access</div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> View sensitive commercial fields</div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> Audit and client account visibility</div>
+                  <div className="flex items-center gap-2 text-[#6B7280]"><span>-</span> No prospect or delivery editing</div>
+                  <div className="flex items-center gap-2 text-[#6B7280]"><span>-</span> No team settings</div>
                 </>
               )}
               {selectedRole === "readonly" && (
                 <>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> View dashboard
-                  </div>
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span>✓</span> View reports
-                  </div>
-                  <div className="flex items-center gap-2 text-[#6B7280]">
-                    <span>✗</span> Edit anything
-                  </div>
-                  <div className="flex items-center gap-2 text-[#6B7280]">
-                    <span>✗</span> Create contacts
-                  </div>
-                  <div className="flex items-center gap-2 text-[#6B7280]">
-                    <span>✗</span> Send messages
-                  </div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> View Mission Control</div>
+                  <div className="flex items-center gap-2 text-green-600"><span>+</span> View reports and client context</div>
+                  <div className="flex items-center gap-2 text-[#6B7280]"><span>-</span> Edit anything</div>
+                  <div className="flex items-center gap-2 text-[#6B7280]"><span>-</span> Sensitive commercial fields</div>
+                  <div className="flex items-center gap-2 text-[#6B7280]"><span>-</span> Internal notes</div>
                 </>
               )}
             </div>

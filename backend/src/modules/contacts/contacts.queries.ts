@@ -15,9 +15,12 @@ export const contactSelectFields = `c.id,
               c.country,
               c.tags,
               c.status,
+              c.lead_status as leadStatus,
               c.source,
               c.value,
               c.treatment_interests as treatmentInterests,
+              c.package_interest as packageInterest,
+              c.recommended_package as recommendedPackage,
               c.notes,
               c.external_id as externalId,
               c.import_batch_id as importBatchId,
@@ -44,6 +47,7 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
   const values: any[] = [clinicId];
   const search = cleanString(query.search)?.toLowerCase();
   const status = cleanString(query.status);
+  const leadStatus = cleanString(query.leadStatus);
   const source = cleanString(query.source);
   const tag = cleanString(query.tag);
   const campaign = cleanString(query.campaign || query.utmCampaign)?.toLowerCase();
@@ -55,6 +59,11 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
   if (status) {
     clauses.push("c.status = ?");
     values.push(status);
+  }
+
+  if (leadStatus) {
+    clauses.push("c.lead_status = ?");
+    values.push(leadStatus);
   }
 
   if (source) {
@@ -112,11 +121,14 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
         OR ${phoneSqlExpression("c.phone")} LIKE ?
         OR LOWER(COALESCE(c.source, '')) LIKE ?
         OR LOWER(COALESCE(c.status, '')) LIKE ?
+        OR LOWER(COALESCE(c.lead_status, '')) LIKE ?
+        OR LOWER(COALESCE(c.package_interest, '')) LIKE ?
+        OR LOWER(COALESCE(c.recommended_package, '')) LIKE ?
         OR LOWER(COALESCE(c.notes, '')) LIKE ?
         OR CAST(COALESCE(c.tags, JSON_ARRAY()) AS CHAR) LIKE ?
         OR CAST(COALESCE(c.treatment_interests, JSON_ARRAY()) AS CHAR) LIKE ?)`,
     );
-    values.push(like, like, `%${phoneSearch}%`, like, like, like, like, like);
+    values.push(like, like, `%${phoneSearch}%`, like, like, like, like, like, like, like, like);
   }
 
   return {

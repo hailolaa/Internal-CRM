@@ -28,7 +28,7 @@ router.post("/register/clinic",
 );
 
 
-// @desc Register new patient
+// @desc Legacy client/prospect self-registration endpoint, blocked for Mission Control MVP
 // @route POST /api/auth/register/patient
 // @access Public
 router.post("/register/patient",

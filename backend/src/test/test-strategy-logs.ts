@@ -3,6 +3,7 @@ import test from "node:test";
 import type { AddressInfo } from "node:net";
 import pool, { testConnection } from "../config/database.js";
 import { authService } from "../modules/auth/auth.service.js";
+import { hashPassword } from "../utils/helpers.js";
 import strategyLogsRoutes from "../modules/strategy-logs/strategy-logs.routes.js";
 import errorHandler from "../middleware/errorHandler.js";
 
@@ -27,22 +28,30 @@ async function createClinicAndAdmin(prefix: string) {
   };
 }
 
-async function createPatientUser(clinicId: string, prefix: string) {
-  const result = await authService.registerPatient({
-    clinicId,
-    email: uniqueEmail(`${prefix}_patient`),
-    password: "password123",
-    firstName: prefix,
-    lastName: "Patient",
-    phone: "555-0199",
-  });
+async function createInternalViewerUser(clinicId: string, prefix: string) {
+  const { v4: uuidv4 } = await import("uuid");
+  const email = uniqueEmail(`${prefix}_viewer`);
+  const password = "password123";
+  const userId = uuidv4();
+  const passwordHash = await hashPassword(password);
+
+  await pool.execute(
+    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, 'READ_ONLY', CURRENT_TIMESTAMP)",
+    [userId, clinicId, email, passwordHash, prefix, "Viewer"],
+  );
+
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, 'READ_ONLY', 'active', 1)",
+    [userId, clinicId],
+  );
+
+  const result = await authService.login({ email, password });
 
   return {
     userId: result.user.id,
     token: result.tokens.token,
   };
 }
-
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
@@ -78,7 +87,7 @@ test("strategy logs API is permission protected, filterable, archived, audited, 
   console.log("[strategy-logs] database connection OK");
 
   const admin = await createClinicAndAdmin("StrategyLogs");
-  const patient = await createPatientUser(admin.clinicId, "StrategyLogs");
+  const limitedUser = await createInternalViewerUser(admin.clinicId, "StrategyLogs");
   const profileId = await ensureProfileRow(admin.clinicId, admin.userId);
 
   const expressModule = (await import("express")) as any;
@@ -98,9 +107,9 @@ test("strategy logs API is permission protected, filterable, archived, audited, 
   let logId = "";
 
   try {
-    const forbidden = await fetchJson(baseUrl, "/api/strategy-logs", patient.token);
+    const forbidden = await fetchJson(baseUrl, "/api/strategy-logs", limitedUser.token);
     assert.equal(forbidden.response.status, 403);
-    console.log("[strategy-logs] patient blocked from strategy logs API passed");
+    console.log("[strategy-logs] read-only internal viewer blocked from strategy logs API passed");
 
     const createResponse = await fetchJson(baseUrl, "/api/strategy-logs", admin.token, {
       method: "POST",

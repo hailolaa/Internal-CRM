@@ -4,12 +4,14 @@ const serviceTypes = ["ppc", "seo", "gbp", "website", "landing_pages", "cro", "s
 const serviceStatuses = ["onboarding", "active", "paused", "ended", "archived"];
 const editableServiceStatuses = ["onboarding", "active", "paused", "ended"];
 const contractStatuses = ["active", "trial", "pending", "paused", "cancelled", "expired"];
+const clientStatuses = ["prospect", "onboarding", "active", "paused", "at_risk", "churned", "inactive"];
 const healthStatuses = ["healthy", "attention_needed", "at_risk", "critical"];
 const churnRisks = ["low", "medium", "high", "critical"];
 
 export const listClientAccountsValidator = [
   query("search").optional().trim().isLength({ max: 120 }).withMessage("Search must be 120 characters or fewer"),
   query("healthStatus").optional().isIn([...healthStatuses, "all"]),
+  query("clientStatus").optional().isIn([...clientStatuses, "all"]),
   query("churnRisk").optional().isIn([...churnRisks, "all"]),
   query("contractStatus").optional().isIn([...contractStatuses, "all"]),
 ];
@@ -20,6 +22,8 @@ export const updateClientAccountProfileValidator = [
   body("activeServices.*").optional().trim().isLength({ min: 1, max: 100 }).withMessage("Active service names must be 1-100 characters"),
   body("onboardingStatus").optional().isIn(["not_started", "in_progress", "completed", "paused"]),
   body("healthStatus").optional().isIn(["healthy", "attention_needed", "at_risk", "critical"]),
+  body("clientStatus").optional().isIn(clientStatuses),
+  body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
   body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),

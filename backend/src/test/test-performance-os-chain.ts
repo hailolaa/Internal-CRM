@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
 import { authService } from "../modules/auth/auth.service.js";
+import { hashPassword } from "../utils/helpers.js";
 import { appointmentsService } from "../modules/appointments/appointments.service.js";
 import { callsService } from "../modules/calls/calls.service.js";
 import { contactsService } from "../modules/contacts/contacts.service.js";
@@ -51,22 +52,30 @@ async function createClinicAndAdmin(prefix: string) {
   };
 }
 
-async function createPatientUser(clinicId: string, prefix: string) {
-  const result = await authService.registerPatient({
-    clinicId,
-    email: uniqueEmail(`${prefix}_patient`),
-    password: "password123",
-    firstName: prefix,
-    lastName: "Patient",
-    phone: "555-0199",
-  });
+async function createInternalViewerUser(clinicId: string, prefix: string) {
+  const { v4: uuidv4 } = await import("uuid");
+  const email = uniqueEmail(`${prefix}_viewer`);
+  const password = "password123";
+  const userId = uuidv4();
+  const passwordHash = await hashPassword(password);
+
+  await pool.execute(
+    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, 'READ_ONLY', CURRENT_TIMESTAMP)",
+    [userId, clinicId, email, passwordHash, prefix, "Viewer"],
+  );
+
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, 'READ_ONLY', 'active', 1)",
+    [userId, clinicId],
+  );
+
+  const result = await authService.login({ email, password });
 
   return {
     userId: result.user.id,
     token: result.tokens.token,
   };
 }
-
 async function ensureClinicianAvailability(clinicId: string, clinicianId: string, date: Date) {
   const availabilityId = uuidv4();
   await pool.execute(
@@ -98,7 +107,7 @@ test("Performance OS attribution chain links source to revenue, insight, alert, 
 
   const primary = await createClinicAndAdmin("PerformanceOsPrimary");
   const secondary = await createClinicAndAdmin("PerformanceOsSecondary");
-  const patient = await createPatientUser(primary.clinicId, "PerformanceOs");
+  const limitedUser = await createInternalViewerUser(primary.clinicId, "PerformanceOs");
 
   const server = app.listen(0);
   const address = server.address();
@@ -305,13 +314,13 @@ test("Performance OS attribution chain links source to revenue, insight, alert, 
       ],
     );
 
-    const patientForbidden = await fetchJson(
+    const viewerForbidden = await fetchJson(
       baseUrl,
       `/api/performance-os/attribution-chain?contactId=${lead.contact.id}`,
-      patient.token,
+      limitedUser.token,
     );
-    assert.equal(patientForbidden.response.status, 403);
-    console.log("[performance-os] patient blocked from attribution chain passed");
+    assert.equal(viewerForbidden.response.status, 403);
+    console.log("[performance-os] read-only internal viewer blocked from attribution chain passed");
 
     const secondaryBoundary = await fetchJson(
       baseUrl,

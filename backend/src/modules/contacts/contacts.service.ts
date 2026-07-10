@@ -87,11 +87,17 @@ const importHeaderAliases: Record<string, keyof ContactImportRow | "tags"> = {
   source: "source",
   leadsource: "source",
   status: "status",
+  leadstatus: "leadStatus",
+  leadstage: "leadStatus",
   notes: "notes",
   note: "notes",
   treatment: "treatmentInterests",
   treatmentinterest: "treatmentInterests",
   treatmentinterests: "treatmentInterests",
+  package: "packageInterest",
+  packageinterest: "packageInterest",
+  recommendedpackage: "recommendedPackage",
+  recommendedservice: "recommendedPackage",
 };
 
 function csvCell(value: unknown) {
@@ -108,9 +114,12 @@ function toContactsCsv(contacts: ContactResponse[]) {
     "email",
     "phone",
     "status",
+    "leadStatus",
     "source",
     "value",
     "treatmentInterests",
+    "packageInterest",
+    "recommendedPackage",
     "tags",
     "lastContactAt",
     "createdAt",
@@ -123,9 +132,12 @@ function toContactsCsv(contacts: ContactResponse[]) {
     contact.email,
     contact.phone,
     contact.status,
+    contact.leadStatus,
     contact.source,
     contact.value,
     contact.treatmentInterests,
+    contact.packageInterest,
+    contact.recommendedPackage,
     contact.tags,
     contact.lastContactAt,
     contact.createdAt,
@@ -208,7 +220,10 @@ function parseImportText(text: string): ContactImportRow[] {
       tags: splitListCell(raw.tags),
       source: raw.source || "Google Sheets",
       status: raw.status || "lead",
+      leadStatus: raw.leadStatus || raw.leadstage || raw.status || "new",
       treatmentInterests: splitListCell(raw.treatmentInterests || raw.treatment),
+      packageInterest: raw.packageInterest || raw.package || "",
+      recommendedPackage: raw.recommendedPackage || raw.recommendedservice || "",
     };
     if (raw.notes) row.notes = raw.notes;
     return row;
@@ -582,9 +597,12 @@ export class ContactsService {
     addField("country", "country", normalized.country);
     addField("tags", "tags", JSON.stringify(normalized.tags));
     addField("status", "status", normalized.status);
+    addField("leadStatus", "lead_status", normalized.leadStatus);
     addField("source", "source", normalized.source);
     addField("value", "value", normalized.value || 0);
     addField("treatmentInterests", "treatment_interests", JSON.stringify(normalized.treatmentInterests));
+    addField("packageInterest", "package_interest", normalized.packageInterest);
+    addField("recommendedPackage", "recommended_package", normalized.recommendedPackage);
     addField("notes", "notes", normalized.notes);
     addField("lastContactAt", "last_contact_at", normalized.lastContactAt);
 
@@ -617,13 +635,16 @@ export class ContactsService {
       userAgent: meta.userAgent,
     });
 
+    const statusChanged = hasOwn(data, "status") && data.status !== existingContact.status;
+    const leadStatusChanged = hasOwn(data, "leadStatus") && data.leadStatus !== existingContact.leadStatus;
+
     await logTimelineActivity({
       clinicId,
       contactId,
       userId,
-      type: hasOwn(data, "status") && data.status !== existingContact.status ? "StatusChange" : "Note",
+      type: statusChanged || leadStatusChanged ? "StatusChange" : "Note",
       metadata: buildTimelineMetadata({
-        action: hasOwn(data, "status") && data.status !== existingContact.status
+        action: statusChanged || leadStatusChanged
           ? phase1TimelineActions.leadStageChanged
           : phase1TimelineActions.noteAdded,
         source: "contact",
@@ -632,6 +653,8 @@ export class ContactsService {
         status: hasOwn(data, "status") ? normalized.status : existingContact.status,
         changes: {
           changedFields: Object.keys(data),
+          previousLeadStatus: existingContact.leadStatus,
+          leadStatus: hasOwn(data, "leadStatus") ? normalized.leadStatus : existingContact.leadStatus,
         },
       }),
     });

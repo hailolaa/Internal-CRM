@@ -18,9 +18,9 @@ export async function insertContact(
   await pool.execute(
     `INSERT INTO contact
       (id, clinic_id, first_name, last_name, email, phone, date_of_birth, gender,
-       address, city, state, postal_code, country, tags, status, source, value,
-       treatment_interests, notes, last_contact_at, external_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       address, city, state, postal_code, country, tags, status, lead_status, source, value,
+       treatment_interests, package_interest, recommended_package, notes, last_contact_at, external_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       contactId,
       clinicId,
@@ -37,9 +37,12 @@ export async function insertContact(
       contact.country,
       JSON.stringify(contact.tags),
       contact.status || "lead",
+      contact.leadStatus || "new",
       contact.source,
       contact.value || 0,
       JSON.stringify(contact.treatmentInterests),
+      contact.packageInterest,
+      contact.recommendedPackage,
       contact.notes,
       contact.lastContactAt,
       contact.externalId,
@@ -144,9 +147,9 @@ export async function insertImportedContact(
   await pool.execute(
     `INSERT INTO contact
       (id, clinic_id, first_name, last_name, email, phone, date_of_birth, gender,
-       address, city, state, postal_code, country, tags, status, source, value,
-       treatment_interests, notes, last_contact_at, import_batch_id, external_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       address, city, state, postal_code, country, tags, status, lead_status, source, value,
+       treatment_interests, package_interest, recommended_package, notes, last_contact_at, import_batch_id, external_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       contactId,
       clinicId,
@@ -163,9 +166,12 @@ export async function insertImportedContact(
       row.country,
       JSON.stringify(row.tags),
       row.status,
+      row.leadStatus || "new",
       row.source,
       row.value || 0,
       JSON.stringify(row.treatmentInterests),
+      row.packageInterest,
+      row.recommendedPackage,
       row.notes,
       row.lastContactAt,
       batchId,
@@ -198,9 +204,12 @@ export async function updateImportedContact(
          country = COALESCE(?, country),
          tags = ?,
          status = COALESCE(?, status),
+         lead_status = COALESCE(?, lead_status),
          source = COALESCE(?, source),
          value = COALESCE(?, value),
          treatment_interests = ?,
+         package_interest = COALESCE(?, package_interest),
+         recommended_package = COALESCE(?, recommended_package),
          notes = COALESCE(?, notes),
          last_contact_at = COALESCE(?, last_contact_at),
          import_batch_id = ?,
@@ -221,9 +230,12 @@ export async function updateImportedContact(
       row.country,
       JSON.stringify(row.tags),
       row.status,
+      row.leadStatus,
       row.source,
       row.value,
       JSON.stringify(row.treatmentInterests),
+      row.packageInterest,
+      row.recommendedPackage,
       row.notes,
       row.lastContactAt,
       batchId,

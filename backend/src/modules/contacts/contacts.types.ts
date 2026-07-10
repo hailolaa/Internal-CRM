@@ -15,6 +15,7 @@ export interface ContactListQuery {
   utmSource?: string;
   utmMedium?: string;
   utmCampaign?: string;
+  leadStatus?: string;
   createdFrom?: string;
   createdTo?: string;
   sortBy?: ContactSortBy;
@@ -37,9 +38,12 @@ export interface ContactMutationDTO {
   country?: string | null;
   tags?: string[];
   status?: string | null;
+  leadStatus?: string | null;
   source?: string | null;
   value?: number | string | null;
   treatmentInterests?: string[];
+  packageInterest?: string | null;
+  recommendedPackage?: string | null;
   notes?: string | null;
   lastContactAt?: string | null;
 }
@@ -62,9 +66,12 @@ export interface NormalizedContactData {
   country: string | null;
   tags: string[];
   status: string | null;
+  leadStatus: string | null;
   source: string | null;
   value: number | null;
   treatmentInterests: string[];
+  packageInterest: string | null;
+  recommendedPackage: string | null;
   notes: string | null;
   lastContactAt: string | null;
 }
@@ -96,9 +103,12 @@ export interface ContactResponse {
   country: string | null;
   tags: string[];
   status: string;
+  leadStatus: string | null;
   source: string | null;
   value: number;
   treatmentInterests: string[];
+  packageInterest: string | null;
+  recommendedPackage: string | null;
   notes: string | null;
   externalId: string | null;
   importBatchId: string | null;
@@ -281,9 +291,12 @@ export interface ContactImportRow {
   country?: string;
   tags?: string[];
   status?: string;
+  leadStatus?: string;
   source?: string;
   value?: number | string;
   treatmentInterests?: string[];
+  packageInterest?: string;
+  recommendedPackage?: string;
   notes?: string;
   lastContactAt?: string;
 }

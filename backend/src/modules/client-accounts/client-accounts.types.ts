@@ -2,6 +2,7 @@ export type OnboardingStatus = "not_started" | "in_progress" | "completed" | "pa
 export type HealthStatus = "healthy" | "attention_needed" | "at_risk" | "critical";
 export type ChurnRisk = "low" | "medium" | "high" | "critical";
 export type ContractStatus = "active" | "trial" | "pending" | "paused" | "cancelled" | "expired";
+export type ClientStatus = "prospect" | "onboarding" | "active" | "paused" | "at_risk" | "churned" | "inactive";
 export type ClientServiceType = "ppc" | "seo" | "gbp" | "website" | "landing_pages" | "cro" | "strategy" | "other";
 export type ClientServiceStatus = "onboarding" | "active" | "paused" | "ended" | "archived";
 export type MonthlyActionPlanStatus = "draft" | "active" | "completed" | "archived";
@@ -11,6 +12,8 @@ export interface UpdateClientAccountProfileDTO {
   activeServices?: string[];
   onboardingStatus?: OnboardingStatus;
   healthStatus?: HealthStatus;
+  clientStatus?: ClientStatus;
+  currentPackage?: string | null;
   churnRisk?: ChurnRisk;
   renewalDate?: string | null;
   contractStatus?: ContractStatus;
@@ -30,6 +33,8 @@ export interface ClientAccountProfileResponse {
   activeServices: string[];
   onboardingStatus: OnboardingStatus;
   healthStatus: HealthStatus;
+  clientStatus: ClientStatus;
+  currentPackage: string | null;
   churnRisk: ChurnRisk;
   renewalDate: string | null;
   contractStatus: ContractStatus;
@@ -125,6 +130,7 @@ export interface ClientAccountServiceListQuery {
 export interface ClientAccountListQuery {
   search?: string;
   healthStatus?: HealthStatus | "all";
+  clientStatus?: ClientStatus | "all";
   churnRisk?: ChurnRisk | "all";
   contractStatus?: ContractStatus | "all";
 }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Building2, ChevronDown, Check, Shield } from "lucide-react";
 import { useTenant } from "@/lib/tenant-context";
-import { getRoleLabel } from "@/lib/roles";
+import { getRoleLabel, normaliseUserRole } from "@/lib/roles";
 
 export function TenantSwitcher() {
   const { clinic, user, allClinics, switchClinic } = useTenant();
@@ -177,6 +177,7 @@ export function TenantSwitcher() {
 
 export function TenantBadge() {
   const { clinic, user } = useTenant();
+  const displayRole = normaliseUserRole(user.role);
 
   return (
     <div
@@ -194,11 +195,11 @@ export function TenantBadge() {
         className="text-[10px] font-bold"
         style={{
           color:
-            user.role === "SUPER_ADMIN"
+            displayRole === "SUPER_ADMIN"
               ? "#b7672e"
-              : user.role === "CLINIC_ADMIN"
+              : displayRole === "ADMIN"
                 ? "#60b4af"
-                : user.role === "CLINICIAN"
+                : displayRole === "DELIVERY"
                   ? "#5e8a8d"
                   : "#5e8a8d",
         }}

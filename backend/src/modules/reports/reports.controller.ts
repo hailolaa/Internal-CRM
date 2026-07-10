@@ -1,4 +1,6 @@
 import { Request, Response, NextFunction } from "express";
+import { userHasPermission } from "../../middleware/authorize.js";
+import { ApiError } from "../../utils/ApiError.js";
 import { reportsService } from "./reports.service.js";
 
 function pickDashboardQuery(query: Record<string, unknown>) {
@@ -22,8 +24,9 @@ export class ReportsController {
   // GET /api/reports
   listReports = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { clinicId } = (req as any).user;
-      const reports = await reportsService.listReports(clinicId);
+      const { clinicId, userId } = (req as any).user;
+      const includeInternalNotes = await userHasPermission(userId, clinicId, "internal_notes:read");
+      const reports = await reportsService.listReports(clinicId, { includeInternalNotes });
       res.status(200).json({ status: "success", data: reports });
     } catch (error) {
       next(error);
@@ -33,8 +36,9 @@ export class ReportsController {
   // GET /api/reports/:id
   getReport = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { clinicId } = (req as any).user;
-      const report = await reportsService.getReport(clinicId, req.params.id as string);
+      const { clinicId, userId } = (req as any).user;
+      const includeInternalNotes = await userHasPermission(userId, clinicId, "internal_notes:read");
+      const report = await reportsService.getReport(clinicId, req.params.id as string, { includeInternalNotes });
       res.status(200).json({ status: "success", data: report });
     } catch (error) {
       next(error);
@@ -62,6 +66,14 @@ export class ReportsController {
           payload[key] = req.body[key];
         }
       });
+
+      if (
+        Object.prototype.hasOwnProperty.call(payload, "internalNotes") &&
+        !(await userHasPermission(userId, clinicId, "internal_notes:write"))
+      ) {
+        throw ApiError.forbidden("You do not have permission to update internal notes");
+      }
+
       const report = await reportsService.updateReportWorkflow(clinicId, userId, req.params.id as string, payload);
       res.status(200).json({ status: "success", data: report });
     } catch (error) {

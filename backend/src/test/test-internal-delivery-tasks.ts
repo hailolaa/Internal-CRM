@@ -3,6 +3,7 @@ import test from "node:test";
 import type { AddressInfo } from "node:net";
 import { testConnection } from "../config/database.js";
 import { authService } from "../modules/auth/auth.service.js";
+import { hashPassword } from "../utils/helpers.js";
 import { tasksService } from "../modules/tasks/tasks.service.js";
 import { clientAccountsService } from "../modules/client-accounts/client-accounts.service.js";
 import pool from "../config/database.js";
@@ -30,22 +31,30 @@ async function createClinicAndAdmin(prefix: string) {
   };
 }
 
-async function createPatientUser(clinicId: string, prefix: string) {
-  const result = await authService.registerPatient({
-    clinicId,
-    email: uniqueEmail(`${prefix}_patient`),
-    password: "password123",
-    firstName: prefix,
-    lastName: "Patient",
-    phone: "555-0199",
-  });
+async function createInternalViewerUser(clinicId: string, prefix: string) {
+  const { v4: uuidv4 } = await import("uuid");
+  const email = uniqueEmail(`${prefix}_viewer`);
+  const password = "password123";
+  const userId = uuidv4();
+  const passwordHash = await hashPassword(password);
+
+  await pool.execute(
+    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, 'READ_ONLY', CURRENT_TIMESTAMP)",
+    [userId, clinicId, email, passwordHash, prefix, "Viewer"],
+  );
+
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, 'READ_ONLY', 'active', 1)",
+    [userId, clinicId],
+  );
+
+  const result = await authService.login({ email, password });
 
   return {
     userId: result.user.id,
     token: result.tokens.token,
   };
 }
-
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
@@ -81,7 +90,7 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
   console.log("[internal-delivery-tasks] database connection OK");
 
   const admin = await createClinicAndAdmin("InternalTasks");
-  const patient = await createPatientUser(admin.clinicId, "InternalTasks");
+  const limitedUser = await createInternalViewerUser(admin.clinicId, "InternalTasks");
   const profileId = await ensureProfileRow(admin.clinicId, admin.userId);
   const expressModule = await import("express") as any;
   const express = expressModule.default;
@@ -110,11 +119,11 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
   let taskId: string;
 
   try {
-    const forbidden = await fetchJson(baseUrl, "/api/tasks/internal", patient.token);
+    const forbidden = await fetchJson(baseUrl, "/api/tasks/internal", limitedUser.token);
     assert.equal(forbidden.response.status, 403);
-    console.log("[internal-delivery-tasks] patient blocked from internal API passed");
+    console.log("[internal-delivery-tasks] read-only internal viewer blocked from internal API passed");
 
-    // ── Create ────────────────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Create Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     taskId = await tasksService.createInternalTask(admin.clinicId, admin.userId, {
       title: "Build keyword research doc",
       description: "Research top 50 keywords for client SEO campaign",
@@ -134,7 +143,7 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
     assert.ok(taskId, "createInternalTask should return an id");
     console.log("[internal-delivery-tasks] create passed");
 
-    // ── List internal tasks ───────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ List internal tasks Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const apiList = await fetchJson(baseUrl, "/api/tasks/internal?boardKey=seo", admin.token);
     assert.equal(apiList.response.status, 200);
     assert.ok(
@@ -162,7 +171,7 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
     assert.equal((created!.recurrenceRule as any).frequency, "monthly");
     console.log("[internal-delivery-tasks] list + field verification passed");
 
-    // ── Regular listTasks should NOT include internal tasks ───
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Regular listTasks should NOT include internal tasks Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const regularTasks = await tasksService.listTasks(admin.clinicId);
     assert.ok(
       !regularTasks.some((t) => t.id === taskId),
@@ -170,7 +179,7 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
     );
     console.log("[internal-delivery-tasks] is_internal separation passed");
 
-    // ── Update ────────────────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Update Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     await tasksService.updateInternalTask(admin.clinicId, admin.userId, taskId, {
       title: "Updated keyword research doc",
       priority: "medium",
@@ -209,7 +218,7 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
     assert.equal(backgroundGeneratedCount, 0, "Background recurrence generation should not duplicate existing next occurrences");
     console.log("[internal-delivery-tasks] monthly recurrence generation passed");
 
-    // ── QA Update ─────────────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ QA Update Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     await tasksService.updateInternalTaskQa(admin.clinicId, admin.userId, taskId, {
       needsQa: true,
       qaChecklist: { items: ["Check keyword volume", "Verify intent"] },
@@ -293,7 +302,7 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
     assert.ok(missedFalseList.some((t) => t.id === taskId), "missedTask=false filter should match after clearing flag");
     console.log("[internal-delivery-tasks] rejected/approved QA filters passed");
 
-    // ── List filters ──────────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ List filters Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const needsQaList = await tasksService.listInternalTasks(admin.clinicId, { needsQa: "true" });
     assert.ok(needsQaList.some((t) => t.id === taskId), "needsQa filter should match");
 
@@ -326,7 +335,7 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
     assert.ok(!notOverdueList.some((t) => t.id === overdueTaskId), "overdue=false should exclude pending past-due task");
     console.log("[internal-delivery-tasks] list filters passed");
 
-    // ── Archive ───────────────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Archive Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     await tasksService.archiveInternalTask(admin.clinicId, admin.userId, taskId);
 
     const afterArchive = await tasksService.listInternalTasks(admin.clinicId, {});
@@ -341,7 +350,7 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
     assert.ok(archivedTask!.archivedAt, "archivedAt should be set");
     console.log("[internal-delivery-tasks] archive + hidden from active list passed");
 
-    // ── Audit events ──────────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Audit events Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const [auditRows]: any = await pool.execute(
       `SELECT action FROM audit_log
        WHERE clinic_id = ? AND entity_type = 'task' AND entity_id = ?
@@ -363,7 +372,7 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
     assert.equal(recurrenceAuditRows.length, 1, "Audit should include INTERNAL_TASK_RECURRENCE_GENERATED");
     console.log("[internal-delivery-tasks] audit logging passed");
 
-    // ── Tenant isolation ──────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Tenant isolation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const other = await createClinicAndAdmin("InternalTasksOther");
     const otherTasks = await tasksService.listInternalTasks(other.clinicId, { includeArchived: "true" });
     assert.ok(
@@ -383,7 +392,7 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
        WHERE clinic_id = ?
          AND email LIKE ?
          AND deleted_at IS NULL`,
-      [admin.clinicId, "InternalTasks_patient_%@test.com"],
+      [admin.clinicId, "InternalTasks_viewer_%@test.com"],
     );
     await new Promise<void>((resolve) => {
       server.close(() => resolve());

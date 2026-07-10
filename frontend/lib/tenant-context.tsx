@@ -25,21 +25,21 @@ const TenantContext = createContext<TenantContextValue | null>(null);
 
 const FALLBACK_CLINIC: Clinic = {
   id: "current-clinic",
-  name: "Clinic account",
+  name: "Mission Control workspace",
   plan: "Growth",
   status: "active",
   maxUsers: 1,
   currentUsers: 1,
-  location: "Current workspace",
+  location: "Internal workspace",
 };
 
 const FALLBACK_USER: AuthUser = {
   id: "current-user",
   name: "Signed out",
   email: "",
-  role: "RECEPTIONIST",
+  role: "SALES",
   clinicId: FALLBACK_CLINIC.id,
-  permissions: getPermissionsForRole("RECEPTIONIST"),
+  permissions: getPermissionsForRole("SALES"),
 };
 
 function toClinicPlan(plan: string | null | undefined): Clinic["plan"] {
@@ -67,7 +67,7 @@ function toClinic(membership: BackendClinicMembership): Clinic {
     status: toClinicStatus(membership.status),
     maxUsers: 1,
     currentUsers: 1,
-    location: membership.location || "Clinic workspace",
+    location: membership.location || "Mission Control workspace",
   };
 }
 

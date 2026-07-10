@@ -12,6 +12,15 @@ export type ClientAccountHealthStatus =
 
 export type ClientAccountChurnRisk = "low" | "medium" | "high" | "critical";
 
+export type ClientAccountClientStatus =
+  | "prospect"
+  | "onboarding"
+  | "active"
+  | "paused"
+  | "at_risk"
+  | "churned"
+  | "inactive";
+
 export type ClientAccountContractStatus =
   | "active"
   | "trial"
@@ -58,6 +67,8 @@ export interface ClientAccountProfileRecord {
   activeServices: string[];
   onboardingStatus: ClientAccountOnboardingStatus;
   healthStatus: ClientAccountHealthStatus;
+  clientStatus: ClientAccountClientStatus;
+  currentPackage: string | null;
   churnRisk: ClientAccountChurnRisk;
   renewalDate: string | null;
   contractStatus: ClientAccountContractStatus;
@@ -89,6 +100,7 @@ export interface ClientAccountSummaryRecord
 export interface ClientAccountListParams {
   search?: string;
   healthStatus?: ClientAccountHealthStatus | "all";
+  clientStatus?: ClientAccountClientStatus | "all";
   churnRisk?: ClientAccountChurnRisk | "all";
   contractStatus?: ClientAccountContractStatus | "all";
 }
@@ -98,6 +110,8 @@ export interface ClientAccountProfilePayload {
   activeServices?: string[];
   onboardingStatus?: ClientAccountOnboardingStatus;
   healthStatus?: ClientAccountHealthStatus;
+  clientStatus?: ClientAccountClientStatus;
+  currentPackage?: string | null;
   churnRisk?: ClientAccountChurnRisk;
   renewalDate?: string | null;
   contractStatus?: ClientAccountContractStatus;

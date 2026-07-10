@@ -77,7 +77,7 @@ function toNullableIso(value: unknown) {
   return value ? new Date(value as string | number | Date).toISOString() : null;
 }
 
-function mapReportRow(row: any, options: { publicView?: boolean } = {}) {
+function mapReportRow(row: any, options: { publicView?: boolean; includeInternalNotes?: boolean } = {}) {
   return {
     id: row.id,
     name: row.name,
@@ -86,7 +86,10 @@ function mapReportRow(row: any, options: { publicView?: boolean } = {}) {
     filters: parseJson(row.filters, {}),
     data: parseJson(row.data, {}),
     workflowStatus: row.workflowStatus || "draft",
-    internalNotes: options.publicView ? null : row.internalNotes || null,
+    internalNotes:
+      options.publicView || options.includeInternalNotes === false
+        ? null
+        : row.internalNotes || null,
     clientCommentary: row.clientCommentary || null,
     aiDraftSummary: row.aiDraftSummary || null,
     approvedBy: row.approvedBy || null,
@@ -367,7 +370,7 @@ function combineProvenance(values: string[]) {
 
 export class ReportsService {
   // List saved report snapshots for the current clinic
-  async listReports(clinicId: string) {
+  async listReports(clinicId: string, options: { includeInternalNotes?: boolean } = {}) {
     const [rows]: any = await pool.execute(
       `SELECT ${reportSelectFields}
        FROM report
@@ -376,10 +379,10 @@ export class ReportsService {
       [clinicId],
     );
 
-    return rows.map(mapReportRow);
+    return rows.map((row: any) => mapReportRow(row, options));
   }
 
-  async getReport(clinicId: string, reportId: string) {
+  async getReport(clinicId: string, reportId: string, options: { includeInternalNotes?: boolean } = {}) {
     const [rows]: any = await pool.execute(
       `SELECT ${reportSelectFields}
        FROM report
@@ -391,7 +394,7 @@ export class ReportsService {
     );
 
     if (!rows[0]) throw ApiError.notFound("Report not found");
-    return mapReportRow(rows[0]);
+    return mapReportRow(rows[0], options);
   }
 
   async createReportShare(clinicId: string, userId: string, reportId: string) {

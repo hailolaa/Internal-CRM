@@ -19,6 +19,7 @@ export class ContactsController {
       if (req.query.limit || req.query.pageSize) query.limit = Number(req.query.limit || req.query.pageSize);
       if (req.query.search) query.search = String(req.query.search);
       if (req.query.status) query.status = String(req.query.status);
+      if (req.query.leadStatus) query.leadStatus = String(req.query.leadStatus);
       if (req.query.source) query.source = String(req.query.source);
       if (req.query.tag) query.tag = String(req.query.tag);
       if (req.query.campaign) query.campaign = String(req.query.campaign);
@@ -49,6 +50,7 @@ export class ContactsController {
       const query: ContactListQuery = {};
       if (req.query.search) query.search = String(req.query.search);
       if (req.query.status) query.status = String(req.query.status);
+      if (req.query.leadStatus) query.leadStatus = String(req.query.leadStatus);
       if (req.query.source) query.source = String(req.query.source);
       if (req.query.tag) query.tag = String(req.query.tag);
       if (req.query.campaign) query.campaign = String(req.query.campaign);

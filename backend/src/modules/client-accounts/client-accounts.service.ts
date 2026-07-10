@@ -18,6 +18,8 @@ const DEFAULT_PROFILE = {
   activeServices: [] as string[],
   onboardingStatus: "not_started",
   healthStatus: "attention_needed",
+  clientStatus: "prospect",
+  currentPackage: null as string | null,
   churnRisk: "low",
   contractStatus: "pending",
 };
@@ -78,6 +80,11 @@ export class ClientAccountsService {
       values.push(DEFAULT_PROFILE.churnRisk, query.churnRisk);
     }
 
+    if (query.clientStatus && query.clientStatus !== "all") {
+      conditions.push("COALESCE(cap.client_status, ?) = ?");
+      values.push(DEFAULT_PROFILE.clientStatus, query.clientStatus);
+    }
+
     if (query.contractStatus && query.contractStatus !== "all") {
       conditions.push("COALESCE(cap.contract_status, ?) = ?");
       values.push(DEFAULT_PROFILE.contractStatus, query.contractStatus);
@@ -87,9 +94,9 @@ export class ClientAccountsService {
     if (search) {
       const wildcard = `%${search}%`;
       conditions.push(
-        "(c.name LIKE ? OR c.email LIKE ? OR u.email LIKE ? OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)",
+        "(c.name LIKE ? OR c.email LIKE ? OR cap.current_package LIKE ? OR u.email LIKE ? OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)",
       );
-      values.push(wildcard, wildcard, wildcard, wildcard);
+      values.push(wildcard, wildcard, wildcard, wildcard, wildcard);
     }
 
     const [rows]: any = await pool.execute(
@@ -102,6 +109,8 @@ export class ClientAccountsService {
           cap.active_services as activeServices,
           cap.onboarding_status as onboardingStatus,
           cap.health_status as healthStatus,
+          cap.client_status as clientStatus,
+          cap.current_package as currentPackage,
           cap.churn_risk as churnRisk,
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
@@ -215,6 +224,8 @@ export class ClientAccountsService {
           cap.active_services as activeServices,
           cap.onboarding_status as onboardingStatus,
           cap.health_status as healthStatus,
+          cap.client_status as clientStatus,
+          cap.current_package as currentPackage,
           cap.churn_risk as churnRisk,
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
@@ -251,6 +262,8 @@ export class ClientAccountsService {
       activeServices: parseServices(row.activeServices),
       onboardingStatus: row.onboardingStatus || DEFAULT_PROFILE.onboardingStatus,
       healthStatus: row.healthStatus || DEFAULT_PROFILE.healthStatus,
+      clientStatus: row.clientStatus || DEFAULT_PROFILE.clientStatus,
+      currentPackage: row.currentPackage || DEFAULT_PROFILE.currentPackage,
       churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
@@ -296,6 +309,14 @@ export class ClientAccountsService {
 
     if (ownKey(data, "healthStatus")) {
       addChange("healthStatus", "health_status", before.healthStatus, data.healthStatus);
+    }
+
+    if (ownKey(data, "clientStatus")) {
+      addChange("clientStatus", "client_status", before.clientStatus, data.clientStatus);
+    }
+
+    if (ownKey(data, "currentPackage")) {
+      addChange("currentPackage", "current_package", before.currentPackage, data.currentPackage || null);
     }
 
     if (ownKey(data, "churnRisk")) {
@@ -682,6 +703,8 @@ export class ClientAccountsService {
       activeServices: profileServices.length > 0 ? profileServices : derivedServices,
       onboardingStatus: row.onboardingStatus || DEFAULT_PROFILE.onboardingStatus,
       healthStatus: row.healthStatus || DEFAULT_PROFILE.healthStatus,
+      clientStatus: row.clientStatus || DEFAULT_PROFILE.clientStatus,
+      currentPackage: row.currentPackage || DEFAULT_PROFILE.currentPackage,
       churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,

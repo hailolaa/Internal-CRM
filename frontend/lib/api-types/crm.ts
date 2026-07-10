@@ -162,9 +162,12 @@ export interface ContactRecord {
   country: string | null;
   tags: string[];
   status: string;
+  leadStatus: string | null;
   source: string | null;
   value: number;
   treatmentInterests: string[];
+  packageInterest: string | null;
+  recommendedPackage: string | null;
   notes: string | null;
   externalId: string | null;
   importBatchId: string | null;
@@ -178,6 +181,7 @@ export interface ContactListParams {
   pageSize?: number;
   search?: string;
   status?: string;
+  leadStatus?: string;
   source?: string;
   tag?: string;
   sortBy?: ContactSortBy;
@@ -205,9 +209,12 @@ export interface ContactCreatePayload {
   postalCode?: string | null;
   tags?: string[];
   status?: string | null;
+  leadStatus?: string | null;
   source?: string | null;
   value?: number | null;
   treatmentInterests?: string[];
+  packageInterest?: string | null;
+  recommendedPackage?: string | null;
   notes?: string | null;
 }
 
@@ -305,9 +312,12 @@ export interface ContactImportRow {
   country?: string;
   tags?: string[];
   status?: string;
+  leadStatus?: string;
   source?: string;
   value?: number | string;
   treatmentInterests?: string[];
+  packageInterest?: string;
+  recommendedPackage?: string;
   notes?: string;
   lastContactAt?: string;
 }

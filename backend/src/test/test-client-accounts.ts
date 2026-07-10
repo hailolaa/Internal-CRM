@@ -3,6 +3,7 @@ import test from "node:test";
 import type { AddressInfo } from "node:net";
 import pool, { testConnection } from "../config/database.js";
 import { authService } from "../modules/auth/auth.service.js";
+import { hashPassword } from "../utils/helpers.js";
 import clientAccountsRoutes from "../modules/client-accounts/client-accounts.routes.js";
 import errorHandler from "../middleware/errorHandler.js";
 
@@ -27,22 +28,30 @@ async function createClinicAndAdmin(prefix: string) {
   };
 }
 
-async function createPatientUser(clinicId: string, prefix: string) {
-  const result = await authService.registerPatient({
-    clinicId,
-    email: uniqueEmail(`${prefix}_patient`),
-    password: "password123",
-    firstName: prefix,
-    lastName: "Patient",
-    phone: "555-0199",
-  });
+async function createInternalViewerUser(clinicId: string, prefix: string) {
+  const { v4: uuidv4 } = await import("uuid");
+  const email = uniqueEmail(`${prefix}_viewer`);
+  const password = "password123";
+  const userId = uuidv4();
+  const passwordHash = await hashPassword(password);
+
+  await pool.execute(
+    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, 'READ_ONLY', CURRENT_TIMESTAMP)",
+    [userId, clinicId, email, passwordHash, prefix, "Viewer"],
+  );
+
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, 'READ_ONLY', 'active', 1)",
+    [userId, clinicId],
+  );
+
+  const result = await authService.login({ email, password });
 
   return {
     userId: result.user.id,
     token: result.tokens.token,
   };
 }
-
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
@@ -71,11 +80,11 @@ function parseDbJsonObject(value: unknown) {
   return value as Record<string, any>;
 }
 
-test("client account profile API is permission protected, updateable, audited, and separate from patient data", async () => {
+test("client account profile API is permission protected, updateable, audited, and separate from legacy contact data", async () => {
   await testConnection();
 
   const admin = await createClinicAndAdmin("ClientAccountProfile");
-  const patient = await createPatientUser(admin.clinicId, "ClientAccountProfile");
+  const limitedUser = await createInternalViewerUser(admin.clinicId, "ClientAccountProfile");
   const expressModule = await import("express") as any;
   const express = expressModule.default;
   const testApp = express();
@@ -92,7 +101,7 @@ test("client account profile API is permission protected, updateable, audited, a
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
 
   try {
-    const forbidden = await fetchJson(baseUrl, "/api/client-accounts/profile", patient.token);
+    const forbidden = await fetchJson(baseUrl, "/api/client-accounts/profile", limitedUser.token);
     assert.equal(forbidden.response.status, 403);
 
     const initial = await fetchJson(baseUrl, "/api/client-accounts/profile", admin.token);
@@ -181,11 +190,11 @@ test("client account profile API is permission protected, updateable, audited, a
 
     console.log("[client-accounts] profile API integration test passed");
 
-    // ═══════════════════════════════════════════════════════════
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
     //  SERVICE-LEVEL CRUD TESTS
-    // ═══════════════════════════════════════════════════════════
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
-    // ── Create service ────────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Create service Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const createServiceRes = await fetchJson(baseUrl, "/api/client-accounts/services", admin.token, {
       method: "POST",
       body: JSON.stringify({
@@ -217,7 +226,7 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.ok(createdService.clientAccountProfileId, "Service should be linked to profile");
     console.log("[client-accounts] create service passed");
 
-    // ── List services ─────────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ List services Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const listRes = await fetchJson(baseUrl, "/api/client-accounts/services", admin.token);
     assert.equal(listRes.response.status, 200);
     assert.ok(
@@ -226,7 +235,7 @@ test("client account profile API is permission protected, updateable, audited, a
     );
     console.log("[client-accounts] list services passed");
 
-    // ── Update service ────────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Update service Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const updateServiceRes = await fetchJson(
       baseUrl,
       `/api/client-accounts/services/${createdService.id}`,
@@ -247,7 +256,7 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(updateServiceRes.body.data.serviceType, "ppc", "Unchanged fields should persist");
     console.log("[client-accounts] update service passed");
 
-    // ── Create a second service for filtering tests ───────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Create a second service for filtering tests Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const secondServiceRes = await fetchJson(baseUrl, "/api/client-accounts/services", admin.token, {
       method: "POST",
       body: JSON.stringify({
@@ -259,7 +268,7 @@ test("client account profile API is permission protected, updateable, audited, a
     });
     assert.equal(secondServiceRes.response.status, 201);
 
-    // ── Contract status filter ────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Contract status filter Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const filterActive = await fetchJson(
       baseUrl,
       "/api/client-accounts/services?contractStatus=active",
@@ -290,7 +299,7 @@ test("client account profile API is permission protected, updateable, audited, a
     );
     console.log("[client-accounts] renewal date filter passed");
 
-    // ── Archive service ───────────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Archive service Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const archiveRes = await fetchJson(
       baseUrl,
       `/api/client-accounts/services/${createdService.id}/archive`,
@@ -299,7 +308,7 @@ test("client account profile API is permission protected, updateable, audited, a
     );
     assert.equal(archiveRes.response.status, 200);
 
-    // ── Archived hidden from active list ──────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Archived hidden from active list Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const afterArchiveList = await fetchJson(baseUrl, "/api/client-accounts/services", admin.token);
     assert.ok(
       !afterArchiveList.body.data.some((s: any) => s.id === createdService.id),
@@ -307,7 +316,7 @@ test("client account profile API is permission protected, updateable, audited, a
     );
     console.log("[client-accounts] archived service hidden from active list passed");
 
-    // ── Archived visible with includeArchived=true ────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Archived visible with includeArchived=true Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const withArchivedList = await fetchJson(
       baseUrl,
       "/api/client-accounts/services?includeArchived=true",
@@ -319,7 +328,7 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.ok(archivedService.archivedAt, "archivedAt should be set");
     console.log("[client-accounts] archived service visible with includeArchived passed");
 
-    // ── Archived service cannot be updated ────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Archived service cannot be updated Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const updateArchivedRes = await fetchJson(
       baseUrl,
       `/api/client-accounts/services/${createdService.id}`,
@@ -332,7 +341,7 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(updateArchivedRes.response.status, 400);
     console.log("[client-accounts] archived service update blocked passed");
 
-    // ── Service audit events ──────────────────────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Service audit events Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const [serviceAuditRows]: any = await pool.execute(
       `SELECT action FROM audit_log
        WHERE clinic_id = ? AND entity_type = 'client_account_service' AND entity_id = ?
@@ -345,10 +354,10 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.ok(serviceActions.includes("CLIENT_ACCOUNT_SERVICE_ARCHIVED"), "Audit should include CLIENT_ACCOUNT_SERVICE_ARCHIVED");
     console.log("[client-accounts] service audit logging passed");
 
-    // ── Patient cannot access services ────────────────────────
-    const patientServices = await fetchJson(baseUrl, "/api/client-accounts/services", patient.token);
-    assert.equal(patientServices.response.status, 403);
-    console.log("[client-accounts] patient blocked from services passed");
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Read-only internal viewer cannot access services Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+    const viewerServices = await fetchJson(baseUrl, "/api/client-accounts/services", limitedUser.token);
+    assert.equal(viewerServices.response.status, 403);
+    console.log("[client-accounts] read-only internal viewer blocked from services passed");
 
     console.log("[client-accounts] service CRUD integration test passed");
   } finally {
@@ -363,7 +372,7 @@ test("client account profile API is permission protected, updateable, audited, a
        WHERE clinic_id = ?
          AND email LIKE ?
          AND deleted_at IS NULL`,
-      [admin.clinicId, "ClientAccountProfile_patient_%@test.com"],
+      [admin.clinicId, "ClientAccountProfile_viewer_%@test.com"],
     );
 
     await new Promise<void>((resolve) => {
