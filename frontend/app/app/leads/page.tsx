@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   PageHeader,
   StatCard,
@@ -20,7 +21,7 @@ import type {
   PipelineDealRecord,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
-import { Target, Users, PoundSterling, TrendingUp } from "lucide-react";
+import { PoundSterling, Target, TrendingUp, Users } from "lucide-react";
 
 interface Lead {
   id: string;
@@ -33,6 +34,7 @@ interface Lead {
   revenue: number;
   date: string;
   sortDate: number;
+  contactId: string | null;
 }
 
 const STAGE_COLORS_WARM: Record<string, string> = {
@@ -79,6 +81,7 @@ function toLead(contact: ContactRecord): Lead {
       year: "numeric",
     }).format(new Date(contact.createdAt || contact.updatedAt)),
     sortDate: new Date(contact.createdAt || contact.updatedAt).getTime(),
+    contactId: contact.id,
   };
 }
 
@@ -100,10 +103,12 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
       year: "numeric",
     }).format(new Date(createdAt)),
     sortDate: new Date(createdAt).getTime(),
+    contactId: deal.contactId || null,
   };
 }
 
 export default function LeadsPage() {
+  const router = useRouter();
   const { session } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [dashboardSummary, setDashboardSummary] =
@@ -212,6 +217,11 @@ export default function LeadsPage() {
     hasNextPage,
     hasPrevPage,
   } = useFilteredSortedPaginated(leads, searchFn, 10);
+
+  const openLead = (lead: Lead) => {
+    if (!lead.contactId) return;
+    router.push(`/app/crm/contacts/detail?id=${lead.contactId}`);
+  };
 
   return (
     <div className="space-y-6">
@@ -347,8 +357,24 @@ export default function LeadsPage() {
               {!isLoading && paginatedItems.map((lead) => (
                 <tr
                   key={lead.id}
+                  role={lead.contactId ? "button" : undefined}
+                  tabIndex={lead.contactId ? 0 : undefined}
+                  aria-label={
+                    lead.contactId
+                      ? `Open prospect ${lead.name}`
+                      : undefined
+                  }
+                  onClick={() => openLead(lead)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openLead(lead);
+                    }
+                  }}
                   style={{ borderBottom: "1px solid #EDE8E2" }}
-                  className="transition-colors hover:bg-[#F6F3EF]"
+                  className={`transition-colors hover:bg-[#F6F3EF] focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#6E6AE8]/30 ${
+                    lead.contactId ? "cursor-pointer" : ""
+                  }`}
                 >
                   <td className="px-5 py-4">
                     <div

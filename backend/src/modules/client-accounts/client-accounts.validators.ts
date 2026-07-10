@@ -40,7 +40,7 @@ export const createClientAccountValidator = [
 ];
 
 export const createClientAccountFromContactValidator = [
-  body("contactId").isUUID().withMessage("A valid contact ID is required"),
+  body("contactId").isString().trim().notEmpty().isLength({ max: 100 }).withMessage("A valid contact ID is required"),
   body("accountName").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Client account name must be 255 characters or fewer"),
   body("accountManagerId").optional({ nullable: true }).isUUID().withMessage("Account manager ID must be a valid UUID"),
   body("activeServices").optional().isArray().withMessage("Active services must be an array"),

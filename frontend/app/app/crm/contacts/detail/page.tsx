@@ -77,7 +77,8 @@ export default function ContactDetailPage() {
   const [loadError, setLoadError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
-  const [actionName, setActionName] = useState<"contacted" | "pipeline" | "convert" | "delete" | null>(null);
+  const [actionName, setActionName] = useState<"contacted" | "pipeline" | "convert" | "note" | "delete" | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
 
   const loadContact = useCallback(async () => {
     if (!contactId) {
@@ -226,6 +227,40 @@ export default function ContactDetailPage() {
       setActionName(null);
     }
   }, [canWriteClientAccounts, contact, loadContact, router, token]);
+
+  const handleAddNote = useCallback(async () => {
+    if (!token || !contact || !canWriteContacts) return;
+
+    const note = noteDraft.trim();
+    if (!note) {
+      setActionError("Write a note before saving.");
+      return;
+    }
+
+    const timestamp = new Intl.DateTimeFormat("en-GB", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date());
+    const nextNotes = [contact.notes, `[${timestamp}] ${note}`]
+      .filter(Boolean)
+      .join("\n\n");
+
+    setActionName("note");
+    setActionError("");
+    setActionMessage("");
+    try {
+      await api.contacts.update(token, contact.id, { notes: nextNotes });
+      setNoteDraft("");
+      await loadContact();
+      setActionMessage("Note added to this prospect.");
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Could not add this note.",
+      );
+    } finally {
+      setActionName(null);
+    }
+  }, [canWriteContacts, contact, loadContact, noteDraft, token]);
 
   const handleDelete = useCallback(async () => {
     if (!token || !contact || !canDeleteContacts) return;
@@ -570,10 +605,37 @@ export default function ContactDetailPage() {
           </Card>
 
           <Card padding="p-5 sm:p-6">
-            <h2 className="text-base font-semibold text-[#151f21]">Notes</h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-[#151f21]">Notes</h2>
+              <span className="text-xs text-[#6F6A66]">
+                Internal prospect notes
+              </span>
+            </div>
             <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-[#6F6A66]">
               {contact.notes || "No notes recorded."}
             </p>
+            <div className="mt-5 space-y-3">
+              <textarea
+                value={noteDraft}
+                onChange={(event) => setNoteDraft(event.target.value)}
+                disabled={!canWriteContacts || actionName === "note"}
+                rows={4}
+                className="w-full resize-none rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                placeholder="Add a sales follow-up note, context from a call, objection, next step, or handoff detail..."
+              />
+              <button
+                onClick={handleAddNote}
+                disabled={!canWriteContacts || actionName === "note" || !noteDraft.trim()}
+                className="btn-primary text-sm disabled:opacity-60"
+              >
+                {actionName === "note" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <MessageSquare className="h-4 w-4" />
+                )}
+                Add Note
+              </button>
+            </div>
           </Card>
 
           <Card padding="p-5 sm:p-6">
