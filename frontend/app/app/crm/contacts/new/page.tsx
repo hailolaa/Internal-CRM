@@ -13,6 +13,7 @@ type FieldKey =
   | "lastName"
   | "email"
   | "phone"
+  | "roleTitle"
   | "website"
   | "street"
   | "city"
@@ -62,7 +63,7 @@ function validateLeadFields(fields: Record<FieldKey, string>) {
     fields.email.trim() || fields.phone.trim();
 
   if (!hasIdentity) {
-    return "Add a clinic/account name or a contact name.";
+    return "Add an account name or a contact name.";
   }
 
   if (!hasContactMethod) {
@@ -89,6 +90,12 @@ export default function NewContactPage() {
   const { session } = useAuth();
   const [tags, setTags] = useState<string[]>([]);
   const [packageInterests, setPackageInterests] = useState<string[]>([]);
+  const [communicationPermissions, setCommunicationPermissions] = useState({
+    emailPermission: true,
+    phonePermission: true,
+    smsPermission: false,
+    whatsappPermission: false,
+  });
   const [customTag, setCustomTag] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
@@ -101,6 +108,7 @@ export default function NewContactPage() {
     lastName: "",
     email: "",
     phone: "",
+    roleTitle: "",
     website: "",
     street: "",
     city: "",
@@ -151,6 +159,11 @@ export default function NewContactPage() {
         lastName: emptyToNull(fields.lastName),
         email: emptyToNull(fields.email),
         phone: emptyToNull(fields.phone),
+        roleTitle: emptyToNull(fields.roleTitle),
+        emailPermission: communicationPermissions.emailPermission,
+        phonePermission: communicationPermissions.phonePermission,
+        smsPermission: communicationPermissions.smsPermission,
+        whatsappPermission: communicationPermissions.whatsappPermission,
         website: emptyToNull(fields.website),
         address: emptyToNull(fields.street),
         city: emptyToNull(fields.city),
@@ -244,13 +257,25 @@ export default function NewContactPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Clinic / Account Name
+                  Account Name
                 </label>
                 <input
                   type="text"
                   value={fields.clinicName}
                   onChange={handleInputChange("clinicName")}
-                  placeholder="Bright Smile Dental"
+                  placeholder="Growth-focused account"
+                  className={inputBase}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                  Contact Role
+                </label>
+                <input
+                  type="text"
+                  value={fields.roleTitle}
+                  onChange={handleInputChange("roleTitle")}
+                  placeholder="Owner, manager, marketing lead..."
                   className={inputBase}
                 />
               </div>
@@ -314,6 +339,45 @@ export default function NewContactPage() {
                   className={inputBase}
                 />
               </div>
+            </div>
+          </div>
+
+          <div
+            className="rounded-[24px] p-6"
+            style={{
+              backgroundColor: "#FFFCF9",
+              border: "1px solid rgba(0,0,0,0.06)",
+              boxShadow: "0 1px 6px rgba(0,0,0,0.03)",
+            }}
+          >
+            <h2 className="font-semibold text-[#111111] mb-5">
+              Communication Permissions
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                ["emailPermission", "Email allowed"],
+                ["phonePermission", "Phone allowed"],
+                ["smsPermission", "SMS allowed"],
+                ["whatsappPermission", "WhatsApp allowed"],
+              ].map(([key, label]) => (
+                <label
+                  key={key}
+                  className="flex items-center gap-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-medium text-[#151f21]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={communicationPermissions[key as keyof typeof communicationPermissions]}
+                    onChange={(event) =>
+                      setCommunicationPermissions((current) => ({
+                        ...current,
+                        [key]: event.target.checked,
+                      }))
+                    }
+                    className="h-4 w-4 rounded border-[#D8D1C8] text-[#6E6AE8]"
+                  />
+                  {label}
+                </label>
+              ))}
             </div>
           </div>
 

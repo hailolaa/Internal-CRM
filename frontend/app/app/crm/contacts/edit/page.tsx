@@ -21,6 +21,7 @@ type FieldKey =
   | "lastName"
   | "email"
   | "phone"
+  | "roleTitle"
   | "website"
   | "street"
   | "city"
@@ -63,6 +64,7 @@ function toFields(contact: ContactRecord): Record<FieldKey, string> {
     lastName: contact.lastName || "",
     email: contact.email || "",
     phone: contact.phone || "",
+    roleTitle: contact.roleTitle || "",
     website: contact.website || "",
     street: contact.address || "",
     city: contact.city || "",
@@ -94,7 +96,7 @@ function validateFields(fields: Record<FieldKey, string>) {
     fields.email.trim() || fields.phone.trim();
 
   if (!hasIdentity) {
-    return "Add a clinic/account name or a contact name.";
+    return "Add an account name or a contact name.";
   }
 
   if (!hasContactMethod) {
@@ -133,6 +135,7 @@ export default function EditContactPage() {
     lastName: "",
     email: "",
     phone: "",
+    roleTitle: "",
     website: "",
     street: "",
     city: "",
@@ -146,6 +149,12 @@ export default function EditContactPage() {
   });
   const [tags, setTags] = useState<string[]>([]);
   const [treatmentInterests, setTreatmentInterests] = useState<string[]>([]);
+  const [communicationPermissions, setCommunicationPermissions] = useState({
+    emailPermission: true,
+    phonePermission: true,
+    smsPermission: false,
+    whatsappPermission: false,
+  });
   const [customTag, setCustomTag] = useState("");
   const [loadError, setLoadError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
@@ -166,6 +175,12 @@ export default function EditContactPage() {
         setFields(toFields(record));
         setTags(record.tags || []);
         setTreatmentInterests(record.treatmentInterests || []);
+        setCommunicationPermissions({
+          emailPermission: record.emailPermission ?? true,
+          phonePermission: record.phonePermission ?? true,
+          smsPermission: record.smsPermission ?? false,
+          whatsappPermission: record.whatsappPermission ?? false,
+        });
         setLoadError("");
       })
       .catch((error) => {
@@ -247,6 +262,11 @@ export default function EditContactPage() {
       lastName: emptyToNull(fields.lastName),
       email: emptyToNull(fields.email),
       phone: emptyToNull(fields.phone),
+      roleTitle: emptyToNull(fields.roleTitle),
+      emailPermission: communicationPermissions.emailPermission,
+      phonePermission: communicationPermissions.phonePermission,
+      smsPermission: communicationPermissions.smsPermission,
+      whatsappPermission: communicationPermissions.whatsappPermission,
       website: emptyToNull(fields.website),
       address: emptyToNull(fields.street),
       city: emptyToNull(fields.city),
@@ -396,12 +416,23 @@ export default function EditContactPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Clinic / Account Name
+                  Account Name
                 </label>
                 <input
                   value={fields.clinicName}
                   onChange={handleInputChange("clinicName")}
-                  placeholder="Bright Smile Dental"
+                  placeholder="Growth-focused account"
+                  className={inputBase}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                  Contact Role
+                </label>
+                <input
+                  value={fields.roleTitle}
+                  onChange={handleInputChange("roleTitle")}
+                  placeholder="Owner, manager, marketing lead..."
                   className={inputBase}
                 />
               </div>
@@ -458,6 +489,38 @@ export default function EditContactPage() {
                   className={inputBase}
                 />
               </div>
+            </div>
+          </Card>
+
+          <Card padding="p-6">
+            <h2 className="font-semibold text-[#111111] mb-5">
+              Communication Permissions
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                ["emailPermission", "Email allowed"],
+                ["phonePermission", "Phone allowed"],
+                ["smsPermission", "SMS allowed"],
+                ["whatsappPermission", "WhatsApp allowed"],
+              ].map(([key, label]) => (
+                <label
+                  key={key}
+                  className="flex items-center gap-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-medium text-[#151f21]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={communicationPermissions[key as keyof typeof communicationPermissions]}
+                    onChange={(event) =>
+                      setCommunicationPermissions((current) => ({
+                        ...current,
+                        [key]: event.target.checked,
+                      }))
+                    }
+                    className="h-4 w-4 rounded border-[#D8D1C8] text-[#6E6AE8]"
+                  />
+                  {label}
+                </label>
+              ))}
             </div>
           </Card>
 

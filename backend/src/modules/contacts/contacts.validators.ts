@@ -17,6 +17,11 @@ const contactMutationValidator = [
   body("lastName").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
   body("email").optional({ nullable: true, checkFalsy: true }).isEmail().normalizeEmail(),
   body("phone").optional({ nullable: true }).isString().trim().isLength({ max: 30 }),
+  body("roleTitle").optional({ nullable: true }).isString().trim().isLength({ max: 120 }),
+  body("emailPermission").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("phonePermission").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("smsPermission").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("whatsappPermission").optional({ nullable: true }).isBoolean().toBoolean(),
   body("website")
     .optional({ nullable: true, checkFalsy: true })
     .isURL({ protocols: ["http", "https"], require_protocol: false })
@@ -67,7 +72,7 @@ export const createContactValidator = [
   ...contactMutationValidator,
   body().custom((value) => {
     if (hasUsableLeadIdentity(value)) return true;
-    throw new Error("Lead must include a clinic/account or contact name and an email or phone number");
+    throw new Error("Lead must include an account or contact name and an email or phone number");
   }),
 ];
 
@@ -171,6 +176,11 @@ export const importContactsValidator = [
   body("rows.*.lastName").optional().isString().trim().isLength({ max: 100 }),
   body("rows.*.email").optional({ nullable: true, checkFalsy: true }).isEmail().normalizeEmail(),
   body("rows.*.phone").optional().isString().trim().isLength({ max: 30 }),
+  body("rows.*.roleTitle").optional().isString().trim().isLength({ max: 120 }),
+  body("rows.*.emailPermission").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("rows.*.phonePermission").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("rows.*.smsPermission").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("rows.*.whatsappPermission").optional({ nullable: true }).isBoolean().toBoolean(),
   body("rows.*.website")
     .optional({ nullable: true, checkFalsy: true })
     .isURL({ protocols: ["http", "https"], require_protocol: false })

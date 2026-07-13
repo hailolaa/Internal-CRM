@@ -83,6 +83,18 @@ const importHeaderAliases: Record<string, keyof ContactImportRow | "tags"> = {
   clinicname: "accountName",
   company: "accountName",
   companyname: "accountName",
+  role: "roleTitle",
+  title: "roleTitle",
+  jobtitle: "roleTitle",
+  contactrole: "roleTitle",
+  emailpermission: "emailPermission",
+  emailoptin: "emailPermission",
+  phonepermission: "phonePermission",
+  phoneoptin: "phonePermission",
+  smspermission: "smsPermission",
+  smsoptin: "smsPermission",
+  whatsapppermission: "whatsappPermission",
+  whatsappoptin: "whatsappPermission",
   email: "email",
   emailaddress: "email",
   phone: "phone",
@@ -124,6 +136,11 @@ function toContactsCsv(contacts: ContactResponse[]) {
     "lastName",
     "email",
     "phone",
+    "roleTitle",
+    "emailPermission",
+    "phonePermission",
+    "smsPermission",
+    "whatsappPermission",
     "website",
     "status",
     "leadStatus",
@@ -144,6 +161,11 @@ function toContactsCsv(contacts: ContactResponse[]) {
     contact.lastName,
     contact.email,
     contact.phone,
+    contact.roleTitle,
+    contact.emailPermission,
+    contact.phonePermission,
+    contact.smsPermission,
+    contact.whatsappPermission,
     contact.website,
     contact.status,
     contact.leadStatus,
@@ -203,6 +225,14 @@ function splitListCell(value: string | undefined) {
     .filter(Boolean);
 }
 
+function parseImportBoolean(value: string | undefined) {
+  const cleaned = value?.trim().toLowerCase();
+  if (!cleaned) return undefined;
+  if (["true", "1", "yes", "y", "on", "allowed"].includes(cleaned)) return true;
+  if (["false", "0", "no", "n", "off", "blocked"].includes(cleaned)) return false;
+  return undefined;
+}
+
 function parseImportText(text: string): ContactImportRow[] {
   const delimiter = detectImportDelimiter(text);
   const lines = text
@@ -232,6 +262,7 @@ function parseImportText(text: string): ContactImportRow[] {
       lastName: raw.lastName || raw.lastname || raw.last || "",
       email: raw.email || "",
       phone: raw.phone || raw.mobile || "",
+      roleTitle: raw.roleTitle || raw.role || raw.title || raw.jobtitle || "",
       website: raw.website || raw.url || raw.domain || "",
       tags: splitListCell(raw.tags),
       source: raw.source || "Google Sheets",
@@ -241,6 +272,14 @@ function parseImportText(text: string): ContactImportRow[] {
       packageInterest: raw.packageInterest || raw.package || "",
       recommendedPackage: raw.recommendedPackage || raw.recommendedservice || "",
     };
+    const emailPermission = parseImportBoolean(raw.emailPermission);
+    const phonePermission = parseImportBoolean(raw.phonePermission);
+    const smsPermission = parseImportBoolean(raw.smsPermission);
+    const whatsappPermission = parseImportBoolean(raw.whatsappPermission);
+    if (emailPermission !== undefined) row.emailPermission = emailPermission;
+    if (phonePermission !== undefined) row.phonePermission = phonePermission;
+    if (smsPermission !== undefined) row.smsPermission = smsPermission;
+    if (whatsappPermission !== undefined) row.whatsappPermission = whatsappPermission;
     if (raw.notes) row.notes = raw.notes;
     return row;
   });
@@ -485,7 +524,7 @@ export class ContactsService {
   ): Promise<ContactMutationResponse> {
     const normalized = normalizeContactData(data);
     if (!hasUsableLeadIdentity(normalized)) {
-      throw ApiError.badRequest("Lead must include a clinic/account or contact name and an email or phone number");
+      throw ApiError.badRequest("Lead must include an account or contact name and an email or phone number");
     }
 
     const duplicateMatches = await findDuplicateContacts(clinicId, normalized);
@@ -607,6 +646,11 @@ export class ContactsService {
     addField("lastName", "last_name", normalized.lastName);
     addField("email", "email", normalized.email);
     addField("phone", "phone", normalized.phone);
+    addField("roleTitle", "role_title", normalized.roleTitle);
+    addField("emailPermission", "email_permission", normalized.emailPermission);
+    addField("phonePermission", "phone_permission", normalized.phonePermission);
+    addField("smsPermission", "sms_permission", normalized.smsPermission);
+    addField("whatsappPermission", "whatsapp_permission", normalized.whatsappPermission);
     addField("website", "website", normalized.website);
     addField("dateOfBirth", "date_of_birth", normalized.dateOfBirth);
     addField("gender", "gender", normalized.gender);

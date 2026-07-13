@@ -7,6 +7,11 @@ export const contactSelectFields = `c.id,
               c.last_name as lastName,
               c.email,
               c.phone,
+              c.role_title as roleTitle,
+              c.email_permission as emailPermission,
+              c.phone_permission as phonePermission,
+              c.sms_permission as smsPermission,
+              c.whatsapp_permission as whatsappPermission,
               c.website,
               c.date_of_birth as dateOfBirth,
               c.gender,
@@ -120,6 +125,7 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
     clauses.push(
       `(LOWER(CONCAT_WS(' ', c.first_name, c.last_name)) LIKE ?
         OR LOWER(COALESCE(c.account_name, '')) LIKE ?
+        OR LOWER(COALESCE(c.role_title, '')) LIKE ?
         OR LOWER(COALESCE(c.email, '')) LIKE ?
         OR LOWER(COALESCE(c.website, '')) LIKE ?
         OR ${phoneSqlExpression("c.phone")} LIKE ?
@@ -132,7 +138,7 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
         OR CAST(COALESCE(c.tags, JSON_ARRAY()) AS CHAR) LIKE ?
         OR CAST(COALESCE(c.treatment_interests, JSON_ARRAY()) AS CHAR) LIKE ?)`,
     );
-    values.push(like, like, like, like, `%${phoneSearch}%`, like, like, like, like, like, like, like, like);
+    values.push(like, like, like, like, like, `%${phoneSearch}%`, like, like, like, like, like, like, like, like);
   }
 
   return {

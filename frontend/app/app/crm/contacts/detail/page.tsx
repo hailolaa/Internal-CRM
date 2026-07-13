@@ -9,6 +9,7 @@ import {
   Clock,
   Edit3,
   ExternalLink,
+  Globe,
   Loader2,
   Mail,
   MessageSquare,
@@ -135,8 +136,19 @@ export default function ContactDetailPage() {
 
   const contactMethods = useMemo(
     () => [
+      {
+        icon: BriefcaseBusiness,
+        label: "Account",
+        value: contact?.accountName || "Not linked",
+      },
+      {
+        icon: UserRound,
+        label: "Role",
+        value: contact?.roleTitle || "Not recorded",
+      },
       { icon: Mail, label: "Email", value: contact?.email || "Not provided" },
       { icon: Phone, label: "Phone", value: contact?.phone || "Not provided" },
+      { icon: Globe, label: "Website", value: contact?.website || "Not provided" },
       { icon: UserRound, label: "Source", value: contact?.source || "Unknown" },
       {
         icon: Clock,
@@ -145,6 +157,28 @@ export default function ContactDetailPage() {
       },
     ],
     [contact],
+  );
+
+  const communicationPermissions = useMemo(
+    () => [
+      ["Email", contact?.emailPermission],
+      ["Phone", contact?.phonePermission],
+      ["SMS", contact?.smsPermission],
+      ["WhatsApp", contact?.whatsappPermission],
+    ],
+    [contact],
+  );
+
+  const relatedRecordLinks = useMemo(
+    () => [
+      { label: "Lead list", href: "/app/leads" },
+      { label: "Pipeline", href: "/app/crm/pipeline" },
+      { label: "Tasks", href: `/app/crm/tasks?contactId=${encodeURIComponent(contact?.id || "")}` },
+      { label: "Audits", href: "/app/ops/growth-scores" },
+      { label: "Proposals", href: "/app/proposals" },
+      { label: "Notes", href: `/app/crm/contacts/detail?id=${encodeURIComponent(contact?.id || "")}#notes` },
+    ],
+    [contact?.id],
   );
 
   const handleMarkContacted = useCallback(async () => {
@@ -447,6 +481,24 @@ export default function ContactDetailPage() {
           </Card>
 
           <Card padding="p-5 sm:p-6">
+            <h2 className="text-base font-semibold text-[#151f21]">
+              Related records
+            </h2>
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+              {relatedRecordLinks.map((item) => (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  className="flex items-center justify-between rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-medium text-[#151f21] transition hover:border-[#6E6AE8]/30 hover:text-[#6E6AE8]"
+                >
+                  {item.label}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
+              ))}
+            </div>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-base font-semibold text-[#151f21]">
                 Related activity
@@ -604,37 +656,58 @@ export default function ContactDetailPage() {
             </p>
           </Card>
 
+          <div id="notes">
+            <Card padding="p-5 sm:p-6">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-[#151f21]">Notes</h2>
+                <span className="text-xs text-[#6F6A66]">
+                  Internal prospect notes
+                </span>
+              </div>
+              <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-[#6F6A66]">
+                {contact.notes || "No notes recorded."}
+              </p>
+              <div className="mt-5 space-y-3">
+                <textarea
+                  value={noteDraft}
+                  onChange={(event) => setNoteDraft(event.target.value)}
+                  disabled={!canWriteContacts || actionName === "note"}
+                  rows={4}
+                  className="w-full resize-none rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                  placeholder="Add a sales follow-up note, context from a call, objection, next step, or handoff detail..."
+                />
+                <button
+                  onClick={handleAddNote}
+                  disabled={!canWriteContacts || actionName === "note" || !noteDraft.trim()}
+                  className="btn-primary text-sm disabled:opacity-60"
+                >
+                  {actionName === "note" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <MessageSquare className="h-4 w-4" />
+                  )}
+                  Add Note
+                </button>
+              </div>
+            </Card>
+          </div>
+
           <Card padding="p-5 sm:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-[#151f21]">Notes</h2>
-              <span className="text-xs text-[#6F6A66]">
-                Internal prospect notes
-              </span>
-            </div>
-            <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-[#6F6A66]">
-              {contact.notes || "No notes recorded."}
-            </p>
-            <div className="mt-5 space-y-3">
-              <textarea
-                value={noteDraft}
-                onChange={(event) => setNoteDraft(event.target.value)}
-                disabled={!canWriteContacts || actionName === "note"}
-                rows={4}
-                className="w-full resize-none rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
-                placeholder="Add a sales follow-up note, context from a call, objection, next step, or handoff detail..."
-              />
-              <button
-                onClick={handleAddNote}
-                disabled={!canWriteContacts || actionName === "note" || !noteDraft.trim()}
-                className="btn-primary text-sm disabled:opacity-60"
-              >
-                {actionName === "note" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <MessageSquare className="h-4 w-4" />
-                )}
-                Add Note
-              </button>
+            <h2 className="text-base font-semibold text-[#151f21]">
+              Communication permissions
+            </h2>
+            <div className="mt-4 space-y-3">
+              {communicationPermissions.map(([label, value]) => (
+                <div
+                  key={String(label)}
+                  className="flex items-center justify-between rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm"
+                >
+                  <span className="font-medium text-[#151f21]">{label}</span>
+                  <span className={value ? "text-[#16794c]" : "text-[#8A5A44]"}>
+                    {value ? "Allowed" : "Not allowed"}
+                  </span>
+                </div>
+              ))}
             </div>
           </Card>
 

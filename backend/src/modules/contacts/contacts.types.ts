@@ -30,6 +30,11 @@ export interface ContactMutationDTO {
   lastName?: string | null;
   email?: string | null;
   phone?: string | null;
+  roleTitle?: string | null;
+  emailPermission?: boolean | null;
+  phonePermission?: boolean | null;
+  smsPermission?: boolean | null;
+  whatsappPermission?: boolean | null;
   website?: string | null;
   dateOfBirth?: string | null;
   gender?: string | null;
@@ -60,6 +65,11 @@ export interface NormalizedContactData {
   lastName: string | null;
   email: string | null;
   phone: string | null;
+  roleTitle: string | null;
+  emailPermission: boolean | null;
+  phonePermission: boolean | null;
+  smsPermission: boolean | null;
+  whatsappPermission: boolean | null;
   website: string | null;
   dateOfBirth: string | null;
   gender: string | null;
@@ -99,6 +109,11 @@ export interface ContactResponse {
   name: string;
   email: string | null;
   phone: string | null;
+  roleTitle: string | null;
+  emailPermission: boolean | null;
+  phonePermission: boolean | null;
+  smsPermission: boolean | null;
+  whatsappPermission: boolean | null;
   website: string | null;
   dateOfBirth: string | null;
   gender: string | null;
@@ -289,6 +304,11 @@ export interface ContactImportRow {
   lastName?: string;
   email?: string;
   phone?: string;
+  roleTitle?: string;
+  emailPermission?: boolean;
+  phonePermission?: boolean;
+  smsPermission?: boolean;
+  whatsappPermission?: boolean;
   website?: string;
   dateOfBirth?: string;
   gender?: string;

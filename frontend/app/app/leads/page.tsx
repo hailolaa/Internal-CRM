@@ -411,7 +411,7 @@ export default function LeadsPage() {
       <SearchInput
         value={searchQuery}
         onChange={setSearchQuery}
-        placeholder="Search clinic/account, contact, source, package, owner, stage, status..."
+        placeholder="Search account, contact, source, package, owner, stage, status..."
         className="max-w-lg"
       />
 
@@ -508,7 +508,7 @@ export default function LeadsPage() {
                 }}
               >
                 <SortableHeader
-                  label="Clinic / Account"
+                  label="Account"
                   sortKey="clinic"
                   direction={getSortDirection("clinic")}
                   onSort={toggleSort}

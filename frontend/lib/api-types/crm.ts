@@ -154,6 +154,11 @@ export interface ContactRecord {
   name: string;
   email: string | null;
   phone: string | null;
+  roleTitle: string | null;
+  emailPermission: boolean | null;
+  phonePermission: boolean | null;
+  smsPermission: boolean | null;
+  whatsappPermission: boolean | null;
   website: string | null;
   dateOfBirth: string | null;
   gender: string | null;
@@ -206,6 +211,11 @@ export interface ContactCreatePayload {
   lastName?: string | null;
   email?: string | null;
   phone?: string | null;
+  roleTitle?: string | null;
+  emailPermission?: boolean | null;
+  phonePermission?: boolean | null;
+  smsPermission?: boolean | null;
+  whatsappPermission?: boolean | null;
   website?: string | null;
   address?: string | null;
   city?: string | null;

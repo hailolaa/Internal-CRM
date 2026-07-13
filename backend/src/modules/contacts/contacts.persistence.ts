@@ -17,10 +17,11 @@ export async function insertContact(
 ) {
   await pool.execute(
     `INSERT INTO contact
-      (id, clinic_id, account_name, first_name, last_name, email, phone, website, date_of_birth, gender,
+      (id, clinic_id, account_name, first_name, last_name, email, phone, role_title,
+       email_permission, phone_permission, sms_permission, whatsapp_permission, website, date_of_birth, gender,
        address, city, state, postal_code, country, tags, status, lead_status, source, value,
        treatment_interests, package_interest, recommended_package, notes, last_contact_at, external_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       contactId,
       clinicId,
@@ -29,6 +30,11 @@ export async function insertContact(
       contact.lastName,
       contact.email,
       contact.phone,
+      contact.roleTitle,
+      contact.emailPermission,
+      contact.phonePermission,
+      contact.smsPermission,
+      contact.whatsappPermission,
       contact.website,
       contact.dateOfBirth,
       contact.gender,
@@ -156,10 +162,11 @@ export async function insertImportedContact(
 
   await pool.execute(
     `INSERT INTO contact
-      (id, clinic_id, account_name, first_name, last_name, email, phone, website, date_of_birth, gender,
+      (id, clinic_id, account_name, first_name, last_name, email, phone, role_title,
+       email_permission, phone_permission, sms_permission, whatsapp_permission, website, date_of_birth, gender,
        address, city, state, postal_code, country, tags, status, lead_status, source, value,
        treatment_interests, package_interest, recommended_package, notes, last_contact_at, import_batch_id, external_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       contactId,
       clinicId,
@@ -168,6 +175,11 @@ export async function insertImportedContact(
       row.lastName,
       row.email,
       row.phone,
+      row.roleTitle,
+      row.emailPermission,
+      row.phonePermission,
+      row.smsPermission,
+      row.whatsappPermission,
       row.website,
       row.dateOfBirth,
       row.gender,
@@ -208,6 +220,11 @@ export async function updateImportedContact(
          last_name = COALESCE(?, last_name),
          email = COALESCE(?, email),
          phone = COALESCE(?, phone),
+         role_title = COALESCE(?, role_title),
+         email_permission = COALESCE(?, email_permission),
+         phone_permission = COALESCE(?, phone_permission),
+         sms_permission = COALESCE(?, sms_permission),
+         whatsapp_permission = COALESCE(?, whatsapp_permission),
          website = COALESCE(?, website),
          date_of_birth = COALESCE(?, date_of_birth),
          gender = COALESCE(?, gender),
@@ -236,6 +253,11 @@ export async function updateImportedContact(
       row.lastName,
       row.email,
       row.phone,
+      row.roleTitle,
+      row.emailPermission,
+      row.phonePermission,
+      row.smsPermission,
+      row.whatsappPermission,
       row.website,
       row.dateOfBirth,
       row.gender,

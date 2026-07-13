@@ -62,6 +62,18 @@ function normalizeMoney(value: unknown) {
   return Number.isFinite(numericValue) ? numericValue : null;
 }
 
+function normalizeBoolean(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+
+  const cleaned = cleanString(value)?.toLowerCase();
+  if (!cleaned) return null;
+  if (["true", "1", "yes", "y", "on", "allowed"].includes(cleaned)) return true;
+  if (["false", "0", "no", "n", "off", "blocked"].includes(cleaned)) return false;
+  return null;
+}
+
 function normalizeStringList(values: unknown): string[] {
   return Array.isArray(values)
     ? values.map((value) => cleanString(value)).filter(Boolean) as string[]
@@ -77,6 +89,11 @@ export function normalizeContactData(data: Partial<ContactMutationDTO>): Normali
     lastName: cleanString(data.lastName),
     email: normalizeEmail(data.email),
     phone: normalizePhone(data.phone),
+    roleTitle: cleanString(data.roleTitle),
+    emailPermission: normalizeBoolean(data.emailPermission),
+    phonePermission: normalizeBoolean(data.phonePermission),
+    smsPermission: normalizeBoolean(data.smsPermission),
+    whatsappPermission: normalizeBoolean(data.whatsappPermission),
     website: cleanString(data.website),
     dateOfBirth: normalizeDate(data.dateOfBirth),
     gender: cleanString(data.gender),

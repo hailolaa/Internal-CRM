@@ -35,6 +35,11 @@ function formatDate(value: unknown) {
   return value ? new Date(value as string).toISOString().slice(0, 10) : null;
 }
 
+function booleanOrNull(value: unknown) {
+  if (value === null || value === undefined) return null;
+  return Boolean(value);
+}
+
 // Map contact rows into frontend-friendly camelCase response fields
 export function mapContact(row: any): ContactResponse {
   const accountName = row.accountName || null;
@@ -50,6 +55,11 @@ export function mapContact(row: any): ContactResponse {
     name,
     email: row.email || null,
     phone: row.phone || null,
+    roleTitle: row.roleTitle || null,
+    emailPermission: booleanOrNull(row.emailPermission),
+    phonePermission: booleanOrNull(row.phonePermission),
+    smsPermission: booleanOrNull(row.smsPermission),
+    whatsappPermission: booleanOrNull(row.whatsappPermission),
     website: row.website || null,
     dateOfBirth: formatDate(row.dateOfBirth),
     gender: row.gender || null,
