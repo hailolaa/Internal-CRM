@@ -91,11 +91,13 @@ export class PipelineService {
 
     for (const stage of defaultPipelineStages) {
       const legacyNames = legacyPipelineStageAliases[stage.name] || [];
-      const existingStage = existingStages.find((row) =>
-        getStageKey(row.name) === getStageKey(stage.name),
-      ) || existingStages.find((row) =>
-        legacyNames.some((name) => getStageKey(name) === getStageKey(row.name)),
+      const matchingStages = existingStages.filter((row) =>
+        getStageKey(row.name) === getStageKey(stage.name)
+        || legacyNames.some((name) => getStageKey(name) === getStageKey(row.name)),
       );
+      const existingStage = matchingStages.find((row) =>
+        getStageKey(row.name) === getStageKey(stage.name),
+      ) || matchingStages[0];
 
       if (existingStage) {
         const previousName = existingStage.name;
@@ -133,6 +135,37 @@ export class PipelineService {
                AND deleted_at IS NULL
                AND (pipeline_stage_id = ? OR (pipeline_stage_id IS NULL AND stage = ?))`,
             [stage.name, clinicId, pipelineId, existingStage.id, previousName],
+          );
+        }
+
+        for (const duplicateStage of matchingStages.filter((row) => row.id !== existingStage.id)) {
+          await pool.execute(
+            `UPDATE deal
+             SET pipeline_stage_id = ?,
+                 stage = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE clinic_id = ?
+               AND pipeline_id = ?
+               AND deleted_at IS NULL
+               AND (pipeline_stage_id = ? OR (pipeline_stage_id IS NULL AND stage = ?))`,
+            [
+              existingStage.id,
+              stage.name,
+              clinicId,
+              pipelineId,
+              duplicateStage.id,
+              duplicateStage.name,
+            ],
+          );
+          await pool.execute(
+            `UPDATE pipeline_stage
+             SET deleted_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+               AND clinic_id = ?
+               AND pipeline_id = ?
+               AND deleted_at IS NULL`,
+            [duplicateStage.id, clinicId, pipelineId],
           );
         }
       } else {
