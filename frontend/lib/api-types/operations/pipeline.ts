@@ -32,6 +32,8 @@ export interface PipelineDealRecord {
   expectedCloseDate: string | null;
   ownerId: string | null;
   ownerName: string | null;
+  nextFollowUpDate: string | null;
+  priority: "low" | "medium" | "high" | null;
   contactId: string;
   contactName: string;
   contactEmail: string | null;

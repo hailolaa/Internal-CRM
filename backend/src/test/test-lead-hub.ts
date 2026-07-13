@@ -351,20 +351,29 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
     assert.equal(stagesResponse.response.status, 200);
     const stageNames = stagesResponse.body.data.map((stage: any) => stage.name);
     assert.deepEqual(stageNames, [
-      "New",
-      "Contacted",
-      "Qualified",
-      "Consult Booked",
-      "Consult Attended",
-      "Sold",
+      "New Lead",
+      "Contact Needed",
+      "Contact Attempted",
+      "Spoken To",
+      "Free Audit Needed",
+      "Free Audit In Progress",
+      "Audit Complete",
+      "Dashboard Access Given",
+      "Proposal Needed",
+      "Proposal Sent",
+      "Follow-up Needed",
+      "Negotiation",
+      "Won",
       "Lost",
+      "Nurture",
+      "Future Opportunity",
     ]);
     console.log("[lead-hub] required pipeline stages passed");
 
-    const newStage = stagesResponse.body.data.find((stage: any) => stage.name === "New");
-    const bookedStage = stagesResponse.body.data.find((stage: any) => stage.name === "Consult Booked");
+    const newStage = stagesResponse.body.data.find((stage: any) => stage.name === "New Lead");
+    const auditStage = stagesResponse.body.data.find((stage: any) => stage.name === "Free Audit In Progress");
     const lostStage = stagesResponse.body.data.find((stage: any) => stage.name === "Lost");
-    assert.ok(newStage && bookedStage && lostStage);
+    assert.ok(newStage && auditStage && lostStage);
 
     const createDeal = await fetchJson(baseUrl, "/api/pipeline/deals", primary.token, {
       method: "POST",
@@ -380,17 +389,24 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
     assert.equal(createDeal.response.status, 201);
     dealId = createDeal.body.data.id;
     assert.equal(createDeal.body.data.contactId, contactId);
+    assert.equal(createDeal.body.data.priority, "high");
+    assert.ok(createDeal.body.data.nextFollowUpDate);
 
-    const bookedMove = await fetchJson(baseUrl, `/api/pipeline/deals/${dealId}/move`, primary.token, {
+    const auditMove = await fetchJson(baseUrl, `/api/pipeline/deals/${dealId}/move`, primary.token, {
       method: "PATCH",
       body: JSON.stringify({
-        stageId: bookedStage.id,
-        bookedAt: new Date().toISOString(),
-        notes: "Booked from lead hub",
+        stageId: auditStage.id,
+        notes: "Audit started from lead hub",
       }),
     });
-    assert.equal(bookedMove.response.status, 200);
-    assert.equal(bookedMove.body.data.stageName, "Consult Booked");
+    assert.equal(auditMove.response.status, 200);
+    assert.equal(auditMove.body.data.stageName, "Free Audit In Progress");
+
+    const invalidLostMove = await fetchJson(baseUrl, `/api/pipeline/deals/${dealId}/move`, primary.token, {
+      method: "PATCH",
+      body: JSON.stringify({ stageId: lostStage.id }),
+    });
+    assert.equal(invalidLostMove.response.status, 400);
 
     const lostMove = await fetchJson(baseUrl, `/api/pipeline/deals/${dealId}/move`, primary.token, {
       method: "PATCH",

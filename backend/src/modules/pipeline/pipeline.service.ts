@@ -2,7 +2,11 @@ import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
-import { defaultPipelineName, defaultPipelineStages } from "./pipeline.constants.js";
+import {
+  defaultPipelineName,
+  defaultPipelineStages,
+  legacyPipelineStageAliases,
+} from "./pipeline.constants.js";
 import { mapPipelineStage } from "./pipeline.mappers.js";
 import type {
   CreatePipelineStageDTO,
@@ -23,6 +27,11 @@ function dedupeStageRows(rows: any[]) {
   }
 
   return Array.from(stages.values());
+}
+
+interface ExistingPipelineStageRow {
+  id: string;
+  name: string;
 }
 
 export class PipelineService {
@@ -54,17 +63,112 @@ export class PipelineService {
       );
     }
 
+    await pool.execute(
+      `UPDATE pipeline
+       SET description = ?,
+           stages = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL`,
+      [
+        "Default internal sales pipeline from new lead through won, lost or nurture",
+        JSON.stringify(defaultPipelineStages.map((stage) => stage.name)),
+        pipelineId,
+        clinicId,
+      ],
+    );
+
     const [stageRows]: any = await pool.execute(
-      `SELECT COUNT(*) as total
+      `SELECT id, name
        FROM pipeline_stage
        WHERE clinic_id = ?
          AND pipeline_id = ?
          AND deleted_at IS NULL`,
       [clinicId, pipelineId],
     );
+    const existingStages = stageRows as ExistingPipelineStageRow[];
 
-    if (Number(stageRows[0]?.total || 0) === 0) {
-      for (const stage of defaultPipelineStages) {
+    for (const stage of defaultPipelineStages) {
+      const legacyNames = legacyPipelineStageAliases[stage.name] || [];
+      const matchingStages = existingStages.filter((row) =>
+        getStageKey(row.name) === getStageKey(stage.name)
+        || legacyNames.some((name) => getStageKey(name) === getStageKey(row.name)),
+      );
+      const existingStage = matchingStages.find((row) =>
+        getStageKey(row.name) === getStageKey(stage.name),
+      ) || matchingStages[0];
+
+      if (existingStage) {
+        const previousName = existingStage.name;
+        await pool.execute(
+          `UPDATE pipeline_stage
+           SET name = ?,
+               color = ?,
+               position = ?,
+               kind = ?,
+               is_locked = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?
+             AND clinic_id = ?
+             AND pipeline_id = ?
+             AND deleted_at IS NULL`,
+          [
+            stage.name,
+            stage.color,
+            stage.position,
+            stage.kind,
+            stage.kind === "won" || stage.kind === "lost" ? 1 : 0,
+            existingStage.id,
+            clinicId,
+            pipelineId,
+          ],
+        );
+
+        if (getStageKey(previousName) !== getStageKey(stage.name)) {
+          await pool.execute(
+            `UPDATE deal
+             SET stage = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE clinic_id = ?
+               AND pipeline_id = ?
+               AND deleted_at IS NULL
+               AND (pipeline_stage_id = ? OR (pipeline_stage_id IS NULL AND stage = ?))`,
+            [stage.name, clinicId, pipelineId, existingStage.id, previousName],
+          );
+        }
+
+        for (const duplicateStage of matchingStages.filter((row) => row.id !== existingStage.id)) {
+          await pool.execute(
+            `UPDATE deal
+             SET pipeline_stage_id = ?,
+                 stage = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE clinic_id = ?
+               AND pipeline_id = ?
+               AND deleted_at IS NULL
+               AND (pipeline_stage_id = ? OR (pipeline_stage_id IS NULL AND stage = ?))`,
+            [
+              existingStage.id,
+              stage.name,
+              clinicId,
+              pipelineId,
+              duplicateStage.id,
+              duplicateStage.name,
+            ],
+          );
+          await pool.execute(
+            `UPDATE pipeline_stage
+             SET deleted_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+               AND clinic_id = ?
+               AND pipeline_id = ?
+               AND deleted_at IS NULL`,
+            [duplicateStage.id, clinicId, pipelineId],
+          );
+        }
+      } else {
         await pool.execute(
           `INSERT INTO pipeline_stage
             (id, clinic_id, pipeline_id, name, color, position, kind, is_locked, created_by)
@@ -79,36 +183,6 @@ export class PipelineService {
             stage.kind,
             stage.kind === "won" || stage.kind === "lost" ? 1 : 0,
             userId || null,
-          ],
-        );
-      }
-    } else {
-      for (const stage of defaultPipelineStages) {
-        await pool.execute(
-          `INSERT INTO pipeline_stage
-            (id, clinic_id, pipeline_id, name, color, position, kind, is_locked, created_by)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
-           WHERE NOT EXISTS (
-             SELECT 1
-             FROM pipeline_stage
-             WHERE clinic_id = ?
-               AND pipeline_id = ?
-               AND name = ?
-               AND deleted_at IS NULL
-           )`,
-          [
-            uuidv4(),
-            clinicId,
-            pipelineId,
-            stage.name,
-            stage.color,
-            stage.position,
-            stage.kind,
-            stage.kind === "won" || stage.kind === "lost" ? 1 : 0,
-            userId || null,
-            clinicId,
-            pipelineId,
-            stage.name,
           ],
         );
       }

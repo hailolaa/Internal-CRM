@@ -83,6 +83,26 @@ const dealSelect = `
          d.expected_close_date as expectedCloseDate,
          d.owner_id as ownerId,
          NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), '') as ownerName,
+         (SELECT DATE_FORMAT(t.due_date, '%Y-%m-%d')
+          FROM task t
+          WHERE t.clinic_id = d.clinic_id
+            AND t.contact_id = d.contact_id
+            AND t.is_internal = 0
+            AND t.status = 'pending'
+            AND t.archived_at IS NULL
+            AND t.deleted_at IS NULL
+          ORDER BY t.due_date IS NULL ASC, t.due_date ASC, t.priority DESC, t.created_at ASC
+          LIMIT 1) as nextFollowUpDate,
+         (SELECT t.priority
+          FROM task t
+          WHERE t.clinic_id = d.clinic_id
+            AND t.contact_id = d.contact_id
+            AND t.is_internal = 0
+            AND t.status = 'pending'
+            AND t.archived_at IS NULL
+            AND t.deleted_at IS NULL
+          ORDER BY t.due_date IS NULL ASC, t.due_date ASC, t.priority DESC, t.created_at ASC
+          LIMIT 1) as priority,
          d.contact_id as contactId,
          c.first_name as contactFirstName,
          c.last_name as contactLastName,
