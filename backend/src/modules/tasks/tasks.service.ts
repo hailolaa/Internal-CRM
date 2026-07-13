@@ -285,7 +285,7 @@ export class TasksService {
   }
 
   async createInternalTask(clinicId: string, userId: string, data: CreateInternalTaskDTO): Promise<string> {
-    const links = await this.resolveInternalTaskLinks(clinicId, data.clientAccountProfileId, data.clientAccountServiceId);
+    const links = await this.resolveInternalTaskLinks(data.clientAccountProfileId, data.clientAccountServiceId);
     const linkedContact = await this.resolveTaskContact(clinicId, data.contactId, data.contact);
     if (data.assignedUserId) {
       await this.ensureActiveUserInClinic(clinicId, data.assignedUserId);
@@ -371,7 +371,7 @@ export class TasksService {
     }
 
     if (ownKey(data, "clientAccountProfileId") || ownKey(data, "clientAccountServiceId")) {
-      const links = await this.resolveInternalTaskLinks(clinicId, data.clientAccountProfileId, data.clientAccountServiceId);
+      const links = await this.resolveInternalTaskLinks(data.clientAccountProfileId, data.clientAccountServiceId);
       fields.push("client_account_profile_id = ?", "client_account_service_id = ?");
       values.push(links.clientAccountProfileId, links.clientAccountServiceId);
     }
@@ -541,7 +541,6 @@ export class TasksService {
   }
 
   private async resolveInternalTaskLinks(
-    clinicId: string,
     clientAccountProfileId?: string | null,
     clientAccountServiceId?: string | null,
   ) {
@@ -551,13 +550,19 @@ export class TasksService {
     if (resolvedServiceId) {
       const [rows]: any = await pool.execute(
         `SELECT client_account_profile_id as profileId
-         FROM client_account_service
-         WHERE id = ? AND clinic_id = ? AND archived_at IS NULL
+         FROM client_account_service cas
+         JOIN client_account_profile cap
+           ON cap.id = cas.client_account_profile_id
+          AND cap.clinic_id = cas.clinic_id
+         JOIN clinic c
+           ON c.id = cas.clinic_id
+          AND c.deleted_at IS NULL
+         WHERE cas.id = ? AND cas.archived_at IS NULL
          LIMIT 1`,
-        [resolvedServiceId, clinicId],
+        [resolvedServiceId],
       );
 
-      if (rows.length === 0) throw ApiError.badRequest("Client account service must belong to this workspace");
+      if (rows.length === 0) throw ApiError.badRequest("Client account service is not available");
       if (resolvedProfileId && resolvedProfileId !== rows[0].profileId) {
         throw ApiError.badRequest("Client account profile and service do not match");
       }
@@ -566,10 +571,14 @@ export class TasksService {
 
     if (resolvedProfileId) {
       const [rows]: any = await pool.execute(
-        `SELECT id FROM client_account_profile WHERE id = ? AND clinic_id = ? LIMIT 1`,
-        [resolvedProfileId, clinicId],
+        `SELECT cap.id
+         FROM client_account_profile cap
+         JOIN clinic c ON c.id = cap.clinic_id AND c.deleted_at IS NULL
+         WHERE cap.id = ?
+         LIMIT 1`,
+        [resolvedProfileId],
       );
-      if (rows.length === 0) throw ApiError.badRequest("Client account profile must belong to this workspace");
+      if (rows.length === 0) throw ApiError.badRequest("Client account profile is not available");
     }
 
     return { clientAccountProfileId: resolvedProfileId, clientAccountServiceId: resolvedServiceId };

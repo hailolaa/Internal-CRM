@@ -6,12 +6,14 @@ import {
   FolderKanban,
   Shield,
   Users,
+  Wrench,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { SubNav } from "@/components/sub-nav";
 
 const DELIVERY_NAV = [
   { label: "Client Accounts", href: "/app/ops/client-accounts", icon: BriefcaseBusiness },
+  { label: "Services", href: "/app/ops/services", icon: Wrench },
   { label: "Delivery Work", href: "/app/ops/delivery", icon: FolderKanban },
   { label: "Internal Tasks", href: "/app/crm/tasks", icon: CheckSquare },
 ];

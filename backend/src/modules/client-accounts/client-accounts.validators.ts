@@ -8,6 +8,15 @@ const clientStatuses = ["prospect", "onboarding", "active", "paused", "at_risk",
 const healthStatuses = ["healthy", "attention_needed", "at_risk", "critical"];
 const churnRisks = ["low", "medium", "high", "critical"];
 
+function userIdentifier(field: "accountManagerId" | "ownerId", label: string) {
+  return body(field)
+    .optional({ nullable: true })
+    .isString()
+    .trim()
+    .matches(/^[A-Za-z0-9_-]{1,36}$/)
+    .withMessage(`${label} must be a valid user ID`);
+}
+
 export const listClientAccountsValidator = [
   query("search").optional().trim().isLength({ max: 120 }).withMessage("Search must be 120 characters or fewer"),
   query("healthStatus").optional().isIn([...healthStatuses, "all"]),
@@ -26,7 +35,7 @@ export const createClientAccountValidator = [
   body("state").optional({ nullable: true }).trim().isLength({ max: 100 }).withMessage("State must be 100 characters or fewer"),
   body("postalCode").optional({ nullable: true }).trim().isLength({ max: 20 }).withMessage("Postal code must be 20 characters or fewer"),
   body("country").optional({ nullable: true }).trim().isLength({ max: 100 }).withMessage("Country must be 100 characters or fewer"),
-  body("accountManagerId").optional({ nullable: true }).isUUID().withMessage("Account manager ID must be a valid UUID"),
+  userIdentifier("accountManagerId", "Account manager ID"),
   body("activeServices").optional().isArray().withMessage("Active services must be an array"),
   body("activeServices.*").optional().trim().isLength({ min: 1, max: 100 }).withMessage("Active service names must be 1-100 characters"),
   body("onboardingStatus").optional().isIn(["not_started", "in_progress", "completed", "paused"]),
@@ -42,7 +51,7 @@ export const createClientAccountValidator = [
 export const createClientAccountFromContactValidator = [
   body("contactId").isString().trim().notEmpty().isLength({ max: 100 }).withMessage("A valid contact ID is required"),
   body("accountName").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Client account name must be 255 characters or fewer"),
-  body("accountManagerId").optional({ nullable: true }).isUUID().withMessage("Account manager ID must be a valid UUID"),
+  userIdentifier("accountManagerId", "Account manager ID"),
   body("activeServices").optional().isArray().withMessage("Active services must be an array"),
   body("activeServices.*").optional().trim().isLength({ min: 1, max: 100 }).withMessage("Active service names must be 1-100 characters"),
   body("onboardingStatus").optional().isIn(["not_started", "in_progress", "completed", "paused"]),
@@ -56,7 +65,7 @@ export const createClientAccountFromContactValidator = [
 ];
 
 export const updateClientAccountProfileValidator = [
-  body("accountManagerId").optional({ nullable: true }).isUUID().withMessage("Account manager ID must be a valid UUID"),
+  userIdentifier("accountManagerId", "Account manager ID"),
   body("activeServices").optional().isArray().withMessage("Active services must be an array"),
   body("activeServices.*").optional().trim().isLength({ min: 1, max: 100 }).withMessage("Active service names must be 1-100 characters"),
   body("onboardingStatus").optional().isIn(["not_started", "in_progress", "completed", "paused"]),
@@ -71,6 +80,7 @@ export const updateClientAccountProfileValidator = [
 
 export const listClientAccountServicesValidator = [
   query("includeArchived").optional().isBoolean().withMessage("includeArchived must be true or false"),
+  query("includeAllClinics").optional().isBoolean().withMessage("includeAllClinics must be true or false"),
   query("status").optional().isIn(serviceStatuses),
   query("contractStatus").optional().isIn(contractStatuses),
   query("renewalFrom").optional().isISO8601().withMessage("renewalFrom must be a valid date"),
@@ -84,7 +94,7 @@ export const createClientAccountServiceValidator = [
   body("startDate").optional({ nullable: true }).isISO8601().withMessage("Start date must be a valid date"),
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("endDate").optional({ nullable: true }).isISO8601().withMessage("End date must be a valid date"),
-  body("ownerId").optional({ nullable: true }).isUUID().withMessage("Owner ID must be a valid UUID"),
+  userIdentifier("ownerId", "Owner ID"),
   body("recurringValue").optional({ nullable: true }).isDecimal({ decimal_digits: "0,2" }).withMessage("Recurring value must be a decimal amount"),
   body("currency").optional().trim().isLength({ min: 3, max: 3 }).withMessage("Currency must be a 3-letter code"),
   body("contractStatus").optional().isIn(contractStatuses),
@@ -99,7 +109,7 @@ export const updateClientAccountServiceValidator = [
   body("startDate").optional({ nullable: true }).isISO8601().withMessage("Start date must be a valid date"),
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("endDate").optional({ nullable: true }).isISO8601().withMessage("End date must be a valid date"),
-  body("ownerId").optional({ nullable: true }).isUUID().withMessage("Owner ID must be a valid UUID"),
+  userIdentifier("ownerId", "Owner ID"),
   body("recurringValue").optional({ nullable: true }).isDecimal({ decimal_digits: "0,2" }).withMessage("Recurring value must be a decimal amount"),
   body("currency").optional().trim().isLength({ min: 3, max: 3 }).withMessage("Currency must be a 3-letter code"),
   body("contractStatus").optional().isIn(contractStatuses),

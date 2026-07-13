@@ -7,6 +7,7 @@ import {
   Shield,
   Target,
   Users,
+  Wrench,
 } from "lucide-react";
 import type { NavItem, NavSection } from "@/lib/types";
 
@@ -36,6 +37,7 @@ export const NAV_SECTIONS: NavSection[] = [
         href: "/app/ops/client-accounts",
         icon: BriefcaseBusiness,
       },
+      { label: "Services", href: "/app/ops/services", icon: Wrench },
       { label: "Delivery Work", href: "/app/ops/delivery", icon: FolderKanban },
       { label: "Internal Tasks", href: "/app/crm/tasks", icon: CheckSquare },
     ],

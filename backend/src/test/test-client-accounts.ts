@@ -6,6 +6,8 @@ import { authService } from "../modules/auth/auth.service.js";
 import { hashPassword } from "../utils/helpers.js";
 import clientAccountsRoutes from "../modules/client-accounts/client-accounts.routes.js";
 import errorHandler from "../middleware/errorHandler.js";
+import { validate } from "../middleware/validate.js";
+import { createClientAccountValidator } from "../modules/client-accounts/client-accounts.validators.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
@@ -79,6 +81,40 @@ function parseDbJsonObject(value: unknown) {
   if (typeof value === "string") return JSON.parse(value);
   return value as Record<string, any>;
 }
+
+test("client account validation accepts seeded user identifiers", async () => {
+  const expressModule = await import("express") as any;
+  const express = expressModule.default;
+  const testApp = express();
+  testApp.use(express.json());
+  testApp.post("/", createClientAccountValidator, validate, (_req: any, res: any) => res.status(204).end());
+  testApp.use(errorHandler);
+
+  const server = testApp.listen(0);
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to start client account validator test server");
+  }
+
+  try {
+    const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
+    const accepted = await fetch(baseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Seeded Manager Account", accountManagerId: "user-001" }),
+    });
+    assert.equal(accepted.status, 204);
+
+    const rejected = await fetch(baseUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Invalid Manager Account", accountManagerId: "../../user-001" }),
+    });
+    assert.equal(rejected.status, 400);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 
 test("client account profile API is permission protected, updateable, audited, and separate from legacy contact data", async () => {
   await testConnection();

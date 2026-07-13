@@ -76,7 +76,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         />
         <main
           data-gsap-scope
-          className="flex-1 px-3.5 py-4 sm:px-5 sm:py-5 md:p-6 lg:p-8 pb-20 sm:pb-24 overflow-x-hidden"
+          className="flex-1 px-3.5 py-4 sm:px-5 sm:py-5 md:p-6 lg:p-8 pb-20 sm:pb-24 overflow-x-clip"
         >
           <ErrorBoundary>{children}</ErrorBoundary>
         </main>

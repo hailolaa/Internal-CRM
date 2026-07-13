@@ -71,6 +71,7 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/ops/team/invite": "Invite Team Member",
   "/app/ops/team": "Team Members",
   "/app/ops/client-accounts": "Client Accounts",
+  "/app/ops/services": "Services",
   "/app/ops/roles": "Roles & Permissions",
   "/app/ops/sops": "SOPs",
 

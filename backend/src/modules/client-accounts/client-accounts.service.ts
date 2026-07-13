@@ -555,8 +555,13 @@ export class ClientAccountsService {
     clinicId: string,
     query: ClientAccountServiceListQuery,
   ): Promise<ClientAccountServiceResponse[]> {
-    const conditions = ["cas.clinic_id = ?"];
-    const values: any[] = [clinicId];
+    const conditions = ["1 = 1"];
+    const values: any[] = [];
+
+    if (String(query.includeAllClinics) !== "true") {
+      conditions.push("cas.clinic_id = ?");
+      values.push(clinicId);
+    }
 
     if (String(query.includeArchived) !== "true") {
       conditions.push("cas.archived_at IS NULL", "cas.status <> 'archived'");

@@ -85,6 +85,64 @@ async function ensureProfileRow(clinicId: string, userId: string): Promise<strin
   return id;
 }
 
+test("internal tasks can link a client account from another workspace", async () => {
+  await testConnection();
+
+  const sourceClinicId = "clinic-001";
+  const sourceUserId = "user-001";
+  const auditContext = { ipAddress: null, userAgent: null };
+  const account = await clientAccountsService.createAccount(
+    sourceUserId,
+    { name: `Cross-workspace task account ${Date.now()}` },
+    auditContext,
+  );
+  const profileId = account.id;
+  assert.ok(profileId);
+  const service = await clientAccountsService.createService(
+    account.clinicId,
+    sourceUserId,
+    {
+      serviceType: "seo",
+      name: "Cross-workspace SEO",
+      status: "active",
+      contractStatus: "active",
+    },
+    auditContext,
+  );
+  let taskId: string | null = null;
+
+  try {
+    const visibleServices = await clientAccountsService.listServices(sourceClinicId, {
+      includeAllClinics: true,
+    });
+    assert.ok(visibleServices.some((item) => item.id === service.id));
+
+    const createdTaskId = await tasksService.createInternalTask(sourceClinicId, sourceUserId, {
+      title: "Cross-workspace delivery task",
+      boardKey: "delivery",
+      serviceType: "seo",
+      clientAccountProfileId: profileId,
+      clientAccountServiceId: service.id,
+    });
+    taskId = createdTaskId;
+
+    const tasks = await tasksService.listInternalTasks(sourceClinicId, {});
+    const created = tasks.find((task) => task.id === createdTaskId);
+    assert.ok(created);
+    assert.equal(created.clientAccountProfileId, profileId);
+    assert.equal(created.clientAccountServiceId, service.id);
+  } finally {
+    if (taskId) {
+      await pool.execute("DELETE FROM audit_log WHERE clinic_id = ? AND entity_type = 'task' AND entity_id = ?", [sourceClinicId, taskId]);
+      await pool.execute("DELETE FROM task WHERE id = ?", [taskId]);
+    }
+    await pool.execute("DELETE FROM audit_log WHERE clinic_id = ?", [account.clinicId]);
+    await pool.execute("DELETE FROM client_account_service WHERE clinic_id = ?", [account.clinicId]);
+    await pool.execute("DELETE FROM client_account_profile WHERE clinic_id = ?", [account.clinicId]);
+    await pool.execute("DELETE FROM clinic WHERE id = ?", [account.clinicId]);
+  }
+});
+
 test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", async () => {
   await testConnection();
   console.log("[internal-delivery-tasks] database connection OK");
@@ -400,4 +458,8 @@ test("internal delivery tasks CRUD, QA, archive, audit, and tenant isolation", a
   }
 
   console.log("[internal-delivery-tasks] integration test completed successfully");
+});
+
+test.after(async () => {
+  await pool.end();
 });

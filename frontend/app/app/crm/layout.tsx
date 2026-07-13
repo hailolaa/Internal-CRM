@@ -1,6 +1,6 @@
 "use client";
 
-import { BriefcaseBusiness, CheckSquare, FolderKanban, Target, Users } from "lucide-react";
+import { BriefcaseBusiness, CheckSquare, FolderKanban, Target, Users, Wrench } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { SubNav } from "@/components/sub-nav";
 
@@ -12,6 +12,7 @@ const SALES_NAV = [
 
 const DELIVERY_NAV = [
   { label: "Client Accounts", href: "/app/ops/client-accounts", icon: BriefcaseBusiness },
+  { label: "Services", href: "/app/ops/services", icon: Wrench },
   { label: "Delivery Work", href: "/app/ops/delivery", icon: FolderKanban },
   { label: "Internal Tasks", href: "/app/crm/tasks", icon: CheckSquare },
 ];

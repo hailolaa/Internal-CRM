@@ -139,6 +139,7 @@ export interface ClientAccountServiceResponse {
 
 export interface ClientAccountServiceListQuery {
   includeArchived?: string | boolean;
+  includeAllClinics?: string | boolean;
   status?: ClientServiceStatus;
   contractStatus?: ContractStatus;
   renewalFrom?: string;

@@ -160,6 +160,7 @@ export interface ClientAccountServiceRecord {
 
 export interface ClientAccountServiceListParams {
   includeArchived?: boolean | string;
+  includeAllClinics?: boolean | string;
   status?: ClientAccountServiceStatus | "all";
   contractStatus?: ClientAccountContractStatus | "all";
 }
