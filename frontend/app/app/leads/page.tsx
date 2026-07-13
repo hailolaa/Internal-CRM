@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table-controls";
 import { useFilteredSortedPaginated } from "@/hooks/use-table";
 import { api } from "@/lib/api-client";
+import { mergeLeadRows } from "@/lib/lead-list";
 import type {
   ContactRecord,
   DashboardSummaryRecord,
@@ -227,7 +228,7 @@ export default function LeadsPage() {
                 .map(toLead)
             : [];
 
-        const rows = dealRows.length > 0 ? dealRows : contactRows;
+        const rows = mergeLeadRows(dealRows, contactRows);
 
         setLeads(rows.sort((a, b) => b.sortDate - a.sortDate));
         setDashboardSummary(
