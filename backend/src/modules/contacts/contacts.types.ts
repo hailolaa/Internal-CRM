@@ -3,6 +3,13 @@ export type ContactImportMode = "create_only" | "upsert";
 export type ContactSortBy = "name" | "source" | "status" | "value" | "lastContact" | "createdAt" | "updatedAt";
 export type ContactSortOrder = "asc" | "desc";
 
+export interface ContactCommunicationPermissions {
+  email: boolean;
+  sms: boolean;
+  whatsapp: boolean;
+  phone: boolean;
+}
+
 export interface ContactListQuery {
   page?: number;
   limit?: number;
@@ -26,6 +33,8 @@ export interface ContactListQuery {
 export interface ContactMutationDTO {
   externalId?: string | null;
   accountName?: string | null;
+  role?: string | null;
+  communicationPermissions?: Partial<ContactCommunicationPermissions> | null;
   firstName?: string | null;
   lastName?: string | null;
   email?: string | null;
@@ -56,6 +65,8 @@ export type UpdateContactDTO = Partial<ContactMutationDTO>;
 export interface NormalizedContactData {
   externalId: string | null;
   accountName: string | null;
+  role: string | null;
+  communicationPermissions: ContactCommunicationPermissions;
   firstName: string | null;
   lastName: string | null;
   email: string | null;
@@ -94,6 +105,8 @@ export interface DuplicateContactMatch {
 export interface ContactResponse {
   id: string;
   accountName: string | null;
+  role: string | null;
+  communicationPermissions: ContactCommunicationPermissions;
   firstName: string | null;
   lastName: string | null;
   name: string;

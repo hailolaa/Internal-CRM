@@ -149,6 +149,13 @@ export type ContactSortOrder = "asc" | "desc";
 export interface ContactRecord {
   id: string;
   accountName: string | null;
+  role: string | null;
+  communicationPermissions: {
+    email: boolean;
+    sms: boolean;
+    whatsapp: boolean;
+    phone: boolean;
+  };
   firstName: string | null;
   lastName: string | null;
   name: string;
@@ -202,6 +209,8 @@ export interface ContactListResult {
 
 export interface ContactCreatePayload {
   accountName?: string | null;
+  role?: string | null;
+  communicationPermissions?: Partial<ContactRecord["communicationPermissions"]> | null;
   firstName?: string | null;
   lastName?: string | null;
   email?: string | null;

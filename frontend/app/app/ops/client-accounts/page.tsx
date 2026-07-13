@@ -336,7 +336,9 @@ export default function ClientAccountsPage() {
               <TableCell>
                 <div>
                   <p className="font-semibold text-[#151f21]">
-                    {account.clinicName}
+                    <Link href={`/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}`} className="transition-colors hover:text-[#315f62] hover:underline">
+                      {account.clinicName}
+                    </Link>
                   </p>
                   <p className="text-xs text-[#7A746A]">
                     {formatLabel(account.healthStatus)} - {formatLabel(account.churnRisk)} risk

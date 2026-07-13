@@ -3,6 +3,8 @@ import { cleanString, normalizePhone } from "./contacts.normalizers.js";
 
 export const contactSelectFields = `c.id,
               c.account_name as accountName,
+              c.contact_role as role,
+              c.communication_permissions as communicationPermissions,
               c.first_name as firstName,
               c.last_name as lastName,
               c.email,

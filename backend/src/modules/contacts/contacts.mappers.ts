@@ -27,6 +27,16 @@ export function parseJsonObject(value: unknown) {
   }
 }
 
+function parseCommunicationPermissions(value: unknown) {
+  const parsed = parseJsonObject(value) || {};
+  return {
+    email: parsed.email === true || parsed.email === 1,
+    sms: parsed.sms === true || parsed.sms === 1,
+    whatsapp: parsed.whatsapp === true || parsed.whatsapp === 1,
+    phone: parsed.phone === true || parsed.phone === 1,
+  };
+}
+
 function formatIso(value: unknown) {
   return value ? new Date(value as string).toISOString() : null;
 }
@@ -45,6 +55,8 @@ export function mapContact(row: any): ContactResponse {
   return {
     id: row.id,
     accountName,
+    role: row.role || null,
+    communicationPermissions: parseCommunicationPermissions(row.communicationPermissions),
     firstName,
     lastName,
     name,

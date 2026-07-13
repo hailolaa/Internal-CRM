@@ -13,6 +13,12 @@ const contactIdParam = () =>
 const contactMutationValidator = [
   body("externalId").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
   body("accountName").optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
+  body("role").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
+  body("communicationPermissions").optional({ nullable: true }).isObject(),
+  body("communicationPermissions.email").optional().isBoolean(),
+  body("communicationPermissions.sms").optional().isBoolean(),
+  body("communicationPermissions.whatsapp").optional().isBoolean(),
+  body("communicationPermissions.phone").optional().isBoolean(),
   body("firstName").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
   body("lastName").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
   body("email").optional({ nullable: true, checkFalsy: true }).isEmail().normalizeEmail(),

@@ -120,6 +120,7 @@ function toContactsCsv(contacts: ContactResponse[]) {
   const headers = [
     "id",
     "accountName",
+    "role",
     "firstName",
     "lastName",
     "email",
@@ -140,6 +141,7 @@ function toContactsCsv(contacts: ContactResponse[]) {
   const rows = contacts.map((contact) => [
     contact.id,
     contact.accountName,
+    contact.role,
     contact.firstName,
     contact.lastName,
     contact.email,
@@ -603,6 +605,8 @@ export class ContactsService {
 
     addField("externalId", "external_id", normalized.externalId);
     addField("accountName", "account_name", normalized.accountName);
+    addField("role", "contact_role", normalized.role);
+    addField("communicationPermissions", "communication_permissions", JSON.stringify(normalized.communicationPermissions));
     addField("firstName", "first_name", normalized.firstName);
     addField("lastName", "last_name", normalized.lastName);
     addField("email", "email", normalized.email);

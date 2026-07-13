@@ -17,14 +17,16 @@ export async function insertContact(
 ) {
   await pool.execute(
     `INSERT INTO contact
-      (id, clinic_id, account_name, first_name, last_name, email, phone, website, date_of_birth, gender,
+      (id, clinic_id, account_name, contact_role, communication_permissions, first_name, last_name, email, phone, website, date_of_birth, gender,
        address, city, state, postal_code, country, tags, status, lead_status, source, value,
        treatment_interests, package_interest, recommended_package, notes, last_contact_at, external_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       contactId,
       clinicId,
       contact.accountName,
+      contact.role,
+      JSON.stringify(contact.communicationPermissions),
       contact.firstName,
       contact.lastName,
       contact.email,
@@ -156,14 +158,16 @@ export async function insertImportedContact(
 
   await pool.execute(
     `INSERT INTO contact
-      (id, clinic_id, account_name, first_name, last_name, email, phone, website, date_of_birth, gender,
+      (id, clinic_id, account_name, contact_role, communication_permissions, first_name, last_name, email, phone, website, date_of_birth, gender,
        address, city, state, postal_code, country, tags, status, lead_status, source, value,
        treatment_interests, package_interest, recommended_package, notes, last_contact_at, import_batch_id, external_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       contactId,
       clinicId,
       row.accountName,
+      row.role,
+      JSON.stringify(row.communicationPermissions),
       row.firstName,
       row.lastName,
       row.email,
@@ -205,6 +209,7 @@ export async function updateImportedContact(
     `UPDATE contact
      SET first_name = COALESCE(?, first_name),
          account_name = COALESCE(?, account_name),
+         contact_role = COALESCE(?, contact_role),
          last_name = COALESCE(?, last_name),
          email = COALESCE(?, email),
          phone = COALESCE(?, phone),
@@ -233,6 +238,7 @@ export async function updateImportedContact(
     [
       row.firstName,
       row.accountName,
+      row.role,
       row.lastName,
       row.email,
       row.phone,

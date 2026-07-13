@@ -42,6 +42,14 @@ export interface ClientAccountProfileResponse {
   id: string | null;
   clinicId: string;
   clinicName: string;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
   accountManager: {
     id: string;
     firstName: string | null;
