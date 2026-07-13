@@ -389,6 +389,8 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
     assert.equal(createDeal.response.status, 201);
     dealId = createDeal.body.data.id;
     assert.equal(createDeal.body.data.contactId, contactId);
+    assert.equal(createDeal.body.data.priority, "high");
+    assert.ok(createDeal.body.data.nextFollowUpDate);
 
     const auditMove = await fetchJson(baseUrl, `/api/pipeline/deals/${dealId}/move`, primary.token, {
       method: "PATCH",

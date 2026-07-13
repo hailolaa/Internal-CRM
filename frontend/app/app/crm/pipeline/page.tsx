@@ -46,6 +46,9 @@ type PipelineDealData = {
   avatar: string;
   email: string;
   phone: string;
+  owner: string;
+  nextFollowUpDate: string | null;
+  priority: "low" | "medium" | "high" | null;
   raw: PipelineDealRecord;
 };
 
@@ -95,6 +98,26 @@ function formatContactValue(value: number) {
   return String(Math.round(value));
 }
 
+function formatFollowUpDate(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+  }).format(new Date(`${value}T00:00:00`));
+}
+
+function isFollowUpOverdue(value: string | null) {
+  if (!value) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(`${value}T00:00:00`).getTime() < today.getTime();
+}
+
+const PRIORITY_STYLES = {
+  low: "bg-slate-100 text-slate-600",
+  medium: "bg-amber-100 text-amber-700",
+  high: "bg-red-100 text-red-700",
+} as const;
+
 function colorClass(color: string) {
   if (color.startsWith("bg-")) return color;
   const normalized = color.toLowerCase();
@@ -119,6 +142,9 @@ function toPipelineDeal(deal: PipelineDealRecord): PipelineDealData {
     avatar: deal.contactAvatar,
     email: deal.contactEmail || "-",
     phone: deal.contactPhone || "-",
+    owner: deal.ownerName || "Unassigned",
+    nextFollowUpDate: deal.nextFollowUpDate,
+    priority: deal.priority,
     raw: deal,
   };
 }
@@ -187,6 +213,7 @@ function DealCard({
   onClick: () => void;
   onMoveNext: (deal: PipelineDealData) => void;
 }) {
+  const followUpOverdue = isFollowUpOverdue(deal.nextFollowUpDate);
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -232,6 +259,41 @@ function DealCard({
         </span>
         <span className="flex items-center gap-1">
           <Clock className="w-3 h-3" /> {deal.daysInStage}d in stage
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="flex min-w-0 items-center gap-1.5 rounded-lg bg-[#FAF8F5] px-2 py-1.5 text-[#6B7280]">
+          <UserRound className="h-3 w-3 shrink-0" />
+          <span className="truncate">{deal.owner}</span>
+        </div>
+        <div
+          className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 ${
+            followUpOverdue
+              ? "bg-red-50 font-medium text-red-700 ring-1 ring-red-200"
+              : "bg-[#FAF8F5] text-[#6B7280]"
+          }`}
+        >
+          {followUpOverdue ? (
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+          ) : (
+            <Clock className="h-3 w-3 shrink-0" />
+          )}
+          <span className="truncate">
+            {deal.nextFollowUpDate
+              ? `${followUpOverdue ? "Overdue" : "Follow-up"} ${formatFollowUpDate(deal.nextFollowUpDate)}`
+              : "No follow-up"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-2 flex justify-end">
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${
+            deal.priority ? PRIORITY_STYLES[deal.priority] : "bg-slate-100 text-slate-500"
+          }`}
+        >
+          {deal.priority ? `${deal.priority} priority` : "No priority"}
         </span>
       </div>
 

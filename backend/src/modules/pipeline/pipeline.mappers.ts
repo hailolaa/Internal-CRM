@@ -64,6 +64,8 @@ export function mapPipelineDeal(row: any): PipelineDealResponse {
     expectedCloseDate: dateToKey(row.expectedCloseDate),
     ownerId: row.ownerId || null,
     ownerName: row.ownerName || null,
+    nextFollowUpDate: dateToKey(row.nextFollowUpDate),
+    priority: row.priority || null,
     contactId: row.contactId,
     contactName,
     contactEmail: row.contactEmail || null,
