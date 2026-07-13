@@ -18,6 +18,7 @@ import {
 } from "./contacts.mappers.js";
 import {
   hasOwn,
+  hasUsableLeadIdentity,
   normalizeContactData,
   normalizeImportRow,
 } from "./contacts.normalizers.js";
@@ -483,15 +484,13 @@ export class ContactsService {
     meta: RequestMeta = {},
   ): Promise<ContactMutationResponse> {
     const normalized = normalizeContactData(data);
-    const hasIdentity = Boolean(normalized.accountName || normalized.firstName || normalized.lastName);
-    const hasContactMethod = Boolean(normalized.email || normalized.phone || normalized.website);
-    if (!hasIdentity || !hasContactMethod) {
-      throw ApiError.badRequest("Lead must include a clinic/account name or contact name plus email, phone, or website");
+    if (!hasUsableLeadIdentity(normalized)) {
+      throw ApiError.badRequest("Lead must include a clinic/account or contact name and an email or phone number");
     }
 
     const duplicateMatches = await findDuplicateContacts(clinicId, normalized);
     const blockingMatches = duplicateMatches.filter((match) =>
-      match.matchType === "email" || match.matchType === "phone" || match.matchType === "website",
+      match.matchType === "email" || match.matchType === "phone",
     );
 
     if (blockingMatches.length > 0) {
@@ -530,7 +529,7 @@ export class ContactsService {
         {
           duplicateCandidates,
           duplicateDetected: true,
-          blockingRules: ["email", "phone", "website"],
+          blockingRules: ["email", "phone"],
         },
       );
     }

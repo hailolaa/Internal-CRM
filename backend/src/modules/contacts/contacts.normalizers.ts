@@ -25,6 +25,21 @@ export function hasOwn(data: object, key: string) {
   return Object.prototype.hasOwnProperty.call(data, key);
 }
 
+export function hasUsableLeadIdentity(value: {
+  accountName?: unknown;
+  firstName?: unknown;
+  lastName?: unknown;
+  email?: unknown;
+  phone?: unknown;
+  website?: unknown;
+}) {
+  const present = (field: keyof typeof value) =>
+    typeof value[field] === "string" && value[field].trim().length > 0;
+  const hasName = present("accountName") || present("firstName") || present("lastName");
+  const hasContactMethod = present("email") || present("phone");
+  return hasName && hasContactMethod;
+}
+
 // Keep date-only fields in MySQL DATE format
 function normalizeDate(value: unknown) {
   return cleanString(value)?.slice(0, 10) || null;

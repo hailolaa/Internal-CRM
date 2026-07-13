@@ -91,14 +91,14 @@ function validateFields(fields: Record<FieldKey, string>) {
     fields.firstName.trim() ||
     fields.lastName.trim();
   const hasContactMethod =
-    fields.email.trim() || fields.phone.trim() || fields.website.trim();
+    fields.email.trim() || fields.phone.trim();
 
   if (!hasIdentity) {
     return "Add a clinic/account name or a contact name.";
   }
 
   if (!hasContactMethod) {
-    return "Add at least one contact method: email, phone, or website.";
+    return "Add at least one contact method: email or phone.";
   }
 
   if (fields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
@@ -241,10 +241,9 @@ export default function EditContactPage() {
     const combinedPackageInterests = Array.from(
       new Set([primaryPackage, ...treatmentInterests].filter(Boolean)),
     );
-    const fallbackName = fields.clinicName.trim();
     const payload: ContactUpdatePayload = {
       accountName: emptyToNull(fields.clinicName),
-      firstName: emptyToNull(fields.firstName) || emptyToNull(fallbackName),
+      firstName: emptyToNull(fields.firstName),
       lastName: emptyToNull(fields.lastName),
       email: emptyToNull(fields.email),
       phone: emptyToNull(fields.phone),
@@ -254,7 +253,6 @@ export default function EditContactPage() {
       state: emptyToNull(fields.county),
       postalCode: emptyToNull(fields.postcode),
       status: emptyToNull(fields.status),
-      leadStatus: emptyToNull(fields.status),
       source: emptyToNull(fields.source),
       value: Number.isFinite(value) ? value : 0,
       packageInterest: emptyToNull(fields.packageInterest),

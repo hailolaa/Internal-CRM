@@ -1,4 +1,5 @@
 import { body, param, query } from "express-validator";
+import { hasUsableLeadIdentity } from "./contacts.normalizers.js";
 
 const contactSortFields = ["name", "source", "status", "value", "lastContact", "createdAt", "updatedAt"];
 const contactIdParam = () =>
@@ -16,7 +17,11 @@ const contactMutationValidator = [
   body("lastName").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
   body("email").optional({ nullable: true, checkFalsy: true }).isEmail().normalizeEmail(),
   body("phone").optional({ nullable: true }).isString().trim().isLength({ max: 30 }),
-  body("website").optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
+  body("website")
+    .optional({ nullable: true, checkFalsy: true })
+    .isURL({ protocols: ["http", "https"], require_protocol: false })
+    .withMessage("Website must be a valid URL")
+    .isLength({ max: 255 }),
   body("dateOfBirth").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("gender").optional({ nullable: true }).isString().trim().isLength({ max: 20 }),
   body("address").optional({ nullable: true }).isString().trim().isLength({ max: 1000 }),
@@ -61,10 +66,8 @@ export const listContactsValidator = [
 export const createContactValidator = [
   ...contactMutationValidator,
   body().custom((value) => {
-    const hasIdentity = value.accountName || value.firstName || value.lastName;
-    const hasContactMethod = value.email || value.phone || value.website;
-    if (hasIdentity && hasContactMethod) return true;
-    throw new Error("Lead must include a clinic/account name or contact name plus email, phone, or website");
+    if (hasUsableLeadIdentity(value)) return true;
+    throw new Error("Lead must include a clinic/account or contact name and an email or phone number");
   }),
 ];
 
@@ -168,7 +171,11 @@ export const importContactsValidator = [
   body("rows.*.lastName").optional().isString().trim().isLength({ max: 100 }),
   body("rows.*.email").optional({ nullable: true, checkFalsy: true }).isEmail().normalizeEmail(),
   body("rows.*.phone").optional().isString().trim().isLength({ max: 30 }),
-  body("rows.*.website").optional().isString().trim().isLength({ max: 255 }),
+  body("rows.*.website")
+    .optional({ nullable: true, checkFalsy: true })
+    .isURL({ protocols: ["http", "https"], require_protocol: false })
+    .withMessage("Website must be a valid URL")
+    .isLength({ max: 255 }),
   body("rows.*.dateOfBirth").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("rows.*.gender").optional().isString().trim().isLength({ max: 20 }),
   body("rows.*.address").optional().isString().trim().isLength({ max: 1000 }),
