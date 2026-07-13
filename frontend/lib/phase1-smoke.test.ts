@@ -104,14 +104,22 @@ describe("Phase 1 frontend smoke coverage", () => {
 
   it("requires the Phase 1 pipeline stage labels", () => {
     expect(pipelineHasRequiredStageLabels([
-      "New Enquiry",
-      "Contacted",
-      "Qualified",
-      "Discovery Call Booked",
+      "New Lead",
+      "Contact Needed",
+      "Contact Attempted",
+      "Spoken To",
+      "Free Audit Needed",
+      "Free Audit In Progress",
+      "Audit Complete",
+      "Dashboard Access Given",
+      "Proposal Needed",
       "Proposal Sent",
-      "Follow-Up Needed",
+      "Follow-up Needed",
+      "Negotiation",
       "Won",
       "Lost",
+      "Nurture",
+      "Future Opportunity",
     ])).toBe(true);
   });
 });

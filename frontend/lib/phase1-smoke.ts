@@ -1,14 +1,22 @@
 import type { BenchmarkSummaryRecord, ReputationSummaryRecord } from "@/lib/api-types";
 
 export const REQUIRED_PIPELINE_STAGE_LABELS = [
-  "New Enquiry",
-  "Contacted",
-  "Qualified",
-  "Discovery Call Booked",
+  "New Lead",
+  "Contact Needed",
+  "Contact Attempted",
+  "Spoken To",
+  "Free Audit Needed",
+  "Free Audit In Progress",
+  "Audit Complete",
+  "Dashboard Access Given",
+  "Proposal Needed",
   "Proposal Sent",
-  "Follow-Up Needed",
+  "Follow-up Needed",
+  "Negotiation",
   "Won",
   "Lost",
+  "Nurture",
+  "Future Opportunity",
 ] as const;
 
 export function benchmarkHasSafeLowDataWording(summary: BenchmarkSummaryRecord) {
