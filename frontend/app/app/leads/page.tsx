@@ -22,7 +22,7 @@ import type {
   PipelineDealRecord,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
-import { PoundSterling, Target, TrendingUp, Users } from "lucide-react";
+import { Plus, PoundSterling, Target, TrendingUp, Users } from "lucide-react";
 
 const SALES_NAV = [
   { label: "Prospect List", href: "/app/leads", icon: Users },
@@ -32,14 +32,19 @@ const SALES_NAV = [
 
 interface Lead {
   id: string;
-  name: string;
+  clinic: string;
+  contact: string;
   email: string;
   source: string;
-  campaign: string;
-  owner: string;
   stage: string;
+  packageInterest: string;
+  owner: string;
+  followUpDate: string;
+  followUpSort: number;
+  followUpOverdue: boolean;
+  status: string;
   revenue: number;
-  date: string;
+  createdDate: string;
   sortDate: number;
   contactId: string | null;
 }
@@ -57,12 +62,15 @@ const STAGE_COLORS_WARM: Record<string, string> = {
 };
 
 const searchFn = (lead: Lead, query: string) =>
-  lead.name.toLowerCase().includes(query) ||
+  lead.clinic.toLowerCase().includes(query) ||
+  lead.contact.toLowerCase().includes(query) ||
   lead.email.toLowerCase().includes(query) ||
   lead.source.toLowerCase().includes(query) ||
-  lead.campaign.toLowerCase().includes(query) ||
+  lead.packageInterest.toLowerCase().includes(query) ||
   lead.owner.toLowerCase().includes(query) ||
-  lead.stage.toLowerCase().includes(query);
+  lead.stage.toLowerCase().includes(query) ||
+  lead.status.toLowerCase().includes(query) ||
+  lead.followUpDate.toLowerCase().includes(query);
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-GB", {
@@ -72,21 +80,63 @@ function formatMoney(value: number) {
   }).format(value);
 }
 
+function formatDate(value: string | null | undefined, fallback: string) {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function toDateSort(value: string | null | undefined) {
+  if (!value) return Number.MAX_SAFE_INTEGER;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+function isPastDate(value: string | null | undefined) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime() < today.getTime();
+}
+
+function uniqueOptions(values: string[]) {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter((value) => value && value !== "-")),
+  ).sort((a, b) => a.localeCompare(b));
+}
+
 function toLead(contact: ContactRecord): Lead {
+  const packageInterest =
+    contact.packageInterest ||
+    contact.recommendedPackage ||
+    contact.treatmentInterests?.[0] ||
+    contact.tags?.[0] ||
+    "-";
+  const status = contact.leadStatus || contact.status || "New";
+
   return {
     id: contact.id,
-    name: contact.name,
+    clinic: contact.accountName || "Unassigned account",
+    contact: contact.name,
     email: contact.email || "-",
     source: contact.source || "Unknown",
-    campaign: contact.treatmentInterests?.[0] || contact.tags?.[0] || "-",
-    owner: "Unassigned",
     stage: contact.status || "New",
+    packageInterest,
+    owner: "Unassigned",
+    followUpDate: "No follow-up set",
+    followUpSort: Number.MAX_SAFE_INTEGER,
+    followUpOverdue: false,
+    status,
     revenue: contact.value,
-    date: new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }).format(new Date(contact.createdAt || contact.updatedAt)),
+    createdDate: formatDate(contact.createdAt || contact.updatedAt, "-"),
     sortDate: new Date(contact.createdAt || contact.updatedAt).getTime(),
     contactId: contact.id,
   };
@@ -94,21 +144,29 @@ function toLead(contact: ContactRecord): Lead {
 
 function toLeadFromDeal(deal: PipelineDealRecord): Lead {
   const createdAt = deal.createdAt || deal.updatedAt;
+  const followUpOverdue =
+    deal.status === "open" &&
+    deal.stageKind === "open" &&
+    isPastDate(deal.expectedCloseDate);
 
   return {
     id: deal.contactId || deal.id,
-    name: deal.contactName || deal.title,
+    clinic:
+      deal.title && deal.title !== deal.contactName
+        ? deal.title
+        : "Unassigned account",
+    contact: deal.contactName || deal.title,
     email: deal.contactEmail || "-",
     source: deal.source || "Unknown",
-    campaign: deal.treatment || deal.title || "-",
-    owner: deal.ownerName || "Unassigned",
     stage: deal.stageName || deal.status || "New",
+    packageInterest: deal.treatment || "-",
+    owner: deal.ownerName || "Unassigned",
+    followUpDate: formatDate(deal.expectedCloseDate, "No follow-up set"),
+    followUpSort: toDateSort(deal.expectedCloseDate),
+    followUpOverdue,
+    status: deal.status,
     revenue: deal.valueCents / 100,
-    date: new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }).format(new Date(createdAt)),
+    createdDate: formatDate(createdAt, "-"),
     sortDate: new Date(createdAt).getTime(),
     contactId: deal.contactId || null,
   };
@@ -122,6 +180,11 @@ export default function LeadsPage() {
     useState<DashboardSummaryRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [stageFilter, setStageFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const [packageFilter, setPackageFilter] = useState("all");
+  const [followUpFilter, setFollowUpFilter] = useState("all");
 
   useEffect(() => {
     if (!session?.token) return;
@@ -207,6 +270,52 @@ export default function LeadsPage() {
     };
   }, [dashboardSummary?.financials.costPerLead, leads]);
 
+  const filterOptions = useMemo(
+    () => ({
+      stages: uniqueOptions(leads.map((lead) => lead.stage)),
+      sources: uniqueOptions(leads.map((lead) => lead.source)),
+      owners: uniqueOptions(leads.map((lead) => lead.owner)),
+      packages: uniqueOptions(leads.map((lead) => lead.packageInterest)),
+    }),
+    [leads],
+  );
+
+  const filteredLeads = useMemo(() => {
+    return leads.filter((lead) => {
+      const stageMatches = stageFilter === "all" || lead.stage === stageFilter;
+      const sourceMatches = sourceFilter === "all" || lead.source === sourceFilter;
+      const ownerMatches = ownerFilter === "all" || lead.owner === ownerFilter;
+      const packageMatches =
+        packageFilter === "all" || lead.packageInterest === packageFilter;
+      const followUpMatches =
+        followUpFilter === "all" ||
+        (followUpFilter === "overdue" && lead.followUpOverdue);
+
+      return (
+        stageMatches &&
+        sourceMatches &&
+        ownerMatches &&
+        packageMatches &&
+        followUpMatches
+      );
+    });
+  }, [followUpFilter, leads, ownerFilter, packageFilter, sourceFilter, stageFilter]);
+
+  const hasActiveFilters =
+    stageFilter !== "all" ||
+    sourceFilter !== "all" ||
+    ownerFilter !== "all" ||
+    packageFilter !== "all" ||
+    followUpFilter !== "all";
+
+  const resetFilters = () => {
+    setStageFilter("all");
+    setSourceFilter("all");
+    setOwnerFilter("all");
+    setPackageFilter("all");
+    setFollowUpFilter("all");
+  };
+
   const {
     searchQuery,
     setSearchQuery,
@@ -223,7 +332,7 @@ export default function LeadsPage() {
     goToPage,
     hasNextPage,
     hasPrevPage,
-  } = useFilteredSortedPaginated(leads, searchFn, 10);
+  } = useFilteredSortedPaginated(filteredLeads, searchFn, 10);
 
   const openLead = (lead: Lead) => {
     if (!lead.contactId) return;
@@ -236,9 +345,19 @@ export default function LeadsPage() {
 
       <PageHeader
         title="Prospect List"
-        subtitle="Track incoming The Growth Group enquiries from sales opportunities and CRM contacts, including source, service/package, owner, stage, and value."
+        subtitle="Daily sales/admin lead list with source, owner, stage, package interest, follow-up date, and status."
         icon={Target}
         iconColor="text-[#6E6AE8]"
+        right={
+          <button
+            type="button"
+            onClick={() => router.push("/app/crm/contacts/new")}
+            className="inline-flex items-center gap-2 rounded-xl bg-[#6E6AE8] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#5A56D4]"
+          >
+            <Plus className="h-4 w-4" />
+            Add Lead
+          </button>
+        }
       />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -291,9 +410,84 @@ export default function LeadsPage() {
       <SearchInput
         value={searchQuery}
         onChange={setSearchQuery}
-        placeholder="Search by name, email, source, service/package, owner, stage..."
+        placeholder="Search clinic/account, contact, source, package, owner, stage, status..."
         className="max-w-lg"
       />
+
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+        <select
+          value={stageFilter}
+          onChange={(event) => setStageFilter(event.target.value)}
+          className="rounded-xl border border-[#E7E1DA] bg-[#FFFCF9] px-3 py-2.5 text-sm text-[#151f21] focus:outline-none focus:ring-2 focus:ring-[#6E6AE8]/20"
+          aria-label="Filter by stage"
+        >
+          <option value="all">All stages</option>
+          {filterOptions.stages.map((stage) => (
+            <option key={stage} value={stage}>
+              {stage}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sourceFilter}
+          onChange={(event) => setSourceFilter(event.target.value)}
+          className="rounded-xl border border-[#E7E1DA] bg-[#FFFCF9] px-3 py-2.5 text-sm text-[#151f21] focus:outline-none focus:ring-2 focus:ring-[#6E6AE8]/20"
+          aria-label="Filter by source"
+        >
+          <option value="all">All sources</option>
+          {filterOptions.sources.map((source) => (
+            <option key={source} value={source}>
+              {source}
+            </option>
+          ))}
+        </select>
+        <select
+          value={ownerFilter}
+          onChange={(event) => setOwnerFilter(event.target.value)}
+          className="rounded-xl border border-[#E7E1DA] bg-[#FFFCF9] px-3 py-2.5 text-sm text-[#151f21] focus:outline-none focus:ring-2 focus:ring-[#6E6AE8]/20"
+          aria-label="Filter by owner"
+        >
+          <option value="all">All owners</option>
+          {filterOptions.owners.map((owner) => (
+            <option key={owner} value={owner}>
+              {owner}
+            </option>
+          ))}
+        </select>
+        <select
+          value={packageFilter}
+          onChange={(event) => setPackageFilter(event.target.value)}
+          className="rounded-xl border border-[#E7E1DA] bg-[#FFFCF9] px-3 py-2.5 text-sm text-[#151f21] focus:outline-none focus:ring-2 focus:ring-[#6E6AE8]/20"
+          aria-label="Filter by package interest"
+        >
+          <option value="all">All package interests</option>
+          {filterOptions.packages.map((packageInterest) => (
+            <option key={packageInterest} value={packageInterest}>
+              {packageInterest}
+            </option>
+          ))}
+        </select>
+        <div className="flex gap-2">
+          <select
+            value={followUpFilter}
+            onChange={(event) => setFollowUpFilter(event.target.value)}
+            className="min-w-0 flex-1 rounded-xl border border-[#E7E1DA] bg-[#FFFCF9] px-3 py-2.5 text-sm text-[#151f21] focus:outline-none focus:ring-2 focus:ring-[#6E6AE8]/20"
+            aria-label="Filter by follow-up"
+          >
+            <option value="all">All follow-ups</option>
+            <option value="overdue">Overdue follow-up</option>
+          </select>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="rounded-xl border border-[#E7E1DA] bg-[#FFFCF9] px-3 py-2.5 text-sm font-medium text-[#5e8a8d] hover:bg-[#F6F3EF]"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
 
       <div
         className="rounded-2xl overflow-hidden"
@@ -313,9 +507,15 @@ export default function LeadsPage() {
                 }}
               >
                 <SortableHeader
-                  label="Name"
-                  sortKey="name"
-                  direction={getSortDirection("name")}
+                  label="Clinic / Account"
+                  sortKey="clinic"
+                  direction={getSortDirection("clinic")}
+                  onSort={toggleSort}
+                />
+                <SortableHeader
+                  label="Contact"
+                  sortKey="contact"
+                  direction={getSortDirection("contact")}
                   onSort={toggleSort}
                 />
                 <SortableHeader
@@ -325,9 +525,15 @@ export default function LeadsPage() {
                   onSort={toggleSort}
                 />
                 <SortableHeader
-                  label="Service / Package"
-                  sortKey="campaign"
-                  direction={getSortDirection("campaign")}
+                  label="Stage"
+                  sortKey="stage"
+                  direction={getSortDirection("stage")}
+                  onSort={toggleSort}
+                />
+                <SortableHeader
+                  label="Package Interest"
+                  sortKey="packageInterest"
+                  direction={getSortDirection("packageInterest")}
                   onSort={toggleSort}
                 />
                 <SortableHeader
@@ -337,31 +543,23 @@ export default function LeadsPage() {
                   onSort={toggleSort}
                 />
                 <SortableHeader
-                  label="Stage"
-                  sortKey="stage"
-                  direction={getSortDirection("stage")}
+                  label="Follow-up Date"
+                  sortKey="followUpSort"
+                  direction={getSortDirection("followUpSort")}
                   onSort={toggleSort}
                 />
                 <SortableHeader
-                  label="Value"
-                  sortKey="revenue"
-                  direction={getSortDirection("revenue")}
+                  label="Status"
+                  sortKey="status"
+                  direction={getSortDirection("status")}
                   onSort={toggleSort}
-                  className="text-right"
-                />
-                <SortableHeader
-                  label="Date"
-                  sortKey="date"
-                  direction={getSortDirection("date")}
-                  onSort={toggleSort}
-                  className="text-right"
                 />
               </tr>
             </thead>
             <tbody>
               {isLoading &&
                 Array.from({ length: 6 }, (_, index) => (
-                  <TableRowSkeleton key={index} columns={7} />
+                  <TableRowSkeleton key={index} columns={8} />
                 ))}
               {!isLoading && paginatedItems.map((lead) => (
                 <tr
@@ -370,7 +568,7 @@ export default function LeadsPage() {
                   tabIndex={lead.contactId ? 0 : undefined}
                   aria-label={
                     lead.contactId
-                      ? `Open prospect ${lead.name}`
+                      ? `Open prospect ${lead.contact}`
                       : undefined
                   }
                   onClick={() => openLead(lead)}
@@ -390,7 +588,18 @@ export default function LeadsPage() {
                       className="text-sm font-semibold"
                       style={{ color: "#1B1D22" }}
                     >
-                      {lead.name}
+                      {lead.clinic}
+                    </div>
+                    <div className="text-xs" style={{ color: "#9E9890" }}>
+                      Created {lead.createdDate}
+                    </div>
+                  </td>
+                  <td className="px-5 py-4">
+                    <div
+                      className="text-sm font-semibold"
+                      style={{ color: "#1B1D22" }}
+                    >
+                      {lead.contact}
                     </div>
                     <div className="text-xs" style={{ color: "#9E9890" }}>
                       {lead.email}
@@ -406,7 +615,17 @@ export default function LeadsPage() {
                     className="px-5 py-4 text-sm"
                     style={{ color: "#6F6A66" }}
                   >
-                    {lead.campaign}
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STAGE_COLORS_WARM[lead.stage] || "bg-[#F6F3EF] text-[#6F6A66] border border-[#E7E1DA]"}`}
+                    >
+                      {lead.stage}
+                    </span>
+                  </td>
+                  <td
+                    className="px-5 py-4 text-sm"
+                    style={{ color: "#6F6A66" }}
+                  >
+                    {lead.packageInterest}
                   </td>
                   <td
                     className="px-5 py-4 text-sm"
@@ -416,31 +635,34 @@ export default function LeadsPage() {
                   </td>
                   <td className="px-5 py-4">
                     <span
-                      className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STAGE_COLORS_WARM[lead.stage] || "bg-[#F6F3EF] text-[#6F6A66] border border-[#E7E1DA]"}`}
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                        lead.followUpOverdue
+                          ? "bg-red-50 text-red-600 border border-red-200"
+                          : "bg-[#F6F3EF] text-[#6F6A66] border border-[#E7E1DA]"
+                      }`}
                     >
-                      {lead.stage}
+                      {lead.followUpDate}
                     </span>
                   </td>
-                  <td
-                    className="px-5 py-4 text-sm text-right font-semibold"
-                    style={{
-                      color: lead.revenue > 0 ? "#059669" : "#9E9890",
-                    }}
-                  >
-                    {lead.revenue > 0 ? formatMoney(lead.revenue) : "-"}
-                  </td>
-                  <td
-                    className="px-5 py-4 text-sm text-right"
-                    style={{ color: "#9E9890" }}
-                  >
-                    {lead.date}
+                  <td className="px-5 py-4">
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                        lead.status === "won"
+                          ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
+                          : lead.status === "lost"
+                            ? "bg-red-50 text-red-600 border border-red-200"
+                            : "bg-blue-50 text-blue-600 border border-blue-200"
+                      }`}
+                    >
+                      {lead.status}
+                    </span>
                   </td>
                 </tr>
               ))}
               {!isLoading && paginatedItems.length === 0 && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-5 py-12 text-center"
                     style={{ color: "#9E9890" }}
                   >

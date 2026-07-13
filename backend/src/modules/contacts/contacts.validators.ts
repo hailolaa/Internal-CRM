@@ -11,10 +11,12 @@ const contactIdParam = () =>
 
 const contactMutationValidator = [
   body("externalId").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
+  body("accountName").optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
   body("firstName").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
   body("lastName").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
   body("email").optional({ nullable: true, checkFalsy: true }).isEmail().normalizeEmail(),
   body("phone").optional({ nullable: true }).isString().trim().isLength({ max: 30 }),
+  body("website").optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
   body("dateOfBirth").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("gender").optional({ nullable: true }).isString().trim().isLength({ max: 20 }),
   body("address").optional({ nullable: true }).isString().trim().isLength({ max: 1000 }),
@@ -59,8 +61,10 @@ export const listContactsValidator = [
 export const createContactValidator = [
   ...contactMutationValidator,
   body().custom((value) => {
-    if (value.email || value.phone || value.firstName || value.lastName) return true;
-    throw new Error("Contact must include an email, phone, or name");
+    const hasIdentity = value.accountName || value.firstName || value.lastName;
+    const hasContactMethod = value.email || value.phone || value.website;
+    if (hasIdentity && hasContactMethod) return true;
+    throw new Error("Lead must include a clinic/account name or contact name plus email, phone, or website");
   }),
 ];
 
@@ -159,10 +163,12 @@ export const importContactsValidator = [
     throw new Error("Provide contact rows or a Google Sheets source URL");
   }),
   body("rows.*.externalId").optional().isString().trim().isLength({ max: 100 }),
+  body("rows.*.accountName").optional().isString().trim().isLength({ max: 255 }),
   body("rows.*.firstName").optional().isString().trim().isLength({ max: 100 }),
   body("rows.*.lastName").optional().isString().trim().isLength({ max: 100 }),
   body("rows.*.email").optional({ nullable: true, checkFalsy: true }).isEmail().normalizeEmail(),
   body("rows.*.phone").optional().isString().trim().isLength({ max: 30 }),
+  body("rows.*.website").optional().isString().trim().isLength({ max: 255 }),
   body("rows.*.dateOfBirth").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("rows.*.gender").optional().isString().trim().isLength({ max: 20 }),
   body("rows.*.address").optional().isString().trim().isLength({ max: 1000 }),

@@ -148,11 +148,13 @@ export type ContactSortOrder = "asc" | "desc";
 
 export interface ContactRecord {
   id: string;
+  accountName: string | null;
   firstName: string | null;
   lastName: string | null;
   name: string;
   email: string | null;
   phone: string | null;
+  website: string | null;
   dateOfBirth: string | null;
   gender: string | null;
   address: string | null;
@@ -199,10 +201,12 @@ export interface ContactListResult {
 }
 
 export interface ContactCreatePayload {
+  accountName?: string | null;
   firstName?: string | null;
   lastName?: string | null;
   email?: string | null;
   phone?: string | null;
+  website?: string | null;
   address?: string | null;
   city?: string | null;
   state?: string | null;
@@ -299,10 +303,12 @@ export interface ContactLinkedActivity {
 
 export interface ContactImportRow {
   externalId?: string;
+  accountName?: string;
   firstName?: string;
   lastName?: string;
   email?: string;
   phone?: string;
+  website?: string;
   dateOfBirth?: string;
   gender?: string;
   address?: string;

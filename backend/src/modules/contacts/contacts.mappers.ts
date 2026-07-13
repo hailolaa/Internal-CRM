@@ -37,17 +37,20 @@ function formatDate(value: unknown) {
 
 // Map contact rows into frontend-friendly camelCase response fields
 export function mapContact(row: any): ContactResponse {
+  const accountName = row.accountName || null;
   const firstName = row.firstName || null;
   const lastName = row.lastName || null;
-  const name = [firstName, lastName].filter(Boolean).join(" ") || row.email || row.phone || "Unknown";
+  const name = [firstName, lastName].filter(Boolean).join(" ") || accountName || row.email || row.phone || "Unknown";
 
   return {
     id: row.id,
+    accountName,
     firstName,
     lastName,
     name,
     email: row.email || null,
     phone: row.phone || null,
+    website: row.website || null,
     dateOfBirth: formatDate(row.dateOfBirth),
     gender: row.gender || null,
     address: row.address || null,

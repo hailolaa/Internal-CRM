@@ -16,16 +16,19 @@ import { useAuth } from "@/lib/auth-context";
 import type { ContactRecord, ContactUpdatePayload } from "@/lib/api-types";
 
 type FieldKey =
+  | "clinicName"
   | "firstName"
   | "lastName"
   | "email"
   | "phone"
+  | "website"
   | "street"
   | "city"
   | "county"
   | "postcode"
   | "status"
   | "source"
+  | "packageInterest"
   | "value"
   | "notes";
 
@@ -47,18 +50,31 @@ const TREATMENT_OPTIONS = [
   "Monthly reporting",
 ];
 
+function isValidWebsite(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  return /^https?:\/\/[^\s]+\.[^\s]+$/i.test(trimmed) || /^[^\s]+\.[^\s]{2,}$/i.test(trimmed);
+}
+
 function toFields(contact: ContactRecord): Record<FieldKey, string> {
   return {
+    clinicName: contact.accountName || "",
     firstName: contact.firstName || "",
     lastName: contact.lastName || "",
     email: contact.email || "",
     phone: contact.phone || "",
+    website: contact.website || "",
     street: contact.address || "",
     city: contact.city || "",
     county: contact.state || "",
     postcode: contact.postalCode || "",
-    status: contact.status || "prospect",
+    status: contact.status || "lead",
     source: contact.source || "",
+    packageInterest:
+      contact.packageInterest ||
+      contact.recommendedPackage ||
+      contact.treatmentInterests?.[0] ||
+      "",
     value: contact.value ? String(contact.value) : "",
     notes: contact.notes || "",
   };
@@ -71,13 +87,18 @@ function emptyToNull(value: string) {
 
 function validateFields(fields: Record<FieldKey, string>) {
   const hasIdentity =
+    fields.clinicName.trim() ||
     fields.firstName.trim() ||
-    fields.lastName.trim() ||
-    fields.email.trim() ||
-    fields.phone.trim();
+    fields.lastName.trim();
+  const hasContactMethod =
+    fields.email.trim() || fields.phone.trim() || fields.website.trim();
 
   if (!hasIdentity) {
-    return "Contact must include a name, email, or phone number.";
+    return "Add a clinic/account name or a contact name.";
+  }
+
+  if (!hasContactMethod) {
+    return "Add at least one contact method: email, phone, or website.";
   }
 
   if (fields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
@@ -86,6 +107,10 @@ function validateFields(fields: Record<FieldKey, string>) {
 
   if (fields.phone && !/^[\d\s+()-]{7,30}$/.test(fields.phone)) {
     return "Enter a valid phone number.";
+  }
+
+  if (!isValidWebsite(fields.website)) {
+    return "Enter a valid website domain or URL.";
   }
 
   return "";
@@ -103,16 +128,19 @@ export default function EditContactPage() {
   const canWriteContacts = hasPermission("contacts:write");
   const [contact, setContact] = useState<ContactRecord | null>(null);
   const [fields, setFields] = useState<Record<FieldKey, string>>({
+    clinicName: "",
     firstName: "",
     lastName: "",
     email: "",
     phone: "",
+    website: "",
     street: "",
     city: "",
     county: "",
     postcode: "",
-    status: "prospect",
+    status: "lead",
     source: "",
+    packageInterest: "",
     value: "",
     notes: "",
   });
@@ -209,21 +237,31 @@ export default function EditContactPage() {
     }
 
     const value = Number(fields.value.replace(/[^\d.]/g, ""));
+    const primaryPackage = fields.packageInterest.trim();
+    const combinedPackageInterests = Array.from(
+      new Set([primaryPackage, ...treatmentInterests].filter(Boolean)),
+    );
+    const fallbackName = fields.clinicName.trim();
     const payload: ContactUpdatePayload = {
-      firstName: emptyToNull(fields.firstName),
+      accountName: emptyToNull(fields.clinicName),
+      firstName: emptyToNull(fields.firstName) || emptyToNull(fallbackName),
       lastName: emptyToNull(fields.lastName),
       email: emptyToNull(fields.email),
       phone: emptyToNull(fields.phone),
+      website: emptyToNull(fields.website),
       address: emptyToNull(fields.street),
       city: emptyToNull(fields.city),
       state: emptyToNull(fields.county),
       postalCode: emptyToNull(fields.postcode),
       status: emptyToNull(fields.status),
+      leadStatus: emptyToNull(fields.status),
       source: emptyToNull(fields.source),
       value: Number.isFinite(value) ? value : 0,
+      packageInterest: emptyToNull(fields.packageInterest),
+      recommendedPackage: emptyToNull(fields.packageInterest),
       notes: emptyToNull(fields.notes),
       tags,
-      treatmentInterests,
+      treatmentInterests: combinedPackageInterests,
     };
 
     try {
@@ -274,8 +312,8 @@ export default function EditContactPage() {
           Back to contacts
         </Link>
         <AlertBanner
-          title="Contact could not be loaded"
-          description={loadError || "The backend did not return this contact."}
+          title="Lead could not be loaded"
+          description={loadError || "The backend did not return this lead."}
           variant="warning"
         />
       </div>
@@ -297,7 +335,7 @@ export default function EditContactPage() {
             <ArrowLeft className="w-5 h-5 text-[#6B7280]" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-[#111111]">Edit Contact</h1>
+            <h1 className="text-2xl font-bold text-[#111111]">Edit Lead</h1>
             <p className="text-[#6B7280] text-sm">{contact.name}</p>
           </div>
         </div>
@@ -328,7 +366,7 @@ export default function EditContactPage() {
               </>
             ) : (
               <>
-                <Save className="w-4 h-4" /> Save Changes
+              <Save className="w-4 h-4" /> Save Lead
               </>
             )}
           </button>
@@ -337,7 +375,7 @@ export default function EditContactPage() {
 
       {!canWriteContacts && (
         <AlertBanner
-          title="Contact editing is unavailable"
+          title="Lead editing is unavailable"
           description="Your current role does not include contacts:write."
           variant="warning"
         />
@@ -345,7 +383,7 @@ export default function EditContactPage() {
 
       {statusMessage && (
         <AlertBanner
-          title="Contact could not be saved"
+          title="Lead could not be saved"
           description={statusMessage}
           variant="warning"
         />
@@ -355,12 +393,23 @@ export default function EditContactPage() {
         <div className="lg:col-span-2 space-y-5">
           <Card padding="p-6">
             <h2 className="font-semibold text-[#111111] mb-5">
-              Basic Information
+              Lead Identity
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                  Clinic / Account Name
+                </label>
+                <input
+                  value={fields.clinicName}
+                  onChange={handleInputChange("clinicName")}
+                  placeholder="Bright Smile Dental"
+                  className={inputBase}
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  First Name
+                  Contact First Name
                 </label>
                 <input
                   value={fields.firstName}
@@ -370,7 +419,7 @@ export default function EditContactPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Last Name
+                  Contact Last Name
                 </label>
                 <input
                   value={fields.lastName}
@@ -391,7 +440,7 @@ export default function EditContactPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Phone
+                  Phone / WhatsApp
                 </label>
                 <input
                   value={fields.phone}
@@ -400,15 +449,26 @@ export default function EditContactPage() {
                   className={inputBase}
                 />
               </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                  Website
+                </label>
+                <input
+                  value={fields.website}
+                  onChange={handleInputChange("website")}
+                  placeholder="exampleclinic.com"
+                  className={inputBase}
+                />
+              </div>
             </div>
           </Card>
 
           <Card padding="p-6">
-            <h2 className="font-semibold text-[#111111] mb-5">Address</h2>
+            <h2 className="font-semibold text-[#111111] mb-5">Location</h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Street Address
+                  Street / Location
                 </label>
                 <input
                   value={fields.street}
@@ -429,7 +489,7 @@ export default function EditContactPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                    County
+                    County / Region
                   </label>
                   <input
                     value={fields.county}
@@ -452,7 +512,7 @@ export default function EditContactPage() {
           </Card>
 
           <Card padding="p-6">
-            <h2 className="font-semibold text-[#111111] mb-5">Notes</h2>
+            <h2 className="font-semibold text-[#111111] mb-5">Lead Notes</h2>
             <textarea
               rows={5}
               value={fields.notes}
@@ -477,13 +537,25 @@ export default function EditContactPage() {
                   onChange={handleSelectChange("status")}
                   className={selectBase}
                 >
+                  <option value="lead">Lead</option>
                   <option value="prospect">Prospect</option>
+                  <option value="contacted">Contacted</option>
+                  <option value="qualified">Qualified</option>
                   <option value="discovery_call_booked">Discovery Call Booked</option>
                   <option value="proposal_sent">Proposal Sent</option>
                   <option value="client">Client</option>
                   <option value="lost">Lost</option>
                   {fields.status &&
-                    !["prospect", "discovery_call_booked", "proposal_sent", "client", "lost"].includes(
+                    ![
+                      "lead",
+                      "prospect",
+                      "contacted",
+                      "qualified",
+                      "discovery_call_booked",
+                      "proposal_sent",
+                      "client",
+                      "lost",
+                    ].includes(
                       fields.status,
                     ) && <option value={fields.status}>{fields.status}</option>}
                 </select>
@@ -498,23 +570,58 @@ export default function EditContactPage() {
                   className={selectBase}
                 >
                   <option value="">Select source</option>
+                  <option value="phone">Phone</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="email">Email</option>
+                  <option value="referral">Referral</option>
+                  <option value="direct">Direct conversation</option>
+                  <option value="website">Website</option>
                   <option value="google">Google Ads</option>
                   <option value="meta">Meta Ads</option>
                   <option value="instagram">Instagram</option>
-                  <option value="referral">Referral</option>
-                  <option value="website">Website</option>
                   <option value="outbound">Outbound</option>
                   {fields.source &&
                     ![
+                      "phone",
+                      "whatsapp",
+                      "email",
+                      "referral",
+                      "direct",
+                      "website",
                       "google",
                       "meta",
                       "instagram",
-                      "referral",
-                      "website",
-                       "outbound",
+                      "outbound",
                     ].includes(fields.source) && (
                       <option value={fields.source}>{fields.source}</option>
                     )}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                  Package Interest
+                </label>
+                <select
+                  value={fields.packageInterest}
+                  onChange={handleSelectChange("packageInterest")}
+                  className={selectBase}
+                >
+                  <option value="">Select package</option>
+                  {allTreatmentOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                  {fields.packageInterest &&
+                    fields.packageInterest !== "Other" &&
+                    !allTreatmentOptions.includes(fields.packageInterest) && (
+                      <option value={fields.packageInterest}>
+                        {fields.packageInterest}
+                      </option>
+                    )}
+                  {!allTreatmentOptions.includes("Other") && (
+                    <option value="Other">Other</option>
+                  )}
                 </select>
               </div>
               <div>
@@ -575,7 +682,7 @@ export default function EditContactPage() {
 
           <Card padding="p-6">
             <h2 className="font-semibold text-[#111111] mb-5">
-              Service / Package Interest
+              Additional Interests
             </h2>
             <div className="space-y-1">
               {allTreatmentOptions.map((treatment) => (

@@ -17,17 +17,19 @@ export async function insertContact(
 ) {
   await pool.execute(
     `INSERT INTO contact
-      (id, clinic_id, first_name, last_name, email, phone, date_of_birth, gender,
+      (id, clinic_id, account_name, first_name, last_name, email, phone, website, date_of_birth, gender,
        address, city, state, postal_code, country, tags, status, lead_status, source, value,
        treatment_interests, package_interest, recommended_package, notes, last_contact_at, external_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       contactId,
       clinicId,
+      contact.accountName,
       contact.firstName,
       contact.lastName,
       contact.email,
       contact.phone,
+      contact.website,
       contact.dateOfBirth,
       contact.gender,
       contact.address,
@@ -63,6 +65,11 @@ export async function findDuplicateContacts(
     values.push(contact.email);
   }
 
+  if (contact.website) {
+    clauses.push("LOWER(TRIM(c.website)) = ?");
+    values.push(contact.website.toLowerCase());
+  }
+
   if (contact.phone) {
     clauses.push(`${phoneSqlExpression("c.phone")} = ?`);
     values.push(contact.phone);
@@ -79,6 +86,7 @@ export async function findDuplicateContacts(
     `SELECT c.id,
             c.email,
             c.phone,
+            c.website,
             c.first_name as firstName,
             c.last_name as lastName
      FROM contact c
@@ -92,6 +100,7 @@ export async function findDuplicateContacts(
 
   return rows.map((row: any) => {
     const emailMatches = contact.email && normalizeEmail(row.email) === contact.email;
+    const websiteMatches = contact.website && cleanString(row.website)?.toLowerCase() === contact.website.toLowerCase();
     const phoneMatches = contact.phone && normalizePhone(row.phone) === contact.phone;
     const nameMatches = contact.firstName
       && contact.lastName
@@ -99,6 +108,7 @@ export async function findDuplicateContacts(
       && cleanString(row.lastName)?.toLowerCase() === contact.lastName.toLowerCase();
 
     if (emailMatches) return { existingContactId: row.id, matchType: "email", score: 100 };
+    if (websiteMatches) return { existingContactId: row.id, matchType: "website", score: 80 };
     if (phoneMatches) return { existingContactId: row.id, matchType: "phone", score: 90 };
     if (nameMatches) return { existingContactId: row.id, matchType: "name", score: 70 };
     return { existingContactId: row.id, matchType: "unknown", score: 50 };
@@ -146,17 +156,19 @@ export async function insertImportedContact(
 
   await pool.execute(
     `INSERT INTO contact
-      (id, clinic_id, first_name, last_name, email, phone, date_of_birth, gender,
+      (id, clinic_id, account_name, first_name, last_name, email, phone, website, date_of_birth, gender,
        address, city, state, postal_code, country, tags, status, lead_status, source, value,
        treatment_interests, package_interest, recommended_package, notes, last_contact_at, import_batch_id, external_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       contactId,
       clinicId,
+      row.accountName,
       row.firstName,
       row.lastName,
       row.email,
       row.phone,
+      row.website,
       row.dateOfBirth,
       row.gender,
       row.address,
@@ -192,9 +204,11 @@ export async function updateImportedContact(
   await pool.execute(
     `UPDATE contact
      SET first_name = COALESCE(?, first_name),
+         account_name = COALESCE(?, account_name),
          last_name = COALESCE(?, last_name),
          email = COALESCE(?, email),
          phone = COALESCE(?, phone),
+         website = COALESCE(?, website),
          date_of_birth = COALESCE(?, date_of_birth),
          gender = COALESCE(?, gender),
          address = COALESCE(?, address),
@@ -218,9 +232,11 @@ export async function updateImportedContact(
      WHERE id = ? AND clinic_id = ?`,
     [
       row.firstName,
+      row.accountName,
       row.lastName,
       row.email,
       row.phone,
+      row.website,
       row.dateOfBirth,
       row.gender,
       row.address,

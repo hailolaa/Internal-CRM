@@ -57,10 +57,12 @@ function normalizeStringList(values: unknown): string[] {
 export function normalizeContactData(data: Partial<ContactMutationDTO>): NormalizedContactData {
   return {
     externalId: cleanString(data.externalId),
+    accountName: cleanString(data.accountName),
     firstName: cleanString(data.firstName),
     lastName: cleanString(data.lastName),
     email: normalizeEmail(data.email),
     phone: normalizePhone(data.phone),
+    website: cleanString(data.website),
     dateOfBirth: normalizeDate(data.dateOfBirth),
     gender: cleanString(data.gender),
     address: cleanString(data.address),

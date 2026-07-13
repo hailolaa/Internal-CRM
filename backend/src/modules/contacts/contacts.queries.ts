@@ -2,10 +2,12 @@ import type { ContactListQuery } from "./contacts.types.js";
 import { cleanString, normalizePhone } from "./contacts.normalizers.js";
 
 export const contactSelectFields = `c.id,
+              c.account_name as accountName,
               c.first_name as firstName,
               c.last_name as lastName,
               c.email,
               c.phone,
+              c.website,
               c.date_of_birth as dateOfBirth,
               c.gender,
               c.address,
@@ -117,7 +119,9 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
     const phoneSearch = normalizePhone(search) || search;
     clauses.push(
       `(LOWER(CONCAT_WS(' ', c.first_name, c.last_name)) LIKE ?
+        OR LOWER(COALESCE(c.account_name, '')) LIKE ?
         OR LOWER(COALESCE(c.email, '')) LIKE ?
+        OR LOWER(COALESCE(c.website, '')) LIKE ?
         OR ${phoneSqlExpression("c.phone")} LIKE ?
         OR LOWER(COALESCE(c.source, '')) LIKE ?
         OR LOWER(COALESCE(c.status, '')) LIKE ?
@@ -128,7 +132,7 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
         OR CAST(COALESCE(c.tags, JSON_ARRAY()) AS CHAR) LIKE ?
         OR CAST(COALESCE(c.treatment_interests, JSON_ARRAY()) AS CHAR) LIKE ?)`,
     );
-    values.push(like, like, `%${phoneSearch}%`, like, like, like, like, like, like, like, like);
+    values.push(like, like, like, like, `%${phoneSearch}%`, like, like, like, like, like, like, like, like);
   }
 
   return {

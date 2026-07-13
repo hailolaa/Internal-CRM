@@ -76,12 +76,21 @@ const importHeaderAliases: Record<string, keyof ContactImportRow | "tags"> = {
   familyname: "lastName",
   fullname: "firstName",
   name: "firstName",
+  account: "accountName",
+  accountname: "accountName",
+  clinic: "accountName",
+  clinicname: "accountName",
+  company: "accountName",
+  companyname: "accountName",
   email: "email",
   emailaddress: "email",
   phone: "phone",
   mobile: "phone",
   mobilenumber: "phone",
   phonenumber: "phone",
+  website: "website",
+  url: "website",
+  domain: "website",
   tags: "tags",
   tag: "tags",
   source: "source",
@@ -109,10 +118,12 @@ function csvCell(value: unknown) {
 function toContactsCsv(contacts: ContactResponse[]) {
   const headers = [
     "id",
+    "accountName",
     "firstName",
     "lastName",
     "email",
     "phone",
+    "website",
     "status",
     "leadStatus",
     "source",
@@ -127,10 +138,12 @@ function toContactsCsv(contacts: ContactResponse[]) {
   ];
   const rows = contacts.map((contact) => [
     contact.id,
+    contact.accountName,
     contact.firstName,
     contact.lastName,
     contact.email,
     contact.phone,
+    contact.website,
     contact.status,
     contact.leadStatus,
     contact.source,
@@ -213,10 +226,12 @@ function parseImportText(text: string): ContactImportRow[] {
     });
 
     const row: ContactImportRow = {
+      accountName: raw.accountName || raw.account || raw.clinic || raw.company || "",
       firstName: raw.firstName || raw.firstname || raw.first || "",
       lastName: raw.lastName || raw.lastname || raw.last || "",
       email: raw.email || "",
       phone: raw.phone || raw.mobile || "",
+      website: raw.website || raw.url || raw.domain || "",
       tags: splitListCell(raw.tags),
       source: raw.source || "Google Sheets",
       status: raw.status || "lead",
@@ -468,13 +483,15 @@ export class ContactsService {
     meta: RequestMeta = {},
   ): Promise<ContactMutationResponse> {
     const normalized = normalizeContactData(data);
-    if (!normalized.email && !normalized.phone && !normalized.firstName && !normalized.lastName) {
-      throw ApiError.badRequest("Contact must include an email, phone, or name");
+    const hasIdentity = Boolean(normalized.accountName || normalized.firstName || normalized.lastName);
+    const hasContactMethod = Boolean(normalized.email || normalized.phone || normalized.website);
+    if (!hasIdentity || !hasContactMethod) {
+      throw ApiError.badRequest("Lead must include a clinic/account name or contact name plus email, phone, or website");
     }
 
     const duplicateMatches = await findDuplicateContacts(clinicId, normalized);
     const blockingMatches = duplicateMatches.filter((match) =>
-      match.matchType === "email" || match.matchType === "phone",
+      match.matchType === "email" || match.matchType === "phone" || match.matchType === "website",
     );
 
     if (blockingMatches.length > 0) {
@@ -499,8 +516,10 @@ export class ContactsService {
         changes: {
           duplicateCandidates: duplicateCandidates.length,
           blockingMatchTypes: blockingMatches.map((item) => item.matchType),
+          accountName: normalized.accountName,
           email: normalized.email,
           phone: normalized.phone,
+          website: normalized.website,
         },
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
@@ -511,7 +530,7 @@ export class ContactsService {
         {
           duplicateCandidates,
           duplicateDetected: true,
-          blockingRules: ["email", "phone"],
+          blockingRules: ["email", "phone", "website"],
         },
       );
     }
@@ -584,10 +603,12 @@ export class ContactsService {
     };
 
     addField("externalId", "external_id", normalized.externalId);
+    addField("accountName", "account_name", normalized.accountName);
     addField("firstName", "first_name", normalized.firstName);
     addField("lastName", "last_name", normalized.lastName);
     addField("email", "email", normalized.email);
     addField("phone", "phone", normalized.phone);
+    addField("website", "website", normalized.website);
     addField("dateOfBirth", "date_of_birth", normalized.dateOfBirth);
     addField("gender", "gender", normalized.gender);
     addField("address", "address", normalized.address);
