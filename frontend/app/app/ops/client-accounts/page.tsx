@@ -336,10 +336,7 @@ export default function ClientAccountsPage() {
               <TableCell>
                 <div>
                   <p className="font-semibold text-[#151f21]">
-                    <Link
-                      href={`/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}`}
-                      className="hover:text-[#5e8a8d] hover:underline"
-                    >
+                    <Link href={`/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}`} className="transition-colors hover:text-[#315f62] hover:underline">
                       {account.clinicName}
                     </Link>
                   </p>

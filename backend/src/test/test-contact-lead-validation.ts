@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasUsableLeadIdentity } from "../modules/contacts/contacts.normalizers.js";
+import { hasUsableLeadIdentity, normalizeContactData } from "../modules/contacts/contacts.normalizers.js";
 
 test("manual leads require a name and contact method", () => {
   assert.equal(hasUsableLeadIdentity({ accountName: "Smile Clinic", email: "hello@example.com" }), true);
@@ -9,4 +9,19 @@ test("manual leads require a name and contact method", () => {
   assert.equal(hasUsableLeadIdentity({ accountName: "Smile Clinic", website: "smile.example" }), false);
   assert.equal(hasUsableLeadIdentity({ email: "hello@example.com" }), false);
   assert.equal(hasUsableLeadIdentity({}), false);
+});
+
+test("contact role and communication permissions are normalized", () => {
+  const contact = normalizeContactData({
+    role: "  Practice Owner  ",
+    communicationPermissions: { email: true, whatsapp: true },
+  });
+
+  assert.equal(contact.role, "Practice Owner");
+  assert.deepEqual(contact.communicationPermissions, {
+    email: true,
+    sms: false,
+    whatsapp: true,
+    phone: false,
+  });
 });

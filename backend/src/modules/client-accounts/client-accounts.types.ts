@@ -50,7 +50,6 @@ export interface ClientAccountProfileResponse {
   state: string | null;
   postalCode: string | null;
   country: string | null;
-  accountType: string | null;
   accountManager: {
     id: string;
     firstName: string | null;

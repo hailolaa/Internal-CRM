@@ -148,7 +148,9 @@ export default function ContactDetailPage() {
       },
       { icon: Mail, label: "Email", value: contact?.email || "Not provided" },
       { icon: Phone, label: "Phone", value: contact?.phone || "Not provided" },
-      { icon: Globe, label: "Website", value: contact?.website || "Not provided" },
+      { icon: UserRound, label: "Role", value: contact?.role || "Not provided" },
+      { icon: BriefcaseBusiness, label: "Account", value: contact?.accountName || "Not linked" },
+      { icon: ExternalLink, label: "Website", value: contact?.website || "Not provided" },
       { icon: UserRound, label: "Source", value: contact?.source || "Unknown" },
       {
         icon: Clock,
@@ -547,6 +549,26 @@ export default function ContactDetailPage() {
             </div>
           </Card>
 
+          <Card padding="p-5 sm:p-6">
+            <h2 className="text-base font-semibold text-[#151f21]">Related records</h2>
+            <p className="mt-1 text-sm text-[#6F6A66]">Open the records connected to this contact across Mission Control.</p>
+            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {[
+                ["Lead", `/app/leads?contactId=${contact.id}`],
+                ["Deals", `/app/crm/pipeline?contactId=${contact.id}`],
+                ["Notes", "#contact-notes"],
+                ["Tasks", `/app/crm/tasks?contactId=${contact.id}`],
+                ["Audits", `/app/admin?entityId=${contact.id}`],
+                ["Proposals", `/app/crm/pipeline?contactId=${contact.id}&view=proposals`],
+              ].map(([label, href]) => (
+                <Link key={label} href={href} className="flex items-center justify-between rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-semibold text-[#315f62] transition hover:border-[#a9c7c4] hover:bg-[#edf5f3]">
+                  {label}
+                  <ExternalLink className="h-4 w-4" />
+                </Link>
+              ))}
+            </div>
+          </Card>
+
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <Card padding="p-5 sm:p-6">
               <h2 className="mb-4 text-base font-semibold text-[#151f21]">
@@ -693,23 +715,52 @@ export default function ContactDetailPage() {
           </div>
 
           <Card padding="p-5 sm:p-6">
-            <h2 className="text-base font-semibold text-[#151f21]">
-              Communication permissions
-            </h2>
-            <div className="mt-4 space-y-3">
-              {communicationPermissions.map(([label, value]) => (
-                <div
-                  key={String(label)}
-                  className="flex items-center justify-between rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm"
-                >
-                  <span className="font-medium text-[#151f21]">{label}</span>
-                  <span className={value ? "text-[#16794c]" : "text-[#8A5A44]"}>
-                    {value ? "Allowed" : "Not allowed"}
-                  </span>
+            <h2 className="text-base font-semibold text-[#151f21]">Communication permissions</h2>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {Object.entries(contact.communicationPermissions).map(([channel, allowed]) => (
+                <div key={channel} className="flex items-center justify-between rounded-xl bg-[#FAF8F5] px-3 py-2.5 text-sm capitalize text-[#6F6A66]">
+                  {channel}
+                  <StatusBadge status={allowed ? "Allowed" : "Not allowed"} />
                 </div>
               ))}
             </div>
           </Card>
+
+          <div id="contact-notes">
+          <Card padding="p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-[#151f21]">Notes</h2>
+              <span className="text-xs text-[#6F6A66]">
+                Internal prospect notes
+              </span>
+            </div>
+            <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-[#6F6A66]">
+              {contact.notes || "No notes recorded."}
+            </p>
+            <div className="mt-5 space-y-3">
+              <textarea
+                value={noteDraft}
+                onChange={(event) => setNoteDraft(event.target.value)}
+                disabled={!canWriteContacts || actionName === "note"}
+                rows={4}
+                className="w-full resize-none rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                placeholder="Add a sales follow-up note, context from a call, objection, next step, or handoff detail..."
+              />
+              <button
+                onClick={handleAddNote}
+                disabled={!canWriteContacts || actionName === "note" || !noteDraft.trim()}
+                className="btn-primary text-sm disabled:opacity-60"
+              >
+                {actionName === "note" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <MessageSquare className="h-4 w-4" />
+                )}
+                Add Note
+              </button>
+            </div>
+          </Card>
+          </div>
 
           <Card padding="p-5 sm:p-6">
             <h2 className="mb-4 text-base font-semibold text-[#151f21]">

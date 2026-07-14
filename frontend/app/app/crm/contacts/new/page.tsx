@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth-context";
 
 type FieldKey =
   | "clinicName"
+  | "role"
   | "firstName"
   | "lastName"
   | "email"
@@ -91,10 +92,10 @@ export default function NewContactPage() {
   const [tags, setTags] = useState<string[]>([]);
   const [packageInterests, setPackageInterests] = useState<string[]>([]);
   const [communicationPermissions, setCommunicationPermissions] = useState({
-    emailPermission: true,
-    phonePermission: true,
-    smsPermission: false,
-    whatsappPermission: false,
+    email: false,
+    sms: false,
+    whatsapp: false,
+    phone: false,
   });
   const [customTag, setCustomTag] = useState("");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -104,6 +105,7 @@ export default function NewContactPage() {
 
   const [fields, setFields] = useState<Record<FieldKey, string>>({
     clinicName: "",
+    role: "",
     firstName: "",
     lastName: "",
     email: "",
@@ -155,6 +157,8 @@ export default function NewContactPage() {
       setStatusMessage(null);
       const result = await api.contacts.create(session.token, {
         accountName: emptyToNull(fields.clinicName),
+        role: emptyToNull(fields.role),
+        communicationPermissions,
         firstName: emptyToNull(fields.firstName),
         lastName: emptyToNull(fields.lastName),
         email: emptyToNull(fields.email),
@@ -276,6 +280,18 @@ export default function NewContactPage() {
                   value={fields.roleTitle}
                   onChange={handleInputChange("roleTitle")}
                   placeholder="Owner, manager, marketing lead..."
+                  className={inputBase}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                  Contact Role
+                </label>
+                <input
+                  type="text"
+                  value={fields.role}
+                  onChange={handleInputChange("role")}
+                  placeholder="Practice owner, marketing manager, finance contact..."
                   className={inputBase}
                 />
               </div>
@@ -464,6 +480,27 @@ export default function NewContactPage() {
         </div>
 
         <div className="lg:col-span-1 space-y-5">
+          <div
+            className="rounded-[24px] p-6"
+            style={{ backgroundColor: "#FFFCF9", border: "1px solid rgba(0,0,0,0.06)", boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
+          >
+            <h2 className="font-semibold text-[#111111] mb-2">Communication Permissions</h2>
+            <p className="mb-4 text-sm text-[#6B7280]">Only enable agreed contact channels.</p>
+            <div className="grid grid-cols-2 gap-3">
+              {Object.entries(communicationPermissions).map(([channel, enabled]) => (
+                <label key={channel} className="flex items-center gap-3 rounded-xl border border-[rgba(0,0,0,0.06)] bg-[#FAF8F5] px-3 py-3 text-sm font-medium capitalize text-[#111111]">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(event) => setCommunicationPermissions((current) => ({ ...current, [channel]: event.target.checked }))}
+                    className="h-4 w-4 accent-[#6E6AE8]"
+                  />
+                  {channel}
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div
             className="rounded-[24px] p-6"
             style={{

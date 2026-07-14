@@ -71,7 +71,6 @@ export interface ClientAccountProfileRecord {
   state: string | null;
   postalCode: string | null;
   country: string | null;
-  accountType: string | null;
   accountManager: ClientAccountPerson | null;
   activeServices: string[];
   onboardingStatus: ClientAccountOnboardingStatus;

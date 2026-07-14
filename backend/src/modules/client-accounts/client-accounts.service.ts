@@ -113,7 +113,6 @@ export class ClientAccountsService {
           c.state,
           c.postal_code as postalCode,
           c.country,
-          c.subscription_plan as accountType,
           c.updated_at as clinicUpdatedAt,
           cap.id,
           cap.account_manager_id as accountManagerId,
@@ -414,7 +413,6 @@ export class ClientAccountsService {
           c.state,
           c.postal_code as postalCode,
           c.country,
-          c.subscription_plan as accountType,
           cap.id,
           cap.account_manager_id as accountManagerId,
           cap.active_services as activeServices,
@@ -455,7 +453,6 @@ export class ClientAccountsService {
       state: row.state || null,
       postalCode: row.postalCode || null,
       country: row.country || null,
-      accountType: row.accountType || null,
       accountManager: row.accountManagerId
         ? {
             id: row.accountManagerId,
@@ -934,7 +931,6 @@ export class ClientAccountsService {
       state: row.state || null,
       postalCode: row.postalCode || null,
       country: row.country || null,
-      accountType: row.accountType || null,
       accountManager: row.accountManagerId
         ? {
             id: row.accountManagerId,

@@ -1,4 +1,5 @@
 import type {
+  ContactCommunicationPermissions,
   ContactImportRow,
   ContactMutationDTO,
   NormalizedContactData,
@@ -80,11 +81,24 @@ function normalizeStringList(values: unknown): string[] {
     : [];
 }
 
+function normalizeCommunicationPermissions(
+  value: Partial<ContactCommunicationPermissions> | null | undefined,
+): ContactCommunicationPermissions {
+  return {
+    email: value?.email === true,
+    sms: value?.sms === true,
+    whatsapp: value?.whatsapp === true,
+    phone: value?.phone === true,
+  };
+}
+
 // Normalize manual create/update payloads before database writes and duplicate checks
 export function normalizeContactData(data: Partial<ContactMutationDTO>): NormalizedContactData {
   return {
     externalId: cleanString(data.externalId),
     accountName: cleanString(data.accountName),
+    role: cleanString(data.role),
+    communicationPermissions: normalizeCommunicationPermissions(data.communicationPermissions),
     firstName: cleanString(data.firstName),
     lastName: cleanString(data.lastName),
     email: normalizeEmail(data.email),
