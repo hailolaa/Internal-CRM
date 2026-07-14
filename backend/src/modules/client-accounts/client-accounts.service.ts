@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
+import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import type {
@@ -12,6 +13,7 @@ import type {
   CreateClientAccountDTO,
   CreateClientAccountFromContactDTO,
   CreateClientAccountServiceDTO,
+  UpdateClientAccountDriveFolderDTO,
   UpdateClientAccountServiceDTO,
   UpdateClientAccountProfileDTO,
 } from "./client-accounts.types.js";
@@ -56,6 +58,31 @@ function ownKey<T extends object>(data: T, key: keyof T) {
 
 function normalizeServices(services: string[]) {
   return Array.from(new Set(services.map((service) => service.trim()).filter(Boolean)));
+}
+
+function extractGoogleDriveFolderId(value: string) {
+  const input = value.trim();
+  if (/^[A-Za-z0-9_-]{10,255}$/.test(input) && !input.includes(".")) return input;
+
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    throw ApiError.badRequest("Enter a valid Google Drive folder URL or folder ID.");
+  }
+
+  const host = url.hostname.toLowerCase();
+  if (!host.endsWith("drive.google.com")) {
+    throw ApiError.badRequest("Only Google Drive folder links are supported.");
+  }
+
+  const folderPathMatch = url.pathname.match(/\/drive\/(?:u\/\d+\/)?folders\/([^/?#]+)/);
+  const folderId = folderPathMatch?.[1] || url.searchParams.get("id");
+  if (!folderId || !/^[A-Za-z0-9_-]{10,255}$/.test(folderId)) {
+    throw ApiError.badRequest("Google Drive folder link must include a valid folder ID.");
+  }
+
+  return folderId;
 }
 
 export class ClientAccountsService {
@@ -125,6 +152,12 @@ export class ClientAccountsService {
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
           cap.key_notes as keyNotes,
+          cap.google_drive_folder_id as googleDriveFolderId,
+          cap.google_drive_folder_url as googleDriveFolderUrl,
+          cap.google_drive_folder_name as googleDriveFolderName,
+          cap.google_drive_folder_access_status as googleDriveFolderAccessStatus,
+          cap.google_drive_folder_error as googleDriveFolderError,
+          cap.google_drive_folder_checked_at as googleDriveFolderCheckedAt,
           cap.updated_at as updatedAt,
           u.first_name as accountManagerFirstName,
           u.last_name as accountManagerLastName,
@@ -424,6 +457,12 @@ export class ClientAccountsService {
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
           cap.key_notes as keyNotes,
+          cap.google_drive_folder_id as googleDriveFolderId,
+          cap.google_drive_folder_url as googleDriveFolderUrl,
+          cap.google_drive_folder_name as googleDriveFolderName,
+          cap.google_drive_folder_access_status as googleDriveFolderAccessStatus,
+          cap.google_drive_folder_error as googleDriveFolderError,
+          cap.google_drive_folder_checked_at as googleDriveFolderCheckedAt,
           cap.updated_at as updatedAt,
           u.first_name as accountManagerFirstName,
           u.last_name as accountManagerLastName,
@@ -470,8 +509,102 @@ export class ClientAccountsService {
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
       keyNotes: row.keyNotes || null,
+      googleDriveFolderId: row.googleDriveFolderId || null,
+      googleDriveFolderUrl: row.googleDriveFolderUrl || null,
+      googleDriveFolderName: row.googleDriveFolderName || null,
+      googleDriveFolderAccessStatus: row.googleDriveFolderAccessStatus || "not_checked",
+      googleDriveFolderError: row.googleDriveFolderError || null,
+      googleDriveFolderCheckedAt: toIsoString(row.googleDriveFolderCheckedAt),
       updatedAt: toIsoString(row.updatedAt),
     };
+  }
+
+  async updateDriveFolder(
+    clinicId: string,
+    userId: string,
+    data: UpdateClientAccountDriveFolderDTO,
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountProfileResponse> {
+    const before = await this.getProfile(clinicId);
+    const profileId = before.id || await this.ensureProfileRow(clinicId, userId);
+    const input = (data.folderId || data.folderUrl || "").trim();
+
+    if (!input) {
+      await pool.execute(
+        `UPDATE client_account_profile
+         SET google_drive_folder_id = NULL,
+             google_drive_folder_url = NULL,
+             google_drive_folder_name = NULL,
+             google_drive_folder_access_status = 'not_checked',
+             google_drive_folder_error = NULL,
+             google_drive_folder_checked_at = NULL,
+             updated_by = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ?`,
+        [userId, profileId, clinicId],
+      );
+
+      await logAuditEvent({
+        clinicId,
+        userId,
+        action: "CLIENT_ACCOUNT_DRIVE_FOLDER_REMOVED",
+        entityType: "client_account_profile",
+        entityId: profileId,
+        changes: {
+          googleDriveFolderId: { before: before.googleDriveFolderId, after: null },
+          googleDriveFolderUrl: { before: before.googleDriveFolderUrl, after: null },
+        },
+        ipAddress: auditContext.ipAddress || null,
+        userAgent: auditContext.userAgent || null,
+      });
+
+      return this.getProfile(clinicId);
+    }
+
+    const folderId = extractGoogleDriveFolderId(input);
+    const folderUrl = `https://drive.google.com/drive/folders/${folderId}`;
+    const accessCheck = await this.checkGoogleDriveFolderAccess(folderId);
+
+    await pool.execute(
+      `UPDATE client_account_profile
+       SET google_drive_folder_id = ?,
+           google_drive_folder_url = ?,
+           google_drive_folder_name = ?,
+           google_drive_folder_access_status = ?,
+           google_drive_folder_error = ?,
+           google_drive_folder_checked_at = ?,
+           updated_by = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ?`,
+      [
+        folderId,
+        folderUrl,
+        accessCheck.name,
+        accessCheck.status,
+        accessCheck.error,
+        accessCheck.checkedAt,
+        userId,
+        profileId,
+        clinicId,
+      ],
+    );
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_DRIVE_FOLDER_UPDATED",
+      entityType: "client_account_profile",
+      entityId: profileId,
+      changes: {
+        googleDriveFolderId: { before: before.googleDriveFolderId, after: folderId },
+        googleDriveFolderUrl: { before: before.googleDriveFolderUrl, after: folderUrl },
+        googleDriveFolderAccessStatus: { before: before.googleDriveFolderAccessStatus, after: accessCheck.status },
+      },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.getProfile(clinicId);
   }
 
   async updateProfile(
@@ -948,6 +1081,12 @@ export class ClientAccountsService {
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
       keyNotes: row.keyNotes || null,
+      googleDriveFolderId: row.googleDriveFolderId || null,
+      googleDriveFolderUrl: row.googleDriveFolderUrl || null,
+      googleDriveFolderName: row.googleDriveFolderName || null,
+      googleDriveFolderAccessStatus: row.googleDriveFolderAccessStatus || "not_checked",
+      googleDriveFolderError: row.googleDriveFolderError || null,
+      googleDriveFolderCheckedAt: toIsoString(row.googleDriveFolderCheckedAt),
       updatedAt: toIsoString(row.updatedAt || row.clinicUpdatedAt),
       activeServiceCount: Number(row.activeServiceCount || 0),
       renewalRiskCount: Number(row.renewalRiskCount || 0),
@@ -1002,6 +1141,63 @@ export class ClientAccountsService {
       contractStatus: data.contractStatus || DEFAULT_PROFILE.contractStatus,
       keyNotes: data.keyNotes?.trim() || null,
     };
+  }
+
+  private async checkGoogleDriveFolderAccess(folderId: string): Promise<{
+    name: string | null;
+    status: "not_checked" | "accessible" | "inaccessible";
+    error: string | null;
+    checkedAt: string | null;
+  }> {
+    if (!config.googleDrive.validationEnabled) {
+      return {
+        name: null,
+        status: "not_checked",
+        error: null,
+        checkedAt: null,
+      };
+    }
+
+    if (!config.googleDrive.accessToken) {
+      throw ApiError.serviceUnavailable("Google Drive validation is enabled but no access token is configured.");
+    }
+
+    const checkedAt = new Date().toISOString().slice(0, 19).replace("T", " ");
+    try {
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed&supportsAllDrives=true`,
+        {
+          headers: {
+            Authorization: `Bearer ${config.googleDrive.accessToken}`,
+            Accept: "application/json",
+          },
+        },
+      );
+      const payload: any = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const message = payload.error?.message || "Google Drive folder is inaccessible to the configured account.";
+        throw ApiError.badRequest(message);
+      }
+
+      if (payload.mimeType !== "application/vnd.google-apps.folder") {
+        throw ApiError.badRequest("Google Drive link must point to a folder, not a file.");
+      }
+
+      if (payload.trashed) {
+        throw ApiError.badRequest("Google Drive folder is in trash and cannot be linked.");
+      }
+
+      return {
+        name: payload.name || null,
+        status: "accessible",
+        error: null,
+        checkedAt,
+      };
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      throw ApiError.serviceUnavailable("Google Drive folder access could not be checked. Try again or check the Google credentials.");
+    }
   }
 
   private async ensureProfileRow(clinicId: string, userId: string) {

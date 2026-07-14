@@ -81,6 +81,12 @@ export interface ClientAccountProfileRecord {
   renewalDate: string | null;
   contractStatus: ClientAccountContractStatus;
   keyNotes: string | null;
+  googleDriveFolderId: string | null;
+  googleDriveFolderUrl: string | null;
+  googleDriveFolderName: string | null;
+  googleDriveFolderAccessStatus: "not_checked" | "accessible" | "inaccessible";
+  googleDriveFolderError: string | null;
+  googleDriveFolderCheckedAt: string | null;
   updatedAt: string | null;
 }
 
@@ -124,6 +130,11 @@ export interface ClientAccountProfilePayload {
   renewalDate?: string | null;
   contractStatus?: ClientAccountContractStatus;
   keyNotes?: string | null;
+}
+
+export interface ClientAccountDriveFolderPayload {
+  folderUrl?: string | null;
+  folderId?: string | null;
 }
 
 export interface ClientAccountCreatePayload extends ClientAccountProfilePayload {

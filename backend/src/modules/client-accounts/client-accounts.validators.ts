@@ -64,6 +64,18 @@ export const createClientAccountFromContactValidator = [
   body("keyNotes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Key notes must be 10000 characters or fewer"),
 ];
 
+export const updateClientAccountDriveFolderValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  body("folderUrl")
+    .optional({ nullable: true })
+    .custom((value) => value === null || String(value).trim().length <= 500)
+    .withMessage("Google Drive folder URL must be 500 characters or fewer"),
+  body("folderId")
+    .optional({ nullable: true })
+    .custom((value) => value === null || /^[A-Za-z0-9_-]{10,255}$/.test(String(value).trim()))
+    .withMessage("Google Drive folder ID is not valid"),
+];
+
 export const updateClientAccountProfileValidator = [
   userIdentifier("accountManagerId", "Account manager ID"),
   body("activeServices").optional().isArray().withMessage("Active services must be an array"),

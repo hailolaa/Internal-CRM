@@ -20,6 +20,11 @@ export interface UpdateClientAccountProfileDTO {
   keyNotes?: string | null;
 }
 
+export interface UpdateClientAccountDriveFolderDTO {
+  folderUrl?: string | null;
+  folderId?: string | null;
+}
+
 export interface CreateClientAccountDTO extends UpdateClientAccountProfileDTO {
   name: string;
   email?: string | null;
@@ -65,6 +70,12 @@ export interface ClientAccountProfileResponse {
   renewalDate: string | null;
   contractStatus: ContractStatus;
   keyNotes: string | null;
+  googleDriveFolderId: string | null;
+  googleDriveFolderUrl: string | null;
+  googleDriveFolderName: string | null;
+  googleDriveFolderAccessStatus: "not_checked" | "accessible" | "inaccessible";
+  googleDriveFolderError: string | null;
+  googleDriveFolderCheckedAt: string | null;
   updatedAt: string | null;
 }
 

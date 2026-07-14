@@ -10,6 +10,7 @@ import {
   createClientAccountServiceValidator,
   listClientAccountsValidator,
   listClientAccountServicesValidator,
+  updateClientAccountDriveFolderValidator,
   updateClientAccountProfileValidator,
   updateClientAccountServiceValidator,
 } from "./client-accounts.validators.js";
@@ -40,6 +41,14 @@ router.post(
   createClientAccountFromContactValidator,
   validate,
   clientAccountsController.createAccountFromContact,
+);
+
+router.patch(
+  "/:clinicId/drive-folder",
+  authorizePermission("client_accounts:write"),
+  updateClientAccountDriveFolderValidator,
+  validate,
+  clientAccountsController.updateDriveFolder,
 );
 
 router.get(

@@ -97,6 +97,25 @@ export class ClientAccountsController {
     }
   };
 
+  updateDriveFolder = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const profile = await clientAccountsService.updateDriveFolder(
+        String(req.params.clinicId),
+        user.userId,
+        req.body,
+        this.auditContext(req),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: profile,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listServices = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const clinicId = (req as any).user.clinicId;

@@ -8,12 +8,16 @@ import {
   CheckSquare2,
   ExternalLink,
   FileCheck2,
+  FolderOpen,
+  Loader2,
   Mail,
   MapPin,
   NotebookText,
   Pencil,
   Phone,
+  Save,
   ShieldCheck,
+  Trash2,
   Users,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -47,6 +51,9 @@ export default function ClientAccountDetailPage() {
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
   const [isLoading, setIsLoading] = useState(!missingAccountId);
   const [loadError, setLoadError] = useState(missingAccountId ? "No client account id was provided." : "");
+  const [driveDraft, setDriveDraft] = useState("");
+  const [driveStatusMessage, setDriveStatusMessage] = useState("");
+  const [isSavingDrive, setIsSavingDrive] = useState(false);
 
   useEffect(() => {
     if (!token || !clinicId) return;
@@ -69,6 +76,49 @@ export default function ClientAccountDetailPage() {
   }, [clinicId, token]);
 
   const activeServices = useMemo(() => services.filter((service) => service.status === "active"), [services]);
+
+  useEffect(() => {
+    if (!account) return;
+    setDriveDraft(account.googleDriveFolderUrl || account.googleDriveFolderId || "");
+    setDriveStatusMessage("");
+  }, [account?.clinicId, account?.googleDriveFolderId, account?.googleDriveFolderUrl]);
+
+  const handleSaveDriveFolder = async () => {
+    if (!token || !account || isSavingDrive) return;
+    setIsSavingDrive(true);
+    setDriveStatusMessage("");
+    try {
+      const updated = await api.clientAccounts.updateDriveFolder(token, account.clinicId, {
+        folderUrl: driveDraft.trim() || null,
+      });
+      setAccount((current) => current ? { ...current, ...updated } : current);
+      setDriveDraft(updated.googleDriveFolderUrl || "");
+      setDriveStatusMessage(updated.googleDriveFolderUrl ? "Google Drive folder saved." : "Google Drive folder removed.");
+    } catch (error) {
+      setDriveStatusMessage(error instanceof Error ? error.message : "Could not save Google Drive folder.");
+    } finally {
+      setIsSavingDrive(false);
+    }
+  };
+
+  const handleRemoveDriveFolder = async () => {
+    if (!token || !account || isSavingDrive) return;
+    setIsSavingDrive(true);
+    setDriveStatusMessage("");
+    try {
+      const updated = await api.clientAccounts.updateDriveFolder(token, account.clinicId, {
+        folderUrl: null,
+        folderId: null,
+      });
+      setAccount((current) => current ? { ...current, ...updated } : current);
+      setDriveDraft("");
+      setDriveStatusMessage("Google Drive folder removed.");
+    } catch (error) {
+      setDriveStatusMessage(error instanceof Error ? error.message : "Could not remove Google Drive folder.");
+    } finally {
+      setIsSavingDrive(false);
+    }
+  };
 
   if (isLoading) {
     return <div className="space-y-6"><SkeletonLine className="h-10 w-72" /><SkeletonLine className="h-56 w-full" /></div>;
@@ -138,6 +188,49 @@ export default function ClientAccountDetailPage() {
         </div>
 
         <aside className="space-y-6 xl:sticky xl:top-20 xl:self-start">
+          <Card padding="p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="flex items-center gap-2 font-semibold text-[#151f21]"><FolderOpen className="h-4 w-4 text-[#315f62]" />Google Drive folder</h2>
+                <p className="mt-1 text-sm text-[#7A746A]">Designated account folder for delivery assets.</p>
+              </div>
+              {account.googleDriveFolderUrl ? (
+                <a href={account.googleDriveFolderUrl} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#315f62] px-3 py-2 text-sm font-semibold text-white hover:bg-[#264f51]">
+                  Open<ExternalLink className="h-4 w-4" />
+                </a>
+              ) : null}
+            </div>
+            <div className="mt-4 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[#8b9694]">Current folder</p>
+              <p className="mt-1 break-all text-sm font-semibold text-[#151f21]">
+                {account.googleDriveFolderName || account.googleDriveFolderId || "No folder linked"}
+              </p>
+              <p className="mt-2 text-xs text-[#7A746A]">
+                Status: {formatLabel(account.googleDriveFolderAccessStatus || "not_checked")}
+                {account.googleDriveFolderCheckedAt ? ` · checked ${new Date(account.googleDriveFolderCheckedAt).toLocaleString()}` : ""}
+              </p>
+              {account.googleDriveFolderError ? (
+                <p className="mt-2 text-xs font-medium text-[#B42318]">{account.googleDriveFolderError}</p>
+              ) : null}
+            </div>
+            <div className="mt-4 space-y-3">
+              <input
+                value={driveDraft}
+                onChange={(event) => setDriveDraft(event.target.value)}
+                placeholder="Paste Google Drive folder URL or folder ID"
+                className="w-full rounded-xl border border-[#d8ddda] bg-white px-3.5 py-2.5 text-sm text-[#151f21] outline-none transition focus:border-[#75aaa7] focus:ring-4 focus:ring-[rgba(96,180,175,0.1)]"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => void handleSaveDriveFolder()} disabled={isSavingDrive} className="inline-flex items-center gap-2 rounded-xl bg-[#5e8a8d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#507b7e] disabled:opacity-60">
+                  {isSavingDrive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save folder
+                </button>
+                <button type="button" onClick={() => void handleRemoveDriveFolder()} disabled={isSavingDrive || !account.googleDriveFolderId} className="inline-flex items-center gap-2 rounded-xl border border-[#d8ddda] bg-white px-4 py-2 text-sm font-semibold text-[#7A746A] hover:bg-[#f4f7f5] disabled:opacity-60">
+                  <Trash2 className="h-4 w-4" />Remove
+                </button>
+              </div>
+              {driveStatusMessage ? <p className="text-sm text-[#315f62]">{driveStatusMessage}</p> : null}
+            </div>
+          </Card>
           <Card padding="p-5">
             <h2 className="font-semibold text-[#151f21]">Record links</h2>
             <div className="mt-4 space-y-2">

@@ -121,6 +121,14 @@ export const config = {
         apiVersion: process.env.GOOGLE_ADS_API_VERSION || "v24",
     },
 
+    googleDrive: {
+        accessToken: process.env.GOOGLE_DRIVE_ACCESS_TOKEN || "",
+        validationEnabled: parseBoolean(
+            process.env.GOOGLE_DRIVE_VALIDATION_ENABLED,
+            Boolean(process.env.GOOGLE_DRIVE_ACCESS_TOKEN),
+        ),
+    },
+
     stripe: {
         secretKey: (process.env.STRIPE_SECRET_KEY || "").trim(),
         webhookSecret: (process.env.STRIPE_WEBHOOK_SECRET || "").trim(),
@@ -173,6 +181,10 @@ export function getProductionConfigIssues() {
 
     if (config.whatsapp.provider === "meta" && !config.whatsapp.verifyToken) {
         issues.push("WHATSAPP_VERIFY_TOKEN must be set when WHATSAPP_PROVIDER=meta.");
+    }
+
+    if (config.googleDrive.validationEnabled && !config.googleDrive.accessToken) {
+        issues.push("GOOGLE_DRIVE_ACCESS_TOKEN must be set when GOOGLE_DRIVE_VALIDATION_ENABLED=true.");
     }
 
     return { issues, warnings };

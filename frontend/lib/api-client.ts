@@ -41,6 +41,7 @@ export type {
   BackgroundJobsResponse,
   ClientAccountChurnRisk,
   ClientAccountContractStatus,
+  ClientAccountDriveFolderPayload,
   ClientAccountHealthStatus,
   ClientAccountListParams,
   ClientAccountOnboardingStatus,

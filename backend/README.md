@@ -119,6 +119,19 @@ https://api-mission-control.thegrowthgroup.com/api/webhooks/whatsapp/inbound?wor
 
 Use `WHATSAPP_VERIFY_TOKEN` as the Meta webhook verify token. Subscribe the webhook to inbound WhatsApp message events. AI auto-send remains off unless the workspace WhatsApp AI setting explicitly enables it. Opt-outs, sensitive requests, low-confidence replies and after-hours replies are routed to human review.
 
+## Google Drive Client Folders
+
+Client account profiles can store a designated Google Drive folder URL or folder ID. The backend normalizes accepted Drive folder links into a canonical folder URL and stores access-check metadata on the client account profile.
+
+Optional live validation:
+
+```bash
+GOOGLE_DRIVE_VALIDATION_ENABLED=true
+GOOGLE_DRIVE_ACCESS_TOKEN=<Google token with Drive file metadata access>
+```
+
+When validation is enabled, Mission Control checks the folder through the Google Drive API and rejects inaccessible links, trashed folders and file links. When validation is disabled, malformed Google Drive links are still rejected, and the folder opens using the signed-in user's normal Google permissions.
+
 ## Phase 1 Integration Inputs
 
 The Phase 1 Performance OS can launch before every vendor API is live by using API-key ingestion and manual import fallbacks. All records are clinic-scoped.

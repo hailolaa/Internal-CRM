@@ -1,6 +1,7 @@
 import type {
   ClientAccountListParams,
   ClientAccountCreatePayload,
+  ClientAccountDriveFolderPayload,
   ClientAccountFromContactPayload,
   ClientAccountProfilePayload,
   ClientAccountProfileRecord,
@@ -83,6 +84,21 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
       async updateProfile(token: string, payload: ClientAccountProfilePayload) {
         const response = await apiRequest<ClientAccountProfileRecord>(
           "/api/client-accounts/profile",
+          {
+            method: "PATCH",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async updateDriveFolder(
+        token: string,
+        clinicId: string,
+        payload: ClientAccountDriveFolderPayload,
+      ) {
+        const response = await apiRequest<ClientAccountProfileRecord>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/drive-folder`,
           {
             method: "PATCH",
             token,
