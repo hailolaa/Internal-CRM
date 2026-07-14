@@ -4,6 +4,8 @@ import { authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
 import { clientAccountsController } from "./client-accounts.controller.js";
 import {
+  clientAccountClinicIdParamValidator,
+  clientAccountContactLinkValidator,
   clientAccountServiceIdParamValidator,
   createClientAccountFromContactValidator,
   createClientAccountValidator,
@@ -49,6 +51,30 @@ router.patch(
   updateClientAccountDriveFolderValidator,
   validate,
   clientAccountsController.updateDriveFolder,
+);
+
+router.get(
+  "/:clinicId/linked-records",
+  authorizePermission("client_accounts:read"),
+  clientAccountClinicIdParamValidator,
+  validate,
+  clientAccountsController.getLinkedRecords,
+);
+
+router.post(
+  "/:clinicId/contacts/:contactId/link",
+  authorizePermission("client_accounts:write"),
+  clientAccountContactLinkValidator,
+  validate,
+  clientAccountsController.linkContact,
+);
+
+router.post(
+  "/:clinicId/contacts/:contactId/unlink",
+  authorizePermission("client_accounts:write"),
+  clientAccountContactLinkValidator,
+  validate,
+  clientAccountsController.unlinkContact,
 );
 
 router.get(

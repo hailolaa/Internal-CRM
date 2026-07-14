@@ -100,6 +100,50 @@ export interface ClientAccountSummaryResponse extends ClientAccountProfileRespon
   actionPlanLastUpdatedAt: string | null;
 }
 
+export interface ClientAccountLinkedContactResponse {
+  id: string;
+  name: string;
+  accountName: string | null;
+  role: string | null;
+  roleTitle: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  source: string | null;
+  status: string;
+  leadStatus: string;
+  updatedAt: string;
+}
+
+export interface ClientAccountLinkedTaskResponse {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  category: string | null;
+  contactId: string | null;
+  contact: string | null;
+  due: string | null;
+  dueDate: string | null;
+  assignedTo: string | null;
+  isOverdue: boolean;
+  clientAccountProfileId: string | null;
+  clientAccountServiceId: string | null;
+  updatedAt: string;
+}
+
+export interface ClientAccountLinkedRecordsResponse {
+  account: ClientAccountProfileResponse;
+  contacts: ClientAccountLinkedContactResponse[];
+  openTasks: ClientAccountLinkedTaskResponse[];
+  completedTasks: ClientAccountLinkedTaskResponse[];
+  counts: {
+    contacts: number;
+    openTasks: number;
+    completedTasks: number;
+  };
+}
+
 export interface ClientAccountAuditContext {
   ipAddress?: string | null;
   userAgent?: string | null;

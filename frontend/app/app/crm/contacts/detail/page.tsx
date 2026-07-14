@@ -27,7 +27,7 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { ContactLinkedActivity, ContactRecord } from "@/lib/api-types";
+import type { ClientAccountSummaryRecord, ContactLinkedActivity, ContactRecord } from "@/lib/api-types";
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-GB", {
@@ -73,6 +73,7 @@ export default function ContactDetailPage() {
   const canWriteClientAccounts = hasPermission("client_accounts:write");
   const [contact, setContact] = useState<ContactRecord | null>(null);
   const [activity, setActivity] = useState<ContactLinkedActivity | null>(null);
+  const [linkedAccount, setLinkedAccount] = useState<ClientAccountSummaryRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activityError, setActivityError] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -134,6 +135,30 @@ export default function ContactDetailPage() {
     return () => window.clearTimeout(timeoutId);
   }, [loadContact]);
 
+  useEffect(() => {
+    if (!token || !contact?.accountName) {
+      setLinkedAccount(null);
+      return;
+    }
+
+    let cancelled = false;
+    api.clientAccounts
+      .list(token, { search: contact.accountName })
+      .then((accounts) => {
+        if (cancelled) return;
+        setLinkedAccount(
+          accounts.find((account) => account.clinicName.toLowerCase() === contact.accountName!.toLowerCase()) || null,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedAccount(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contact?.accountName, token]);
+
   const contactMethods = useMemo(
     () => [
       {
@@ -148,8 +173,6 @@ export default function ContactDetailPage() {
       },
       { icon: Mail, label: "Email", value: contact?.email || "Not provided" },
       { icon: Phone, label: "Phone", value: contact?.phone || "Not provided" },
-      { icon: UserRound, label: "Role", value: contact?.role || "Not provided" },
-      { icon: BriefcaseBusiness, label: "Account", value: contact?.accountName || "Not linked" },
       { icon: ExternalLink, label: "Website", value: contact?.website || "Not provided" },
       { icon: UserRound, label: "Source", value: contact?.source || "Unknown" },
       {
@@ -174,13 +197,14 @@ export default function ContactDetailPage() {
   const relatedRecordLinks = useMemo(
     () => [
       { label: "Lead list", href: "/app/leads" },
+      ...(linkedAccount ? [{ label: "Client account", href: `/app/ops/client-accounts/detail?id=${linkedAccount.clinicId}` }] : []),
       { label: "Pipeline", href: "/app/crm/pipeline" },
       { label: "Tasks", href: `/app/crm/tasks?contactId=${encodeURIComponent(contact?.id || "")}` },
       { label: "Audits", href: "/app/ops/growth-scores" },
       { label: "Proposals", href: "/app/proposals" },
       { label: "Notes", href: `/app/crm/contacts/detail?id=${encodeURIComponent(contact?.id || "")}#notes` },
     ],
-    [contact?.id],
+    [contact?.id, linkedAccount],
   );
 
   const handleMarkContacted = useCallback(async () => {

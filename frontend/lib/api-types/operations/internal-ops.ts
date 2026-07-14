@@ -111,6 +111,50 @@ export interface ClientAccountSummaryRecord
   actionPlanLastUpdatedAt: string | null;
 }
 
+export interface ClientAccountLinkedContactRecord {
+  id: string;
+  name: string;
+  accountName: string | null;
+  role: string | null;
+  roleTitle: string | null;
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  source: string | null;
+  status: string;
+  leadStatus: string;
+  updatedAt: string;
+}
+
+export interface ClientAccountLinkedTaskRecord {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  category: string | null;
+  contactId: string | null;
+  contact: string | null;
+  due: string | null;
+  dueDate: string | null;
+  assignedTo: string | null;
+  isOverdue: boolean;
+  clientAccountProfileId: string | null;
+  clientAccountServiceId: string | null;
+  updatedAt: string;
+}
+
+export interface ClientAccountLinkedRecords {
+  account: ClientAccountProfileRecord;
+  contacts: ClientAccountLinkedContactRecord[];
+  openTasks: ClientAccountLinkedTaskRecord[];
+  completedTasks: ClientAccountLinkedTaskRecord[];
+  counts: {
+    contacts: number;
+    openTasks: number;
+    completedTasks: number;
+  };
+}
+
 export interface ClientAccountListParams {
   search?: string;
   healthStatus?: ClientAccountHealthStatus | "all";

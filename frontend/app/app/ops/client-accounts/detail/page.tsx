@@ -9,21 +9,32 @@ import {
   ExternalLink,
   FileCheck2,
   FolderOpen,
+  Link2,
   Loader2,
   Mail,
   MapPin,
   NotebookText,
   Pencil,
   Phone,
+  Plus,
   Save,
+  Search,
   ShieldCheck,
   Trash2,
+  Unlink,
   Users,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AlertBanner, Badge, Card, SkeletonLine, StatusBadge } from "@/components/ui";
 import { api } from "@/lib/api-client";
-import type { ClientAccountServiceRecord, ClientAccountSummaryRecord, ContactRecord } from "@/lib/api-types";
+import type {
+  ClientAccountLinkedContactRecord,
+  ClientAccountLinkedRecords,
+  ClientAccountLinkedTaskRecord,
+  ClientAccountServiceRecord,
+  ClientAccountSummaryRecord,
+  ContactRecord,
+} from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 
 function formatLabel(value: string) {
@@ -55,6 +66,22 @@ function driveStatusLabel(account: ClientAccountSummaryRecord) {
   return "Saved, access not verified";
 }
 
+function taskDueLabel(task: ClientAccountLinkedTaskRecord) {
+  if (task.due) return task.due;
+  if (!task.dueDate) return "No due date";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+  }).format(new Date(task.dueDate));
+}
+
+function linkedContactSubtitle(contact: ClientAccountLinkedContactRecord) {
+  return [
+    contact.roleTitle || contact.role || "Role not set",
+    contact.email || contact.phone || "No contact method",
+  ].filter(Boolean).join(" - ");
+}
+
 export default function ClientAccountDetailPage() {
   const searchParams = useSearchParams();
   const clinicId = searchParams.get("id") || "";
@@ -63,7 +90,12 @@ export default function ClientAccountDetailPage() {
   const missingAccountId = !clinicId;
   const [account, setAccount] = useState<ClientAccountSummaryRecord | null>(null);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
-  const [contacts, setContacts] = useState<ContactRecord[]>([]);
+  const [linkedRecords, setLinkedRecords] = useState<ClientAccountLinkedRecords | null>(null);
+  const [contactSearch, setContactSearch] = useState("");
+  const [contactSearchResults, setContactSearchResults] = useState<ContactRecord[]>([]);
+  const [isSearchingContacts, setIsSearchingContacts] = useState(false);
+  const [linkActionContactId, setLinkActionContactId] = useState<string | null>(null);
+  const [linkStatusMessage, setLinkStatusMessage] = useState("");
   const [isLoading, setIsLoading] = useState(!missingAccountId);
   const [loadError, setLoadError] = useState(missingAccountId ? "No client account id was provided." : "");
   const [driveDraft, setDriveDraft] = useState("");
@@ -77,14 +109,14 @@ export default function ClientAccountDetailPage() {
     Promise.all([
       api.clientAccounts.list(token),
       api.clientAccounts.listServices(token, { includeArchived: false, includeAllClinics: true }),
+      api.clientAccounts.getLinkedRecords(token, clinicId),
     ])
-      .then(async ([accounts, allServices]) => {
+      .then(([accounts, allServices, records]) => {
         const selected = accounts.find((item) => item.clinicId === clinicId) || null;
         if (!selected) throw new Error("Client account not found or unavailable to this user.");
         setAccount(selected);
         setServices(allServices.filter((service) => service.clinicId === clinicId));
-        const contactResult = await api.contacts.list(token, { search: selected.clinicName, pageSize: 100 });
-        setContacts(contactResult.contacts.filter((contact) => contact.accountName?.toLowerCase() === selected.clinicName.toLowerCase()));
+        setLinkedRecords(records);
         setLoadError("");
       })
       .catch((error) => setLoadError(error instanceof Error ? error.message : "Unable to load this client account."))
@@ -92,6 +124,9 @@ export default function ClientAccountDetailPage() {
   }, [clinicId, token]);
 
   const activeServices = useMemo(() => services.filter((service) => service.status === "active"), [services]);
+  const linkedContacts = linkedRecords?.contacts || [];
+  const openTasks = linkedRecords?.openTasks || [];
+  const completedTasks = linkedRecords?.completedTasks || [];
 
   useEffect(() => {
     if (!account) return;
@@ -136,6 +171,52 @@ export default function ClientAccountDetailPage() {
       setDriveStatusMessage(error instanceof Error ? error.message : "Could not remove Google Drive link.");
     } finally {
       setIsSavingDrive(false);
+    }
+  };
+
+  const handleSearchContacts = async () => {
+    if (!token || !contactSearch.trim()) return;
+    setIsSearchingContacts(true);
+    setLinkStatusMessage("");
+    try {
+      const result = await api.contacts.list(token, { search: contactSearch.trim(), pageSize: 10 });
+      setContactSearchResults(result.contacts);
+    } catch (error) {
+      setLinkStatusMessage(error instanceof Error ? error.message : "Could not search contacts.");
+    } finally {
+      setIsSearchingContacts(false);
+    }
+  };
+
+  const handleLinkContact = async (contactId: string) => {
+    if (!token || !account || linkActionContactId) return;
+    setLinkActionContactId(contactId);
+    setLinkStatusMessage("");
+    try {
+      const records = await api.clientAccounts.linkContact(token, account.clinicId, contactId);
+      setLinkedRecords(records);
+      setContactSearchResults((current) => current.filter((contact) => contact.id !== contactId));
+      setContactSearch("");
+      setLinkStatusMessage("Contact linked to this client account.");
+    } catch (error) {
+      setLinkStatusMessage(error instanceof Error ? error.message : "Could not link this contact.");
+    } finally {
+      setLinkActionContactId(null);
+    }
+  };
+
+  const handleUnlinkContact = async (contactId: string) => {
+    if (!token || !account || linkActionContactId) return;
+    setLinkActionContactId(contactId);
+    setLinkStatusMessage("");
+    try {
+      const records = await api.clientAccounts.unlinkContact(token, account.clinicId, contactId);
+      setLinkedRecords(records);
+      setLinkStatusMessage("Contact unlinked from this client account.");
+    } catch (error) {
+      setLinkStatusMessage(error instanceof Error ? error.message : "Could not unlink this contact.");
+    } finally {
+      setLinkActionContactId(null);
     }
   };
 
@@ -193,16 +274,124 @@ export default function ClientAccountDetailPage() {
           </Card>
 
           <Card padding="p-5 sm:p-6">
-            <div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold text-[#151f21]">Contacts</h2><p className="mt-1 text-sm text-[#7A746A]">Stakeholders matched to this account.</p></div><Badge variant="info">{contacts.length}</Badge></div>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-[#151f21]">Relevant contacts</h2>
+                <p className="mt-1 text-sm text-[#7A746A]">People from the internal workspace linked to this client account.</p>
+              </div>
+              <Badge variant="info">{linkedContacts.length}</Badge>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b9694]" />
+                <input
+                  value={contactSearch}
+                  onChange={(event) => setContactSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleSearchContacts();
+                    }
+                  }}
+                  placeholder="Search contacts by name, email, phone, or account"
+                  className="w-full rounded-xl border border-[#d8ddda] bg-white py-2.5 pl-10 pr-3.5 text-sm text-[#151f21] outline-none transition focus:border-[#75aaa7] focus:ring-4 focus:ring-[rgba(96,180,175,0.1)]"
+                />
+              </div>
+              <button type="button" onClick={() => void handleSearchContacts()} disabled={isSearchingContacts || !contactSearch.trim()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#315f62] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#264f51] disabled:opacity-60">
+                {isSearchingContacts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                Search
+              </button>
+            </div>
+            {contactSearchResults.length > 0 && (
+              <div className="mt-3 space-y-2 rounded-xl border border-[#E7E1DA] bg-white p-3">
+                {contactSearchResults
+                  .filter((contact) => !linkedContacts.some((linked) => linked.id === contact.id))
+                  .map((contact) => (
+                    <div key={contact.id} className="flex flex-col gap-3 rounded-lg bg-[#FAF8F5] p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-[#151f21]">{contact.name}</p>
+                        <p className="text-sm text-[#7A746A]">{contact.accountName || "No account"} - {contact.email || contact.phone || "No contact method"}</p>
+                      </div>
+                      <button type="button" onClick={() => void handleLinkContact(contact.id)} disabled={linkActionContactId === contact.id} className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#cbded9] bg-white px-3 py-2 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3] disabled:opacity-60">
+                        {linkActionContactId === contact.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                        Link
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            )}
+            {linkStatusMessage ? <p className="mt-3 text-sm text-[#315f62]">{linkStatusMessage}</p> : null}
             <div className="mt-5 space-y-3">
-              {contacts.map((contact) => <Link key={contact.id} href={`/app/crm/contacts/detail?id=${contact.id}`} className="flex items-center justify-between rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition hover:border-[#a9c7c4]"><div><p className="font-semibold text-[#151f21]">{contact.name}</p><p className="text-sm text-[#7A746A]">{contact.role || "Role not set"} · {contact.email || contact.phone || "No contact method"}</p></div><ExternalLink className="h-4 w-4 text-[#315f62]" /></Link>)}
-              {contacts.length === 0 && <p className="rounded-xl border border-dashed border-[#E7E1DA] p-6 text-center text-sm text-[#7A746A]">No contacts are linked by account name yet.</p>}
+              {linkedContacts.map((contact) => (
+                <div key={contact.id} className="flex flex-col gap-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <Link href={`/app/crm/contacts/detail?id=${contact.id}`} className="min-w-0 transition hover:text-[#315f62]">
+                    <p className="font-semibold text-[#151f21]">{contact.name}</p>
+                    <p className="text-sm text-[#7A746A]">{linkedContactSubtitle(contact)}</p>
+                  </Link>
+                  <div className="flex shrink-0 gap-2">
+                    <Link href={`/app/crm/contacts/detail?id=${contact.id}`} className="inline-flex items-center gap-2 rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3]">
+                      Open<ExternalLink className="h-4 w-4" />
+                    </Link>
+                    <button type="button" onClick={() => void handleUnlinkContact(contact.id)} disabled={linkActionContactId === contact.id} className="inline-flex items-center gap-2 rounded-lg border border-[#ead4cb] bg-white px-3 py-2 text-sm font-semibold text-[#9a5524] hover:bg-[#fff4f0] disabled:opacity-60">
+                      {linkActionContactId === contact.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
+                      Unlink
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {linkedContacts.length === 0 && <p className="rounded-xl border border-dashed border-[#E7E1DA] p-6 text-center text-sm text-[#7A746A]">No relevant contacts are linked to this client account yet.</p>}
             </div>
           </Card>
 
           <Card padding="p-5 sm:p-6">
             <div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold text-[#151f21]">Services</h2><p className="mt-1 text-sm text-[#7A746A]">Current package delivery and ownership.</p></div><Link href="/app/ops/services" className="text-sm font-semibold text-[#315f62]">View services</Link></div>
             <div className="mt-5 flex flex-wrap gap-2">{activeServices.map((service) => <Badge key={service.id} variant="success">{service.name}</Badge>)}{activeServices.length === 0 && <Badge variant="warning">No active services</Badge>}</div>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-[#151f21]">Client tasks</h2>
+                <p className="mt-1 text-sm text-[#7A746A]">Open and completed internal delivery work linked to this account.</p>
+              </div>
+              {account.id ? (
+                <Link href={`/app/crm/tasks/new?clientAccountProfileId=${account.id}`} className="inline-flex items-center gap-2 rounded-xl bg-[#315f62] px-4 py-2 text-sm font-semibold text-white hover:bg-[#264f51]">
+                  <Plus className="h-4 w-4" />New task
+                </Link>
+              ) : null}
+            </div>
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-[#151f21]">Open work</h3>
+                  <Badge variant={openTasks.length > 0 ? "warning" : "success"}>{openTasks.length}</Badge>
+                </div>
+                <div className="space-y-2">
+                  {openTasks.slice(0, 8).map((task) => (
+                    <Link key={task.id} href={`/app/crm/tasks?taskId=${task.id}`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition hover:border-[#a9c7c4]">
+                      <p className="font-semibold text-[#151f21]">{task.title}</p>
+                      <p className="mt-1 text-sm text-[#7A746A]">{task.category || "Delivery"} - {task.assignedTo || "Unassigned"} - {taskDueLabel(task)}</p>
+                    </Link>
+                  ))}
+                  {openTasks.length === 0 && <p className="rounded-xl border border-dashed border-[#E7E1DA] p-5 text-center text-sm text-[#7A746A]">No open tasks linked to this client.</p>}
+                </div>
+              </div>
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-[#151f21]">Completed</h3>
+                  <Badge variant="success">{completedTasks.length}</Badge>
+                </div>
+                <div className="space-y-2">
+                  {completedTasks.slice(0, 8).map((task) => (
+                    <Link key={task.id} href={`/app/crm/tasks?taskId=${task.id}`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 opacity-80 transition hover:border-[#a9c7c4]">
+                      <p className="font-semibold text-[#151f21]">{task.title}</p>
+                      <p className="mt-1 text-sm text-[#7A746A]">{task.category || "Delivery"} - {task.assignedTo || "Unassigned"}</p>
+                    </Link>
+                  ))}
+                  {completedTasks.length === 0 && <p className="rounded-xl border border-dashed border-[#E7E1DA] p-5 text-center text-sm text-[#7A746A]">No completed tasks linked to this client yet.</p>}
+                </div>
+              </div>
+            </div>
           </Card>
         </div>
 

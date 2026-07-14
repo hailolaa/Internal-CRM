@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   ArrowLeft,
@@ -90,6 +90,8 @@ function serviceTypeLabel(value: ClientAccountServiceType) {
 
 export default function NewTaskPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedClientAccountProfileId = searchParams.get("clientAccountProfileId");
   const { session } = useAuth();
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
   const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
@@ -161,6 +163,14 @@ export default function NewTaskPage() {
   );
   const selectedPriority = priorities.find((option) => option.id === priority)!;
 
+  useEffect(() => {
+    if (!requestedClientAccountProfileId || clientAccounts.length === 0 || selectedClientAccount) return;
+    const matchingAccount = clientAccounts.find((account) => account.id === requestedClientAccountProfileId);
+    if (matchingAccount) {
+      setSelectedClientAccount(matchingAccount.id);
+    }
+  }, [clientAccounts, requestedClientAccountProfileId, selectedClientAccount]);
+
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -195,7 +205,7 @@ export default function NewTaskPage() {
         proofReference: form.proofReference.trim() || null,
         workflowMonth: form.workflowMonth ? `${form.workflowMonth}-01` : null,
       });
-      router.push("/app/crm/tasks");
+      router.push(resolvedClientAccountId ? `/app/crm/tasks?clientAccountProfileId=${resolvedClientAccountId}` : "/app/crm/tasks");
     } catch (error) {
       console.error("Failed to create internal task", error);
       setStatusMessage(

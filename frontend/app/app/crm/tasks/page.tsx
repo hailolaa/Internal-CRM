@@ -149,6 +149,7 @@ export default function TasksPage() {
   const { session } = useAuth();
   const searchParams = useSearchParams();
   const requestedTaskId = searchParams.get("taskId");
+  const requestedClientAccountProfileId = searchParams.get("clientAccountProfileId");
   const token = session?.token;
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
@@ -170,6 +171,13 @@ export default function TasksPage() {
         .map((account) => [account.id as string, account.clinicName]),
     );
   }, [clientAccounts]);
+  const clientAccountByProfileId = useMemo(() => {
+    return new Map(
+      clientAccounts
+        .filter((account) => account.id)
+        .map((account) => [account.id as string, account]),
+    );
+  }, [clientAccounts]);
   const serviceById = useMemo(() => {
     return new Map(services.map((service) => [service.id, service]));
   }, [services]);
@@ -186,7 +194,10 @@ export default function TasksPage() {
     let isMounted = true;
     setIsLoading(true);
     Promise.allSettled([
-      api.internalTasks.list(token, { includeArchived: false }),
+      api.internalTasks.list(token, {
+        includeArchived: false,
+        clientAccountProfileId: requestedClientAccountProfileId || undefined,
+      }),
       api.clientAccounts.list(token),
       api.clientAccounts.listServices(token, { includeArchived: true }),
     ])
@@ -224,7 +235,7 @@ export default function TasksPage() {
     return () => {
       isMounted = false;
     };
-  }, [token]);
+  }, [requestedClientAccountProfileId, token]);
 
   const filteredTasks = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -499,9 +510,10 @@ export default function TasksPage() {
           ))}
         {!isLoading &&
           filteredTasks.map((task) => {
-            const clientName = task.clientAccountProfileId
-              ? clientNameById.get(task.clientAccountProfileId)
+            const clientAccount = task.clientAccountProfileId
+              ? clientAccountByProfileId.get(task.clientAccountProfileId)
               : null;
+            const clientName = clientAccount?.clinicName || null;
             const service = task.clientAccountServiceId
               ? serviceById.get(task.clientAccountServiceId)
               : null;
@@ -586,7 +598,7 @@ export default function TasksPage() {
                         ))}
                       {task.clientAccountProfileId && (
                         <Link
-                          href={`/app/ops/client-accounts?clientAccountProfileId=${task.clientAccountProfileId}`}
+                          href={clientAccount ? `/app/ops/client-accounts/detail?id=${clientAccount.clinicId}` : `/app/ops/client-accounts?clientAccountProfileId=${task.clientAccountProfileId}`}
                           className="flex items-center gap-1 rounded-full bg-[rgba(0,0,0,0.04)] px-2 py-1 text-[#111111] hover:bg-[rgba(0,0,0,0.07)]"
                         >
                           <BriefcaseBusiness className="w-3 h-3" />

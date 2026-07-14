@@ -80,6 +80,15 @@ export const updateClientAccountDriveFolderValidator = [
     .withMessage("Google Drive title must be 255 characters or fewer"),
 ];
 
+export const clientAccountClinicIdParamValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+];
+
+export const clientAccountContactLinkValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  param("contactId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid contact ID is required"),
+];
+
 export const updateClientAccountProfileValidator = [
   userIdentifier("accountManagerId", "Account manager ID"),
   body("activeServices").optional().isArray().withMessage("Active services must be an array"),

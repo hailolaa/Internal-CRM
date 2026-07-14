@@ -116,6 +116,63 @@ export class ClientAccountsController {
     }
   };
 
+  getLinkedRecords = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const records = await clientAccountsService.getLinkedRecords(
+        user.clinicId,
+        String(req.params.clinicId),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: records,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  linkContact = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const records = await clientAccountsService.linkContactToAccount(
+        user.clinicId,
+        String(req.params.clinicId),
+        String(req.params.contactId),
+        user.userId,
+        this.auditContext(req),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: records,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  unlinkContact = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const records = await clientAccountsService.unlinkContactFromAccount(
+        user.clinicId,
+        String(req.params.clinicId),
+        String(req.params.contactId),
+        user.userId,
+        this.auditContext(req),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: records,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listServices = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const clinicId = (req as any).user.clinicId;

@@ -3,6 +3,7 @@ import type {
   ClientAccountCreatePayload,
   ClientAccountDriveFolderPayload,
   ClientAccountFromContactPayload,
+  ClientAccountLinkedRecords,
   ClientAccountProfilePayload,
   ClientAccountProfileRecord,
   ClientAccountServiceListParams,
@@ -103,6 +104,33 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
             method: "PATCH",
             token,
             body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async getLinkedRecords(token: string, clinicId: string) {
+        const response = await apiRequest<ClientAccountLinkedRecords>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/linked-records`,
+          { token },
+        );
+        return response.data!;
+      },
+      async linkContact(token: string, clinicId: string, contactId: string) {
+        const response = await apiRequest<ClientAccountLinkedRecords>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/contacts/${encodeURIComponent(contactId)}/link`,
+          {
+            method: "POST",
+            token,
+          },
+        );
+        return response.data!;
+      },
+      async unlinkContact(token: string, clinicId: string, contactId: string) {
+        const response = await apiRequest<ClientAccountLinkedRecords>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/contacts/${encodeURIComponent(contactId)}/unlink`,
+          {
+            method: "POST",
+            token,
           },
         );
         return response.data!;

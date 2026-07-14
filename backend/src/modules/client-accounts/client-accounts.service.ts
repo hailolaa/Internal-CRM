@@ -6,6 +6,9 @@ import { logAuditEvent } from "../../utils/audit.js";
 import type {
   ClientAccountAuditContext,
   ClientAccountListQuery,
+  ClientAccountLinkedContactResponse,
+  ClientAccountLinkedRecordsResponse,
+  ClientAccountLinkedTaskResponse,
   ClientAccountProfileResponse,
   ClientAccountServiceListQuery,
   ClientAccountServiceResponse,
@@ -58,6 +61,14 @@ function ownKey<T extends object>(data: T, key: keyof T) {
 
 function normalizeServices(services: string[]) {
   return Array.from(new Set(services.map((service) => service.trim()).filter(Boolean)));
+}
+
+function contactDisplayName(row: any) {
+  return [row.firstName, row.lastName].filter(Boolean).join(" ").trim() ||
+    row.email ||
+    row.phone ||
+    row.accountName ||
+    "Unnamed contact";
 }
 
 type GoogleDriveItemKind = "folder" | "zip" | "unknown";
@@ -531,6 +542,105 @@ export class ClientAccountsService {
       googleDriveFolderCheckedAt: toIsoString(row.googleDriveFolderCheckedAt),
       updatedAt: toIsoString(row.updatedAt),
     };
+  }
+
+  async getLinkedRecords(sourceClinicId: string, clientClinicId: string): Promise<ClientAccountLinkedRecordsResponse> {
+    const account = await this.getProfile(clientClinicId);
+    const [contacts, tasks] = await Promise.all([
+      this.listLinkedContacts(sourceClinicId, account.clinicName),
+      account.id ? this.listLinkedTasks(sourceClinicId, account.id) : Promise.resolve([]),
+    ]);
+    const openTasks = tasks.filter((task) => task.status !== "completed");
+    const completedTasks = tasks.filter((task) => task.status === "completed");
+
+    return {
+      account,
+      contacts,
+      openTasks,
+      completedTasks,
+      counts: {
+        contacts: contacts.length,
+        openTasks: openTasks.length,
+        completedTasks: completedTasks.length,
+      },
+    };
+  }
+
+  async linkContactToAccount(
+    sourceClinicId: string,
+    clientClinicId: string,
+    contactId: string,
+    userId: string,
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountLinkedRecordsResponse> {
+    const account = await this.getProfile(clientClinicId);
+    const contact = await this.getWorkspaceContact(sourceClinicId, contactId);
+
+    await pool.execute(
+      `UPDATE contact
+       SET account_name = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+      [account.clinicName, contactId, sourceClinicId],
+    );
+
+    await logAuditEvent({
+      clinicId: sourceClinicId,
+      userId,
+      action: "CONTACT_LINKED_TO_CLIENT_ACCOUNT",
+      entityType: "contact",
+      entityId: contactId,
+      changes: {
+        clientAccountClinicId: account.clinicId,
+        clientAccountProfileId: account.id,
+        clientAccountName: account.clinicName,
+        previousAccountName: contact.accountName,
+      },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.getLinkedRecords(sourceClinicId, clientClinicId);
+  }
+
+  async unlinkContactFromAccount(
+    sourceClinicId: string,
+    clientClinicId: string,
+    contactId: string,
+    userId: string,
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountLinkedRecordsResponse> {
+    const account = await this.getProfile(clientClinicId);
+    const contact = await this.getWorkspaceContact(sourceClinicId, contactId);
+
+    if ((contact.accountName || "").toLowerCase() !== account.clinicName.toLowerCase()) {
+      throw ApiError.badRequest("Contact is not linked to this client account");
+    }
+
+    await pool.execute(
+      `UPDATE contact
+       SET account_name = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+      [contactId, sourceClinicId],
+    );
+
+    await logAuditEvent({
+      clinicId: sourceClinicId,
+      userId,
+      action: "CONTACT_UNLINKED_FROM_CLIENT_ACCOUNT",
+      entityType: "contact",
+      entityId: contactId,
+      changes: {
+        clientAccountClinicId: account.clinicId,
+        clientAccountProfileId: account.id,
+        clientAccountName: account.clinicName,
+      },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.getLinkedRecords(sourceClinicId, clientClinicId);
   }
 
   async updateDriveFolder(
@@ -1237,6 +1347,113 @@ export class ClientAccountsService {
       if (error instanceof ApiError) throw error;
       throw ApiError.serviceUnavailable("Google Drive item access could not be checked. Try again or check the Google credentials.");
     }
+  }
+
+  private async listLinkedContacts(sourceClinicId: string, accountName: string): Promise<ClientAccountLinkedContactResponse[]> {
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              account_name as accountName,
+              contact_role as role,
+              first_name as firstName,
+              last_name as lastName,
+              email,
+              phone,
+              role_title as roleTitle,
+              website,
+              status,
+              lead_status as leadStatus,
+              source,
+              updated_at as updatedAt
+       FROM contact
+       WHERE clinic_id = ?
+         AND deleted_at IS NULL
+         AND LOWER(COALESCE(account_name, '')) = LOWER(?)
+       ORDER BY updated_at DESC, created_at DESC
+       LIMIT 100`,
+      [sourceClinicId, accountName],
+    );
+
+    return rows.map((row: any) => ({
+      id: row.id,
+      name: contactDisplayName(row),
+      accountName: row.accountName || null,
+      role: row.role || null,
+      roleTitle: row.roleTitle || null,
+      email: row.email || null,
+      phone: row.phone || null,
+      website: row.website || null,
+      source: row.source || null,
+      status: row.status || "lead",
+      leadStatus: row.leadStatus || "new",
+      updatedAt: toIsoString(row.updatedAt) || new Date().toISOString(),
+    }));
+  }
+
+  private async listLinkedTasks(sourceClinicId: string, clientAccountProfileId: string): Promise<ClientAccountLinkedTaskResponse[]> {
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              title,
+              status,
+              priority,
+              category,
+              contact_id as contactId,
+              contact_name as contact,
+              due_label as due,
+              DATE_FORMAT(due_date, '%Y-%m-%d') as dueDate,
+              assigned_to as assignedTo,
+              (status <> 'completed' AND due_date < CURRENT_DATE) as isOverdue,
+              client_account_profile_id as clientAccountProfileId,
+              client_account_service_id as clientAccountServiceId,
+              updated_at as updatedAt
+       FROM task
+       WHERE clinic_id = ?
+         AND is_internal = 1
+         AND deleted_at IS NULL
+         AND archived_at IS NULL
+         AND client_account_profile_id = ?
+       ORDER BY status ASC, due_date IS NULL ASC, due_date ASC, updated_at DESC
+       LIMIT 200`,
+      [sourceClinicId, clientAccountProfileId],
+    );
+
+    return rows.map((row: any) => ({
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      priority: row.priority,
+      category: row.category || null,
+      contactId: row.contactId || null,
+      contact: row.contact || null,
+      due: row.due || null,
+      dueDate: row.dueDate || null,
+      assignedTo: row.assignedTo || null,
+      isOverdue: Boolean(row.isOverdue),
+      clientAccountProfileId: row.clientAccountProfileId || null,
+      clientAccountServiceId: row.clientAccountServiceId || null,
+      updatedAt: toIsoString(row.updatedAt) || new Date().toISOString(),
+    }));
+  }
+
+  private async getWorkspaceContact(sourceClinicId: string, contactId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              account_name as accountName
+       FROM contact
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [contactId, sourceClinicId],
+    );
+
+    if (rows.length === 0) {
+      throw ApiError.badRequest("Contact must belong to this workspace");
+    }
+
+    return {
+      id: rows[0].id,
+      accountName: rows[0].accountName || null,
+    };
   }
 
   private async ensureProfileRow(clinicId: string, userId: string) {
