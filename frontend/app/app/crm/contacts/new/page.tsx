@@ -164,10 +164,10 @@ export default function NewContactPage() {
         email: emptyToNull(fields.email),
         phone: emptyToNull(fields.phone),
         roleTitle: emptyToNull(fields.roleTitle),
-        emailPermission: communicationPermissions.emailPermission,
-        phonePermission: communicationPermissions.phonePermission,
-        smsPermission: communicationPermissions.smsPermission,
-        whatsappPermission: communicationPermissions.whatsappPermission,
+        emailPermission: communicationPermissions.email,
+        phonePermission: communicationPermissions.phone,
+        smsPermission: communicationPermissions.sms,
+        whatsappPermission: communicationPermissions.whatsapp,
         website: emptyToNull(fields.website),
         address: emptyToNull(fields.street),
         city: emptyToNull(fields.city),
@@ -371,10 +371,10 @@ export default function NewContactPage() {
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
-                ["emailPermission", "Email allowed"],
-                ["phonePermission", "Phone allowed"],
-                ["smsPermission", "SMS allowed"],
-                ["whatsappPermission", "WhatsApp allowed"],
+                ["email", "Email allowed"],
+                ["phone", "Phone allowed"],
+                ["sms", "SMS allowed"],
+                ["whatsapp", "WhatsApp allowed"],
               ].map(([key, label]) => (
                 <label
                   key={key}
