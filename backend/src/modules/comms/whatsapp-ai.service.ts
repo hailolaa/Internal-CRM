@@ -377,6 +377,13 @@ export class WhatsAppAiService {
       : await this.generateReplyWithFallback(inbound, settings);
 
     const replyId = uuidv4();
+    const draftBody = cleanString(generated.body) || deterministicDraft({
+      contactName: inbound.contact.firstName || inbound.contact.name || "there",
+      accountName: inbound.contact.accountName,
+      inboundBody: inbound.message.body,
+      tone: settings.approvedTone,
+    });
+    const aiOutput = generated.aiOutput && typeof generated.aiOutput === "object" ? generated.aiOutput : {};
     const autoSendAllowed = Boolean(settings.autoSendEnabled && !humanRequired && withinHours && confidence >= settings.confidenceThreshold);
     const status = humanRequired ? "human_required" : autoSendAllowed ? "drafted" : "needs_approval";
     await pool.execute(
@@ -393,17 +400,17 @@ export class WhatsAppAiService {
         inbound.message.id,
         settings.humanHandoffUserId || null,
         userId || null,
-        generated.body,
+        draftBody,
         JSON.stringify({
-          ...generated.aiOutput,
-          guardrails: settings.guardrails,
-          businessHours: { withinHours, timezone: settings.timezone },
+          ...aiOutput,
+          guardrails: Array.isArray(settings.guardrails) ? settings.guardrails : defaultGuardrails,
+          businessHours: { withinHours, timezone: settings.timezone || "Europe/London" },
         }),
         confidence,
-        generated.provider,
-        generated.model,
+        generated.provider || "deterministic",
+        generated.model || null,
         status,
-        guardrailReason,
+        guardrailReason || null,
         autoSendAllowed ? 1 : 0,
       ],
     );
@@ -420,7 +427,7 @@ export class WhatsAppAiService {
 
     let reply = await this.getReply(clinicId, replyId);
     if (autoSendAllowed) {
-      reply = await this.sendReply(clinicId, userId, replyId, { body: generated.body, sendNow: true }, true);
+      reply = await this.sendReply(clinicId, userId, replyId, { body: draftBody, sendNow: true }, true);
     }
     return reply;
   }
@@ -855,7 +862,7 @@ export class WhatsAppAiService {
     const [rows]: any = await pool.execute(
       `SELECT wm.id as messageId, wm.body, wm.conversation_id as conversationId, wm.contact_id as contactId,
               wc.whatsapp_number as whatsappNumber, wc.status as conversationStatus,
-              c.account_name as accountName, c.first_name as firstName, c.last_name as lastName, c.phone
+              c.id as id, c.account_name as accountName, c.first_name as firstName, c.last_name as lastName, c.phone
        FROM whatsapp_message wm
        JOIN whatsapp_conversation wc ON wc.id = wm.conversation_id
        JOIN contact c ON c.id = wm.contact_id
