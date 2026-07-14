@@ -2190,6 +2190,137 @@ LOCK TABLES `sms` WRITE;
 INSERT INTO `sms` VALUES ('sms-001','clinic-001','contact-001','user-002','Hi Olivia, quick reminder about your discovery call tomorrow at 09:00. Please reply to confirm.','outbound','sent','2026-04-24 13:22:59','2026-04-24 13:22:59',NULL,NULL,0,NULL,NULL,NULL),('sms-002','clinic-001','contact-002','user-002','Ethan, your proposal review is scheduled for 2026-04-29 at 10:00. Speak soon.','outbound','sent','2026-04-24 13:22:59','2026-04-24 13:22:59',NULL,NULL,0,NULL,NULL,NULL),('sms-003','clinic-001','contact-003','user-002','Maya, tracking QA is complete. We will send the delivery notes today.','outbound','sent','2026-04-24 13:22:59','2026-04-24 13:22:59',NULL,NULL,0,NULL,NULL,NULL),('sms-004','clinic-001','contact-004','user-002','Noah, we missed you on 2026-05-01. Reply here and we will rebook your discovery call.','outbound','sent','2026-04-24 13:22:59','2026-04-24 13:22:59',NULL,NULL,0,NULL,NULL,NULL),('sms-005','clinic-002','contact-005','user-005','Ava, thanks for the ads enquiry. Your discovery call is 2026-04-27 at 09:30.','outbound','sent','2026-04-24 13:22:59','2026-04-24 13:22:59',NULL,NULL,0,NULL,NULL,NULL),('sms-006','clinic-002','contact-006','user-005','Leo, your monthly report is ready for review. Please check the dashboard notes.','outbound','sent','2026-04-24 13:22:59','2026-04-24 13:22:59',NULL,NULL,0,NULL,NULL,NULL),('sms-007','clinic-003','contact-007','user-007','Sofia, onboarding prep is complete. We will send the kickoff checklist by email.','outbound','sent','2026-04-24 13:22:59','2026-04-24 13:22:59',NULL,NULL,0,NULL,NULL,NULL),('sms-008','clinic-003','contact-008','user-007','Lucas, reminder: SEO content review is on 2026-05-03 at 13:00. Please confirm.','outbound','sent','2026-04-24 13:22:59','2026-04-24 13:22:59',NULL,NULL,0,NULL,NULL,NULL),('sms-009','clinic-004','contact-009','user-008','Amelia, your tracking fix review is today at 11:00. Speak soon.','outbound','sent','2026-04-24 13:22:59','2026-04-24 13:22:59',NULL,NULL,0,NULL,NULL,NULL),('sms-010','clinic-004','contact-010','user-009','Henry, website delivery handoff is set for 2026-05-04 at 16:00. Please confirm.','outbound','sent','2026-04-24 13:22:59','2026-04-24 13:22:59',NULL,NULL,0,NULL,NULL,NULL);
 /*!40000 ALTER TABLE `sms` ENABLE KEYS */;
 UNLOCK TABLES;
+DROP TABLE IF EXISTS `whatsapp_ai_reply`;
+DROP TABLE IF EXISTS `whatsapp_message`;
+DROP TABLE IF EXISTS `whatsapp_conversation`;
+DROP TABLE IF EXISTS `whatsapp_ai_setting`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `whatsapp_ai_setting` (
+  `id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `auto_send_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `business_hours_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `business_hours_start` time NOT NULL DEFAULT '09:00:00',
+  `business_hours_end` time NOT NULL DEFAULT '17:30:00',
+  `timezone` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Europe/London',
+  `approved_tone` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT 'Warm, concise, helpful and professional. No clinical claims or guarantees.',
+  `guardrails` json DEFAULT NULL,
+  `confidence_threshold` decimal(3,2) NOT NULL DEFAULT '0.72',
+  `human_handoff_user_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `max_auto_send_retries` int NOT NULL DEFAULT '2',
+  `created_by` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_whatsapp_ai_setting_clinic` (`clinic_id`),
+  KEY `fk_whatsapp_ai_setting_handoff` (`human_handoff_user_id`),
+  CONSTRAINT `fk_whatsapp_ai_setting_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_ai_setting_handoff` FOREIGN KEY (`human_handoff_user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+DROP TABLE IF EXISTS `whatsapp_conversation`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `whatsapp_conversation` (
+  `id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `whatsapp_number` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `owner_user_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('open','human_required','closed') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'open',
+  `last_message_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_whatsapp_conversation_contact` (`clinic_id`,`contact_id`,`whatsapp_number`),
+  KEY `idx_whatsapp_conversation_clinic` (`clinic_id`,`status`,`last_message_at`),
+  KEY `fk_whatsapp_conversation_owner` (`owner_user_id`),
+  CONSTRAINT `fk_whatsapp_conversation_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_conversation_contact` FOREIGN KEY (`contact_id`) REFERENCES `contact` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_conversation_owner` FOREIGN KEY (`owner_user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+DROP TABLE IF EXISTS `whatsapp_message`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `whatsapp_message` (
+  `id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `conversation_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `user_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `direction` enum('inbound','outbound') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `body` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('received','read','queued','sent','failed','human_required') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'received',
+  `provider_message_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `idempotency_key` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `failure_reason` text COLLATE utf8mb4_unicode_ci,
+  `metadata` json DEFAULT NULL,
+  `received_at` datetime DEFAULT NULL,
+  `sent_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_whatsapp_provider_message` (`clinic_id`,`provider_message_id`),
+  UNIQUE KEY `uq_whatsapp_idempotency` (`clinic_id`,`idempotency_key`),
+  KEY `idx_whatsapp_message_conversation` (`conversation_id`,`created_at`),
+  KEY `idx_whatsapp_message_contact` (`clinic_id`,`contact_id`,`created_at`),
+  CONSTRAINT `fk_whatsapp_message_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_message_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `whatsapp_conversation` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_message_contact` FOREIGN KEY (`contact_id`) REFERENCES `contact` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_message_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+DROP TABLE IF EXISTS `whatsapp_ai_reply`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `whatsapp_ai_reply` (
+  `id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `conversation_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `contact_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `inbound_message_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `responsible_user_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `drafted_by_user_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `approved_by_user_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `outbound_message_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `draft_body` text COLLATE utf8mb4_unicode_ci,
+  `final_body` text COLLATE utf8mb4_unicode_ci,
+  `ai_output` json DEFAULT NULL,
+  `confidence` decimal(3,2) NOT NULL DEFAULT '0.00',
+  `provider` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'deterministic',
+  `model` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('drafted','needs_approval','auto_sent','sent','human_required','failed','discarded') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'drafted',
+  `guardrail_reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `auto_send_allowed` tinyint(1) NOT NULL DEFAULT '0',
+  `auto_send_attempted` tinyint(1) NOT NULL DEFAULT '0',
+  `send_attempts` int NOT NULL DEFAULT '0',
+  `failure_reason` text COLLATE utf8mb4_unicode_ci,
+  `approved_at` datetime DEFAULT NULL,
+  `sent_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_whatsapp_ai_reply_inbound` (`clinic_id`,`inbound_message_id`),
+  KEY `idx_whatsapp_ai_reply_status` (`clinic_id`,`status`,`created_at`),
+  KEY `fk_whatsapp_ai_reply_responsible` (`responsible_user_id`),
+  CONSTRAINT `fk_whatsapp_ai_reply_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_ai_reply_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `whatsapp_conversation` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_ai_reply_contact` FOREIGN KEY (`contact_id`) REFERENCES `contact` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_ai_reply_inbound` FOREIGN KEY (`inbound_message_id`) REFERENCES `whatsapp_message` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_ai_reply_outbound` FOREIGN KEY (`outbound_message_id`) REFERENCES `whatsapp_message` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_whatsapp_ai_reply_responsible` FOREIGN KEY (`responsible_user_id`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
 DROP TABLE IF EXISTS `sop`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;

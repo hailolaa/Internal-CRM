@@ -98,6 +98,27 @@ OPENAI_TIMEOUT_MS=15000
 
 When OpenAI is disabled, missing or unavailable, `/api/insights/generate` still creates deterministic leakage insights and stores fallback metadata on each insight.
 
+WhatsApp AI lead replies are safe-by-default. Local and staging environments should use `WHATSAPP_PROVIDER=log` unless a real Meta WhatsApp Cloud API number is intentionally connected. In log mode, Mission Control stores inbound messages, drafts replies, approval status and audit history without sending an external WhatsApp message.
+
+To enable live WhatsApp sending:
+
+```bash
+WHATSAPP_PROVIDER=meta
+WHATSAPP_ACCESS_TOKEN=<Meta WhatsApp Cloud API access token>
+WHATSAPP_PHONE_NUMBER_ID=<Meta phone number id>
+WHATSAPP_API_VERSION=v20.0
+WHATSAPP_WEBHOOK_SECRET=<private callback URL secret>
+WHATSAPP_VERIFY_TOKEN=<Meta webhook verify token>
+```
+
+Meta webhook callback URL:
+
+```bash
+https://api-mission-control.thegrowthgroup.com/api/webhooks/whatsapp/inbound?workspaceId=<workspace-id>&secret=<WHATSAPP_WEBHOOK_SECRET>
+```
+
+Use `WHATSAPP_VERIFY_TOKEN` as the Meta webhook verify token. Subscribe the webhook to inbound WhatsApp message events. AI auto-send remains off unless the workspace WhatsApp AI setting explicitly enables it. Opt-outs, sensitive requests, low-confidence replies and after-hours replies are routed to human review.
+
 ## Phase 1 Integration Inputs
 
 The Phase 1 Performance OS can launch before every vendor API is live by using API-key ingestion and manual import fallbacks. All records are clinic-scoped.

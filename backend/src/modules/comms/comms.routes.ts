@@ -8,6 +8,11 @@ import {
   listInboxValidator,
   sendMessageValidator,
   updateArchiveStateValidator,
+  updateWhatsAppAiSettingsValidator,
+  whatsAppApproveValidator,
+  whatsAppDraftValidator,
+  whatsAppInboundValidator,
+  whatsAppRetryValidator,
   updateReadStateValidator,
   updateStarStateValidator,
 } from "./comms.validators.js";
@@ -93,6 +98,60 @@ router.post(
 	sendMessageValidator,
 	validate,
 	commsController.sendMessage,
+);
+
+router.get(
+  "/whatsapp-ai/settings",
+  authorizePermission("settings:read"),
+  commsController.getWhatsAppAiSettings,
+);
+
+router.put(
+  "/whatsapp-ai/settings",
+  authorizePermission("settings:write"),
+  updateWhatsAppAiSettingsValidator,
+  validate,
+  commsController.updateWhatsAppAiSettings,
+);
+
+router.post(
+  "/whatsapp/inbound",
+  authorizePermission("contacts:write"),
+  whatsAppInboundValidator,
+  validate,
+  commsController.ingestWhatsAppInbound,
+);
+
+router.get(
+  "/whatsapp/conversations/:id",
+  authorizePermission("calls:read"),
+  contactIdParamValidator,
+  validate,
+  commsController.getWhatsAppConversation,
+);
+
+router.post(
+  "/whatsapp/ai-replies/draft",
+  authorizePermission("contacts:write"),
+  whatsAppDraftValidator,
+  validate,
+  commsController.draftWhatsAppReply,
+);
+
+router.post(
+  "/whatsapp/ai-replies/:replyId/approve",
+  authorizePermission("contacts:write"),
+  whatsAppApproveValidator,
+  validate,
+  commsController.approveWhatsAppReply,
+);
+
+router.post(
+  "/whatsapp/ai-replies/:replyId/retry",
+  authorizePermission("contacts:write"),
+  whatsAppRetryValidator,
+  validate,
+  commsController.retryWhatsAppReply,
 );
 
 export default router;

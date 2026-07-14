@@ -23,6 +23,8 @@ import type {
   InboxConversationRecord,
   InboxThreadMessageRecord,
   InboxThreadRecord,
+  WhatsAppAiReplyRecord,
+  WhatsAppConversationRecord,
 } from "@/lib/api-types";
 
 const channelConfig: Record<
@@ -87,6 +89,8 @@ export default function InboxPage() {
     string | null
   >(null);
   const [thread, setThread] = useState<InboxThreadRecord | null>(null);
+  const [whatsappThread, setWhatsappThread] =
+    useState<WhatsAppConversationRecord | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [threadStatusMessage, setThreadStatusMessage] = useState<string | null>(
     null,
@@ -94,6 +98,7 @@ export default function InboxPage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isAiSending, setIsAiSending] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const unreadCount = conversationRows.filter((c) => c.unread).length;
   const selectedConv = conversationRows.find(
@@ -103,6 +108,8 @@ export default function InboxPage() {
     selectedConv && channelConfig[selectedConv.channel]
       ? channelConfig[selectedConv.channel]
       : channelConfig.email;
+  const latestWhatsAppReply: WhatsAppAiReplyRecord | null =
+    whatsappThread?.aiReplies?.[0] || null;
   const filteredConversations = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return conversationRows.filter((conversation) => {
@@ -173,31 +180,41 @@ export default function InboxPage() {
     let cancelled = false;
     const authToken = token;
     const contactId = selectedConv.contactId;
+    const channel = selectedConv.channel;
 
-    api.comms
-      .getConversation(authToken, contactId)
-      .then((conversation) => {
+    async function loadThread() {
+      try {
+        const [conversation, whatsappConversation] = await Promise.all([
+          api.comms.getConversation(authToken, contactId),
+          channel === "whatsapp"
+            ? api.comms.getWhatsAppConversation(authToken, contactId).catch(() => null)
+            : Promise.resolve(null),
+        ]);
         if (!cancelled) {
           setThread(conversation);
+          setWhatsappThread(whatsappConversation);
           setThreadStatusMessage(null);
         }
-      })
-      .catch((error) => {
+      } catch (error) {
         console.error("Failed to load inbox thread", error);
         if (!cancelled) {
           setThread(null);
+          setWhatsappThread(null);
           setThreadStatusMessage(
             error instanceof Error
               ? error.message
               : "Unable to load this conversation thread.",
           );
         }
-      });
+      }
+    }
+
+    void loadThread();
 
     return () => {
       cancelled = true;
     };
-  }, [token, selectedConv?.contactId]);
+  }, [token, selectedConv?.contactId, selectedConv?.channel]);
 
   const upsertConversation = (updated: InboxConversation) => {
     setConversationRows((current) => {
@@ -243,6 +260,7 @@ export default function InboxPage() {
   const handleSelectConversation = (conversationId: string) => {
     setSelectedConversation(conversationId);
     setThread(null);
+    setWhatsappThread(null);
   };
 
   const handleToggleRead = async () => {
@@ -330,10 +348,43 @@ export default function InboxPage() {
       return;
     }
 
-    if (!["email", "sms"].includes(selectedConv.channel)) {
-      setStatusMessage(
-        "Sending for this channel is not integrated yet; the backend currently supports email and SMS replies.",
-      );
+    if (selectedConv.channel === "whatsapp") {
+      if (!latestWhatsAppReply) {
+        setStatusMessage("No WhatsApp AI draft is ready for this conversation yet.");
+        return;
+      }
+
+      setIsSending(true);
+      const body = message.trim();
+      setMessage("");
+      try {
+        const sentReply = await api.comms.approveWhatsAppReply(token, latestWhatsAppReply.id, {
+          body: body || latestWhatsAppReply.draftBody,
+          sendNow: true,
+        });
+        const updatedThread = await api.comms.getWhatsAppConversation(token, selectedConv.contactId);
+        setWhatsappThread(updatedThread);
+        setConversationRows((current) =>
+          current.map((conversation) =>
+            conversation.id === selectedConversation
+              ? {
+                  ...conversation,
+                  preview: sentReply.finalBody || sentReply.draftBody || body,
+                  time: "Just now",
+                  unread: false,
+                }
+              : conversation,
+          ),
+        );
+        setStatusMessage("WhatsApp AI reply approved and sent.");
+      } catch (err) {
+        setMessage(body);
+        setStatusMessage(
+          err instanceof Error ? err.message : "Could not send WhatsApp reply.",
+        );
+      } finally {
+        setIsSending(false);
+      }
       return;
     }
 
@@ -378,6 +429,37 @@ export default function InboxPage() {
       );
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleUseAiDraft = () => {
+    if (!latestWhatsAppReply?.draftBody) return;
+    setMessage(latestWhatsAppReply.draftBody);
+  };
+
+  const handleApproveAiDraft = async () => {
+    if (!token || !selectedConv?.contactId || !latestWhatsAppReply || isAiSending) return;
+
+    setIsAiSending(true);
+    try {
+      const reply = await api.comms.approveWhatsAppReply(token, latestWhatsAppReply.id, {
+        body: message.trim() || latestWhatsAppReply.draftBody,
+        sendNow: true,
+      });
+      const updatedThread = await api.comms.getWhatsAppConversation(token, selectedConv.contactId);
+      setWhatsappThread(updatedThread);
+      setMessage("");
+      setStatusMessage(
+        reply.status === "failed"
+          ? reply.failureReason || "WhatsApp send failed and is ready for retry."
+          : "WhatsApp AI reply approved and sent.",
+      );
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error ? error.message : "Could not approve WhatsApp AI reply.",
+      );
+    } finally {
+      setIsAiSending(false);
     }
   };
 
@@ -614,6 +696,46 @@ export default function InboxPage() {
               </div>
 
               <div className="p-4 border-t border-[rgba(0,0,0,0.06)]">
+                {selectedConv.channel === "whatsapp" && latestWhatsAppReply && (
+                  <div className="mb-3 rounded-[18px] border border-[rgba(16,185,129,0.18)] bg-emerald-50 px-4 py-3">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-[#111111]">
+                          AI WhatsApp draft
+                        </p>
+                        <p className="mt-1 text-sm text-[#374151]">
+                          {latestWhatsAppReply.draftBody || "No draft body available."}
+                        </p>
+                        <p className="mt-2 text-xs text-[#6B7280]">
+                          Status: {latestWhatsAppReply.status.replace(/_/g, " ")}
+                          {" | "}Confidence: {Math.round(latestWhatsAppReply.confidence * 100)}%
+                          {latestWhatsAppReply.guardrailReason
+                            ? ` | Human review: ${latestWhatsAppReply.guardrailReason.replace(/_/g, " ")}`
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <button
+                          onClick={handleUseAiDraft}
+                          disabled={!latestWhatsAppReply.draftBody}
+                          className="btn-secondary text-xs disabled:opacity-50"
+                        >
+                          Use Draft
+                        </button>
+                        <button
+                          onClick={() => void handleApproveAiDraft()}
+                          disabled={
+                            isAiSending ||
+                            ["sent", "auto_sent"].includes(latestWhatsAppReply.status)
+                          }
+                          className="btn-primary text-xs disabled:opacity-50"
+                        >
+                          {isAiSending ? "Sending..." : "Approve & Send"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-end gap-2">
                   <div className="flex-1 bg-[#FAF8F5] border border-[rgba(0,0,0,0.08)] rounded-[18px] p-3">
                     <textarea

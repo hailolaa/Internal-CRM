@@ -119,6 +119,106 @@ export interface InboxThreadRecord {
   };
 }
 
+export interface WhatsAppAiSettingsRecord {
+  id: string | null;
+  clinicId: string;
+  autoSendEnabled: boolean;
+  businessHoursEnabled: boolean;
+  businessHoursStart: string;
+  businessHoursEnd: string;
+  timezone: string;
+  approvedTone: string;
+  guardrails: string[];
+  confidenceThreshold: number;
+  humanHandoffUserId: string | null;
+  maxAutoSendRetries: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export type WhatsAppAiReplyStatus =
+  | "drafted"
+  | "needs_approval"
+  | "auto_sent"
+  | "sent"
+  | "human_required"
+  | "failed"
+  | "discarded";
+
+export interface WhatsAppMessageRecord {
+  id: string;
+  conversationId: string;
+  contactId: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  status: string;
+  providerMessageId: string | null;
+  idempotencyKey: string | null;
+  failureReason: string | null;
+  metadata: Record<string, unknown> | null;
+  receivedAt: string | null;
+  sentAt: string | null;
+  createdAt: string | null;
+}
+
+export interface WhatsAppAiReplyRecord {
+  id: string;
+  conversationId: string;
+  contactId: string;
+  inboundMessageId: string;
+  responsibleUserId: string | null;
+  approvedByUserId: string | null;
+  outboundMessageId: string | null;
+  draftBody: string | null;
+  finalBody: string | null;
+  aiOutput: Record<string, unknown> | null;
+  confidence: number;
+  provider: string;
+  model: string | null;
+  status: WhatsAppAiReplyStatus;
+  guardrailReason: string | null;
+  autoSendAllowed: boolean;
+  autoSendAttempted: boolean;
+  sendAttempts: number;
+  failureReason: string | null;
+  approvedAt: string | null;
+  sentAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface WhatsAppInboundPayload {
+  providerMessageId?: string | null;
+  from: string;
+  body: string;
+  receivedAt?: string | null;
+  contactId?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  accountName?: string | null;
+  createLeadIfMissing?: boolean;
+}
+
+export interface WhatsAppInboundResult {
+  message: WhatsAppMessageRecord;
+  aiReply: WhatsAppAiReplyRecord | null;
+}
+
+export interface WhatsAppConversationRecord {
+  conversation: {
+    id: string;
+    contactId: string;
+    whatsappNumber: string;
+    ownerUserId: string | null;
+    status: string;
+    lastMessageAt: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+  };
+  messages: WhatsAppMessageRecord[];
+  aiReplies: WhatsAppAiReplyRecord[];
+}
+
 export interface CallLogRecord {
   id: string;
   contactId: string;

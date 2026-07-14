@@ -8,6 +8,11 @@ import type {
   InboxConversationRecord,
   InboxThreadMessageRecord,
   InboxThreadRecord,
+  WhatsAppAiReplyRecord,
+  WhatsAppAiSettingsRecord,
+  WhatsAppConversationRecord,
+  WhatsAppInboundPayload,
+  WhatsAppInboundResult,
   StaffCallMetricRecord,
   RecordingDeletionRequestRecord,
 } from "@/lib/api-types";
@@ -122,6 +127,86 @@ export function createCommsCallsApi(apiRequest: ApiRequest) {
           `/api/comms/inbox/${contactId}/archive`,
           {
             method: "PATCH",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async getWhatsAppAiSettings(token: string) {
+        const response = await apiRequest<WhatsAppAiSettingsRecord>(
+          "/api/comms/whatsapp-ai/settings",
+          { token },
+        );
+        return response.data!;
+      },
+      async updateWhatsAppAiSettings(
+        token: string,
+        payload: Partial<WhatsAppAiSettingsRecord>,
+      ) {
+        const response = await apiRequest<WhatsAppAiSettingsRecord>(
+          "/api/comms/whatsapp-ai/settings",
+          {
+            method: "PUT",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async ingestWhatsAppInbound(token: string, payload: WhatsAppInboundPayload) {
+        const response = await apiRequest<WhatsAppInboundResult>(
+          "/api/comms/whatsapp/inbound",
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async getWhatsAppConversation(token: string, contactId: string) {
+        const response = await apiRequest<WhatsAppConversationRecord>(
+          `/api/comms/whatsapp/conversations/${contactId}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async draftWhatsAppReply(token: string, inboundMessageId: string) {
+        const response = await apiRequest<WhatsAppAiReplyRecord>(
+          "/api/comms/whatsapp/ai-replies/draft",
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify({ inboundMessageId }),
+          },
+        );
+        return response.data!;
+      },
+      async approveWhatsAppReply(
+        token: string,
+        replyId: string,
+        payload: { body?: string | null; sendNow?: boolean } = {},
+      ) {
+        const response = await apiRequest<WhatsAppAiReplyRecord>(
+          `/api/comms/whatsapp/ai-replies/${replyId}/approve`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async retryWhatsAppReply(
+        token: string,
+        replyId: string,
+        payload: { body?: string | null } = {},
+      ) {
+        const response = await apiRequest<WhatsAppAiReplyRecord>(
+          `/api/comms/whatsapp/ai-replies/${replyId}/retry`,
+          {
+            method: "POST",
             token,
             body: JSON.stringify(payload),
           },

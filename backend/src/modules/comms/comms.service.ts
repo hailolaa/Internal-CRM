@@ -45,10 +45,19 @@ export class CommsService {
          FROM sms s
          JOIN contact c ON c.id = s.contact_id
          WHERE s.clinic_id = ? AND s.deleted_at IS NULL
+         UNION ALL
+         SELECT wm.id, wm.contact_id as contactId,
+                CONCAT(c.first_name, ' ', c.last_name) as contact,
+                'whatsapp' as channel,
+                wm.body as preview,
+                wm.direction, wm.status, wm.created_at as createdAt
+         FROM whatsapp_message wm
+         JOIN contact c ON c.id = wm.contact_id
+         WHERE wm.clinic_id = ? AND wm.deleted_at IS NULL
        ) inbox
        ORDER BY createdAt DESC
        LIMIT 100`,
-      [clinicId, clinicId],
+      [clinicId, clinicId, clinicId],
     );
 
     const contactIds = Array.from(
@@ -173,6 +182,25 @@ export class CommsService {
 
          UNION ALL
 
+         SELECT wm.id,
+                'whatsapp' as channel,
+                'message' as kind,
+                wm.direction,
+                wm.status,
+                NULL as subject,
+                wm.body as body,
+                wm.created_at as createdAt,
+                TRIM(CONCAT_WS(' ', u.first_name, u.last_name)) as senderName,
+                wm.user_id as senderId,
+                0 as isInternal
+         FROM whatsapp_message wm
+         LEFT JOIN user u ON u.id = wm.user_id AND u.deleted_at IS NULL
+         WHERE wm.clinic_id = ?
+           AND wm.contact_id = ?
+           AND wm.deleted_at IS NULL
+
+         UNION ALL
+
          SELECT a.id,
                 'note' as channel,
                 'note' as kind,
@@ -192,7 +220,7 @@ export class CommsService {
            AND a.type = 'Note'
        ) m
        ORDER BY m.createdAt ASC`,
-      [clinicId, contactId, clinicId, contactId, clinicId, contactId],
+      [clinicId, contactId, clinicId, contactId, clinicId, contactId, clinicId, contactId],
     );
 
     const messages = messageRows
@@ -352,6 +380,17 @@ export class CommsService {
       [clinicId],
     );
 
+    await pool.execute(
+      `UPDATE whatsapp_message
+       SET status = 'read',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE clinic_id = ?
+         AND direction = 'inbound'
+         AND deleted_at IS NULL
+         AND status IN ('received', 'human_required')`,
+      [clinicId],
+    );
+
     await logAuditEvent({
       clinicId,
       userId,
@@ -393,6 +432,17 @@ export class CommsService {
          AND direction = 'inbound'
          AND deleted_at IS NULL`,
       [status, clinicId, contactId],
+    );
+
+    await pool.execute(
+      `UPDATE whatsapp_message
+       SET status = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND direction = 'inbound'
+         AND deleted_at IS NULL`,
+      [unread ? "received" : "read", clinicId, contactId],
     );
 
     await logAuditEvent({

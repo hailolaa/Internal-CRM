@@ -17,6 +17,16 @@ router.post("/twilio/calls", webhooksController.handleTwilioCall);
 // @access  Public provider webhook
 router.post("/twilio/recordings", webhooksController.handleTwilioRecording);
 
+// @route   GET /api/webhooks/whatsapp/inbound
+// @desc    Public Meta WhatsApp webhook verification handshake
+// @access  Public provider webhook
+router.get("/whatsapp/inbound", webhooksController.handleWhatsAppVerify);
+
+// @route   POST /api/webhooks/whatsapp/inbound
+// @desc    Public WhatsApp inbound lead message webhook
+// @access  Public provider webhook
+router.post("/whatsapp/inbound", webhooksController.handleWhatsAppInbound);
+
 router.use(authenticate);
 
 // @route   GET /api/webhooks/endpoints

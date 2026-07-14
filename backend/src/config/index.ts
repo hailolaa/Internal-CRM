@@ -79,6 +79,15 @@ export const config = {
         webhookSecret: process.env.TWILIO_WEBHOOK_SECRET || "",
     },
 
+    whatsapp: {
+        provider: process.env.WHATSAPP_PROVIDER || "log",
+        accessToken: process.env.WHATSAPP_ACCESS_TOKEN || "",
+        phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
+        apiVersion: process.env.WHATSAPP_API_VERSION || "v20.0",
+        webhookSecret: process.env.WHATSAPP_WEBHOOK_SECRET || process.env.TWILIO_WEBHOOK_SECRET || "",
+        verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || process.env.WHATSAPP_WEBHOOK_SECRET || "",
+    },
+
     backups: {
         directory: process.env.BACKUP_DIR || "backups",
         retentionDays: parseInt(process.env.BACKUP_RETENTION_DAYS || "14", 10),
@@ -156,6 +165,14 @@ export function getProductionConfigIssues() {
 
     if ((config.openai.insightsEnabled || config.openai.callIntelligenceEnabled || config.openai.callTranscriptionEnabled) && !config.openai.apiKey) {
         issues.push("OPENAI_API_KEY must be set when OpenAI features are enabled.");
+    }
+
+    if (config.whatsapp.provider === "meta" && (!config.whatsapp.accessToken || !config.whatsapp.phoneNumberId)) {
+        issues.push("WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID must be set when WHATSAPP_PROVIDER=meta.");
+    }
+
+    if (config.whatsapp.provider === "meta" && !config.whatsapp.verifyToken) {
+        issues.push("WHATSAPP_VERIFY_TOKEN must be set when WHATSAPP_PROVIDER=meta.");
     }
 
     return { issues, warnings };
