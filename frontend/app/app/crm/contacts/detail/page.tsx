@@ -366,10 +366,10 @@ export default function ContactDetailPage() {
   if (loadError || !contact) {
     return (
       <div className="space-y-6">
-        <Link href="/app/crm/contacts" className="btn-secondary inline-flex text-sm">
+        <button type="button" onClick={() => router.back()} className="btn-secondary inline-flex text-sm">
           <ArrowLeft className="h-4 w-4" />
-          Back to contacts
-        </Link>
+          Back
+        </button>
         <AlertBanner
           title="Contact could not be loaded"
           description={loadError || "The backend did not return this contact."}
@@ -383,9 +383,9 @@ export default function ContactDetailPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-start gap-4">
-          <Link href="/app/crm/contacts" className="btn-secondary p-2">
+          <button type="button" onClick={() => router.back()} aria-label="Back" className="btn-secondary p-2">
             <ArrowLeft className="h-5 w-5" />
-          </Link>
+          </button>
           <Avatar name={contact.name} size="lg" />
           <div>
             <div className="flex flex-wrap items-center gap-3">

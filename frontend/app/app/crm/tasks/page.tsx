@@ -81,6 +81,17 @@ const workFilters: Array<{ value: WorkFilter; label: string }> = [
   { value: "unlinked", label: "Unlinked" },
 ];
 
+const dueFilterValues: DueFilter[] = ["all", "overdue", "today", "no-date"];
+const workFilterValues = workFilters.map((filter) => filter.value);
+
+function getInitialDueFilter(value: string | null): DueFilter {
+  return dueFilterValues.includes(value as DueFilter) ? value as DueFilter : "all";
+}
+
+function getInitialWorkFilter(value: string | null): WorkFilter {
+  return workFilterValues.includes(value as WorkFilter) ? value as WorkFilter : "all";
+}
+
 function formatLabel(value: string | null | undefined) {
   if (!value) return "General";
   return value
@@ -150,6 +161,8 @@ export default function TasksPage() {
   const searchParams = useSearchParams();
   const requestedTaskId = searchParams.get("taskId");
   const requestedClientAccountProfileId = searchParams.get("clientAccountProfileId");
+  const requestedDueFilter = searchParams.get("due");
+  const requestedWorkFilter = searchParams.get("work");
   const token = session?.token;
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
@@ -157,8 +170,8 @@ export default function TasksPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
-  const [dueFilter, setDueFilter] = useState<DueFilter>("all");
-  const [workFilter, setWorkFilter] = useState<WorkFilter>("all");
+  const [dueFilter, setDueFilter] = useState<DueFilter>(() => getInitialDueFilter(requestedDueFilter));
+  const [workFilter, setWorkFilter] = useState<WorkFilter>(() => getInitialWorkFilter(requestedWorkFilter));
   const [loadError, setLoadError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
@@ -284,6 +297,14 @@ export default function TasksPage() {
     tasks,
     workFilter,
   ]);
+
+  useEffect(() => {
+    setDueFilter(getInitialDueFilter(requestedDueFilter));
+  }, [requestedDueFilter]);
+
+  useEffect(() => {
+    setWorkFilter(getInitialWorkFilter(requestedWorkFilter));
+  }, [requestedWorkFilter]);
 
   useEffect(() => {
     if (!requestedTaskId || isLoading) return;

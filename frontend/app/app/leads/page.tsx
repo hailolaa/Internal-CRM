@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   PageHeader,
   StatCard,
@@ -108,6 +108,21 @@ function isPastDate(value: string | null | undefined) {
   return date.getTime() < today.getTime();
 }
 
+function isNewProspect(lead: Lead) {
+  const stage = lead.stage.toLowerCase();
+  const status = lead.status.toLowerCase();
+  if (status === "won" || status === "lost" || stage.includes("won") || stage.includes("lost")) {
+    return false;
+  }
+  const createdDays = Math.ceil((lead.sortDate - Date.now()) / 86400000);
+  return (
+    status === "open" ||
+    stage.includes("new") ||
+    stage.includes("enquiry") ||
+    createdDays >= -7
+  );
+}
+
 function uniqueOptions(values: string[]) {
   return Array.from(
     new Set(values.map((value) => value.trim()).filter((value) => value && value !== "-")),
@@ -175,6 +190,8 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
 
 export default function LeadsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const dashboardView = searchParams.get("view");
   const { session } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [dashboardSummary, setDashboardSummary] =
@@ -283,6 +300,8 @@ export default function LeadsPage() {
 
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
+      const dashboardViewMatches =
+        dashboardView !== "new" || isNewProspect(lead);
       const stageMatches = stageFilter === "all" || lead.stage === stageFilter;
       const sourceMatches = sourceFilter === "all" || lead.source === sourceFilter;
       const ownerMatches = ownerFilter === "all" || lead.owner === ownerFilter;
@@ -293,6 +312,7 @@ export default function LeadsPage() {
         (followUpFilter === "overdue" && lead.followUpOverdue);
 
       return (
+        dashboardViewMatches &&
         stageMatches &&
         sourceMatches &&
         ownerMatches &&
@@ -300,7 +320,7 @@ export default function LeadsPage() {
         followUpMatches
       );
     });
-  }, [followUpFilter, leads, ownerFilter, packageFilter, sourceFilter, stageFilter]);
+  }, [dashboardView, followUpFilter, leads, ownerFilter, packageFilter, sourceFilter, stageFilter]);
 
   const hasActiveFilters =
     stageFilter !== "all" ||

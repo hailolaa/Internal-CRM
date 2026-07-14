@@ -20,7 +20,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { parseCurrency } from "@/lib/utils";
 import { api } from "@/lib/api-client";
 import type {
@@ -641,6 +641,9 @@ function AddDealModal({
 
 export default function PipelinePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedStatus = searchParams.get("status");
+  const requestedStage = searchParams.get("stage");
   const { hasPermission, session } = useAuth();
   const token = session?.token;
   const canWriteContacts = hasPermission("contacts:write");
@@ -858,17 +861,34 @@ export default function PipelinePage() {
 
   const filteredStages = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return stages;
-    return stages.map((stage) => ({
-      ...stage,
-      deals: stage.deals.filter(
-        (deal) =>
-          deal.name.toLowerCase().includes(query) ||
-          deal.treatment.toLowerCase().includes(query) ||
-          deal.source.toLowerCase().includes(query),
-      ),
-    }));
-  }, [searchQuery, stages]);
+    return stages
+      .filter((stage) => {
+        if (!requestedStage) return true;
+        const stageKey = requestedStage.toLowerCase();
+        return (
+          stage.id.toLowerCase() === stageKey ||
+          stage.name.toLowerCase() === stageKey ||
+          stage.mergedStageIds.some((id) => id.toLowerCase() === stageKey)
+        );
+      })
+      .map((stage) => ({
+        ...stage,
+        deals: stage.deals.filter((deal) => {
+          const statusMatches =
+            !requestedStatus ||
+            deal.raw.status === requestedStatus ||
+            deal.raw.stageKind === requestedStatus;
+          const searchMatches =
+            !query ||
+            deal.name.toLowerCase().includes(query) ||
+            deal.treatment.toLowerCase().includes(query) ||
+            deal.source.toLowerCase().includes(query);
+
+          return statusMatches && searchMatches;
+        }),
+      }))
+      .filter((stage) => !requestedStatus || stage.deals.length > 0);
+  }, [requestedStage, requestedStatus, searchQuery, stages]);
 
   const totalValue = stages.reduce(
     (acc, stage) =>

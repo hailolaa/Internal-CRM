@@ -17,6 +17,7 @@ import {
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertBanner,
@@ -204,6 +205,9 @@ function isActiveService(service: ClientAccountServiceRecord) {
 }
 
 export default function DeliveryWorkPage() {
+  const searchParams = useSearchParams();
+  const requestedView = searchParams.get("view") as WorkViewKey | null;
+  const requestedStatus = searchParams.get("status");
   const { session } = useAuth();
   const token = session?.token;
   const [tasks, setTasks] = useState<InternalTaskRecord[]>([]);
@@ -213,6 +217,12 @@ export default function DeliveryWorkPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    if (requestedView && WORK_VIEWS.some((view) => view.key === requestedView)) {
+      setActiveView(requestedView);
+    }
+  }, [requestedView]);
 
   useEffect(() => {
     if (!token) return;
@@ -317,6 +327,7 @@ export default function DeliveryWorkPage() {
   const filteredServices = useMemo(() => {
     return services
       .filter((service) => serviceMatchesView(service, activeDefinition))
+      .filter((service) => requestedStatus !== "active" || isActiveService(service))
       .filter((service) => {
         if (!query) return true;
         const clientName =
@@ -329,7 +340,7 @@ export default function DeliveryWorkPage() {
         if (a.status !== b.status) return a.status === "onboarding" ? -1 : 1;
         return (parseDate(a.renewalDate)?.getTime() || 0) - (parseDate(b.renewalDate)?.getTime() || 0);
       });
-  }, [activeDefinition, clientNameByProfileId, query, services]);
+  }, [activeDefinition, clientNameByProfileId, query, requestedStatus, services]);
 
   const openTasks = filteredTasks.filter((task) => task.status === "pending");
   const completedTasks = filteredTasks.filter((task) => task.status === "completed");

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -220,13 +219,14 @@ export default function NewTaskPage() {
     <form onSubmit={handleSave} className="mx-auto max-w-[1380px] space-y-6 pb-12">
       <header className="flex flex-col gap-4 rounded-[24px] border border-[#dce4e1] bg-[linear-gradient(135deg,#fffdfa_0%,#f2f7f5_100%)] px-5 py-5 shadow-[0_16px_48px_rgba(41,66,68,0.06)] sm:flex-row sm:items-center sm:justify-between sm:px-7">
         <div className="flex items-start gap-4">
-          <Link
-            href="/app/crm/tasks"
+          <button
+            type="button"
+            onClick={() => router.back()}
             aria-label="Back to tasks"
             className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#d9dfdc] bg-white text-[#526365] transition hover:-translate-x-0.5 hover:border-[#9db4b3] hover:text-[#315f62] focus:outline-none focus:ring-4 focus:ring-[rgba(94,138,141,0.12)]"
           >
             <ArrowLeft className="h-4 w-4" />
-          </Link>
+          </button>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5e8a8d]">
               Internal delivery

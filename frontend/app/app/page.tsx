@@ -12,7 +12,8 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import type { KeyboardEvent, MutableRefObject, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertBanner,
   PageHeader,
@@ -28,6 +29,74 @@ import type {
   PipelineDealRecord,
   PipelineStageRecord,
 } from "@/lib/api-types";
+
+function ActionableStatCard({
+  href,
+  ariaLabel,
+  index,
+  activeIndex,
+  setActiveIndex,
+  itemRefs,
+  totalItems,
+  children,
+}: {
+  href: string;
+  ariaLabel: string;
+  index: number;
+  activeIndex: number;
+  setActiveIndex: (index: number) => void;
+  itemRefs: MutableRefObject<Array<HTMLAnchorElement | null>>;
+  totalItems: number;
+  children: ReactNode;
+}) {
+  const focusItem = (nextIndex: number) => {
+    const normalizedIndex = (nextIndex + totalItems) % totalItems;
+    setActiveIndex(normalizedIndex);
+    itemRefs.current[normalizedIndex]?.focus();
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLAnchorElement>) => {
+    const isWide = window.matchMedia("(min-width: 1280px)").matches;
+    const isTablet = window.matchMedia("(min-width: 640px)").matches;
+    const columnCount = isWide ? 6 : isTablet ? 2 : 1;
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      focusItem(index + 1);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      focusItem(index - 1);
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusItem(index + columnCount);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusItem(index - columnCount);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      focusItem(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      focusItem(totalItems - 1);
+    }
+  };
+
+  return (
+    <Link
+      href={href}
+      aria-label={ariaLabel}
+      ref={(node) => {
+        itemRefs.current[index] = node;
+      }}
+      tabIndex={activeIndex === index ? 0 : -1}
+      onFocus={() => setActiveIndex(index)}
+      onKeyDown={handleKeyDown}
+      className="group block rounded-[24px] transition-transform hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FAF8F5] [&_[data-gsap-metric]]:h-full [&_[data-gsap-metric]]:transition-all [&_[data-gsap-metric]]:group-hover:border-[rgba(96,180,175,0.24)] [&_[data-gsap-metric]]:group-hover:shadow-[0_8px_24px_rgba(21,31,33,0.08)]"
+    >
+      {children}
+    </Link>
+  );
+}
 
 type DeadlineRow = {
   id: string;
@@ -123,6 +192,8 @@ function isUpcomingService(service: ClientAccountServiceRecord) {
 export default function AppPage() {
   const { session } = useAuth();
   const token = session?.token;
+  const dashboardCardRefs = useRef<Array<HTMLAnchorElement | null>>([]);
+  const [activeDashboardCardIndex, setActiveDashboardCardIndex] = useState(0);
   const [deals, setDeals] = useState<PipelineDealRecord[]>([]);
   const [stages, setStages] = useState<PipelineStageRecord[]>([]);
   const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
@@ -183,6 +254,14 @@ export default function AppPage() {
       clientAccounts
         .filter((account) => account.id)
         .map((account) => [account.id as string, account.clinicName]),
+    );
+  }, [clientAccounts]);
+
+  const clientAccountByProfileId = useMemo(() => {
+    return new Map(
+      clientAccounts
+        .filter((account) => account.id)
+        .map((account) => [account.id as string, account]),
     );
   }, [clientAccounts]);
 
@@ -269,7 +348,9 @@ export default function AppPage() {
         clientNameByProfileId.get(service.clientAccountProfileId) ||
         "Linked client",
       date: service.renewalDate,
-      href: `/app/ops/client-accounts?serviceId=${service.id}`,
+      href: clientAccountByProfileId.get(service.clientAccountProfileId)
+        ? `/app/ops/client-accounts/detail?id=${encodeURIComponent(clientAccountByProfileId.get(service.clientAccountProfileId)!.clinicId)}`
+        : `/app/ops/delivery?status=active&from=dashboard`,
       type: "Service" as const,
     }));
 
@@ -280,11 +361,17 @@ export default function AppPage() {
         return aTime - bTime;
       })
       .slice(0, 8);
-  }, [clientNameByProfileId, services, tasks]);
+  }, [clientAccountByProfileId, clientNameByProfileId, services, tasks]);
 
   const maxStageCount = Math.max(1, ...stageRows.map((row) => row.count));
   const topActiveProjects = metrics.activeProjects.slice(0, 6);
   const overdueTasks = metrics.overdueTasks.slice(0, 6);
+  const dashboardCardKeyboardProps = {
+    activeIndex: activeDashboardCardIndex,
+    setActiveIndex: setActiveDashboardCardIndex,
+    itemRefs: dashboardCardRefs,
+    totalItems: 6,
+  };
 
   return (
     <div className="space-y-6">
@@ -316,53 +403,65 @@ export default function AppPage() {
           ))
         ) : (
           <>
-            <StatCard
-              label="New Prospects"
-              value={String(metrics.newLeads.length)}
-              sub="new enquiries and recent opportunities"
-              icon={Users}
-              color="cyan"
-            />
-            <StatCard
-              label="Won"
-              value={String(metrics.wonDeals.length)}
-              sub={formatMoney(
-                metrics.wonDeals.reduce(
-                  (total, deal) => total + Number(deal.valueCents || 0),
-                  0,
-                ),
-              )}
-              icon={CircleCheckBig}
-              color="green"
-            />
-            <StatCard
-              label="Lost"
-              value={String(metrics.lostDeals.length)}
-              sub="closed lost opportunities"
-              icon={CircleX}
-              color="rose"
-            />
-            <StatCard
-              label="Open Clients"
-              value={String(metrics.openClients.length)}
-              sub="active, trial, and pending accounts"
-              icon={BriefcaseBusiness}
-              color="blue"
-            />
-            <StatCard
-              label="Active Projects"
-              value={String(metrics.activeProjects.length)}
-              sub="services currently in delivery"
-              icon={Target}
-              color="purple"
-            />
-            <StatCard
-              label="Overdue Tasks"
-              value={String(metrics.overdueTasks.length)}
-              sub="open internal tasks past due"
-              icon={CheckSquare}
-              color="amber"
-            />
+            <ActionableStatCard index={0} href="/app/leads?view=new&from=dashboard" ariaLabel={`Open ${metrics.newLeads.length} new prospects in the prospect list`} {...dashboardCardKeyboardProps}>
+              <StatCard
+                label="New Prospects"
+                value={String(metrics.newLeads.length)}
+                sub="new enquiries and recent opportunities"
+                icon={Users}
+                color="cyan"
+              />
+            </ActionableStatCard>
+            <ActionableStatCard index={1} href="/app/crm/pipeline?status=won&from=dashboard" ariaLabel={`Open ${metrics.wonDeals.length} won opportunities in the sales pipeline`} {...dashboardCardKeyboardProps}>
+              <StatCard
+                label="Won"
+                value={String(metrics.wonDeals.length)}
+                sub={formatMoney(
+                  metrics.wonDeals.reduce(
+                    (total, deal) => total + Number(deal.valueCents || 0),
+                    0,
+                  ),
+                )}
+                icon={CircleCheckBig}
+                color="green"
+              />
+            </ActionableStatCard>
+            <ActionableStatCard index={2} href="/app/crm/pipeline?status=lost&from=dashboard" ariaLabel={`Open ${metrics.lostDeals.length} lost opportunities in the sales pipeline`} {...dashboardCardKeyboardProps}>
+              <StatCard
+                label="Lost"
+                value={String(metrics.lostDeals.length)}
+                sub="closed lost opportunities"
+                icon={CircleX}
+                color="rose"
+              />
+            </ActionableStatCard>
+            <ActionableStatCard index={3} href="/app/ops/client-accounts?contractStatus=open&from=dashboard" ariaLabel={`Open ${metrics.openClients.length} open client accounts`} {...dashboardCardKeyboardProps}>
+              <StatCard
+                label="Open Clients"
+                value={String(metrics.openClients.length)}
+                sub="active, trial, and pending accounts"
+                icon={BriefcaseBusiness}
+                color="blue"
+              />
+            </ActionableStatCard>
+            <ActionableStatCard index={4} href="/app/ops/services?status=active&from=dashboard" ariaLabel={`Open ${metrics.activeProjects.length} active delivery projects`} {...dashboardCardKeyboardProps}>
+              <StatCard
+                label="Active Projects"
+                value={String(metrics.activeProjects.length)}
+                sub="services currently in delivery"
+                icon={Target}
+                color="purple"
+              />
+            </ActionableStatCard>
+            <ActionableStatCard index={5} href="/app/crm/tasks?due=overdue&from=dashboard" ariaLabel={`Open ${metrics.overdueTasks.length} overdue internal tasks`} {...dashboardCardKeyboardProps}>
+              <StatCard
+                label="Overdue Tasks"
+                value={String(metrics.overdueTasks.length)}
+                sub="open internal tasks past due"
+                icon={CheckSquare}
+                color="amber"
+              />
+            </ActionableStatCard>
           </>
         )}
       </div>
@@ -381,7 +480,7 @@ export default function AppPage() {
             </div>
             <Link
               href="/app/crm/pipeline"
-              className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb]"
+              className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
             >
               Sales Pipeline
             </Link>
@@ -393,7 +492,12 @@ export default function AppPage() {
               ))}
             {!isLoading &&
               stageRows.map((stage) => (
-                <div key={stage.id} className="space-y-1">
+                <Link
+                  key={stage.id}
+                  href={`/app/crm/pipeline?stage=${encodeURIComponent(stage.id)}&from=dashboard`}
+                  aria-label={`Open ${stage.count} opportunities in ${stage.name}`}
+                  className="block space-y-1 rounded-[14px] p-2 transition-colors hover:bg-[rgba(96,180,175,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+                >
                   <div className="flex items-center justify-between gap-3 text-sm">
                     <span className="font-medium text-[#151f21]">
                       {stage.name}
@@ -410,7 +514,7 @@ export default function AppPage() {
                       }}
                     />
                   </div>
-                </div>
+                </Link>
               ))}
             {!isLoading && stageRows.length === 0 && (
               <p className="text-sm text-[#5e8a8d]">No pipeline stages loaded.</p>
@@ -439,7 +543,7 @@ export default function AppPage() {
                 <Link
                   key={`${deadline.type}-${deadline.id}`}
                   href={deadline.href}
-                  className="block rounded-[16px] border border-[rgba(21,31,33,0.06)] bg-[#FAF8F5] p-3 hover:border-[rgba(96,180,175,0.25)]"
+                  className="block rounded-[16px] border border-[rgba(21,31,33,0.06)] bg-[#FAF8F5] p-3 transition-colors hover:border-[rgba(96,180,175,0.25)] hover:bg-[rgba(96,180,175,0.04)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-sm font-medium text-[#151f21]">
@@ -474,7 +578,7 @@ export default function AppPage() {
             </div>
             <Link
               href="/app/ops/client-accounts"
-              className="text-sm font-medium text-[#5e8a8d] hover:text-[#151f21]"
+              className="rounded-lg text-sm font-medium text-[#5e8a8d] hover:text-[#151f21] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
             >
               Client Accounts
             </Link>
@@ -488,30 +592,35 @@ export default function AppPage() {
                 </div>
               ))}
             {!isLoading &&
-              topActiveProjects.map((service) => (
-                <Link
-                  key={service.id}
-                  href={`/app/ops/client-accounts?serviceId=${service.id}`}
-                  className="block p-5 hover:bg-[rgba(96,180,175,0.03)]"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-medium text-[#151f21]">
-                      {service.name}
-                    </span>
-                    <span className="rounded-full bg-[rgba(96,180,175,0.08)] px-2 py-1 text-xs font-medium text-[#5e8a8d]">
-                      {formatLabel(service.status)}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-[#5e8a8d]">
-                    <span>
-                      {clientNameByProfileId.get(service.clientAccountProfileId) ||
-                        "Linked client"}
-                    </span>
-                    <span>{formatLabel(service.serviceType)}</span>
-                    <span>Renewal {formatDate(service.renewalDate)}</span>
-                  </div>
-                </Link>
-              ))}
+              topActiveProjects.map((service) => {
+                const linkedAccount = clientAccountByProfileId.get(service.clientAccountProfileId);
+                return (
+                  <Link
+                    key={service.id}
+                    href={linkedAccount ? `/app/ops/client-accounts/detail?id=${encodeURIComponent(linkedAccount.clinicId)}` : "/app/ops/delivery?status=active&from=dashboard"}
+                    aria-label={`Open project ${service.name}${linkedAccount ? ` for ${linkedAccount.clinicName}` : ""}`}
+                    className="block p-5 transition-colors hover:bg-[rgba(96,180,175,0.03)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#315f62]"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium text-[#151f21]">
+                        {service.name}
+                      </span>
+                      <span className="rounded-full bg-[rgba(96,180,175,0.08)] px-2 py-1 text-xs font-medium text-[#5e8a8d]">
+                        {formatLabel(service.status)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-[#5e8a8d]">
+                      <span>
+                        {linkedAccount?.clinicName ||
+                          clientNameByProfileId.get(service.clientAccountProfileId) ||
+                          "Linked client"}
+                      </span>
+                      <span>{formatLabel(service.serviceType)}</span>
+                      <span>Renewal {formatDate(service.renewalDate)}</span>
+                    </div>
+                  </Link>
+                );
+              })}
             {!isLoading && topActiveProjects.length === 0 && (
               <p className="p-5 text-sm text-[#5e8a8d]">No active projects found.</p>
             )}
@@ -528,8 +637,8 @@ export default function AppPage() {
               <p className="text-sm text-[#5e8a8d]">Open internal work past due</p>
             </div>
             <Link
-              href="/app/crm/tasks"
-              className="text-sm font-medium text-[#5e8a8d] hover:text-[#151f21]"
+              href="/app/crm/tasks?due=overdue&from=dashboard"
+              className="rounded-lg text-sm font-medium text-[#5e8a8d] hover:text-[#151f21] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
             >
               Tasks
             </Link>
@@ -547,7 +656,7 @@ export default function AppPage() {
                 <Link
                   key={task.id}
                   href={`/app/crm/tasks?taskId=${task.id}`}
-                  className="block p-5 hover:bg-[rgba(96,180,175,0.03)]"
+                  className="block p-5 transition-colors hover:bg-[rgba(96,180,175,0.03)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#315f62]"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-medium text-[#151f21]">

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Archive,
@@ -96,6 +97,8 @@ function formatMoney(value: number | null | undefined, currency = "GBP") {
 }
 
 export default function ServicesPage() {
+  const searchParams = useSearchParams();
+  const requestedStatus = searchParams.get("status");
   const { session } = useAuth();
   const { addToast } = useToast();
   const token = session?.token;
@@ -127,12 +130,16 @@ export default function ServicesPage() {
 
   const filteredServices = useMemo(() => {
     const search = query.trim().toLowerCase();
-    if (!search) return services;
-    return services.filter((service) =>
-      [service.name, service.serviceType, service.status, service.contractStatus, personName(service.owner)]
-        .some((value) => String(value).toLowerCase().includes(search)),
-    );
-  }, [query, services]);
+    return services.filter((service) => {
+      const statusMatches = !requestedStatus || service.status === requestedStatus;
+      const searchMatches =
+        !search ||
+        [service.name, service.serviceType, service.status, service.contractStatus, personName(service.owner)]
+          .some((value) => String(value).toLowerCase().includes(search));
+
+      return statusMatches && searchMatches;
+    });
+  }, [query, requestedStatus, services]);
 
   const activeServices = services.filter((service) => service.status === "active");
   const monthlyValue = activeServices.reduce((sum, service) => sum + Number(service.recurringValue || 0), 0);

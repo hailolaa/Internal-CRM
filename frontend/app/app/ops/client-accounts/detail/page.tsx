@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   BriefcaseBusiness,
@@ -83,6 +83,7 @@ function linkedContactSubtitle(contact: ClientAccountLinkedContactRecord) {
 }
 
 export default function ClientAccountDetailPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const clinicId = searchParams.get("id") || "";
   const { session } = useAuth();
@@ -92,6 +93,7 @@ export default function ClientAccountDetailPage() {
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [linkedRecords, setLinkedRecords] = useState<ClientAccountLinkedRecords | null>(null);
   const [contactSearch, setContactSearch] = useState("");
+  const [contactSearchTerm, setContactSearchTerm] = useState("");
   const [contactSearchResults, setContactSearchResults] = useState<ContactRecord[]>([]);
   const [isSearchingContacts, setIsSearchingContacts] = useState(false);
   const [linkActionContactId, setLinkActionContactId] = useState<string | null>(null);
@@ -127,6 +129,10 @@ export default function ClientAccountDetailPage() {
   const linkedContacts = linkedRecords?.contacts || [];
   const openTasks = linkedRecords?.openTasks || [];
   const completedTasks = linkedRecords?.completedTasks || [];
+  const availableContactSearchResults = useMemo(
+    () => contactSearchResults.filter((contact) => !linkedContacts.some((linked) => linked.id === contact.id)),
+    [contactSearchResults, linkedContacts],
+  );
 
   useEffect(() => {
     if (!account) return;
@@ -175,12 +181,15 @@ export default function ClientAccountDetailPage() {
   };
 
   const handleSearchContacts = async () => {
-    if (!token || !contactSearch.trim()) return;
+    const search = contactSearch.trim();
+    if (!token || !search) return;
     setIsSearchingContacts(true);
+    setContactSearchTerm(search);
     setLinkStatusMessage("");
     try {
-      const result = await api.contacts.list(token, { search: contactSearch.trim(), pageSize: 10 });
+      const result = await api.contacts.list(token, { search, pageSize: 10 });
       setContactSearchResults(result.contacts);
+      setContactSearch("");
     } catch (error) {
       setLinkStatusMessage(error instanceof Error ? error.message : "Could not search contacts.");
     } finally {
@@ -197,6 +206,7 @@ export default function ClientAccountDetailPage() {
       setLinkedRecords(records);
       setContactSearchResults((current) => current.filter((contact) => contact.id !== contactId));
       setContactSearch("");
+      setContactSearchTerm("");
       setLinkStatusMessage("Contact linked to this client account.");
     } catch (error) {
       setLinkStatusMessage(error instanceof Error ? error.message : "Could not link this contact.");
@@ -227,7 +237,7 @@ export default function ClientAccountDetailPage() {
   if (loadError || !account) {
     return (
       <div className="space-y-6">
-        <Link href="/app/ops/client-accounts" className="btn-secondary inline-flex text-sm"><ArrowLeft className="h-4 w-4" />Back to accounts</Link>
+        <button type="button" onClick={() => router.back()} className="btn-secondary inline-flex text-sm"><ArrowLeft className="h-4 w-4" />Back</button>
         <AlertBanner title="Client account could not be loaded" description={loadError || "The account is unavailable."} variant="warning" />
       </div>
     );
@@ -239,7 +249,7 @@ export default function ClientAccountDetailPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-start gap-4">
-          <Link href="/app/ops/client-accounts" className="btn-secondary p-2"><ArrowLeft className="h-5 w-5" /></Link>
+          <button type="button" onClick={() => router.back()} aria-label="Back" className="btn-secondary p-2"><ArrowLeft className="h-5 w-5" /></button>
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#e4efed] text-[#315f62]"><BriefcaseBusiness className="h-6 w-6" /></div>
           <div>
             <div className="flex flex-wrap items-center gap-3"><h1 className="text-2xl font-bold text-[#151f21]">{account.clinicName}</h1><StatusBadge status={formatLabel(account.clientStatus)} /></div>
@@ -302,11 +312,14 @@ export default function ClientAccountDetailPage() {
                 Search
               </button>
             </div>
-            {contactSearchResults.length > 0 && (
+            {contactSearchTerm ? (
+              <p className="mt-3 text-xs font-medium text-[#6F6A66]">
+                Results for "{contactSearchTerm}"
+              </p>
+            ) : null}
+            {availableContactSearchResults.length > 0 && (
               <div className="mt-3 space-y-2 rounded-xl border border-[#E7E1DA] bg-white p-3">
-                {contactSearchResults
-                  .filter((contact) => !linkedContacts.some((linked) => linked.id === contact.id))
-                  .map((contact) => (
+                {availableContactSearchResults.map((contact) => (
                     <div key={contact.id} className="flex flex-col gap-3 rounded-lg bg-[#FAF8F5] p-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-semibold text-[#151f21]">{contact.name}</p>
@@ -320,6 +333,11 @@ export default function ClientAccountDetailPage() {
                   ))}
               </div>
             )}
+            {contactSearchTerm && !isSearchingContacts && availableContactSearchResults.length === 0 ? (
+              <p className="mt-3 rounded-xl border border-dashed border-[#E7E1DA] bg-white p-4 text-sm text-[#7A746A]">
+                No unlinked contacts found for "{contactSearchTerm}". The matching contacts may already be linked, or no contact matched that search.
+              </p>
+            ) : null}
             {linkStatusMessage ? <p className="mt-3 text-sm text-[#315f62]">{linkStatusMessage}</p> : null}
             <div className="mt-5 space-y-3">
               {linkedContacts.map((contact) => (

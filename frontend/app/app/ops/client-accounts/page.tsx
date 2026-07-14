@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -116,6 +117,8 @@ function renewalBadge(value?: string | null) {
 }
 
 export default function ClientAccountsPage() {
+  const searchParams = useSearchParams();
+  const requestedContractStatus = searchParams.get("contractStatus");
   const { session } = useAuth();
   const token = session?.token;
   const [accounts, setAccounts] = useState<ClientAccountSummaryRecord[]>([]);
@@ -174,18 +177,24 @@ export default function ClientAccountsPage() {
 
   const filteredAccounts = useMemo(() => {
     const search = accountQuery.trim().toLowerCase();
-    if (!search) return accounts;
-    return accounts.filter((account) =>
-      [
-        account.clinicName,
-        account.contractStatus,
-        account.healthStatus,
-        account.churnRisk,
-        accountPersonName(account.accountManager),
-        account.activeServices.join(" "),
-      ].some((value) => value.toLowerCase().includes(search)),
-    );
-  }, [accounts, accountQuery]);
+    return accounts.filter((account) => {
+      const statusMatches =
+        requestedContractStatus !== "open" ||
+        ["active", "trial", "pending"].includes(account.contractStatus);
+      const searchMatches =
+        !search ||
+        [
+          account.clinicName,
+          account.contractStatus,
+          account.healthStatus,
+          account.churnRisk,
+          accountPersonName(account.accountManager),
+          account.activeServices.join(" "),
+        ].some((value) => value.toLowerCase().includes(search));
+
+      return statusMatches && searchMatches;
+    });
+  }, [accounts, accountQuery, requestedContractStatus]);
 
 
   return (
