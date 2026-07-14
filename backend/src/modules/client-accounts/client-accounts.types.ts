@@ -23,6 +23,7 @@ export interface UpdateClientAccountProfileDTO {
 export interface UpdateClientAccountDriveFolderDTO {
   folderUrl?: string | null;
   folderId?: string | null;
+  displayName?: string | null;
 }
 
 export interface CreateClientAccountDTO extends UpdateClientAccountProfileDTO {

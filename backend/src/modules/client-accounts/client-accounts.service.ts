@@ -60,29 +60,43 @@ function normalizeServices(services: string[]) {
   return Array.from(new Set(services.map((service) => service.trim()).filter(Boolean)));
 }
 
-function extractGoogleDriveFolderId(value: string) {
-  const input = value.trim();
-  if (/^[A-Za-z0-9_-]{10,255}$/.test(input) && !input.includes(".")) return input;
+type GoogleDriveItemKind = "folder" | "zip" | "unknown";
+
+function extractGoogleDriveItem(value: string): { id: string; kindHint: GoogleDriveItemKind } {
+  const input = value.trim().replace(/^["'<\s]+|[>"'\s]+$/g, "");
+  const validDriveId = (candidate: string | null | undefined) =>
+    Boolean(candidate && /^[A-Za-z0-9_-]{5,255}$/.test(candidate));
+
+  if (validDriveId(input) && !input.includes(".")) return { id: input, kindHint: "unknown" };
 
   let url: URL;
   try {
     url = new URL(input);
   } catch {
-    throw ApiError.badRequest("Enter a valid Google Drive folder URL or folder ID.");
+    throw ApiError.badRequest("Enter a valid Google Drive folder or ZIP file URL or ID.");
   }
 
   const host = url.hostname.toLowerCase();
   if (!host.endsWith("drive.google.com")) {
-    throw ApiError.badRequest("Only Google Drive folder links are supported.");
+    throw ApiError.badRequest("Only Google Drive folder or ZIP file links are supported.");
   }
 
-  const folderPathMatch = url.pathname.match(/\/drive\/(?:u\/\d+\/)?folders\/([^/?#]+)/);
-  const folderId = folderPathMatch?.[1] || url.searchParams.get("id");
-  if (!folderId || !/^[A-Za-z0-9_-]{10,255}$/.test(folderId)) {
-    throw ApiError.badRequest("Google Drive folder link must include a valid folder ID.");
+  const path = decodeURIComponent(url.pathname);
+  const fileId = path.match(/\/file\/d\/([^/?#]+)/)?.[1];
+  const folderId =
+    path.match(/\/drive\/(?:u\/\d+\/)?(?:mobile\/)?folders\/([^/?#]+)/)?.[1] ||
+    path.match(/\/folders\/([^/?#]+)/)?.[1];
+  const driveId =
+    folderId ||
+    fileId ||
+    url.searchParams.get("id");
+  const kindHint: GoogleDriveItemKind = folderId ? "folder" : fileId ? "zip" : "unknown";
+
+  if (!validDriveId(driveId)) {
+    throw ApiError.badRequest("Google Drive link must include a valid folder or ZIP file ID.");
   }
 
-  return folderId;
+  return { id: String(driveId), kindHint };
 }
 
 export class ClientAccountsService {
@@ -528,6 +542,7 @@ export class ClientAccountsService {
     const before = await this.getProfile(clinicId);
     const profileId = before.id || await this.ensureProfileRow(clinicId, userId);
     const input = (data.folderId || data.folderUrl || "").trim();
+    const displayName = data.displayName?.trim() || null;
 
     if (!input) {
       await pool.execute(
@@ -561,9 +576,24 @@ export class ClientAccountsService {
       return this.getProfile(clinicId);
     }
 
-    const folderId = extractGoogleDriveFolderId(input);
-    const folderUrl = `https://drive.google.com/drive/folders/${folderId}`;
-    const accessCheck = await this.checkGoogleDriveFolderAccess(folderId);
+    const driveItem = extractGoogleDriveItem(input);
+    const accessCheck = await this.checkGoogleDriveItemAccess(driveItem.id, driveItem.kindHint);
+    const folderId = driveItem.id;
+    const folderUrl =
+      accessCheck.itemType === "zip" || driveItem.kindHint === "zip"
+        ? `https://drive.google.com/file/d/${folderId}/view`
+        : `https://drive.google.com/drive/folders/${folderId}`;
+
+    if (!displayName && !accessCheck.name && !config.googleDrive.validationEnabled) {
+      throw ApiError.badRequest("Add a title for this Google Drive link, or enable Google Drive validation to read the title automatically.");
+    }
+
+    const driveItemName =
+      displayName ||
+      accessCheck.name ||
+      (accessCheck.itemType === "zip" || driveItem.kindHint === "zip"
+        ? "Google Drive ZIP archive"
+        : "Google Drive folder");
 
     await pool.execute(
       `UPDATE client_account_profile
@@ -579,7 +609,7 @@ export class ClientAccountsService {
       [
         folderId,
         folderUrl,
-        accessCheck.name,
+        driveItemName,
         accessCheck.status,
         accessCheck.error,
         accessCheck.checkedAt,
@@ -1143,8 +1173,9 @@ export class ClientAccountsService {
     };
   }
 
-  private async checkGoogleDriveFolderAccess(folderId: string): Promise<{
+  private async checkGoogleDriveItemAccess(folderId: string, kindHint: GoogleDriveItemKind): Promise<{
     name: string | null;
+    itemType: "folder" | "zip" | null;
     status: "not_checked" | "accessible" | "inaccessible";
     error: string | null;
     checkedAt: string | null;
@@ -1152,6 +1183,7 @@ export class ClientAccountsService {
     if (!config.googleDrive.validationEnabled) {
       return {
         name: null,
+        itemType: kindHint === "unknown" ? null : kindHint,
         status: "not_checked",
         error: null,
         checkedAt: null,
@@ -1176,27 +1208,34 @@ export class ClientAccountsService {
       const payload: any = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        const message = payload.error?.message || "Google Drive folder is inaccessible to the configured account.";
+        const message = payload.error?.message || "Google Drive item is inaccessible to the configured account.";
         throw ApiError.badRequest(message);
       }
 
-      if (payload.mimeType !== "application/vnd.google-apps.folder") {
-        throw ApiError.badRequest("Google Drive link must point to a folder, not a file.");
+      const isFolder = payload.mimeType === "application/vnd.google-apps.folder";
+      const isZip =
+        ["application/zip", "application/x-zip", "application/x-zip-compressed"].includes(String(payload.mimeType || "")) ||
+        (String(payload.mimeType || "") === "application/octet-stream" && String(payload.name || "").toLowerCase().endsWith(".zip")) ||
+        String(payload.name || "").toLowerCase().endsWith(".zip");
+
+      if (!isFolder && !isZip) {
+        throw ApiError.badRequest("Google Drive link must point to a folder or ZIP file.");
       }
 
       if (payload.trashed) {
-        throw ApiError.badRequest("Google Drive folder is in trash and cannot be linked.");
+        throw ApiError.badRequest("Google Drive item is in trash and cannot be linked.");
       }
 
       return {
         name: payload.name || null,
+        itemType: isZip ? "zip" : "folder",
         status: "accessible",
         error: null,
         checkedAt,
       };
     } catch (error) {
       if (error instanceof ApiError) throw error;
-      throw ApiError.serviceUnavailable("Google Drive folder access could not be checked. Try again or check the Google credentials.");
+      throw ApiError.serviceUnavailable("Google Drive item access could not be checked. Try again or check the Google credentials.");
     }
   }
 

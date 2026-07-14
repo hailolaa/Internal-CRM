@@ -69,11 +69,15 @@ export const updateClientAccountDriveFolderValidator = [
   body("folderUrl")
     .optional({ nullable: true })
     .custom((value) => value === null || String(value).trim().length <= 500)
-    .withMessage("Google Drive folder URL must be 500 characters or fewer"),
+    .withMessage("Google Drive folder or ZIP URL must be 500 characters or fewer"),
   body("folderId")
     .optional({ nullable: true })
     .custom((value) => value === null || /^[A-Za-z0-9_-]{10,255}$/.test(String(value).trim()))
-    .withMessage("Google Drive folder ID is not valid"),
+    .withMessage("Google Drive item ID is not valid"),
+  body("displayName")
+    .optional({ nullable: true })
+    .custom((value) => value === null || String(value).trim().length <= 255)
+    .withMessage("Google Drive title must be 255 characters or fewer"),
 ];
 
 export const updateClientAccountProfileValidator = [

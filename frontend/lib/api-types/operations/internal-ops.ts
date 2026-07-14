@@ -135,6 +135,7 @@ export interface ClientAccountProfilePayload {
 export interface ClientAccountDriveFolderPayload {
   folderUrl?: string | null;
   folderId?: string | null;
+  displayName?: string | null;
 }
 
 export interface ClientAccountCreatePayload extends ClientAccountProfilePayload {
