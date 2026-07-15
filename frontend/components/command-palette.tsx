@@ -17,6 +17,7 @@ import {
   FileText,
   Loader2,
   Navigation,
+  NotebookTabs,
   Search,
   Settings,
   UserPlus,
@@ -62,7 +63,9 @@ type PaletteItem =
     };
 
 const ACTION_ROUTE_OVERRIDES: Record<string, string> = {
-  create_lead: "/app/crm/contacts/new",
+  create_lead: "/app/crm/contacts/new?mode=lead",
+  create_contact: "/app/crm/contacts/new?mode=contact",
+  create_client_account: "/app/ops/client-accounts/new",
   create_task: "/app/crm/tasks/new",
   search_contacts: "/app/crm/contacts",
   open_reports: "/app",
@@ -78,20 +81,23 @@ function getActionRoute(action: CommandPaletteAction) {
 }
 
 function getRecordRoute(record: CommandPaletteRecord) {
-  if (record.type === "contact") {
+  if (record.type === "lead" || record.type === "contact") {
     return `/app/crm/contacts/detail?id=${encodeURIComponent(record.id)}`;
   }
 
-  if (record.type === "appointment") {
-    return "/app/ops/delivery";
+  if (record.type === "client_account") {
+    const clinicId = typeof record.metadata.clinicId === "string"
+      ? record.metadata.clinicId
+      : record.id;
+    return `/app/ops/client-accounts/detail?id=${encodeURIComponent(clinicId)}`;
   }
 
   if (record.type === "task") {
     return `/app/crm/tasks?taskId=${encodeURIComponent(record.id)}`;
   }
 
-  if (record.type === "report") {
-    return "/app";
+  if (record.type === "proposal") {
+    return record.route;
   }
 
   return record.route;
@@ -101,9 +107,10 @@ function getItemIcon(item: PaletteItem) {
   if (item.kind === "clinic") return Building2;
 
   if (item.kind === "record") {
-    if (item.record.type === "appointment") return CheckSquare;
     if (item.record.type === "task") return CheckSquare;
-    if (item.record.type === "report") return FileText;
+    if (item.record.type === "client_account") return Building2;
+    if (item.record.type === "proposal") return FileText;
+    if (item.record.type === "contact") return NotebookTabs;
     return UserPlus;
   }
 
@@ -137,18 +144,12 @@ function buildPaletteItems(
       title: record.label,
       description:
         record.description ||
-        (record.type === "appointment"
-          ? "Open delivery work"
-          : record.type === "report"
-            ? "Open operations dashboard"
-            : `Open ${record.type}`),
+        `Open ${record.type.replace("_", " ")}`,
       record,
       badge:
-        record.type === "appointment"
-          ? "event"
-          : record.type === "report"
-            ? "dashboard"
-            : record.type,
+        record.type === "client_account"
+          ? "client"
+          : record.type.replace("_", " "),
     })),
     ...clinics.map((clinic) => ({
       kind: "clinic" as const,

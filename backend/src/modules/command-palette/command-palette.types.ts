@@ -4,7 +4,10 @@ export type CommandPaletteTargetType =
   | "clinic_switch";
 
 export type CommandPaletteRecordType =
+  | "lead"
   | "contact"
+  | "client_account"
+  | "proposal"
   | "appointment"
   | "report"
   | "task"

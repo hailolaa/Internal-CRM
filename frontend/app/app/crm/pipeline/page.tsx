@@ -644,6 +644,9 @@ export default function PipelinePage() {
   const searchParams = useSearchParams();
   const requestedStatus = searchParams.get("status");
   const requestedStage = searchParams.get("stage");
+  const requestedDeal = searchParams.get("deal");
+  const requestedContactId = searchParams.get("contactId");
+  const requestedView = searchParams.get("view");
   const { hasPermission, session } = useAuth();
   const token = session?.token;
   const canWriteContacts = hasPermission("contacts:write");
@@ -788,6 +791,12 @@ export default function PipelinePage() {
   }, [addDealForm, canWriteContacts, fetchPipeline, token]);
 
   useEffect(() => {
+    if (requestedDeal) {
+      setSelectedDeal(requestedDeal);
+    }
+  }, [requestedDeal]);
+
+  useEffect(() => {
     if (!token) return;
 
     let isMounted = true;
@@ -874,6 +883,18 @@ export default function PipelinePage() {
       .map((stage) => ({
         ...stage,
         deals: stage.deals.filter((deal) => {
+          const dealMatches =
+            !requestedDeal ||
+            deal.id === requestedDeal ||
+            deal.raw.id === requestedDeal;
+          const contactMatches =
+            !requestedContactId || deal.raw.contactId === requestedContactId;
+          const proposalMatches =
+            requestedView !== "proposals" ||
+            deal.treatment.toLowerCase().includes("proposal") ||
+            deal.name.toLowerCase().includes("proposal") ||
+            String(deal.raw.stageName || "").toLowerCase().includes("proposal") ||
+            String(deal.raw.title || "").toLowerCase().includes("proposal");
           const statusMatches =
             !requestedStatus ||
             deal.raw.status === requestedStatus ||
@@ -884,11 +905,18 @@ export default function PipelinePage() {
             deal.treatment.toLowerCase().includes(query) ||
             deal.source.toLowerCase().includes(query);
 
-          return statusMatches && searchMatches;
+          return dealMatches && contactMatches && proposalMatches && statusMatches && searchMatches;
         }),
       }))
-      .filter((stage) => !requestedStatus || stage.deals.length > 0);
-  }, [requestedStage, requestedStatus, searchQuery, stages]);
+      .filter((stage) => {
+        const hasRouteFilter =
+          Boolean(requestedStatus) ||
+          Boolean(requestedDeal) ||
+          Boolean(requestedContactId) ||
+          requestedView === "proposals";
+        return !hasRouteFilter || stage.deals.length > 0;
+      });
+  }, [requestedContactId, requestedDeal, requestedStage, requestedStatus, requestedView, searchQuery, stages]);
 
   const totalValue = stages.reduce(
     (acc, stage) =>

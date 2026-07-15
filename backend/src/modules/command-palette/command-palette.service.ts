@@ -12,14 +12,36 @@ import type {
 const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> = [
   {
     id: "create_lead",
-    label: "Add prospect",
+    label: "Add lead",
     description: "Create a new prospect or internal sales lead.",
     group: "create",
     keywords: ["prospect", "lead", "contact", "enquiry", "new"],
     targetType: "route",
-    route: "/app/crm/contacts/new",
+    route: "/app/crm/contacts/new?mode=lead",
     api: { method: "POST", path: "/api/contacts" },
     requiredPermission: "contacts:write",
+  },
+  {
+    id: "create_contact",
+    label: "Add contact",
+    description: "Create a contact linked to a prospect or client account.",
+    group: "create",
+    keywords: ["contact", "person", "stakeholder", "new"],
+    targetType: "route",
+    route: "/app/crm/contacts/new?mode=contact",
+    api: { method: "POST", path: "/api/contacts" },
+    requiredPermission: "contacts:write",
+  },
+  {
+    id: "create_client_account",
+    label: "Add client account",
+    description: "Create a new internal client/account record.",
+    group: "create",
+    keywords: ["client", "account", "customer", "new"],
+    targetType: "route",
+    route: "/app/ops/client-accounts/new",
+    api: { method: "POST", path: "/api/client-accounts" },
+    requiredPermission: "client_accounts:write",
   },
   {
     id: "create_task",
@@ -79,6 +101,7 @@ const ACTIONS: Array<Omit<CommandPaletteAction, "enabled" | "disabledReason">> =
 const PERMISSIONS = Array.from(new Set([
   ...ACTIONS.map((action) => action.requiredPermission).filter(Boolean),
   "internal_tasks:read",
+  "client_accounts:read",
 ])) as string[];
 
 export class CommandPaletteService {
@@ -100,7 +123,13 @@ export class CommandPaletteService {
     return {
       query: search,
       actions,
-      commonActions: actions.filter((action) => ["create_lead", "create_task", "open_reports"].includes(action.id)),
+      commonActions: actions.filter((action) => [
+        "create_lead",
+        "create_client_account",
+        "create_contact",
+        "create_task",
+        "open_reports",
+      ].includes(action.id)),
       records,
       recentRecords,
       clinics,
@@ -148,11 +177,16 @@ export class CommandPaletteService {
     if (!search) return [];
 
     const records: CommandPaletteRecord[] = [];
-    const perTypeLimit = Math.max(3, Math.ceil(limit / 2));
+    const perTypeLimit = Math.max(3, Math.ceil(limit / 4));
     const like = `%${search}%`;
 
     if (permissions["contacts:read"]) {
       records.push(...await this.searchContacts(clinicId, like, perTypeLimit));
+      records.push(...await this.searchProposals(clinicId, like, perTypeLimit));
+    }
+
+    if (permissions["client_accounts:read"]) {
+      records.push(...await this.searchClientAccounts(clinicId, like, perTypeLimit));
     }
 
     if (permissions["internal_tasks:read"]) {
@@ -170,10 +204,14 @@ export class CommandPaletteService {
     permissions: Record<string, boolean>,
   ) {
     const records: CommandPaletteRecord[] = [];
-    const perTypeLimit = Math.max(2, Math.ceil(limit / 3));
+    const perTypeLimit = Math.max(2, Math.ceil(limit / 4));
 
     if (permissions["contacts:read"]) {
       records.push(...await this.searchContacts(clinicId, "%", perTypeLimit));
+      records.push(...await this.searchProposals(clinicId, "%", perTypeLimit));
+    }
+    if (permissions["client_accounts:read"]) {
+      records.push(...await this.searchClientAccounts(clinicId, "%", perTypeLimit));
     }
     if (permissions["internal_tasks:read"]) {
       records.push(...await this.searchTasks(clinicId, "%", perTypeLimit));
@@ -190,8 +228,13 @@ export class CommandPaletteService {
               TRIM(CONCAT_WS(' ', first_name, last_name)) as name,
               email,
               phone,
+              account_name as accountName,
+              website,
               source,
               status,
+              lead_status as leadStatus,
+              package_interest as packageInterest,
+              recommended_package as recommendedPackage,
               updated_at as updatedAt
        FROM contact
        WHERE clinic_id = ?
@@ -202,26 +245,171 @@ export class CommandPaletteService {
            OR last_name LIKE ?
            OR email LIKE ?
            OR phone LIKE ?
+           OR account_name LIKE ?
+           OR website LIKE ?
            OR source LIKE ?
            OR status LIKE ?
+           OR lead_status LIKE ?
+           OR package_interest LIKE ?
+           OR recommended_package LIKE ?
          )
        ORDER BY updated_at DESC
        LIMIT ${limit}`,
-      [clinicId, like, like, like, like, like, like, like],
+      [clinicId, like, like, like, like, like, like, like, like, like, like, like, like],
     );
 
     return rows.map((row: any) => ({
       id: row.id,
-      type: "contact",
+      type: this.isLeadRecord(row) ? "lead" : "contact",
       label: row.name || row.email || row.phone || "Unnamed contact",
-      description: [row.status, row.source, row.email].filter(Boolean).join(" - ") || null,
+      description: [row.accountName, row.leadStatus || row.status, row.packageInterest, row.source, row.email].filter(Boolean).join(" - ") || null,
       route: `/app/crm/contacts/detail?id=${encodeURIComponent(row.id)}`,
       updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
       metadata: {
+        accountName: row.accountName || null,
         email: row.email || null,
         phone: row.phone || null,
+        website: row.website || null,
         source: row.source || null,
         status: row.status || null,
+        leadStatus: row.leadStatus || null,
+        packageInterest: row.packageInterest || null,
+        recommendedPackage: row.recommendedPackage || null,
+      },
+    }));
+  }
+
+  private isLeadRecord(row: any) {
+    const status = String(row.status || "").toLowerCase();
+    const leadStatus = String(row.leadStatus || "").toLowerCase();
+    return status === "lead" || Boolean(leadStatus && leadStatus !== "converted");
+  }
+
+  private async searchClientAccounts(clinicId: string, like: string, limit: number): Promise<CommandPaletteRecord[]> {
+    const [rows]: any = await pool.execute(
+      `SELECT c.id as clinicId,
+              c.name as clinicName,
+              c.email,
+              c.phone,
+              c.website,
+              c.city,
+              c.country,
+              COALESCE(cap.id, c.id) as id,
+              cap.client_status as clientStatus,
+              cap.current_package as currentPackage,
+              cap.contract_status as contractStatus,
+              cap.updated_at as profileUpdatedAt,
+              c.updated_at as clinicUpdatedAt
+       FROM clinic c
+       LEFT JOIN client_account_profile cap
+         ON cap.clinic_id = c.id
+       WHERE c.id = ?
+         AND c.deleted_at IS NULL
+         AND (
+           ? = '%'
+           OR c.name LIKE ?
+           OR c.email LIKE ?
+           OR c.phone LIKE ?
+           OR c.website LIKE ?
+           OR c.city LIKE ?
+           OR c.country LIKE ?
+           OR cap.current_package LIKE ?
+           OR cap.client_status LIKE ?
+           OR cap.contract_status LIKE ?
+         )
+       ORDER BY COALESCE(cap.updated_at, c.updated_at) DESC
+       LIMIT ${limit}`,
+      [clinicId, like, like, like, like, like, like, like, like, like, like],
+    );
+
+    return rows.map((row: any) => ({
+      id: row.id,
+      type: "client_account",
+      label: row.clinicName || "Unnamed client account",
+      description: [row.clientStatus, row.currentPackage, row.city || row.country].filter(Boolean).join(" - ") || null,
+      route: `/app/ops/client-accounts/detail?id=${encodeURIComponent(row.clinicId)}`,
+      updatedAt: row.profileUpdatedAt
+        ? new Date(row.profileUpdatedAt).toISOString()
+        : row.clinicUpdatedAt
+          ? new Date(row.clinicUpdatedAt).toISOString()
+          : null,
+      metadata: {
+        clinicId: row.clinicId,
+        email: row.email || null,
+        phone: row.phone || null,
+        website: row.website || null,
+        clientStatus: row.clientStatus || null,
+        currentPackage: row.currentPackage || null,
+        contractStatus: row.contractStatus || null,
+      },
+    }));
+  }
+
+  private async searchProposals(clinicId: string, like: string, limit: number): Promise<CommandPaletteRecord[]> {
+    const [rows]: any = await pool.execute(
+      `SELECT d.id,
+              d.title,
+              d.contact_id as contactId,
+              d.source,
+              d.treatment,
+              d.status,
+              d.value,
+              d.expected_close_date as expectedCloseDate,
+              d.updated_at as updatedAt,
+              COALESCE(ps.name, d.stage) as stageName,
+              ps.kind as stageKind,
+              TRIM(CONCAT_WS(' ', c.first_name, c.last_name)) as contactName,
+              c.account_name as accountName,
+              c.email as contactEmail
+       FROM deal d
+       JOIN contact c
+         ON c.id = d.contact_id
+        AND c.clinic_id = d.clinic_id
+        AND c.deleted_at IS NULL
+       LEFT JOIN pipeline_stage ps
+         ON ps.id = d.pipeline_stage_id
+        AND ps.clinic_id = d.clinic_id
+        AND ps.deleted_at IS NULL
+       WHERE d.clinic_id = ?
+         AND d.deleted_at IS NULL
+         AND (
+           LOWER(COALESCE(ps.name, d.stage, '')) LIKE '%proposal%'
+           OR LOWER(d.title) LIKE '%proposal%'
+         )
+         AND (
+           ? = '%'
+           OR d.title LIKE ?
+           OR d.treatment LIKE ?
+           OR d.source LIKE ?
+           OR d.status LIKE ?
+           OR COALESCE(ps.name, d.stage) LIKE ?
+           OR c.first_name LIKE ?
+           OR c.last_name LIKE ?
+           OR c.account_name LIKE ?
+           OR c.email LIKE ?
+         )
+       ORDER BY d.updated_at DESC
+       LIMIT ${limit}`,
+      [clinicId, like, like, like, like, like, like, like, like, like, like],
+    );
+
+    return rows.map((row: any) => ({
+      id: row.id,
+      type: "proposal",
+      label: row.title || `${row.contactName || "Prospect"} proposal`,
+      description: [row.accountName, row.contactName, row.stageName, row.treatment].filter(Boolean).join(" - ") || null,
+      route: `/app/crm/pipeline?deal=${encodeURIComponent(row.id)}&contactId=${encodeURIComponent(row.contactId)}&view=proposals`,
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+      metadata: {
+        contactId: row.contactId,
+        contactName: row.contactName || null,
+        accountName: row.accountName || null,
+        stageName: row.stageName || null,
+        stageKind: row.stageKind || null,
+        source: row.source || null,
+        status: row.status || null,
+        expectedCloseDate: row.expectedCloseDate || null,
+        value: row.value || null,
       },
     }));
   }

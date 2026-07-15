@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, CheckCircle, Loader2, Save } from "lucide-react";
 import { useCallback, useState } from "react";
 import { api } from "@/lib/api-client";
@@ -86,9 +86,57 @@ function validateLeadFields(fields: Record<FieldKey, string>) {
   return "";
 }
 
+function validateContactFields(fields: Record<FieldKey, string>) {
+  const hasContactName = fields.firstName.trim() || fields.lastName.trim();
+  const hasContactMethod = fields.email.trim() || fields.phone.trim();
+
+  if (!hasContactName) {
+    return "Add the contact's first or last name.";
+  }
+
+  if (!hasContactMethod) {
+    return "Add at least one contact method: email or phone.";
+  }
+
+  if (fields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
+    return "Enter a valid email address.";
+  }
+
+  if (fields.phone && !/^[\d\s+()-]{7,30}$/.test(fields.phone)) {
+    return "Enter a valid phone number.";
+  }
+
+  if (!isValidWebsite(fields.website)) {
+    return "Enter a valid website domain or URL.";
+  }
+
+  return "";
+}
+
 export default function NewContactPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { session } = useAuth();
+  const isContactMode = searchParams.get("mode") === "contact";
+  const pageCopy = isContactMode
+    ? {
+        title: "Add Contact",
+        subtitle: "Create a person record for a prospect, client account, partner, or internal stakeholder.",
+        saveLabel: "Save Contact",
+        identityTitle: "Contact Details",
+        notesTitle: "Contact Notes",
+        notesPlaceholder: "Add role context, relationship notes, preferences, or communication history...",
+        backHref: "/app/crm/contacts",
+      }
+    : {
+        title: "Add Lead",
+        subtitle: "Create a manual lead from phone, WhatsApp, email, referral, or direct conversation.",
+        saveLabel: "Save Lead",
+        identityTitle: "Lead Identity",
+        notesTitle: "Lead Notes",
+        notesPlaceholder: "Add context from the call, WhatsApp message, email, or referral...",
+        backHref: "/app/leads",
+      };
   const [tags, setTags] = useState<string[]>([]);
   const [packageInterests, setPackageInterests] = useState<string[]>([]);
   const [communicationPermissions, setCommunicationPermissions] = useState({
@@ -116,7 +164,7 @@ export default function NewContactPage() {
     city: "",
     county: "",
     postcode: "",
-    status: "lead",
+    status: isContactMode ? "active" : "lead",
     source: "",
     packageInterest: "",
     value: "",
@@ -141,16 +189,18 @@ export default function NewContactPage() {
   const handleSave = async () => {
     if (!session?.token) return;
 
-    const validationMessage = validateLeadFields(fields);
+    const validationMessage = isContactMode
+      ? validateContactFields(fields)
+      : validateLeadFields(fields);
     if (validationMessage) {
       setStatusMessage(validationMessage);
       return;
     }
 
     const value = Number(fields.value.replace(/[^\d.]/g, ""));
-    const primaryPackage = fields.packageInterest.trim();
+    const primaryPackage = isContactMode ? "" : fields.packageInterest.trim();
     const treatmentInterests = Array.from(
-      new Set([primaryPackage, ...packageInterests].filter(Boolean)),
+      new Set([primaryPackage, ...(isContactMode ? [] : packageInterests)].filter(Boolean)),
     );
     try {
       setSaveStatus("saving");
@@ -174,10 +224,10 @@ export default function NewContactPage() {
         state: emptyToNull(fields.county),
         postalCode: emptyToNull(fields.postcode),
         status: emptyToNull(fields.status),
-        source: emptyToNull(fields.source),
-        value: Number.isFinite(value) ? value : 0,
-        packageInterest: emptyToNull(fields.packageInterest),
-        recommendedPackage: emptyToNull(fields.packageInterest),
+        source: isContactMode ? null : emptyToNull(fields.source),
+        value: !isContactMode && Number.isFinite(value) ? value : 0,
+        packageInterest: isContactMode ? null : emptyToNull(fields.packageInterest),
+        recommendedPackage: isContactMode ? null : emptyToNull(fields.packageInterest),
         notes: emptyToNull(fields.notes),
         tags,
         treatmentInterests,
@@ -185,8 +235,8 @@ export default function NewContactPage() {
       setSaveStatus("saved");
       router.push(`/app/crm/contacts/detail?id=${result.contact.id}`);
     } catch (error) {
-      console.error("Failed to create lead", error);
-      setStatusMessage(error instanceof Error ? error.message : "Could not save lead.");
+      console.error(`Failed to create ${isContactMode ? "contact" : "lead"}`, error);
+      setStatusMessage(error instanceof Error ? error.message : `Could not save ${isContactMode ? "contact" : "lead"}.`);
       setSaveStatus("idle");
     }
   };
@@ -201,7 +251,7 @@ export default function NewContactPage() {
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Link
-          href="/app/leads"
+          href={pageCopy.backHref}
           className="p-2 rounded-[14px] transition-colors hover:bg-[rgba(110,106,232,0.08)]"
           style={{
             backgroundColor: "#FFFCF9",
@@ -211,9 +261,9 @@ export default function NewContactPage() {
           <ArrowLeft className="w-5 h-5 text-[#6B7280]" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-[#111111]">Add Lead</h1>
+          <h1 className="text-2xl font-bold text-[#111111]">{pageCopy.title}</h1>
           <p className="text-[#6B7280] text-sm">
-            Create a manual lead from phone, WhatsApp, email, referral, or direct conversation.
+            {pageCopy.subtitle}
           </p>
         </div>
         <button
@@ -235,7 +285,7 @@ export default function NewContactPage() {
             </>
           ) : (
             <>
-              <Save className="w-4 h-4" /> Save Lead
+              <Save className="w-4 h-4" /> {pageCopy.saveLabel}
             </>
           )}
         </button>
@@ -257,17 +307,17 @@ export default function NewContactPage() {
               boxShadow: "0 1px 6px rgba(0,0,0,0.03)",
             }}
           >
-            <h2 className="font-semibold text-[#111111] mb-5">Lead Identity</h2>
+            <h2 className="font-semibold text-[#111111] mb-5">{pageCopy.identityTitle}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Account Name
+                  {isContactMode ? "Linked Account Name" : "Account Name"}
                 </label>
                 <input
                   type="text"
                   value={fields.clinicName}
                   onChange={handleInputChange("clinicName")}
-                  placeholder="Growth-focused account"
+                  placeholder={isContactMode ? "Account this person belongs to" : "Growth-focused account"}
                   className={inputBase}
                 />
               </div>
@@ -291,7 +341,7 @@ export default function NewContactPage() {
                   type="text"
                   value={fields.role}
                   onChange={handleInputChange("role")}
-                  placeholder="Practice owner, marketing manager, finance contact..."
+                  placeholder="Account owner, marketing manager, finance contact..."
                   className={inputBase}
                 />
               </div>
@@ -366,45 +416,6 @@ export default function NewContactPage() {
               boxShadow: "0 1px 6px rgba(0,0,0,0.03)",
             }}
           >
-            <h2 className="font-semibold text-[#111111] mb-5">
-              Communication Permissions
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
-                ["email", "Email allowed"],
-                ["phone", "Phone allowed"],
-                ["sms", "SMS allowed"],
-                ["whatsapp", "WhatsApp allowed"],
-              ].map(([key, label]) => (
-                <label
-                  key={key}
-                  className="flex items-center gap-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-medium text-[#151f21]"
-                >
-                  <input
-                    type="checkbox"
-                    checked={communicationPermissions[key as keyof typeof communicationPermissions]}
-                    onChange={(event) =>
-                      setCommunicationPermissions((current) => ({
-                        ...current,
-                        [key]: event.target.checked,
-                      }))
-                    }
-                    className="h-4 w-4 rounded border-[#D8D1C8] text-[#6E6AE8]"
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div
-            className="rounded-[24px] p-6"
-            style={{
-              backgroundColor: "#FFFCF9",
-              border: "1px solid rgba(0,0,0,0.06)",
-              boxShadow: "0 1px 6px rgba(0,0,0,0.03)",
-            }}
-          >
             <h2 className="font-semibold text-[#111111] mb-5">Location</h2>
             <div className="space-y-4">
               <div>
@@ -468,12 +479,12 @@ export default function NewContactPage() {
               boxShadow: "0 1px 6px rgba(0,0,0,0.03)",
             }}
           >
-            <h2 className="font-semibold text-[#111111] mb-5">Lead Notes</h2>
+            <h2 className="font-semibold text-[#111111] mb-5">{pageCopy.notesTitle}</h2>
             <textarea
               rows={4}
               value={fields.notes}
               onChange={handleInputChange("notes")}
-              placeholder="Add context from the call, WhatsApp message, email, or referral..."
+              placeholder={pageCopy.notesPlaceholder}
               className={`${inputBase} resize-none`}
             />
           </div>
@@ -509,7 +520,9 @@ export default function NewContactPage() {
               boxShadow: "0 1px 6px rgba(0,0,0,0.03)",
             }}
           >
-            <h2 className="font-semibold text-[#111111] mb-5">Status & Source</h2>
+            <h2 className="font-semibold text-[#111111] mb-5">
+              {isContactMode ? "Contact Classification" : "Status & Source"}
+            </h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
@@ -520,68 +533,85 @@ export default function NewContactPage() {
                   onChange={handleSelectChange("status")}
                   className={selectBase}
                 >
-                  <option value="lead">Lead</option>
-                  <option value="prospect">Prospect</option>
-                  <option value="contacted">Contacted</option>
-                  <option value="qualified">Qualified</option>
-                  <option value="discovery_call_booked">Discovery Call Booked</option>
-                  <option value="proposal_sent">Proposal Sent</option>
-                  <option value="client">Client</option>
-                  <option value="lost">Lost</option>
+                  {isContactMode ? (
+                    <>
+                      <option value="active">Active</option>
+                      <option value="client">Client contact</option>
+                      <option value="partner">Partner</option>
+                      <option value="vendor">Vendor</option>
+                      <option value="internal">Internal</option>
+                      <option value="inactive">Inactive</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="lead">Lead</option>
+                      <option value="prospect">Prospect</option>
+                      <option value="contacted">Contacted</option>
+                      <option value="qualified">Qualified</option>
+                      <option value="discovery_call_booked">Discovery Call Booked</option>
+                      <option value="proposal_sent">Proposal Sent</option>
+                      <option value="client">Client</option>
+                      <option value="lost">Lost</option>
+                    </>
+                  )}
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Source
-                </label>
-                <select
-                  value={fields.source}
-                  onChange={handleSelectChange("source")}
-                  className={selectBase}
-                >
-                  <option value="">Select source</option>
-                  <option value="phone">Phone</option>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="email">Email</option>
-                  <option value="referral">Referral</option>
-                  <option value="direct">Direct conversation</option>
-                  <option value="website">Website</option>
-                  <option value="google">Google Ads</option>
-                  <option value="meta">Meta Ads</option>
-                  <option value="instagram">Instagram</option>
-                  <option value="outbound">Outbound</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Package Interest
-                </label>
-                <select
-                  value={fields.packageInterest}
-                  onChange={handleSelectChange("packageInterest")}
-                  className={selectBase}
-                >
-                  <option value="">Select package</option>
-                  {PACKAGE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Estimated Value
-                </label>
-                <input
-                  type="text"
-                  value={fields.value}
-                  onChange={handleInputChange("value")}
-                  placeholder="GBP 350"
-                  className={inputBase}
-                />
-              </div>
+              {!isContactMode && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                      Source
+                    </label>
+                    <select
+                      value={fields.source}
+                      onChange={handleSelectChange("source")}
+                      className={selectBase}
+                    >
+                      <option value="">Select source</option>
+                      <option value="phone">Phone</option>
+                      <option value="whatsapp">WhatsApp</option>
+                      <option value="email">Email</option>
+                      <option value="referral">Referral</option>
+                      <option value="direct">Direct conversation</option>
+                      <option value="website">Website</option>
+                      <option value="google">Google Ads</option>
+                      <option value="meta">Meta Ads</option>
+                      <option value="instagram">Instagram</option>
+                      <option value="outbound">Outbound</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                      Package Interest
+                    </label>
+                    <select
+                      value={fields.packageInterest}
+                      onChange={handleSelectChange("packageInterest")}
+                      className={selectBase}
+                    >
+                      <option value="">Select package</option>
+                      {PACKAGE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                      Estimated Value
+                    </label>
+                    <input
+                      type="text"
+                      value={fields.value}
+                      onChange={handleInputChange("value")}
+                      placeholder="GBP 350"
+                      className={inputBase}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -642,41 +672,43 @@ export default function NewContactPage() {
             />
           </div>
 
-          <div
-            className="rounded-[24px] p-6"
-            style={{
-              backgroundColor: "#FFFCF9",
-              border: "1px solid rgba(0,0,0,0.06)",
-              boxShadow: "0 1px 6px rgba(0,0,0,0.03)",
-            }}
-          >
-            <h2 className="font-semibold text-[#111111] mb-5">
-              Additional Interests
-            </h2>
-            <div className="space-y-1">
-              {PACKAGE_OPTIONS.map((option) => (
-                <label
-                  key={option}
-                  className="flex items-center gap-3 p-2.5 rounded-[12px] cursor-pointer transition-colors hover:bg-[rgba(110,106,232,0.04)]"
-                >
-                  <input
-                    type="checkbox"
-                    checked={packageInterests.includes(option)}
-                    onChange={() =>
-                      setPackageInterests((items) =>
-                        items.includes(option)
-                          ? items.filter((item) => item !== option)
-                          : [...items, option],
-                      )
-                    }
-                    className="w-4 h-4 rounded"
-                    style={{ accentColor: "#6E6AE8" }}
-                  />
-                  <span className="text-sm text-[#111111]">{option}</span>
-                </label>
-              ))}
+          {!isContactMode && (
+            <div
+              className="rounded-[24px] p-6"
+              style={{
+                backgroundColor: "#FFFCF9",
+                border: "1px solid rgba(0,0,0,0.06)",
+                boxShadow: "0 1px 6px rgba(0,0,0,0.03)",
+              }}
+            >
+              <h2 className="font-semibold text-[#111111] mb-5">
+                Additional Interests
+              </h2>
+              <div className="space-y-1">
+                {PACKAGE_OPTIONS.map((option) => (
+                  <label
+                    key={option}
+                    className="flex items-center gap-3 p-2.5 rounded-[12px] cursor-pointer transition-colors hover:bg-[rgba(110,106,232,0.04)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={packageInterests.includes(option)}
+                      onChange={() =>
+                        setPackageInterests((items) =>
+                          items.includes(option)
+                            ? items.filter((item) => item !== option)
+                            : [...items, option],
+                        )
+                      }
+                      className="w-4 h-4 rounded"
+                      style={{ accentColor: "#6E6AE8" }}
+                    />
+                    <span className="text-sm text-[#111111]">{option}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

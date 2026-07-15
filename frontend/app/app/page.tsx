@@ -8,6 +8,7 @@ import {
   CircleCheckBig,
   CircleX,
   ClipboardList,
+  Plus,
   Target,
   Users,
 } from "lucide-react";
@@ -190,7 +191,7 @@ function isUpcomingService(service: ClientAccountServiceRecord) {
 }
 
 export default function AppPage() {
-  const { session } = useAuth();
+  const { hasPermission, session } = useAuth();
   const token = session?.token;
   const dashboardCardRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const [activeDashboardCardIndex, setActiveDashboardCardIndex] = useState(0);
@@ -380,6 +381,27 @@ export default function AppPage() {
         subtitle="Internal sales pipeline, client accounts, delivery work, and task health at a glance."
         icon={ClipboardList}
       />
+
+      <div className="flex flex-wrap gap-2">
+        {[
+          { label: "Add Lead", href: "/app/crm/contacts/new?mode=lead", icon: Users, permission: "contacts:write" },
+          { label: "Add Client", href: "/app/ops/client-accounts/new", icon: BriefcaseBusiness, permission: "client_accounts:write" },
+          { label: "Add Contact", href: "/app/crm/contacts/new?mode=contact", icon: Plus, permission: "contacts:write" },
+          { label: "Add Task", href: "/app/crm/tasks/new", icon: CheckSquare, permission: "internal_tasks:write" },
+        ].filter((action) => hasPermission(action.permission)).map((action) => {
+          const Icon = action.icon;
+          return (
+            <Link
+              key={action.href}
+              href={action.href}
+              className="inline-flex items-center gap-2 rounded-[14px] border border-[rgba(21,31,33,0.08)] bg-[#FFFCF9] px-3 py-2 text-sm font-semibold text-[#151f21] transition-colors hover:border-[rgba(96,180,175,0.28)] hover:bg-[rgba(96,180,175,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FAF8F5]"
+            >
+              <Icon className="h-4 w-4 text-[#5e8a8d]" />
+              {action.label}
+            </Link>
+          );
+        })}
+      </div>
 
       {loadError && (
         <AlertBanner

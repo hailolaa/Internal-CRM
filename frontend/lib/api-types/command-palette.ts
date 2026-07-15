@@ -1,7 +1,10 @@
 export type CommandPaletteTargetType = "route" | "api" | "clinic_switch";
 
 export type CommandPaletteRecordType =
+  | "lead"
   | "contact"
+  | "client_account"
+  | "proposal"
   | "appointment"
   | "report"
   | "task"
