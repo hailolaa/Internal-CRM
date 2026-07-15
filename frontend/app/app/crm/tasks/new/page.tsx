@@ -100,7 +100,9 @@ export default function NewTaskPage() {
   const [boardKey, setBoardKey] = useState("delivery");
   const [serviceType, setServiceType] = useState<ClientAccountServiceType>("website");
   const [selectedContact, setSelectedContact] = useState<string | null>(null);
-  const [selectedClientAccount, setSelectedClientAccount] = useState<string | null>(null);
+  const [selectedClientAccount, setSelectedClientAccount] = useState<string | null>(
+    requestedClientAccountProfileId,
+  );
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: "",
@@ -161,14 +163,6 @@ export default function NewTaskPage() {
     (service) => service.clientAccountProfileId === selectedClientAccount,
   );
   const selectedPriority = priorities.find((option) => option.id === priority)!;
-
-  useEffect(() => {
-    if (!requestedClientAccountProfileId || clientAccounts.length === 0 || selectedClientAccount) return;
-    const matchingAccount = clientAccounts.find((account) => account.id === requestedClientAccountProfileId);
-    if (matchingAccount) {
-      setSelectedClientAccount(matchingAccount.id);
-    }
-  }, [clientAccounts, requestedClientAccountProfileId, selectedClientAccount]);
 
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

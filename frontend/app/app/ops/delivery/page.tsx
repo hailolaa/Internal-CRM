@@ -204,6 +204,10 @@ function isActiveService(service: ClientAccountServiceRecord) {
   return service.status === "active" || service.status === "onboarding";
 }
 
+function getInitialWorkView(value: WorkViewKey | null): WorkViewKey {
+  return WORK_VIEWS.some((view) => view.key === value) ? value as WorkViewKey : "website";
+}
+
 export default function DeliveryWorkPage() {
   const searchParams = useSearchParams();
   const requestedView = searchParams.get("view") as WorkViewKey | null;
@@ -213,22 +217,17 @@ export default function DeliveryWorkPage() {
   const [tasks, setTasks] = useState<InternalTaskRecord[]>([]);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
-  const [activeView, setActiveView] = useState<WorkViewKey>("website");
+  const [activeView, setActiveView] = useState<WorkViewKey>(() =>
+    getInitialWorkView(requestedView),
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    if (requestedView && WORK_VIEWS.some((view) => view.key === requestedView)) {
-      setActiveView(requestedView);
-    }
-  }, [requestedView]);
-
-  useEffect(() => {
     if (!token) return;
 
     let isMounted = true;
-    setIsLoading(true);
 
     Promise.allSettled([
       api.internalTasks.list(token, { includeArchived: false }),

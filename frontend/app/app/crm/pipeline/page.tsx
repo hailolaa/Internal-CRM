@@ -658,7 +658,7 @@ export default function PipelinePage() {
     token,
     type: "pipeline",
   });
-  const [selectedDeal, setSelectedDeal] = useState<string | null>(null);
+  const [selectedDeal, setSelectedDeal] = useState<string | null>(requestedDeal);
   const [searchQuery, setSearchQuery] = useState("");
   const [stages, setStages] = useState<PipelineStageData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -789,12 +789,6 @@ export default function PipelinePage() {
       setIsCreatingDeal(false);
     }
   }, [addDealForm, canWriteContacts, fetchPipeline, token]);
-
-  useEffect(() => {
-    if (requestedDeal) {
-      setSelectedDeal(requestedDeal);
-    }
-  }, [requestedDeal]);
 
   useEffect(() => {
     if (!token) return;

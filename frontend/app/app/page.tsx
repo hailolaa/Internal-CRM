@@ -13,8 +13,8 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import type { KeyboardEvent, MutableRefObject, ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertBanner,
   PageHeader,
@@ -23,6 +23,10 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import {
+  getDashboardKeyboardTargetIndex,
+  getDashboardKpiCards,
+} from "@/lib/dashboard-cards";
 import type {
   ClientAccountServiceRecord,
   ClientAccountSummaryRecord,
@@ -37,7 +41,7 @@ function ActionableStatCard({
   index,
   activeIndex,
   setActiveIndex,
-  itemRefs,
+  registerItemRef,
   totalItems,
   children,
 }: {
@@ -46,39 +50,28 @@ function ActionableStatCard({
   index: number;
   activeIndex: number;
   setActiveIndex: (index: number) => void;
-  itemRefs: MutableRefObject<Array<HTMLAnchorElement | null>>;
+  registerItemRef: (index: number, node: HTMLAnchorElement | null) => void;
   totalItems: number;
   children: ReactNode;
 }) {
-  const focusItem = (nextIndex: number) => {
-    const normalizedIndex = (nextIndex + totalItems) % totalItems;
-    setActiveIndex(normalizedIndex);
-    itemRefs.current[normalizedIndex]?.focus();
-  };
-
   const handleKeyDown = (event: KeyboardEvent<HTMLAnchorElement>) => {
     const isWide = window.matchMedia("(min-width: 1280px)").matches;
     const isTablet = window.matchMedia("(min-width: 640px)").matches;
     const columnCount = isWide ? 6 : isTablet ? 2 : 1;
+    const targetIndex = getDashboardKeyboardTargetIndex({
+      currentIndex: index,
+      key: event.key,
+      totalItems,
+      columnCount,
+    });
 
-    if (event.key === "ArrowRight") {
+    if (targetIndex !== index || event.key === "Home" || event.key === "End") {
       event.preventDefault();
-      focusItem(index + 1);
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      focusItem(index - 1);
-    } else if (event.key === "ArrowDown") {
-      event.preventDefault();
-      focusItem(index + columnCount);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      focusItem(index - columnCount);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      focusItem(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      focusItem(totalItems - 1);
+      setActiveIndex(targetIndex);
+      event.currentTarget
+        .closest("[data-dashboard-kpi-grid]")
+        ?.querySelectorAll<HTMLAnchorElement>("[data-dashboard-kpi-card]")
+        [targetIndex]?.focus();
     }
   };
 
@@ -86,9 +79,8 @@ function ActionableStatCard({
     <Link
       href={href}
       aria-label={ariaLabel}
-      ref={(node) => {
-        itemRefs.current[index] = node;
-      }}
+      ref={(node) => registerItemRef(index, node)}
+      data-dashboard-kpi-card
       tabIndex={activeIndex === index ? 0 : -1}
       onFocus={() => setActiveIndex(index)}
       onKeyDown={handleKeyDown}
@@ -207,7 +199,6 @@ export default function AppPage() {
     if (!token) return;
 
     let isMounted = true;
-    setIsLoading(true);
 
     Promise.allSettled([
       api.pipelineDeals.list(token),
@@ -367,10 +358,28 @@ export default function AppPage() {
   const maxStageCount = Math.max(1, ...stageRows.map((row) => row.count));
   const topActiveProjects = metrics.activeProjects.slice(0, 6);
   const overdueTasks = metrics.overdueTasks.slice(0, 6);
+  const dashboardKpiCards = useMemo(
+    () =>
+      getDashboardKpiCards({
+        newProspects: metrics.newLeads.length,
+        won: metrics.wonDeals.length,
+        lost: metrics.lostDeals.length,
+        openClients: metrics.openClients.length,
+        activeProjects: metrics.activeProjects.length,
+        overdueTasks: metrics.overdueTasks.length,
+      }),
+    [metrics],
+  );
+  const registerDashboardCardRef = useCallback(
+    (index: number, node: HTMLAnchorElement | null) => {
+      dashboardCardRefs.current[index] = node;
+    },
+    [],
+  );
   const dashboardCardKeyboardProps = {
     activeIndex: activeDashboardCardIndex,
     setActiveIndex: setActiveDashboardCardIndex,
-    itemRefs: dashboardCardRefs,
+    registerItemRef: registerDashboardCardRef,
     totalItems: 6,
   };
 
@@ -412,7 +421,10 @@ export default function AppPage() {
         />
       )}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <div
+        data-dashboard-kpi-grid
+        className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6"
+      >
         {isLoading ? (
           Array.from({ length: 6 }, (_, index) => (
             <div
@@ -425,7 +437,7 @@ export default function AppPage() {
           ))
         ) : (
           <>
-            <ActionableStatCard index={0} href="/app/leads?view=new&from=dashboard" ariaLabel={`Open ${metrics.newLeads.length} new prospects in the prospect list`} {...dashboardCardKeyboardProps}>
+            <ActionableStatCard index={0} href={dashboardKpiCards[0].href} ariaLabel={dashboardKpiCards[0].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="New Prospects"
                 value={String(metrics.newLeads.length)}
@@ -434,7 +446,7 @@ export default function AppPage() {
                 color="cyan"
               />
             </ActionableStatCard>
-            <ActionableStatCard index={1} href="/app/crm/pipeline?status=won&from=dashboard" ariaLabel={`Open ${metrics.wonDeals.length} won opportunities in the sales pipeline`} {...dashboardCardKeyboardProps}>
+            <ActionableStatCard index={1} href={dashboardKpiCards[1].href} ariaLabel={dashboardKpiCards[1].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="Won"
                 value={String(metrics.wonDeals.length)}
@@ -448,7 +460,7 @@ export default function AppPage() {
                 color="green"
               />
             </ActionableStatCard>
-            <ActionableStatCard index={2} href="/app/crm/pipeline?status=lost&from=dashboard" ariaLabel={`Open ${metrics.lostDeals.length} lost opportunities in the sales pipeline`} {...dashboardCardKeyboardProps}>
+            <ActionableStatCard index={2} href={dashboardKpiCards[2].href} ariaLabel={dashboardKpiCards[2].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="Lost"
                 value={String(metrics.lostDeals.length)}
@@ -457,7 +469,7 @@ export default function AppPage() {
                 color="rose"
               />
             </ActionableStatCard>
-            <ActionableStatCard index={3} href="/app/ops/client-accounts?contractStatus=open&from=dashboard" ariaLabel={`Open ${metrics.openClients.length} open client accounts`} {...dashboardCardKeyboardProps}>
+            <ActionableStatCard index={3} href={dashboardKpiCards[3].href} ariaLabel={dashboardKpiCards[3].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="Open Clients"
                 value={String(metrics.openClients.length)}
@@ -466,7 +478,7 @@ export default function AppPage() {
                 color="blue"
               />
             </ActionableStatCard>
-            <ActionableStatCard index={4} href="/app/ops/services?status=active&from=dashboard" ariaLabel={`Open ${metrics.activeProjects.length} active delivery projects`} {...dashboardCardKeyboardProps}>
+            <ActionableStatCard index={4} href={dashboardKpiCards[4].href} ariaLabel={dashboardKpiCards[4].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="Active Projects"
                 value={String(metrics.activeProjects.length)}
@@ -475,7 +487,7 @@ export default function AppPage() {
                 color="purple"
               />
             </ActionableStatCard>
-            <ActionableStatCard index={5} href="/app/crm/tasks?due=overdue&from=dashboard" ariaLabel={`Open ${metrics.overdueTasks.length} overdue internal tasks`} {...dashboardCardKeyboardProps}>
+            <ActionableStatCard index={5} href={dashboardKpiCards[5].href} ariaLabel={dashboardKpiCards[5].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="Overdue Tasks"
                 value={String(metrics.overdueTasks.length)}

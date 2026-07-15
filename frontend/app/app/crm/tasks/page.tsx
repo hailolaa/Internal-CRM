@@ -209,7 +209,6 @@ export default function TasksPage() {
     if (!token) return;
 
     let isMounted = true;
-    setIsLoading(true);
     Promise.allSettled([
       api.internalTasks.list(token, {
         includeArchived: false,
@@ -301,14 +300,6 @@ export default function TasksPage() {
     tasks,
     workFilter,
   ]);
-
-  useEffect(() => {
-    setDueFilter(getInitialDueFilter(requestedDueFilter));
-  }, [requestedDueFilter]);
-
-  useEffect(() => {
-    setWorkFilter(getInitialWorkFilter(requestedWorkFilter));
-  }, [requestedWorkFilter]);
 
   useEffect(() => {
     if (!requestedTaskId || isLoading) return;
