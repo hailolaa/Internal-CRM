@@ -15,6 +15,22 @@ function parseBoolean(value: string | undefined, fallback: boolean) {
     return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
+function parseJsonRecord(value: string | undefined): Record<string, string> {
+    if (!value) return {};
+
+    try {
+        const parsed = JSON.parse(value) as Record<string, unknown>;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+        return Object.fromEntries(
+            Object.entries(parsed)
+                .map(([key, item]) => [key.trim(), String(item || "").trim()])
+                .filter(([key, item]) => key && item),
+        );
+    } catch {
+        return {};
+    }
+}
+
 export const config = {
     port: parseInt(process.env.PORT || "3000", 10),
     nodeEnv: process.env.NODE_ENV || "development",
@@ -86,6 +102,9 @@ export const config = {
         apiVersion: process.env.WHATSAPP_API_VERSION || "v20.0",
         webhookSecret: process.env.WHATSAPP_WEBHOOK_SECRET || process.env.TWILIO_WEBHOOK_SECRET || "",
         verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || process.env.WHATSAPP_WEBHOOK_SECRET || "",
+        appSecret: process.env.WHATSAPP_APP_SECRET || process.env.FACEBOOK_APP_SECRET || process.env.FACEBOOK_CLIENT_SECRET || "",
+        defaultWorkspaceId: process.env.WHATSAPP_WEBHOOK_WORKSPACE_ID || process.env.WHATSAPP_WEBHOOK_CLINIC_ID || "",
+        webhookWorkspaceMap: parseJsonRecord(process.env.WHATSAPP_WEBHOOK_WORKSPACE_MAP),
     },
 
     backups: {
@@ -181,6 +200,18 @@ export function getProductionConfigIssues() {
 
     if (config.whatsapp.provider === "meta" && !config.whatsapp.verifyToken) {
         issues.push("WHATSAPP_VERIFY_TOKEN must be set when WHATSAPP_PROVIDER=meta.");
+    }
+
+    if (config.whatsapp.provider === "meta" && !config.whatsapp.appSecret) {
+        issues.push("WHATSAPP_APP_SECRET or FACEBOOK_APP_SECRET must be set when WHATSAPP_PROVIDER=meta.");
+    }
+
+    if (
+        config.whatsapp.provider === "meta" &&
+        !config.whatsapp.defaultWorkspaceId &&
+        Object.keys(config.whatsapp.webhookWorkspaceMap).length === 0
+    ) {
+        issues.push("WHATSAPP_WEBHOOK_WORKSPACE_ID or WHATSAPP_WEBHOOK_WORKSPACE_MAP must be set when WHATSAPP_PROVIDER=meta.");
     }
 
     if (config.googleDrive.validationEnabled && !config.googleDrive.accessToken) {

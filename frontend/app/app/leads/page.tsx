@@ -17,6 +17,7 @@ import {
 import { useFilteredSortedPaginated } from "@/hooks/use-table";
 import { api } from "@/lib/api-client";
 import { mergeLeadRows } from "@/lib/lead-list";
+import { SALES_NAV } from "@/lib/section-nav";
 import type {
   ContactRecord,
   InternalTaskRecord,
@@ -26,12 +27,6 @@ import { useAuth } from "@/lib/auth-context";
 import { AlertTriangle, Plus, PoundSterling, Target, Users } from "lucide-react";
 
 const LEAD_RESPONSE_SLA_HOURS = 2;
-
-const SALES_NAV = [
-  { label: "Prospect List", href: "/app/leads", icon: Users },
-  { label: "Sales Pipeline", href: "/app/crm/pipeline", icon: Target },
-  { label: "Contacts", href: "/app/crm/contacts", icon: Users },
-];
 
 interface Lead {
   id: string;

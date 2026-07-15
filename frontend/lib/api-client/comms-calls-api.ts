@@ -13,6 +13,7 @@ import type {
   WhatsAppConversationRecord,
   WhatsAppInboundPayload,
   WhatsAppInboundResult,
+  WhatsAppMessageRecord,
   StaffCallMetricRecord,
   RecordingDeletionRequestRecord,
 } from "@/lib/api-types";
@@ -169,6 +170,21 @@ export function createCommsCallsApi(apiRequest: ApiRequest) {
         const response = await apiRequest<WhatsAppConversationRecord>(
           `/api/comms/whatsapp/conversations/${contactId}`,
           { token },
+        );
+        return response.data!;
+      },
+      async sendWhatsAppMessage(
+        token: string,
+        contactId: string,
+        payload: { body: string; idempotencyKey?: string | null },
+      ) {
+        const response = await apiRequest<WhatsAppMessageRecord>(
+          `/api/comms/whatsapp/conversations/${contactId}/messages`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
         );
         return response.data!;
       },

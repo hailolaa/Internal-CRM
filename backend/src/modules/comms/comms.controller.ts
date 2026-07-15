@@ -145,6 +145,21 @@ export class CommsController {
     }
   };
 
+  sendWhatsAppMessage = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const message = await whatsappAiService.sendManualMessage(
+        clinicId,
+        userId,
+        String(req.params.id),
+        req.body,
+      );
+      res.status(201).json({ status: "success", data: message });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   draftWhatsAppReply = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;

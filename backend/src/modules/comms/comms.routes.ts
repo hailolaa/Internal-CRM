@@ -12,6 +12,7 @@ import {
   whatsAppApproveValidator,
   whatsAppDraftValidator,
   whatsAppInboundValidator,
+  whatsAppManualSendValidator,
   whatsAppRetryValidator,
   updateReadStateValidator,
   updateStarStateValidator,
@@ -128,6 +129,15 @@ router.get(
   contactIdParamValidator,
   validate,
   commsController.getWhatsAppConversation,
+);
+
+router.post(
+  "/whatsapp/conversations/:id/messages",
+  authorizePermission("calls:write"),
+  contactIdParamValidator,
+  whatsAppManualSendValidator,
+  validate,
+  commsController.sendWhatsAppMessage,
 );
 
 router.post(

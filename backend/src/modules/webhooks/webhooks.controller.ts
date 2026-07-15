@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import crypto from "node:crypto";
 import { ApiError } from "../../utils/ApiError.js";
 import { config } from "../../config/index.js";
 import { webhooksService } from "./webhooks.service.js";
@@ -57,6 +58,35 @@ function extractWhatsAppInboundMessages(body: any) {
   ];
 }
 
+function extractWhatsAppPhoneNumberIds(body: any) {
+  const ids = new Set<string>();
+
+  if (body?.phoneNumberId) ids.add(String(body.phoneNumberId));
+  if (body?.metadata?.phone_number_id) ids.add(String(body.metadata.phone_number_id));
+
+  for (const entry of body?.entry || []) {
+    for (const change of entry.changes || []) {
+      const phoneNumberId = change.value?.metadata?.phone_number_id;
+      if (phoneNumberId) ids.add(String(phoneNumberId));
+    }
+  }
+
+  return Array.from(ids).map((id) => id.trim()).filter(Boolean);
+}
+
+function constantTimeEquals(a: string, b: string) {
+  const aBuffer = Buffer.from(a);
+  const bBuffer = Buffer.from(b);
+  return aBuffer.length === bBuffer.length && crypto.timingSafeEqual(aBuffer, bBuffer);
+}
+
+function metaSignatureFor(rawBody: Buffer, appSecret: string) {
+  return `sha256=${crypto
+    .createHmac("sha256", appSecret)
+    .update(rawBody)
+    .digest("hex")}`;
+}
+
 export class WebhooksController {
   private assertTwilioWebhookAllowed(req: Request) {
     if (!config.twilio.webhookSecret) return;
@@ -68,24 +98,46 @@ export class WebhooksController {
   }
 
   private assertWhatsAppWebhookAllowed(req: Request) {
-    if (!config.whatsapp.webhookSecret) return;
+    if (!config.whatsapp.appSecret) {
+      throw ApiError.serviceUnavailable("WhatsApp app secret is not configured");
+    }
 
-    const provided = String(req.get("x-webhook-secret") || req.query.secret || "");
-    if (provided !== config.whatsapp.webhookSecret) {
-      throw ApiError.unauthorized("Invalid WhatsApp webhook secret");
+    const rawBody = (req as any).rawBody;
+    if (!Buffer.isBuffer(rawBody)) {
+      throw ApiError.badRequest("Raw WhatsApp webhook body is required for signature validation");
+    }
+
+    const provided = String(req.get("x-hub-signature-256") || "");
+    if (!provided) {
+      throw ApiError.unauthorized("Missing WhatsApp webhook signature");
+    }
+
+    const expected = metaSignatureFor(rawBody, config.whatsapp.appSecret);
+    if (!constantTimeEquals(provided, expected)) {
+      throw ApiError.unauthorized("Invalid WhatsApp webhook signature");
     }
   }
 
-  private getWhatsAppWorkspaceId(req: Request) {
-    return String(
-      req.get("x-workspace-id") ||
-        req.get("x-clinic-id") ||
-        req.query.workspaceId ||
-        req.query.clinicId ||
-        req.body?.workspaceId ||
-        req.body?.clinicId ||
-        "",
-    );
+  private resolveWhatsAppWorkspaceId(req: Request) {
+    const phoneNumberIds = extractWhatsAppPhoneNumberIds(req.body || {});
+    if (phoneNumberIds.length > 1) {
+      throw ApiError.badRequest("WhatsApp webhook must contain messages for a single receiving phone number");
+    }
+
+    const phoneNumberId = phoneNumberIds[0] || "";
+    if (phoneNumberId) {
+      const mappedWorkspaceId =
+        config.whatsapp.webhookWorkspaceMap[phoneNumberId] ||
+        (phoneNumberId === config.whatsapp.phoneNumberId ? config.whatsapp.defaultWorkspaceId : "");
+
+      if (!mappedWorkspaceId) {
+        throw ApiError.forbidden("WhatsApp phone number is not mapped to an internal workspace");
+      }
+
+      return mappedWorkspaceId;
+    }
+
+    throw ApiError.badRequest("WhatsApp receiving phone number is required for webhook tenant routing");
   }
 
   // POST /api/webhooks/twilio/calls
@@ -114,8 +166,7 @@ export class WebhooksController {
   handleWhatsAppInbound = async (req: Request, res: Response, next: NextFunction) => {
     try {
       this.assertWhatsAppWebhookAllowed(req);
-      const clinicId = this.getWhatsAppWorkspaceId(req);
-      if (!clinicId) throw ApiError.badRequest("Workspace id is required for WhatsApp inbound webhooks");
+      const clinicId = this.resolveWhatsAppWorkspaceId(req);
 
       const inboundMessages = extractWhatsAppInboundMessages(req.body || {});
       if (!inboundMessages.length || !inboundMessages.some((message) => message.from && message.body)) {

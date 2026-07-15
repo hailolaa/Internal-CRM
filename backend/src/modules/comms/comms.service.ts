@@ -4,6 +4,11 @@ import { ApiError } from "../../utils/ApiError.js";
 import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
 import { logAuditEvent } from "../../utils/audit.js";
 
+function isMissingTableError(error: unknown) {
+  const code = (error as { code?: string } | null)?.code;
+  return code === "ER_NO_SUCH_TABLE";
+}
+
 function formatName(firstName: string | null, lastName: string | null) {
   return [firstName, lastName].filter(Boolean).join(" ").trim() || null;
 }
@@ -531,15 +536,22 @@ export class CommsService {
     if (contactIds.length === 0) return states;
 
     const placeholders = contactIds.map(() => "?").join(", ");
-    const [rows]: any = await pool.execute(
-      `SELECT contact_id as contactId,
-              starred,
-              archived_at as archivedAt
-       FROM comms_conversation_state
-       WHERE clinic_id = ?
-         AND contact_id IN (${placeholders})`,
-      [clinicId, ...contactIds],
-    );
+    let rows: any[] = [];
+    try {
+      const [stateRows]: any = await pool.execute(
+        `SELECT contact_id as contactId,
+                starred,
+                archived_at as archivedAt
+         FROM comms_conversation_state
+         WHERE clinic_id = ?
+           AND contact_id IN (${placeholders})`,
+        [clinicId, ...contactIds],
+      );
+      rows = stateRows;
+    } catch (error) {
+      if (!isMissingTableError(error)) throw error;
+      return states;
+    }
 
     for (const row of rows) {
       states.set(row.contactId, {

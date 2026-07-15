@@ -26,6 +26,7 @@
     "test:smoke": "node --test dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js dist/test/test-performance-os-chain.js",
     "test:client-accounts": "npm run build && node --test dist/test/test-client-accounts.js",
     "test:integration": "npm run build && node --test dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js dist/test/test-client-accounts.js dist/test/test-performance-os-chain.js",
+    "test:whatsapp-ai": "npm run build && node --test dist/test/test-whatsapp-ai.js",
     "qa:phase1": "node scripts/phase1-browser-qa.mjs"
   },
   "dependencies": {

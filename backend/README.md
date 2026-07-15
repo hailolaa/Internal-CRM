@@ -107,17 +107,20 @@ WHATSAPP_PROVIDER=meta
 WHATSAPP_ACCESS_TOKEN=<Meta WhatsApp Cloud API access token>
 WHATSAPP_PHONE_NUMBER_ID=<Meta phone number id>
 WHATSAPP_API_VERSION=v20.0
-WHATSAPP_WEBHOOK_SECRET=<private callback URL secret>
 WHATSAPP_VERIFY_TOKEN=<Meta webhook verify token>
+WHATSAPP_APP_SECRET=<Meta app secret used to validate X-Hub-Signature-256>
+WHATSAPP_WEBHOOK_WORKSPACE_ID=<internal workspace id for this WhatsApp number>
+# Optional for multiple Meta phone numbers:
+# WHATSAPP_WEBHOOK_WORKSPACE_MAP={"<Meta phone number id>":"<internal workspace id>"}
 ```
 
 Meta webhook callback URL:
 
 ```bash
-https://api-mission-control.thegrowthgroup.com/api/webhooks/whatsapp/inbound?workspaceId=<workspace-id>&secret=<WHATSAPP_WEBHOOK_SECRET>
+https://api-mission-control.thegrowthgroup.com/api/webhooks/whatsapp/inbound
 ```
 
-Use `WHATSAPP_VERIFY_TOKEN` as the Meta webhook verify token. Subscribe the webhook to inbound WhatsApp message events. AI auto-send remains off unless the workspace WhatsApp AI setting explicitly enables it. Opt-outs, sensitive requests, low-confidence replies and after-hours replies are routed to human review.
+Use `WHATSAPP_VERIFY_TOKEN` as the Meta webhook verify token. Subscribe the webhook to inbound WhatsApp message events. Public webhook POSTs must include Meta `X-Hub-Signature-256`; Mission Control validates it with `WHATSAPP_APP_SECRET` over the raw request body and rejects unsigned or invalid requests. Public webhook tenant routing is resolved from Meta's receiving `phone_number_id`, using `WHATSAPP_WEBHOOK_WORKSPACE_ID` for one connected number or `WHATSAPP_WEBHOOK_WORKSPACE_MAP` for multiple numbers. Do not pass workspace or clinic ids in the callback URL. AI auto-send remains off unless the workspace WhatsApp AI setting explicitly enables it. Opt-outs, sensitive requests, low-confidence replies and after-hours replies are routed to human review.
 
 ## Google Drive Client Folders
 

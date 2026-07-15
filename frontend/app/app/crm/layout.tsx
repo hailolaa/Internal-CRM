@@ -1,14 +1,9 @@
 "use client";
 
-import { BriefcaseBusiness, CheckSquare, FolderKanban, Target, Users, Wrench } from "lucide-react";
+import { BriefcaseBusiness, CheckSquare, FolderKanban, Wrench } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { SubNav } from "@/components/sub-nav";
-
-const SALES_NAV = [
-  { label: "Prospect List", href: "/app/leads", icon: Users },
-  { label: "Sales Pipeline", href: "/app/crm/pipeline", icon: Target },
-  { label: "Contacts", href: "/app/crm/contacts", icon: Users },
-];
+import { SALES_NAV } from "@/lib/section-nav";
 
 const DELIVERY_NAV = [
   { label: "Client Accounts", href: "/app/ops/client-accounts", icon: BriefcaseBusiness },

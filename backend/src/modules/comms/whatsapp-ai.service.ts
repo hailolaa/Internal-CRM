@@ -5,12 +5,14 @@ import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity
 import { logAuditEvent } from "../../utils/audit.js";
 import logger from "../../utils/logger.js";
 import { cleanString, normalizePhone } from "../contacts/contacts.normalizers.js";
+import crypto from "node:crypto";
 import { v4 as uuidv4 } from "uuid";
 import type {
   WhatsAppAiSettingsDTO,
   WhatsAppApproveDTO,
   WhatsAppDraftDTO,
   WhatsAppInboundDTO,
+  WhatsAppManualSendDTO,
   WhatsAppRetryDTO,
 } from "./whatsapp-ai.types.js";
 
@@ -98,6 +100,11 @@ function confidenceFor(body: string) {
   return Math.max(0.2, Math.min(0.95, Number(confidence.toFixed(2))));
 }
 
+function chooseDraftVariant(variants: string[], seed: string) {
+  const hash = crypto.createHash("sha256").update(seed).digest();
+  return variants[(hash[0] ?? 0) % variants.length];
+}
+
 function deterministicDraft(input: {
   contactName: string;
   accountName?: string | null;
@@ -106,16 +113,33 @@ function deterministicDraft(input: {
 }) {
   const body = input.inboundBody.toLowerCase();
   const greeting = input.contactName && input.contactName !== "there" ? `Hi ${input.contactName},` : "Hi,";
+  const seed = `${input.contactName}|${input.accountName || ""}|${input.inboundBody}|${Date.now().toString().slice(0, 10)}`;
   if (/\b(price|cost|package|proposal)\b/.test(body)) {
-    return `${greeting} thanks for reaching out. I can help with package options, but the best next step is a quick discovery call so we can understand your goals and recommend the right route. Would you like us to send a couple of available times?`;
+    return chooseDraftVariant([
+      `${greeting} thanks for reaching out. I can help with package options, but the best next step is a quick discovery call so we can understand your goals and recommend the right route. Would you like us to send a couple of available times?`,
+      `${greeting} happy to help with package options. To point you toward the right fit, could we first book a short discovery call and learn what you want to improve?`,
+      `${greeting} thanks for asking. We can walk you through the options, but it is best to understand your goals first. Would you like me to arrange a quick call?`,
+    ], seed);
   }
   if (/\b(book|call|meeting|available|schedule)\b/.test(body)) {
-    return `${greeting} absolutely. We can get a discovery call arranged. What day or time usually works best for you?`;
+    return chooseDraftVariant([
+      `${greeting} absolutely. We can get a discovery call arranged. What day or time usually works best for you?`,
+      `${greeting} yes, we can help set that up. Do you have a preferred day or time for a quick discovery call?`,
+      `${greeting} sure. Send over a couple of times that work for you and we will help get the call arranged.`,
+    ], seed);
   }
   if (/\b(website|seo|ads|tracking|report)\b/.test(body)) {
-    return `${greeting} thanks for the message. That sounds like something our team can review with you. Could you share your website and the main outcome you want help with first?`;
+    return chooseDraftVariant([
+      `${greeting} thanks for the message. That sounds like something our team can review with you. Could you share your website and the main outcome you want help with first?`,
+      `${greeting} thanks, that is in our wheelhouse. Could you send your website and tell us whether SEO, ads, tracking, or reporting is the priority right now?`,
+      `${greeting} we can take a look. Please share your website and the result you most want to improve, and we will route this to the right person.`,
+    ], seed);
   }
-  return `${greeting} thanks for messaging. I can help route this to the right person. Could you share a little more about what you need help with?`;
+  return chooseDraftVariant([
+    `${greeting} thanks for messaging. I can help route this to the right person. Could you share a little more about what you need help with?`,
+    `${greeting} thanks for reaching out. Could you send a bit more context so we can point you to the right next step?`,
+    `${greeting} appreciate the message. What are you looking for help with at the moment?`,
+  ], seed);
 }
 
 function extractOpenAIText(payload: any) {
@@ -164,6 +188,23 @@ function mapMessage(row: any) {
     createdAt: toIso(row.createdAt),
   };
 }
+
+function isDuplicateKeyError(error: unknown) {
+  const code = (error as { code?: string } | null)?.code;
+  return code === "ER_DUP_ENTRY" || code === "ER_DUP_KEY";
+}
+
+function isRetrySafeFailure(message: any) {
+  if (!message || message.status !== "failed") return false;
+  const metadata = parseJsonObject(message.metadata);
+  return metadata?.retrySafe !== false;
+}
+
+function idempotencyLockName(idempotencyKey: string) {
+  return `whatsapp:${crypto.createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 48)}`;
+}
+
+const inFlightReplySends = new Set<string>();
 
 function mapReply(row: any) {
   return {
@@ -427,7 +468,7 @@ export class WhatsAppAiService {
 
     let reply = await this.getReply(clinicId, replyId);
     if (autoSendAllowed) {
-      reply = await this.sendReply(clinicId, userId, replyId, { body: draftBody, sendNow: true }, true);
+      reply = await this.sendReply(clinicId, userId, replyId, { body: draftBody || null, sendNow: true }, true);
     }
     return reply;
   }
@@ -438,13 +479,18 @@ export class WhatsAppAiService {
     const finalBody = cleanString(data.body) || reply.draftBody;
     if (!finalBody) throw ApiError.badRequest("Reply body is required before approval");
 
-    await pool.execute(
+    const [approvalResult]: any = await pool.execute(
       `UPDATE whatsapp_ai_reply
        SET approved_by_user_id = ?, final_body = ?, status = ?,
            approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL
+         AND status IN ('needs_approval', 'human_required', 'failed')
+         AND outbound_message_id IS NULL`,
       [userId, finalBody, data.sendNow === false ? "needs_approval" : "drafted", replyId, clinicId],
     );
+    if (Number(approvalResult.affectedRows || 0) === 0) {
+      return this.getReply(clinicId, replyId);
+    }
     await logAuditEvent({
       clinicId,
       userId,
@@ -466,6 +512,37 @@ export class WhatsAppAiService {
       throw ApiError.badRequest("Maximum WhatsApp retry attempts reached");
     }
     return this.sendReply(clinicId, userId, replyId, { body: data.body || reply.finalBody || reply.draftBody, sendNow: true }, false);
+  }
+
+  async sendManualMessage(clinicId: string, userId: string | null, contactId: string, data: WhatsAppManualSendDTO) {
+    const body = cleanString(data.body);
+    if (!body) throw ApiError.badRequest("WhatsApp message body is required");
+
+    const [contactRows]: any = await pool.execute(
+      `SELECT id, phone
+       FROM contact
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL
+       LIMIT 1`,
+      [contactId, clinicId],
+    );
+    const contact = contactRows[0];
+    if (!contact) throw ApiError.notFound("Contact not found");
+
+    const phone = normalizePhone(contact.phone);
+    if (!phone) throw ApiError.badRequest("Contact must have a WhatsApp-capable phone number");
+
+    const conversation = await this.ensureConversation(clinicId, contactId, phone, userId);
+    const idempotencyKey = cleanString(data.idempotencyKey) || `whatsapp-manual:${uuidv4()}`;
+
+    return this.sendWhatsAppMessage({
+      clinicId,
+      conversationId: conversation.id,
+      contactId,
+      userId,
+      body,
+      idempotencyKey,
+      timelineAction: "whatsapp.manual_message_sent",
+    });
   }
 
   async listConversation(clinicId: string, contactId: string) {
@@ -528,6 +605,13 @@ export class WhatsAppAiService {
     const body = cleanString(data.body) || reply.finalBody || reply.draftBody;
     if (!body) throw ApiError.badRequest("Reply body is required");
 
+    const sendKey = `${clinicId}:${replyId}`;
+    if (inFlightReplySends.has(sendKey)) {
+      return this.getReply(clinicId, replyId);
+    }
+    inFlightReplySends.add(sendKey);
+
+    try {
     const existingOutbound = await this.findMessageByIdempotencyKey(clinicId, `whatsapp-ai-reply:${replyId}`);
     if (existingOutbound?.status === "sent") {
       await pool.execute(
@@ -537,6 +621,12 @@ export class WhatsAppAiService {
         [existingOutbound.id, autoSend ? "auto_sent" : "sent", replyId, clinicId],
       );
       return this.getReply(clinicId, replyId);
+    }
+    if (existingOutbound?.status === "queued") {
+      return this.getReply(clinicId, replyId);
+    }
+    if (existingOutbound?.status === "failed" && !isRetrySafeFailure(existingOutbound)) {
+      throw ApiError.badRequest("Previous WhatsApp provider result is unknown; review manually before retrying");
     }
 
     await pool.execute(
@@ -589,6 +679,9 @@ export class WhatsAppAiService {
       });
       return this.getReply(clinicId, replyId);
     }
+    } finally {
+      inFlightReplySends.delete(sendKey);
+    }
   }
 
   private async sendWhatsAppMessage(input: {
@@ -596,104 +689,195 @@ export class WhatsAppAiService {
     conversationId: string;
     contactId: string;
     userId: string | null;
-    replyId: string;
+    replyId?: string;
+    idempotencyKey?: string;
+    timelineAction?: string;
     body: string;
   }) {
-    const idempotencyKey = `whatsapp-ai-reply:${input.replyId}`;
-    const existing = await this.findMessageByIdempotencyKey(input.clinicId, idempotencyKey);
-    if (existing?.status === "sent") return existing;
-
-    const [conversationRows]: any = await pool.execute(
-      `SELECT whatsapp_number as whatsappNumber FROM whatsapp_conversation WHERE id = ? AND clinic_id = ? LIMIT 1`,
-      [input.conversationId, input.clinicId],
-    );
-    const to = conversationRows[0]?.whatsappNumber;
-    if (!to) throw ApiError.badRequest("WhatsApp conversation number is missing");
-
-    const outboundId = uuidv4();
-    let providerMessageId = `log:${outboundId}`;
-    let providerResponse: Record<string, unknown> = { provider: "log", skippedExternalSend: true };
+    const idempotencyKey = input.idempotencyKey || `whatsapp-ai-reply:${input.replyId}`;
+    const lockName = idempotencyLockName(idempotencyKey);
+    const connection = await pool.getConnection();
+    let lockAcquired = false;
+    let messageId = "";
     let status: "sent" | "failed" = "sent";
     let failureReason: string | null = null;
 
-    if (config.whatsapp.provider === "meta") {
-      if (!config.whatsapp.accessToken || !config.whatsapp.phoneNumberId) {
+    try {
+      const [lockRows]: any = await connection.execute("SELECT GET_LOCK(?, 10) as acquired", [lockName]);
+      lockAcquired = Number(lockRows[0]?.acquired || 0) === 1;
+      if (!lockAcquired) {
+        throw ApiError.serviceUnavailable("WhatsApp send is already being processed; please try again");
+      }
+
+      const [existingRows]: any = await connection.execute(
+        `SELECT id, conversation_id as conversationId, contact_id as contactId, direction, body, status,
+                provider_message_id as providerMessageId, idempotency_key as idempotencyKey,
+                failure_reason as failureReason, metadata, received_at as receivedAt, sent_at as sentAt,
+                created_at as createdAt
+         FROM whatsapp_message
+         WHERE clinic_id = ? AND idempotency_key = ? AND deleted_at IS NULL
+         LIMIT 1`,
+        [input.clinicId, idempotencyKey],
+      );
+      const existing = existingRows[0] ? mapMessage(existingRows[0]) : null;
+      if (existing?.status === "sent") return existing;
+      if (existing?.status === "queued") return existing;
+      if (existing?.status === "failed" && !isRetrySafeFailure(existing)) {
+        throw ApiError.badRequest("Previous WhatsApp provider result is unknown; review manually before retrying");
+      }
+
+      const [conversationRows]: any = await connection.execute(
+        `SELECT whatsapp_number as whatsappNumber FROM whatsapp_conversation WHERE id = ? AND clinic_id = ? LIMIT 1`,
+        [input.conversationId, input.clinicId],
+      );
+      const to = conversationRows[0]?.whatsappNumber;
+      if (!to) throw ApiError.badRequest("WhatsApp conversation number is missing");
+      if (config.whatsapp.provider === "meta" && (!config.whatsapp.accessToken || !config.whatsapp.phoneNumberId)) {
         throw ApiError.serviceUnavailable("WhatsApp provider is not configured");
       }
-      const response = await fetch(
-        `https://graph.facebook.com/${config.whatsapp.apiVersion}/${config.whatsapp.phoneNumberId}/messages`,
-        {
-          method: "POST",
-          signal: AbortSignal.timeout(config.openai.timeoutMs),
-          headers: {
-            Authorization: `Bearer ${config.whatsapp.accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to,
-            type: "text",
-            text: { preview_url: false, body: input.body },
-          }),
-        },
-      );
-      const payload: any = await response.json().catch(() => ({}));
-      providerResponse = payload;
-      if (!response.ok) {
-        status = "failed";
-        failureReason = payload.error?.message || `WhatsApp provider failed with ${response.status}`;
-      } else {
-        providerMessageId = payload.messages?.[0]?.id || providerMessageId;
-      }
-    }
 
-    const messageId = existing?.id || uuidv4();
-    if (existing) {
-      await pool.execute(
+      messageId = existing?.id || uuidv4();
+      if (!existing) {
+        try {
+          await connection.execute(
+            `INSERT INTO whatsapp_message
+              (id, clinic_id, conversation_id, contact_id, user_id, direction, body, status,
+               provider_message_id, idempotency_key, metadata)
+             VALUES (?, ?, ?, ?, ?, 'outbound', ?, 'queued', NULL, ?, ?)`,
+            [
+              messageId,
+              input.clinicId,
+              input.conversationId,
+              input.contactId,
+              input.userId || null,
+              input.body,
+              idempotencyKey,
+              JSON.stringify({
+                provider: config.whatsapp.provider,
+                reservedAt: new Date().toISOString(),
+                retrySafe: true,
+              }),
+            ],
+          );
+        } catch (error) {
+          if (!isDuplicateKeyError(error)) throw error;
+          const [duplicateRows]: any = await connection.execute(
+            `SELECT id, conversation_id as conversationId, contact_id as contactId, direction, body, status,
+                    provider_message_id as providerMessageId, idempotency_key as idempotencyKey,
+                    failure_reason as failureReason, metadata, received_at as receivedAt, sent_at as sentAt,
+                    created_at as createdAt
+             FROM whatsapp_message
+             WHERE clinic_id = ? AND idempotency_key = ? AND deleted_at IS NULL
+             LIMIT 1`,
+            [input.clinicId, idempotencyKey],
+          );
+          if (duplicateRows[0]) return mapMessage(duplicateRows[0]);
+          throw error;
+        }
+      } else {
+        await connection.execute(
+          `UPDATE whatsapp_message
+           SET user_id = ?, body = ?, status = 'queued', failure_reason = NULL,
+               metadata = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND clinic_id = ? AND status = 'failed'`,
+          [
+            input.userId || null,
+            input.body,
+            JSON.stringify({
+              ...(parseJsonObject(existing.metadata) || {}),
+              provider: config.whatsapp.provider,
+              retryQueuedAt: new Date().toISOString(),
+              retrySafe: true,
+            }),
+            messageId,
+            input.clinicId,
+          ],
+        );
+      }
+
+      let providerMessageId = `log:${messageId}`;
+      let providerResponse: Record<string, unknown> = { provider: "log", skippedExternalSend: true };
+      let retrySafe = true;
+
+      if (config.whatsapp.provider === "meta") {
+        try {
+          const response = await fetch(
+            `https://graph.facebook.com/${config.whatsapp.apiVersion}/${config.whatsapp.phoneNumberId}/messages`,
+            {
+              method: "POST",
+              signal: AbortSignal.timeout(config.openai.timeoutMs),
+              headers: {
+                Authorization: `Bearer ${config.whatsapp.accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                messaging_product: "whatsapp",
+                to,
+                type: "text",
+                text: { preview_url: false, body: input.body },
+              }),
+            },
+          );
+          const payload: any = await response.json().catch(() => ({}));
+          providerResponse = payload;
+          if (!response.ok) {
+            status = "failed";
+            failureReason = payload.error?.message || `WhatsApp provider failed with ${response.status}`;
+            retrySafe = true;
+          } else {
+            providerMessageId = payload.messages?.[0]?.id || providerMessageId;
+          }
+        } catch (error) {
+          status = "failed";
+          retrySafe = false;
+          failureReason = error instanceof Error ? error.message : "WhatsApp provider result is unknown";
+          providerResponse = {
+            provider: "meta",
+            providerAttempted: true,
+            providerResultUnknown: true,
+            error: failureReason,
+          };
+        }
+      }
+
+      await connection.execute(
         `UPDATE whatsapp_message
          SET user_id = ?, body = ?, status = ?, provider_message_id = ?, failure_reason = ?,
-             metadata = ?, sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+             metadata = ?, sent_at = CASE WHEN ? = 'sent' THEN CURRENT_TIMESTAMP ELSE sent_at END,
+             updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND clinic_id = ?`,
         [
           input.userId || null,
           input.body,
           status,
-          providerMessageId,
+          status === "sent" ? providerMessageId : null,
           failureReason,
-          JSON.stringify(providerResponse),
-          messageId,
-          input.clinicId,
-        ],
-      );
-    } else {
-      await pool.execute(
-        `INSERT INTO whatsapp_message
-          (id, clinic_id, conversation_id, contact_id, user_id, direction, body, status,
-           provider_message_id, idempotency_key, failure_reason, metadata, sent_at)
-         VALUES (?, ?, ?, ?, ?, 'outbound', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        [
-          messageId,
-          input.clinicId,
-          input.conversationId,
-          input.contactId,
-          input.userId || null,
-          input.body,
+          JSON.stringify({
+            ...providerResponse,
+            retrySafe,
+            provider: config.whatsapp.provider,
+            idempotencyKey,
+          }),
           status,
-          providerMessageId,
-          idempotencyKey,
-          failureReason,
-          JSON.stringify(providerResponse),
+          messageId,
+          input.clinicId,
         ],
       );
+    } finally {
+      if (lockAcquired) {
+        await connection.execute("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => undefined);
+      }
+      connection.release();
     }
+
     await this.touchConversation(input.conversationId, status === "sent" ? "open" : "human_required");
     await logTimelineActivity({
       clinicId: input.clinicId,
       contactId: input.contactId,
       userId: input.userId || undefined,
       type: "SMS",
-      metadata: buildTimelineMetadata({
-        action: "whatsapp.reply_sent",
+        metadata: buildTimelineMetadata({
+        action: input.timelineAction || "whatsapp.reply_sent",
         source: "contact",
         recordId: messageId,
         changes: { status, provider: config.whatsapp.provider },

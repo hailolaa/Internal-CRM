@@ -60,3 +60,8 @@ export const whatsAppApproveValidator = [
 export const whatsAppRetryValidator = [
   body("body").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
 ];
+
+export const whatsAppManualSendValidator = [
+  body("body").trim().notEmpty().withMessage("WhatsApp message body is required").isLength({ max: 5000 }),
+  body("idempotencyKey").optional({ nullable: true }).isString().trim().isLength({ max: 120 }),
+];

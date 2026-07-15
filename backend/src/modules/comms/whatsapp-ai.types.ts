@@ -37,6 +37,11 @@ export interface WhatsAppRetryDTO {
   body?: string | null;
 }
 
+export interface WhatsAppManualSendDTO {
+  body: string;
+  idempotencyKey?: string | null;
+}
+
 export type WhatsAppAiReplyStatus =
   | "drafted"
   | "needs_approval"
