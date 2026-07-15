@@ -112,6 +112,7 @@ export interface ClientAccountSummaryRecord
 }
 
 export interface ClientAccountLinkedContactRecord {
+  relationId: string;
   id: string;
   name: string;
   accountName: string | null;
@@ -124,6 +125,14 @@ export interface ClientAccountLinkedContactRecord {
   status: string;
   leadStatus: string;
   updatedAt: string;
+}
+
+export interface ClientAccountContactAccountLinkRecord {
+  relationId: string;
+  clientAccountProfileId: string;
+  clientClinicId: string;
+  clientName: string;
+  linkedAt: string;
 }
 
 export interface ClientAccountLinkedTaskRecord {

@@ -195,7 +195,11 @@ export class TasksService {
     await logAuditEvent({ clinicId, userId, action: "TASK_DELETED", entityType: "task", entityId: taskId });
   }
 
-  async listInternalTasks(clinicId: string, query: InternalTaskListQuery): Promise<TaskResponse[]> {
+  async listInternalTasks(
+    clinicId: string,
+    query: InternalTaskListQuery,
+    access: { canManageAllClientAccounts: boolean } = { canManageAllClientAccounts: false },
+  ): Promise<TaskResponse[]> {
     const conditions = ["clinic_id = ?", "is_internal = 1", "deleted_at IS NULL"];
     const values: any[] = [clinicId];
 
@@ -214,11 +218,13 @@ export class TasksService {
     }
 
     if (query.clientAccountProfileId) {
+      await this.ensureClientAccountProfileAvailable(clinicId, query.clientAccountProfileId, access);
       conditions.push("client_account_profile_id = ?");
       values.push(query.clientAccountProfileId);
     }
 
     if (query.clientAccountServiceId) {
+      await this.ensureClientAccountServiceAvailable(clinicId, query.clientAccountServiceId, access);
       conditions.push("client_account_service_id = ?");
       values.push(query.clientAccountServiceId);
     }
@@ -284,8 +290,13 @@ export class TasksService {
     return rows.map(mapTask);
   }
 
-  async createInternalTask(clinicId: string, userId: string, data: CreateInternalTaskDTO): Promise<string> {
-    const links = await this.resolveInternalTaskLinks(data.clientAccountProfileId, data.clientAccountServiceId);
+  async createInternalTask(
+    clinicId: string,
+    userId: string,
+    data: CreateInternalTaskDTO,
+    access: { canManageAllClientAccounts: boolean } = { canManageAllClientAccounts: false },
+  ): Promise<string> {
+    const links = await this.resolveInternalTaskLinks(clinicId, data.clientAccountProfileId, data.clientAccountServiceId, access);
     const linkedContact = await this.resolveTaskContact(clinicId, data.contactId, data.contact);
     if (data.assignedUserId) {
       await this.ensureActiveUserInClinic(clinicId, data.assignedUserId);
@@ -338,7 +349,13 @@ export class TasksService {
     return id;
   }
 
-  async updateInternalTask(clinicId: string, userId: string, taskId: string, data: UpdateInternalTaskDTO): Promise<void> {
+  async updateInternalTask(
+    clinicId: string,
+    userId: string,
+    taskId: string,
+    data: UpdateInternalTaskDTO,
+    access: { canManageAllClientAccounts: boolean } = { canManageAllClientAccounts: false },
+  ): Promise<void> {
     await this.ensureInternalTaskExists(clinicId, taskId, false);
 
     const fields: string[] = [];
@@ -371,7 +388,7 @@ export class TasksService {
     }
 
     if (ownKey(data, "clientAccountProfileId") || ownKey(data, "clientAccountServiceId")) {
-      const links = await this.resolveInternalTaskLinks(data.clientAccountProfileId, data.clientAccountServiceId);
+      const links = await this.resolveInternalTaskLinks(clinicId, data.clientAccountProfileId, data.clientAccountServiceId, access);
       fields.push("client_account_profile_id = ?", "client_account_service_id = ?");
       values.push(links.clientAccountProfileId, links.clientAccountServiceId);
     }
@@ -541,47 +558,81 @@ export class TasksService {
   }
 
   private async resolveInternalTaskLinks(
+    clinicId: string,
     clientAccountProfileId?: string | null,
     clientAccountServiceId?: string | null,
+    access: { canManageAllClientAccounts: boolean } = { canManageAllClientAccounts: false },
   ) {
     let resolvedProfileId = clientAccountProfileId || null;
     const resolvedServiceId = clientAccountServiceId || null;
 
     if (resolvedServiceId) {
-      const [rows]: any = await pool.execute(
-        `SELECT client_account_profile_id as profileId
-         FROM client_account_service cas
-         JOIN client_account_profile cap
-           ON cap.id = cas.client_account_profile_id
-          AND cap.clinic_id = cas.clinic_id
-         JOIN clinic c
-           ON c.id = cas.clinic_id
-          AND c.deleted_at IS NULL
-         WHERE cas.id = ? AND cas.archived_at IS NULL
-         LIMIT 1`,
-        [resolvedServiceId],
-      );
-
-      if (rows.length === 0) throw ApiError.badRequest("Client account service is not available");
-      if (resolvedProfileId && resolvedProfileId !== rows[0].profileId) {
+      const service = await this.ensureClientAccountServiceAvailable(clinicId, resolvedServiceId, access);
+      if (resolvedProfileId && resolvedProfileId !== service.profileId) {
         throw ApiError.badRequest("Client account profile and service do not match");
       }
-      resolvedProfileId = rows[0].profileId;
+      resolvedProfileId = service.profileId;
     }
 
     if (resolvedProfileId) {
-      const [rows]: any = await pool.execute(
-        `SELECT cap.id
-         FROM client_account_profile cap
-         JOIN clinic c ON c.id = cap.clinic_id AND c.deleted_at IS NULL
-         WHERE cap.id = ?
-         LIMIT 1`,
-        [resolvedProfileId],
-      );
-      if (rows.length === 0) throw ApiError.badRequest("Client account profile is not available");
+      await this.ensureClientAccountProfileAvailable(clinicId, resolvedProfileId, access);
     }
 
     return { clientAccountProfileId: resolvedProfileId, clientAccountServiceId: resolvedServiceId };
+  }
+
+  private async ensureClientAccountProfileAvailable(
+    sourceClinicId: string,
+    clientAccountProfileId: string,
+    access: { canManageAllClientAccounts: boolean },
+  ) {
+    const [rows]: any = await pool.execute(
+      `SELECT cap.id, cap.clinic_id as clientClinicId
+       FROM client_account_profile cap
+       JOIN clinic c
+         ON c.id = cap.clinic_id
+        AND c.deleted_at IS NULL
+       WHERE cap.id = ?
+       LIMIT 1`,
+      [clientAccountProfileId],
+    );
+    if (rows.length === 0) throw ApiError.badRequest("Client account profile is not available");
+    if (rows[0].clientClinicId !== sourceClinicId && !access.canManageAllClientAccounts) {
+      throw ApiError.forbidden("Client account profile is not available to this workspace");
+    }
+    return { id: rows[0].id, clientClinicId: rows[0].clientClinicId };
+  }
+
+  private async ensureClientAccountServiceAvailable(
+    sourceClinicId: string,
+    clientAccountServiceId: string,
+    access: { canManageAllClientAccounts: boolean },
+  ) {
+    const [rows]: any = await pool.execute(
+      `SELECT cas.id,
+              cas.client_account_profile_id as profileId,
+              cas.clinic_id as clientClinicId
+       FROM client_account_service cas
+       JOIN client_account_profile cap
+         ON cap.id = cas.client_account_profile_id
+        AND cap.clinic_id = cas.clinic_id
+       JOIN clinic c
+         ON c.id = cas.clinic_id
+        AND c.deleted_at IS NULL
+       WHERE cas.id = ?
+         AND cas.archived_at IS NULL
+       LIMIT 1`,
+      [clientAccountServiceId],
+    );
+    if (rows.length === 0) throw ApiError.badRequest("Client account service is not available");
+    if (rows[0].clientClinicId !== sourceClinicId && !access.canManageAllClientAccounts) {
+      throw ApiError.forbidden("Client account service is not available to this workspace");
+    }
+    return {
+      id: rows[0].id,
+      profileId: rows[0].profileId,
+      clientClinicId: rows[0].clientClinicId,
+    };
   }
 
   private async resolveTaskContact(

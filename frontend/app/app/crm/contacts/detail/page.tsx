@@ -9,7 +9,6 @@ import {
   Clock,
   Edit3,
   ExternalLink,
-  Globe,
   Loader2,
   Mail,
   MessageSquare,
@@ -27,7 +26,7 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { ClientAccountSummaryRecord, ContactLinkedActivity, ContactRecord } from "@/lib/api-types";
+import type { ClientAccountContactAccountLinkRecord, ContactLinkedActivity, ContactRecord } from "@/lib/api-types";
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-GB", {
@@ -118,7 +117,7 @@ export default function ContactDetailPage() {
   const canWriteClientAccounts = hasPermission("client_accounts:write");
   const [contact, setContact] = useState<ContactRecord | null>(null);
   const [activity, setActivity] = useState<ContactLinkedActivity | null>(null);
-  const [linkedAccount, setLinkedAccount] = useState<ClientAccountSummaryRecord | null>(null);
+  const [linkedAccountLinks, setLinkedAccountLinks] = useState<ClientAccountContactAccountLinkRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activityError, setActivityError] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -186,28 +185,30 @@ export default function ContactDetailPage() {
   }, [loadContact]);
 
   useEffect(() => {
-    if (!token || !contact?.accountName) {
-      setLinkedAccount(null);
+    if (!token || !contact?.id) {
       return;
     }
 
     let cancelled = false;
     api.clientAccounts
-      .list(token, { search: contact.accountName })
-      .then((accounts) => {
+      .listContactLinks(token, contact.id)
+      .then((links) => {
         if (cancelled) return;
-        setLinkedAccount(
-          accounts.find((account) => account.clinicName.toLowerCase() === contact.accountName!.toLowerCase()) || null,
-        );
+        setLinkedAccountLinks(links);
       })
       .catch(() => {
-        if (!cancelled) setLinkedAccount(null);
+        if (!cancelled) setLinkedAccountLinks([]);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [contact?.accountName, token]);
+  }, [contact?.id, token]);
+
+  const visibleLinkedAccountLinks = useMemo(
+    () => (contact?.id ? linkedAccountLinks : []),
+    [contact?.id, linkedAccountLinks],
+  );
 
   const contactMethods = useMemo(
     () => [
@@ -234,27 +235,20 @@ export default function ContactDetailPage() {
     [contact],
   );
 
-  const communicationPermissions = useMemo(
-    () => [
-      ["Email", contact?.emailPermission],
-      ["Phone", contact?.phonePermission],
-      ["SMS", contact?.smsPermission],
-      ["WhatsApp", contact?.whatsappPermission],
-    ],
-    [contact],
-  );
-
   const relatedRecordLinks = useMemo(
     () => [
       { label: "Lead list", href: "/app/leads" },
-      ...(linkedAccount ? [{ label: "Client account", href: `/app/ops/client-accounts/detail?id=${linkedAccount.clinicId}` }] : []),
+      ...visibleLinkedAccountLinks.map((link) => ({
+        label: "Client account",
+        href: `/app/ops/client-accounts/detail?id=${link.clientClinicId}`,
+      })),
       { label: "Pipeline", href: "/app/crm/pipeline" },
       { label: "Tasks", href: `/app/crm/tasks?contactId=${encodeURIComponent(contact?.id || "")}` },
       { label: "Audits", href: "/app/ops/growth-scores" },
       { label: "Proposals", href: "/app/proposals" },
       { label: "Notes", href: `/app/crm/contacts/detail?id=${encodeURIComponent(contact?.id || "")}#contact-notes` },
     ],
-    [contact?.id, linkedAccount],
+    [contact?.id, visibleLinkedAccountLinks],
   );
 
   const handleMarkContacted = useCallback(async () => {

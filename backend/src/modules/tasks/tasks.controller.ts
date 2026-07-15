@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { tasksService } from "./tasks.service.js";
+import { userHasPermission } from "../../middleware/authorize.js";
 
 export class TasksController {
   // GET /api/tasks
@@ -54,8 +55,9 @@ export class TasksController {
   // List Clinic Grower internal delivery tasks
   listInternalTasks = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { clinicId } = (req as any).user;
-      const tasks = await tasksService.listInternalTasks(clinicId, req.query as any);
+      const { clinicId, userId } = (req as any).user;
+      const canManageAllClientAccounts = await userHasPermission(userId, clinicId, "*");
+      const tasks = await tasksService.listInternalTasks(clinicId, req.query as any, { canManageAllClientAccounts });
       res.status(200).json({ status: "success", data: tasks });
     } catch (error) {
       next(error);
@@ -67,7 +69,8 @@ export class TasksController {
   createInternalTask = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;
-      const id = await tasksService.createInternalTask(clinicId, userId, req.body);
+      const canManageAllClientAccounts = await userHasPermission(userId, clinicId, "*");
+      const id = await tasksService.createInternalTask(clinicId, userId, req.body, { canManageAllClientAccounts });
       res.status(201).json({ status: "success", data: { id } });
     } catch (error) {
       next(error);
@@ -79,7 +82,8 @@ export class TasksController {
   updateInternalTask = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;
-      await tasksService.updateInternalTask(clinicId, userId, String(req.params.id), req.body);
+      const canManageAllClientAccounts = await userHasPermission(userId, clinicId, "*");
+      await tasksService.updateInternalTask(clinicId, userId, String(req.params.id), req.body, { canManageAllClientAccounts });
       res.status(200).json({ status: "success", message: "Internal task updated successfully" });
     } catch (error) {
       next(error);

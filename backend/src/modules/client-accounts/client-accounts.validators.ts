@@ -89,6 +89,10 @@ export const clientAccountContactLinkValidator = [
   param("contactId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid contact ID is required"),
 ];
 
+export const clientAccountContactIdParamValidator = [
+  param("contactId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid contact ID is required"),
+];
+
 export const updateClientAccountProfileValidator = [
   userIdentifier("accountManagerId", "Account manager ID"),
   body("activeServices").optional().isArray().withMessage("Active services must be an array"),

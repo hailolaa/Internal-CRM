@@ -6,6 +6,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import type {
   ClientAccountAuditContext,
+  ClientAccountContactAccountLinkResponse,
   ClientAccountListQuery,
   ClientAccountLinkedContactResponse,
   ClientAccountLinkedRecordsResponse,
@@ -447,6 +448,10 @@ export class ClientAccountsService {
       [nextNotes, data.contactId, sourceClinicId],
     );
 
+    if (account.id) {
+      await this.linkContactRelation(sourceClinicId, account.id, data.contactId, userId);
+    }
+
     await logAuditEvent({
       clinicId: sourceClinicId,
       userId,
@@ -551,10 +556,15 @@ export class ClientAccountsService {
     };
   }
 
-  async getLinkedRecords(sourceClinicId: string, clientClinicId: string): Promise<ClientAccountLinkedRecordsResponse> {
+  async getLinkedRecords(
+    sourceClinicId: string,
+    clientClinicId: string,
+    access: { canManageAllClientAccounts: boolean } = { canManageAllClientAccounts: false },
+  ): Promise<ClientAccountLinkedRecordsResponse> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
     const account = await this.getProfile(clientClinicId);
     const [contacts, tasks] = await Promise.all([
-      this.listLinkedContacts(sourceClinicId, account.clinicName),
+      account.id ? this.listLinkedContacts(sourceClinicId, account.id) : Promise.resolve([]),
       account.id ? this.listLinkedTasks(sourceClinicId, account.id) : Promise.resolve([]),
     ]);
     const openTasks = tasks.filter((task) => task.status !== "completed");
@@ -578,18 +588,18 @@ export class ClientAccountsService {
     clientClinicId: string,
     contactId: string,
     userId: string,
+    access: { canManageAllClientAccounts: boolean },
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientAccountLinkedRecordsResponse> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const profileId = await this.ensureProfileRow(clientClinicId, userId);
     const account = await this.getProfile(clientClinicId);
     const contact = await this.getWorkspaceContact(sourceClinicId, contactId);
+    const relationId = await this.linkContactRelation(sourceClinicId, profileId, contactId, userId);
 
-    await pool.execute(
-      `UPDATE contact
-       SET account_name = ?,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
-      [account.clinicName, contactId, sourceClinicId],
-    );
+    if (!account.id) {
+      throw ApiError.notFound("Client account profile not found");
+    }
 
     await logAuditEvent({
       clinicId: sourceClinicId,
@@ -598,6 +608,7 @@ export class ClientAccountsService {
       entityType: "contact",
       entityId: contactId,
       changes: {
+        relationId,
         clientAccountClinicId: account.clinicId,
         clientAccountProfileId: account.id,
         clientAccountName: account.clinicName,
@@ -607,7 +618,7 @@ export class ClientAccountsService {
       userAgent: auditContext.userAgent || null,
     });
 
-    return this.getLinkedRecords(sourceClinicId, clientClinicId);
+    return this.getLinkedRecords(sourceClinicId, clientClinicId, access);
   }
 
   async unlinkContactFromAccount(
@@ -615,22 +626,27 @@ export class ClientAccountsService {
     clientClinicId: string,
     contactId: string,
     userId: string,
+    access: { canManageAllClientAccounts: boolean },
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientAccountLinkedRecordsResponse> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
     const account = await this.getProfile(clientClinicId);
     const contact = await this.getWorkspaceContact(sourceClinicId, contactId);
 
-    if ((contact.accountName || "").toLowerCase() !== account.clinicName.toLowerCase()) {
-      throw ApiError.badRequest("Contact is not linked to this client account");
+    if (!account.id) {
+      throw ApiError.notFound("Client account profile not found");
     }
 
-    await pool.execute(
-      `UPDATE contact
-       SET account_name = NULL,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
-      [contactId, sourceClinicId],
+    const [result]: any = await pool.execute(
+      `DELETE FROM client_account_contact
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?
+         AND contact_id = ?`,
+      [sourceClinicId, account.id, contactId],
     );
+    if (result.affectedRows === 0) {
+      throw ApiError.badRequest("Contact is not linked to this client account");
+    }
 
     await logAuditEvent({
       clinicId: sourceClinicId,
@@ -647,7 +663,7 @@ export class ClientAccountsService {
       userAgent: auditContext.userAgent || null,
     });
 
-    return this.getLinkedRecords(sourceClinicId, clientClinicId);
+    return this.getLinkedRecords(sourceClinicId, clientClinicId, access);
   }
 
   async updateDriveFolder(
@@ -856,11 +872,12 @@ export class ClientAccountsService {
   async listServices(
     clinicId: string,
     query: ClientAccountServiceListQuery,
+    access: { canManageAllClientAccounts: boolean } = { canManageAllClientAccounts: false },
   ): Promise<ClientAccountServiceResponse[]> {
     const conditions = ["1 = 1"];
     const values: any[] = [];
 
-    if (String(query.includeAllClinics) !== "true") {
+    if (String(query.includeAllClinics) !== "true" || !access.canManageAllClientAccounts) {
       conditions.push("cas.clinic_id = ?");
       values.push(clinicId);
     }
@@ -1459,31 +1476,69 @@ export class ClientAccountsService {
     };
   }
 
-  private async listLinkedContacts(sourceClinicId: string, accountName: string): Promise<ClientAccountLinkedContactResponse[]> {
+  async listClientAccountsForContact(
+    sourceClinicId: string,
+    contactId: string,
+  ): Promise<ClientAccountContactAccountLinkResponse[]> {
+    await this.getWorkspaceContact(sourceClinicId, contactId);
+
     const [rows]: any = await pool.execute(
-      `SELECT id,
-              account_name as accountName,
-              contact_role as role,
-              first_name as firstName,
-              last_name as lastName,
-              email,
-              phone,
-              role_title as roleTitle,
-              website,
-              status,
-              lead_status as leadStatus,
-              source,
-              updated_at as updatedAt
-       FROM contact
-       WHERE clinic_id = ?
-         AND deleted_at IS NULL
-         AND LOWER(COALESCE(account_name, '')) = LOWER(?)
-       ORDER BY updated_at DESC, created_at DESC
-       LIMIT 100`,
-      [sourceClinicId, accountName],
+      `SELECT cac.id as relationId,
+              cap.id as clientAccountProfileId,
+              cap.clinic_id as clientClinicId,
+              c.name as clientName,
+              cac.created_at as linkedAt
+       FROM client_account_contact cac
+       JOIN client_account_profile cap
+         ON cap.id = cac.client_account_profile_id
+       JOIN clinic c
+         ON c.id = cap.clinic_id
+        AND c.deleted_at IS NULL
+       WHERE cac.clinic_id = ?
+         AND cac.contact_id = ?
+       ORDER BY cac.created_at DESC`,
+      [sourceClinicId, contactId],
     );
 
     return rows.map((row: any) => ({
+      relationId: row.relationId,
+      clientAccountProfileId: row.clientAccountProfileId,
+      clientClinicId: row.clientClinicId,
+      clientName: row.clientName,
+      linkedAt: toIsoString(row.linkedAt) || new Date().toISOString(),
+    }));
+  }
+
+  private async listLinkedContacts(sourceClinicId: string, clientAccountProfileId: string): Promise<ClientAccountLinkedContactResponse[]> {
+    const [rows]: any = await pool.execute(
+      `SELECT cac.id as relationId,
+              c.id,
+              c.account_name as accountName,
+              c.contact_role as role,
+              c.first_name as firstName,
+              c.last_name as lastName,
+              c.email,
+              c.phone,
+              c.role_title as roleTitle,
+              c.website,
+              c.status,
+              c.lead_status as leadStatus,
+              c.source,
+              c.updated_at as updatedAt
+       FROM client_account_contact cac
+       JOIN contact c
+         ON c.id = cac.contact_id
+        AND c.clinic_id = cac.clinic_id
+        AND c.deleted_at IS NULL
+       WHERE cac.clinic_id = ?
+         AND cac.client_account_profile_id = ?
+       ORDER BY cac.created_at DESC, c.updated_at DESC
+       LIMIT 100`,
+      [sourceClinicId, clientAccountProfileId],
+    );
+
+    return rows.map((row: any) => ({
+      relationId: row.relationId,
       id: row.id,
       name: contactDisplayName(row),
       accountName: row.accountName || null,
@@ -1497,6 +1552,33 @@ export class ClientAccountsService {
       leadStatus: row.leadStatus || "new",
       updatedAt: toIsoString(row.updatedAt) || new Date().toISOString(),
     }));
+  }
+
+  private async linkContactRelation(
+    sourceClinicId: string,
+    clientAccountProfileId: string,
+    contactId: string,
+    userId: string | null,
+  ) {
+    const relationId = uuidv4();
+    await pool.execute(
+      `INSERT IGNORE INTO client_account_contact
+        (id, clinic_id, client_account_profile_id, contact_id, created_by)
+       VALUES (?, ?, ?, ?, ?)`,
+      [relationId, sourceClinicId, clientAccountProfileId, contactId, userId],
+    );
+
+    const [rows]: any = await pool.execute(
+      `SELECT id
+       FROM client_account_contact
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?
+         AND contact_id = ?
+       LIMIT 1`,
+      [sourceClinicId, clientAccountProfileId, contactId],
+    );
+
+    return rows[0]?.id || relationId;
   }
 
   private async listLinkedTasks(sourceClinicId: string, clientAccountProfileId: string): Promise<ClientAccountLinkedTaskResponse[]> {

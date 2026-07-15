@@ -13,7 +13,7 @@ export class ClientAccountsController {
   listAccounts = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
-      const includeAllClinics = await userHasPermission(user.userId, user.clinicId, "client_accounts:read");
+      const includeAllClinics = await userHasPermission(user.userId, user.clinicId, "*");
       const accounts = await clientAccountsService.listAccounts(user.clinicId, {
         includeAllClinics,
         query: req.query as any,
@@ -122,9 +122,11 @@ export class ClientAccountsController {
   getLinkedRecords = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
+      const canManageAllClientAccounts = await userHasPermission(user.userId, user.clinicId, "*");
       const records = await clientAccountsService.getLinkedRecords(
         user.clinicId,
         String(req.params.clinicId),
+        { canManageAllClientAccounts },
       );
 
       res.status(200).json({
@@ -139,11 +141,13 @@ export class ClientAccountsController {
   linkContact = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
+      const canManageAllClientAccounts = await userHasPermission(user.userId, user.clinicId, "*");
       const records = await clientAccountsService.linkContactToAccount(
         user.clinicId,
         String(req.params.clinicId),
         String(req.params.contactId),
         user.userId,
+        { canManageAllClientAccounts },
         this.auditContext(req),
       );
 
@@ -159,11 +163,13 @@ export class ClientAccountsController {
   unlinkContact = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
+      const canManageAllClientAccounts = await userHasPermission(user.userId, user.clinicId, "*");
       const records = await clientAccountsService.unlinkContactFromAccount(
         user.clinicId,
         String(req.params.clinicId),
         String(req.params.contactId),
         user.userId,
+        { canManageAllClientAccounts },
         this.auditContext(req),
       );
 
@@ -176,10 +182,32 @@ export class ClientAccountsController {
     }
   };
 
+  listContactClientAccountLinks = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const links = await clientAccountsService.listClientAccountsForContact(
+        user.clinicId,
+        String(req.params.contactId),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: links,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listServices = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const clinicId = (req as any).user.clinicId;
-      const services = await clientAccountsService.listServices(clinicId, req.query as any);
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userHasPermission(user.userId, user.clinicId, "*");
+      const services = await clientAccountsService.listServices(
+        user.clinicId,
+        req.query as any,
+        { canManageAllClientAccounts },
+      );
       res.status(200).json({
         status: "success",
         data: services,

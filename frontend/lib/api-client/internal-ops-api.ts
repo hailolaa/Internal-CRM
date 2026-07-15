@@ -2,6 +2,7 @@ import type {
   ClientAccountListParams,
   ClientAccountCreatePayload,
   ClientAccountDriveFolderPayload,
+  ClientAccountContactAccountLinkRecord,
   ClientAccountFromContactPayload,
   ClientAccountLinkedRecords,
   ClientAccountProfilePayload,
@@ -132,6 +133,13 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
             method: "POST",
             token,
           },
+        );
+        return response.data!;
+      },
+      async listContactLinks(token: string, contactId: string) {
+        const response = await apiRequest<ClientAccountContactAccountLinkRecord[]>(
+          `/api/client-accounts/contacts/${encodeURIComponent(contactId)}/links`,
+          { token },
         );
         return response.data!;
       },

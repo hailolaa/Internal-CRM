@@ -8,6 +8,7 @@ import { authService } from "../modules/auth/auth.service.js";
 import { generateToken, hashPassword } from "../utils/helpers.js";
 import clientAccountsRoutes from "../modules/client-accounts/client-accounts.routes.js";
 import { clientAccountsService } from "../modules/client-accounts/client-accounts.service.js";
+import tasksRoutes from "../modules/tasks/tasks.routes.js";
 import errorHandler from "../middleware/errorHandler.js";
 import { validate } from "../middleware/validate.js";
 import { createClientAccountValidator } from "../modules/client-accounts/client-accounts.validators.js";
@@ -135,6 +136,53 @@ async function createClientAccountWriterUser(clinicId: string, prefix: string) {
     roleId,
     roleName,
   };
+}
+
+async function createInternalTaskWriterUser(clinicId: string, prefix: string) {
+  const email = uniqueEmail(`${prefix}_task_writer`);
+  const password = "password123";
+  const userId = uuidv4();
+  const roleId = uuidv4();
+  const roleName = `TASKS_${Math.floor(Math.random() * 100000)}`;
+  const passwordHash = await hashPassword(password);
+
+  await pool.execute(
+    "INSERT INTO role (id, clinic_id, name, display_name, is_system) VALUES (?, ?, ?, ?, 0)",
+    [roleId, clinicId, roleName, "Internal Task Writer"],
+  );
+  await pool.execute(
+    `INSERT INTO role_permission (role_id, permission_id)
+     SELECT ?, id FROM permission WHERE key_name IN ('internal_tasks:read', 'internal_tasks:write')`,
+    [roleId],
+  );
+  await pool.execute(
+    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+    [userId, clinicId, email, passwordHash, prefix, "TaskWriter", roleName],
+  );
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
+    [userId, clinicId, roleName],
+  );
+
+  const result = await authService.login({ email, password });
+
+  return {
+    userId: result.user.id,
+    token: result.tokens.token,
+    roleId,
+    roleName,
+  };
+}
+
+async function createTestContact(clinicId: string, prefix: string, accountName?: string | null) {
+  const contactId = uuidv4();
+  await pool.execute(
+    `INSERT INTO contact
+      (id, clinic_id, account_name, first_name, last_name, email, phone, status, lead_status, source)
+     VALUES (?, ?, ?, ?, 'Contact', ?, '07700 900111', 'lead', 'new', 'referral')`,
+    [contactId, clinicId, accountName || null, prefix, uniqueEmail(`${prefix}_contact`)],
+  );
+  return contactId;
 }
 
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
@@ -388,6 +436,146 @@ test("client account Drive links require validated Google access and tenant avai
     (clientAccountsService as any).googleDriveTokenCache = null;
     await pool.execute("DELETE FROM role_permission WHERE role_id = ?", [primaryWriter.roleId]);
     await pool.execute("DELETE FROM role WHERE id = ?", [primaryWriter.roleId]);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("client account contacts and tasks use stable workspace-scoped relations", async () => {
+  await testConnection();
+
+  const primary = await createClinicAndAdmin("ClientRelationsPrimary");
+  const clientA = await createClinicAndAdmin("ClientRelationsA");
+  const clientB = await createClinicAndAdmin("ClientRelationsB");
+  const clientWriter = await createClientAccountWriterUser(primary.clinicId, "ClientRelations");
+  const taskWriter = await createInternalTaskWriterUser(primary.clinicId, "ClientRelations");
+  const contactId = await createTestContact(primary.clinicId, "StableLinked", "Duplicate Client");
+  const secondContactId = await createTestContact(primary.clinicId, "StableUnlinked", "Duplicate Client");
+
+  await pool.execute("UPDATE clinic SET name = 'Duplicate Client' WHERE id IN (?, ?)", [clientA.clinicId, clientB.clinicId]);
+
+  const expressModule = await import("express") as any;
+  const express = expressModule.default;
+  const testApp = express();
+  testApp.use(express.json());
+  testApp.use("/api/client-accounts", clientAccountsRoutes);
+  testApp.use("/api/tasks", tasksRoutes);
+  testApp.use(errorHandler);
+
+  const server = testApp.listen(0);
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to start client account relation test server");
+  }
+
+  const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
+
+  try {
+    const crossWorkspaceLink = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${clientA.clinicId}/contacts/${contactId}/link`,
+      clientWriter.token,
+      { method: "POST" },
+    );
+    assert.equal(crossWorkspaceLink.response.status, 403);
+
+    const linked = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${clientA.clinicId}/contacts/${contactId}/link`,
+      primary.token,
+      { method: "POST" },
+    );
+    assert.equal(linked.response.status, 200);
+    assert.equal(linked.body.data.contacts.length, 1);
+    assert.equal(linked.body.data.contacts[0].id, contactId);
+    assert.ok(linked.body.data.contacts[0].relationId);
+    const clientAProfileId = linked.body.data.account.id;
+    assert.ok(clientAProfileId);
+
+    await pool.execute("UPDATE clinic SET name = 'Renamed Client A' WHERE id = ?", [clientA.clinicId]);
+
+    const afterRename = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${clientA.clinicId}/linked-records`,
+      primary.token,
+    );
+    assert.equal(afterRename.response.status, 200);
+    assert.equal(afterRename.body.data.account.clinicName, "Renamed Client A");
+    assert.equal(afterRename.body.data.contacts.some((contact: any) => contact.id === contactId), true);
+    assert.equal(afterRename.body.data.contacts.some((contact: any) => contact.id === secondContactId), false);
+
+    const duplicateNameAccount = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${clientB.clinicId}/linked-records`,
+      primary.token,
+    );
+    assert.equal(duplicateNameAccount.response.status, 200);
+    assert.equal(duplicateNameAccount.body.data.contacts.some((contact: any) => contact.id === contactId), false);
+
+    const contactBacklinks = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/contacts/${contactId}/links`,
+      primary.token,
+    );
+    assert.equal(contactBacklinks.response.status, 200);
+    assert.equal(contactBacklinks.body.data.length, 1);
+    assert.equal(contactBacklinks.body.data[0].clientClinicId, clientA.clinicId);
+    assert.equal(contactBacklinks.body.data[0].clientAccountProfileId, clientAProfileId);
+    assert.ok(contactBacklinks.body.data[0].relationId);
+
+    const rejectedTask = await fetchJson(baseUrl, "/api/tasks/internal", taskWriter.token, {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Foreign profile should fail",
+        boardKey: "delivery",
+        clientAccountProfileId: clientAProfileId,
+      }),
+    });
+    assert.equal(rejectedTask.response.status, 403);
+
+    const createdTask = await fetchJson(baseUrl, "/api/tasks/internal", primary.token, {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Build tracking plan",
+        boardKey: "delivery",
+        priority: "high",
+        clientAccountProfileId: clientAProfileId,
+        contactId,
+      }),
+    });
+    assert.equal(createdTask.response.status, 201);
+
+    const withTask = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${clientA.clinicId}/linked-records`,
+      primary.token,
+    );
+    assert.equal(withTask.response.status, 200);
+    assert.equal(withTask.body.data.openTasks.some((task: any) => task.id === createdTask.body.data.id), true);
+
+    const unlinked = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${clientA.clinicId}/contacts/${contactId}/unlink`,
+      primary.token,
+      { method: "POST" },
+    );
+    assert.equal(unlinked.response.status, 200);
+    assert.equal(unlinked.body.data.contacts.some((contact: any) => contact.id === contactId), false);
+
+    const linksAfterUnlink = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/contacts/${contactId}/links`,
+      primary.token,
+    );
+    assert.equal(linksAfterUnlink.response.status, 200);
+    assert.equal(linksAfterUnlink.body.data.length, 0);
+
+    console.log("[client-accounts] stable relation link/unlink, rename, duplicate name, backlink and task scope checks passed");
+  } finally {
+    await pool.execute("DELETE FROM task WHERE clinic_id = ? AND contact_id = ?", [primary.clinicId, contactId]);
+    await pool.execute("DELETE FROM client_account_contact WHERE clinic_id = ? AND contact_id IN (?, ?)", [primary.clinicId, contactId, secondContactId]);
+    await pool.execute("UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id IN (?, ?)", [primary.clinicId, contactId, secondContactId]);
+    await pool.execute("DELETE FROM role_permission WHERE role_id IN (?, ?)", [clientWriter.roleId, taskWriter.roleId]);
+    await pool.execute("DELETE FROM role WHERE id IN (?, ?)", [clientWriter.roleId, taskWriter.roleId]);
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

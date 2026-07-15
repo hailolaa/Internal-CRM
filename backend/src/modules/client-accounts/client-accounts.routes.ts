@@ -5,6 +5,7 @@ import { validate } from "../../middleware/validate.js";
 import { clientAccountsController } from "./client-accounts.controller.js";
 import {
   clientAccountClinicIdParamValidator,
+  clientAccountContactIdParamValidator,
   clientAccountContactLinkValidator,
   clientAccountServiceIdParamValidator,
   createClientAccountFromContactValidator,
@@ -43,6 +44,14 @@ router.post(
   createClientAccountFromContactValidator,
   validate,
   clientAccountsController.createAccountFromContact,
+);
+
+router.get(
+  "/contacts/:contactId/links",
+  authorizePermission("client_accounts:read"),
+  clientAccountContactIdParamValidator,
+  validate,
+  clientAccountsController.listContactClientAccountLinks,
 );
 
 router.patch(
