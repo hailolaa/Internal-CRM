@@ -46,12 +46,57 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function labelForTimeline(activity: ContactLinkedActivity["timeline"][number]) {
+  const metadata = activity.metadata || {};
+  const changes = typeof metadata.changes === "object" && metadata.changes !== null
+    ? metadata.changes as Record<string, unknown>
+    : {};
+  const action = typeof metadata.action === "string" ? metadata.action : "";
+  const title = typeof metadata.title === "string" ? metadata.title : "";
+  const channel = typeof changes.channel === "string" ? changes.channel : "";
+
+  if (title) return title;
+  if (action === "internal_note_added") return "Internal note added";
+  if (action === "contact_attempt_recorded") {
+    return channel ? `${formatLabel(channel)} contact attempt` : "Contact attempt recorded";
+  }
+  if (action.startsWith("whatsapp.")) return "WhatsApp activity";
   const rawType = activity.type.toLowerCase();
   if (rawType.includes("appointment")) return "Sales or delivery event";
   if (rawType.includes("form")) return "Lead submission";
   if (rawType.includes("treatment")) return "Service/package update";
   const type = activity.type.replace(/_/g, " ");
   return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function timelineSummary(activity: ContactLinkedActivity["timeline"][number]) {
+  const metadata = activity.metadata || {};
+  const changes = typeof metadata.changes === "object" && metadata.changes !== null
+    ? metadata.changes as Record<string, unknown>
+    : {};
+  const note = typeof changes.note === "string" ? changes.note : "";
+  const notes = typeof changes.notes === "string" ? changes.notes : "";
+  const outcome = typeof changes.outcome === "string" ? changes.outcome : "";
+  const channel = typeof changes.channel === "string" ? changes.channel : "";
+  const status = typeof metadata.status === "string" ? metadata.status : "";
+
+  return [channel ? formatLabel(channel) : "", outcome || status, note || notes]
+    .filter(Boolean)
+    .join(" - ");
+}
+
+function isInternalTimelineItem(activity: ContactLinkedActivity["timeline"][number]) {
+  const metadata = activity.metadata || {};
+  const changes = typeof metadata.changes === "object" && metadata.changes !== null
+    ? metadata.changes as Record<string, unknown>
+    : {};
+  return changes.internal === true || changes.visibility === "internal";
+}
+
+function formatLabel(value: string) {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function EmptyState({ label }: { label: string }) {
@@ -79,8 +124,13 @@ export default function ContactDetailPage() {
   const [loadError, setLoadError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
-  const [actionName, setActionName] = useState<"contacted" | "pipeline" | "convert" | "note" | "delete" | null>(null);
+  const [actionName, setActionName] = useState<"contacted" | "pipeline" | "convert" | "note" | "attempt" | "delete" | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [attemptDraft, setAttemptDraft] = useState({
+    channel: "call" as "call" | "email" | "sms" | "whatsapp" | "other",
+    outcome: "",
+    notes: "",
+  });
 
   const loadContact = useCallback(async () => {
     if (!contactId) {
@@ -202,7 +252,7 @@ export default function ContactDetailPage() {
       { label: "Tasks", href: `/app/crm/tasks?contactId=${encodeURIComponent(contact?.id || "")}` },
       { label: "Audits", href: "/app/ops/growth-scores" },
       { label: "Proposals", href: "/app/proposals" },
-      { label: "Notes", href: `/app/crm/contacts/detail?id=${encodeURIComponent(contact?.id || "")}#notes` },
+      { label: "Notes", href: `/app/crm/contacts/detail?id=${encodeURIComponent(contact?.id || "")}#contact-notes` },
     ],
     [contact?.id, linkedAccount],
   );
@@ -297,22 +347,16 @@ export default function ContactDetailPage() {
       return;
     }
 
-    const timestamp = new Intl.DateTimeFormat("en-GB", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date());
-    const nextNotes = [contact.notes, `[${timestamp}] ${note}`]
-      .filter(Boolean)
-      .join("\n\n");
-
     setActionName("note");
     setActionError("");
     setActionMessage("");
     try {
-      await api.contacts.update(token, contact.id, { notes: nextNotes });
+      const result = await api.contacts.addNote(token, contact.id, { note });
+      const nextNotes = typeof result.record?.notes === "string" ? result.record.notes : contact.notes;
+      setActivity(result.activity);
+      setContact((current) => current ? { ...current, notes: nextNotes } : current);
       setNoteDraft("");
-      await loadContact();
-      setActionMessage("Note added to this prospect.");
+      setActionMessage("Internal note added to this prospect.");
     } catch (error) {
       setActionError(
         error instanceof Error ? error.message : "Could not add this note.",
@@ -320,7 +364,42 @@ export default function ContactDetailPage() {
     } finally {
       setActionName(null);
     }
-  }, [canWriteContacts, contact, loadContact, noteDraft, token]);
+  }, [canWriteContacts, contact, noteDraft, token]);
+
+  const handleRecordContactAttempt = useCallback(async () => {
+    if (!token || !contact || !canWriteContacts) return;
+
+    const hasOutcome = attemptDraft.outcome.trim().length > 0;
+    const hasNotes = attemptDraft.notes.trim().length > 0;
+    if (!hasOutcome && !hasNotes) {
+      setActionError("Add an outcome or short note for this contact attempt.");
+      return;
+    }
+
+    setActionName("attempt");
+    setActionError("");
+    setActionMessage("");
+    try {
+      const result = await api.contacts.recordContactAttempt(token, contact.id, {
+        channel: attemptDraft.channel,
+        outcome: attemptDraft.outcome.trim() || null,
+        notes: attemptDraft.notes.trim() || null,
+      });
+      setActivity(result.activity);
+      const attemptedAt = typeof result.record?.attemptedAt === "string"
+        ? result.record.attemptedAt
+        : new Date().toISOString();
+      setContact((current) => current ? { ...current, lastContactAt: attemptedAt } : current);
+      setAttemptDraft({ channel: "call", outcome: "", notes: "" });
+      setActionMessage("Contact attempt recorded.");
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Could not record this contact attempt.",
+      );
+    } finally {
+      setActionName(null);
+    }
+  }, [attemptDraft, canWriteContacts, contact, token]);
 
   const handleDelete = useCallback(async () => {
     if (!token || !contact || !canDeleteContacts) return;
@@ -539,6 +618,7 @@ export default function ContactDetailPage() {
                 ["Calls", activity?.counts.calls || 0],
                 ["Linked events", activity?.counts.appointments || 0],
                 ["Messages", activity?.counts.messages || 0],
+                ["Tasks", activity?.counts.tasks || 0],
               ].map(([label, value]) => (
                 <div
                   key={label}
@@ -557,10 +637,22 @@ export default function ContactDetailPage() {
                   className="flex items-start gap-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4"
                 >
                   <Clock className="mt-0.5 h-4 w-4 text-[#6E6AE8]" />
-                  <div>
-                    <p className="text-sm font-semibold text-[#151f21]">
-                      {labelForTimeline(item)}
-                    </p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-[#151f21]">
+                        {labelForTimeline(item)}
+                      </p>
+                      {isInternalTimelineItem(item) ? (
+                        <span className="rounded-full bg-[#edf5f3] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#315f62]">
+                          Internal
+                        </span>
+                      ) : null}
+                    </div>
+                    {timelineSummary(item) ? (
+                      <p className="mt-1 line-clamp-2 text-sm text-[#6F6A66]">
+                        {timelineSummary(item)}
+                      </p>
+                    ) : null}
                     <p className="text-xs text-[#6F6A66]">
                       {formatDateTime(item.timestamp || item.createdAt)}
                     </p>
@@ -702,41 +794,56 @@ export default function ContactDetailPage() {
             </p>
           </Card>
 
-          <div id="notes">
-            <Card padding="p-5 sm:p-6">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-base font-semibold text-[#151f21]">Notes</h2>
-                <span className="text-xs text-[#6F6A66]">
-                  Internal prospect notes
-                </span>
-              </div>
-              <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-[#6F6A66]">
-                {contact.notes || "No notes recorded."}
-              </p>
-              <div className="mt-5 space-y-3">
-                <textarea
-                  value={noteDraft}
-                  onChange={(event) => setNoteDraft(event.target.value)}
-                  disabled={!canWriteContacts || actionName === "note"}
-                  rows={4}
-                  className="w-full resize-none rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
-                  placeholder="Add a sales follow-up note, context from a call, objection, next step, or handoff detail..."
-                />
-                <button
-                  onClick={handleAddNote}
-                  disabled={!canWriteContacts || actionName === "note" || !noteDraft.trim()}
-                  className="btn-primary text-sm disabled:opacity-60"
-                >
-                  {actionName === "note" ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <MessageSquare className="h-4 w-4" />
-                  )}
-                  Add Note
-                </button>
-              </div>
-            </Card>
-          </div>
+          <Card padding="p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-[#151f21]">Contact attempt</h2>
+              <span className="text-xs text-[#6F6A66]">Internal history</span>
+            </div>
+            <div className="mt-5 space-y-3">
+              <select
+                value={attemptDraft.channel}
+                onChange={(event) => setAttemptDraft((current) => ({
+                  ...current,
+                  channel: event.target.value as typeof attemptDraft.channel,
+                }))}
+                disabled={!canWriteContacts || actionName === "attempt"}
+                className="w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+              >
+                <option value="call">Call</option>
+                <option value="email">Email</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="sms">SMS</option>
+                <option value="other">Other</option>
+              </select>
+              <input
+                value={attemptDraft.outcome}
+                onChange={(event) => setAttemptDraft((current) => ({ ...current, outcome: event.target.value }))}
+                disabled={!canWriteContacts || actionName === "attempt"}
+                className="w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                placeholder="Outcome, e.g. no answer, discovery booked, asked for proposal"
+              />
+              <textarea
+                value={attemptDraft.notes}
+                onChange={(event) => setAttemptDraft((current) => ({ ...current, notes: event.target.value }))}
+                disabled={!canWriteContacts || actionName === "attempt"}
+                rows={3}
+                className="w-full resize-none rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                placeholder="Internal context from this attempt..."
+              />
+              <button
+                onClick={handleRecordContactAttempt}
+                disabled={!canWriteContacts || actionName === "attempt" || (!attemptDraft.outcome.trim() && !attemptDraft.notes.trim())}
+                className="btn-secondary text-sm disabled:opacity-60"
+              >
+                {actionName === "attempt" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Phone className="h-4 w-4" />
+                )}
+                Record Attempt
+              </button>
+            </div>
+          </Card>
 
           <Card padding="p-5 sm:p-6">
             <h2 className="text-base font-semibold text-[#151f21]">Communication permissions</h2>

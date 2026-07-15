@@ -13,6 +13,7 @@ import {
   BriefcaseBusiness,
   CheckSquare,
   Link2,
+  MessageSquare,
   UserRound,
 } from "lucide-react";
 import Link from "next/link";
@@ -176,6 +177,9 @@ export default function TasksPage() {
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
+  const [noteTaskId, setNoteTaskId] = useState<string | null>(null);
+  const [savingNoteTaskId, setSavingNoteTaskId] = useState<string | null>(null);
+  const [noteDraftByTaskId, setNoteDraftByTaskId] = useState<Record<string, string>>({});
   const taskRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const clientNameById = useMemo(() => {
     return new Map(
@@ -384,6 +388,47 @@ export default function TasksPage() {
       );
     } finally {
       setUpdatingTaskId(null);
+    }
+  };
+
+  const addTaskNote = async (task: TaskRow) => {
+    if (!token) return;
+
+    const note = (noteDraftByTaskId[task.id] || "").trim();
+    if (!note) {
+      setActionError("Write a task note before saving.");
+      return;
+    }
+
+    const noteLine = `[${new Date().toISOString()}] ${note}`;
+    const nextDescription = [task.description, noteLine].filter(Boolean).join("\n\n");
+    const previousDescription = task.description;
+
+    setSavingNoteTaskId(task.id);
+    setActionMessage("");
+    setActionError("");
+    setTasks((current) =>
+      current.map((item) =>
+        item.id === task.id ? { ...item, description: nextDescription } : item,
+      ),
+    );
+
+    try {
+      await api.internalTasks.update(token, task.id, { description: nextDescription });
+      setNoteDraftByTaskId((current) => ({ ...current, [task.id]: "" }));
+      setNoteTaskId(null);
+      setActionMessage(`Note added to ${task.title}.`);
+    } catch (error) {
+      setTasks((current) =>
+        current.map((item) =>
+          item.id === task.id ? { ...item, description: previousDescription } : item,
+        ),
+      );
+      setActionError(
+        error instanceof Error ? error.message : "Unable to save task note.",
+      );
+    } finally {
+      setSavingNoteTaskId(null);
     }
   };
 
@@ -645,15 +690,62 @@ export default function TasksPage() {
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => void archiveTask(task)}
-                    disabled={updatingTaskId === task.id}
-                    aria-label={`Archive ${task.title}`}
-                    className="rounded-lg p-2 text-[#6B7280] hover:bg-[rgba(0,0,0,0.04)] hover:text-[#111111] disabled:opacity-50"
-                  >
-                    <Archive className="h-4 w-4" />
-                  </button>
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      onClick={() => setNoteTaskId((current) => current === task.id ? null : task.id)}
+                      disabled={savingNoteTaskId === task.id}
+                      aria-label={`Add note to ${task.title}`}
+                      className="rounded-lg p-2 text-[#6B7280] hover:bg-[rgba(0,0,0,0.04)] hover:text-[#111111] disabled:opacity-50"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => void archiveTask(task)}
+                      disabled={updatingTaskId === task.id}
+                      aria-label={`Archive ${task.title}`}
+                      className="rounded-lg p-2 text-[#6B7280] hover:bg-[rgba(0,0,0,0.04)] hover:text-[#111111] disabled:opacity-50"
+                    >
+                      <Archive className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
+                {noteTaskId === task.id && (
+                  <div className="mt-4 rounded-2xl border border-[rgba(0,0,0,0.06)] bg-[#FAF8F5] p-4">
+                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6B7280]">
+                      Internal task note
+                    </label>
+                    <textarea
+                      value={noteDraftByTaskId[task.id] || ""}
+                      onChange={(event) =>
+                        setNoteDraftByTaskId((current) => ({
+                          ...current,
+                          [task.id]: event.target.value,
+                        }))
+                      }
+                      disabled={savingNoteTaskId === task.id}
+                      rows={3}
+                      className="mt-2 w-full resize-none rounded-xl border border-[rgba(0,0,0,0.08)] bg-white px-3.5 py-2.5 text-sm text-[#111111] outline-none transition focus:border-[rgba(110,106,232,0.4)] focus:ring-2 focus:ring-[rgba(110,106,232,0.08)] disabled:opacity-60"
+                      placeholder="Add context, blocker, handoff detail, or completion note..."
+                    />
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setNoteTaskId(null)}
+                        className="rounded-xl border border-[rgba(0,0,0,0.08)] px-3 py-2 text-sm font-medium text-[#6B7280] hover:bg-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void addTaskNote(task)}
+                        disabled={savingNoteTaskId === task.id || !(noteDraftByTaskId[task.id] || "").trim()}
+                        className="rounded-xl bg-[#6E6AE8] px-3 py-2 text-sm font-semibold text-white hover:bg-[#5A56D4] disabled:opacity-60"
+                      >
+                        {savingNoteTaskId === task.id ? "Saving..." : "Save Note"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

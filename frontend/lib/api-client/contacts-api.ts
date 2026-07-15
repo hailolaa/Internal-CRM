@@ -1,5 +1,6 @@
 import type {
   ContactCreatePayload,
+  ContactActionResult,
   ContactDuplicateCandidate,
   ContactImportBatch,
   ContactImportResult,
@@ -155,6 +156,37 @@ export function createContactsApi(apiRequest: ApiRequest) {
           {
             method: "PATCH",
             token,
+          },
+        );
+        return response.data!;
+      },
+      async addNote(token: string, contactId: string, payload: { note: string }) {
+        const response = await apiRequest<ContactActionResult>(
+          `/api/contacts/${contactId}/actions/note`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async recordContactAttempt(
+        token: string,
+        contactId: string,
+        payload: {
+          channel: "call" | "email" | "sms" | "whatsapp" | "other";
+          outcome?: string | null;
+          notes?: string | null;
+          attemptedAt?: string | null;
+        },
+      ) {
+        const response = await apiRequest<ContactActionResult>(
+          `/api/contacts/${contactId}/actions/contact-attempt`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
           },
         );
         return response.data!;

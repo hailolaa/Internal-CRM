@@ -240,6 +240,42 @@ export class ContactsController {
     }
   };
 
+  addContactNote = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const result = await contactsService.addContactNote(
+        user.clinicId,
+        user.userId,
+        String(req.params.id),
+        req.body,
+        await this.getDrawerActionContext(user),
+        getRequestMeta(req),
+      );
+
+      res.status(201).json({ status: "success", data: result });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  recordContactAttempt = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const result = await contactsService.recordContactAttempt(
+        user.clinicId,
+        user.userId,
+        String(req.params.id),
+        req.body,
+        await this.getDrawerActionContext(user),
+        getRequestMeta(req),
+      );
+
+      res.status(201).json({ status: "success", data: result });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   updateContact = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
@@ -403,7 +439,7 @@ export class ContactsController {
   };
 
   private async getDrawerActionContext(user: any) {
-    const permissionKeys = ["calls:write", "marketing:read", "appointments:write", "reports:write", "events:write"];
+    const permissionKeys = ["contacts:write", "calls:write", "marketing:read", "appointments:write", "reports:write", "events:write"];
     const permissions: Record<string, boolean> = {};
 
     await Promise.all(permissionKeys.map(async (permission) => {

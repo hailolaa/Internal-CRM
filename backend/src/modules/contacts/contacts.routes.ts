@@ -10,8 +10,10 @@ import {
   importContactsValidator,
   leadBookingActionValidator,
   leadCallOutcomeActionValidator,
+  leadContactAttemptActionValidator,
   leadDepositActionValidator,
   leadMessageTemplateActionValidator,
+  leadNoteActionValidator,
   leadTaskActionValidator,
   listContactsValidator,
   resolveDuplicateValidator,
@@ -203,6 +205,28 @@ router.post(
   leadTaskActionValidator,
   validate,
   contactsController.createLeadTask,
+);
+
+// @route   POST /api/contacts/:id/actions/note
+// @desc    Add an internal timestamped note to a lead/contact timeline
+// @access  Private
+router.post(
+  "/:id/actions/note",
+  authorizePermission("contacts:write"),
+  leadNoteActionValidator,
+  validate,
+  contactsController.addContactNote,
+);
+
+// @route   POST /api/contacts/:id/actions/contact-attempt
+// @desc    Record an internal contact attempt against a lead/contact timeline
+// @access  Private
+router.post(
+  "/:id/actions/contact-attempt",
+  authorizePermission("contacts:write"),
+  leadContactAttemptActionValidator,
+  validate,
+  contactsController.recordContactAttempt,
 );
 
 // @route   PATCH /api/contacts/:id/mark-contacted

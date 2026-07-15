@@ -248,6 +248,12 @@ export interface ContactMutationResult {
   duplicateCandidates: ContactDuplicateCandidate[];
 }
 
+export interface ContactActionResult {
+  action: string;
+  record: Record<string, unknown> | null;
+  activity: ContactLinkedActivity;
+}
+
 export interface ContactTimelineActivity {
   id: string;
   type: string;
@@ -297,12 +303,53 @@ export interface ContactLinkedFormSubmission {
 
 export interface ContactLinkedMessage {
   id: string;
-  channel: "email" | "sms";
+  channel: "email" | "sms" | "whatsapp";
   direction: string | null;
   status: string | null;
   subject: string | null;
   preview: string;
   timestamp: string;
+}
+
+export interface ContactLinkedDeposit {
+  id: string;
+  contact: string;
+  appointmentId: string | null;
+  treatment: string;
+  appointmentDate: string | null;
+  depositAmount: number;
+  depositPaid: boolean;
+  paidDate: string | null;
+  method: string | null;
+  status: string;
+  paymentStatus: string | null;
+  href: string;
+  actions: string[];
+}
+
+export interface ContactLinkedTask {
+  id: string;
+  title: string;
+  description: string | null;
+  priority: "low" | "medium" | "high";
+  status: "pending" | "completed";
+  category: string | null;
+  due: string | null;
+  dueDate: string | null;
+  assignedTo: string | null;
+  href: string;
+  actions: string[];
+}
+
+export interface ContactDrawerActionState {
+  key: string;
+  label: string;
+  recordType: "call" | "message" | "form" | "booking" | "deposit" | "task" | "note" | "contact_attempt";
+  method: "GET" | "POST" | "PATCH";
+  path: string;
+  requiredPermission: string;
+  enabled: boolean;
+  reason: string | null;
 }
 
 export interface ContactLinkedActivity {
@@ -311,13 +358,18 @@ export interface ContactLinkedActivity {
   appointments: ContactLinkedAppointment[];
   forms: ContactLinkedFormSubmission[];
   messages: ContactLinkedMessage[];
+  deposits: ContactLinkedDeposit[];
+  tasks: ContactLinkedTask[];
   counts: {
     timeline: number;
     calls: number;
     appointments: number;
     forms: number;
     messages: number;
+    deposits: number;
+    tasks: number;
   };
+  actions: ContactDrawerActionState[];
 }
 
 export interface ContactImportRow {

@@ -23,16 +23,19 @@ export interface TimelineActivityPayload {
   type: ActivityType;
   userId?: string | null | undefined;
   metadata?: Record<string, unknown> | null | undefined;
+  timestamp?: string | Date | null | undefined;
 }
 
 export interface ContactActivityPayload extends TimelineActivityPayload {}
 
 export async function logTimelineActivity(payload: TimelineActivityPayload) {
   try {
+    const timestamp = payload.timestamp ? new Date(payload.timestamp) : null;
+    const timestampValue = timestamp && !Number.isNaN(timestamp.getTime()) ? timestamp : null;
     await pool.execute(
       `INSERT INTO activity
-        (id, clinic_id, contact_id, type, user_id, metadata)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        (id, clinic_id, contact_id, type, user_id, metadata, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
       [
         uuidv4(),
         payload.clinicId,
@@ -40,6 +43,7 @@ export async function logTimelineActivity(payload: TimelineActivityPayload) {
         payload.type,
         payload.userId || null,
         payload.metadata ? JSON.stringify(payload.metadata) : null,
+        timestampValue,
       ],
     );
   } catch (error) {

@@ -166,6 +166,26 @@ export const leadTaskActionValidator = [
   body("assignedTo").optional({ nullable: true }).trim().isLength({ max: 255 }),
 ];
 
+export const leadNoteActionValidator = [
+  contactIdParam(),
+  body("note")
+    .trim()
+    .notEmpty()
+    .withMessage("Note is required")
+    .isLength({ max: 5000 })
+    .withMessage("Note must be 5000 characters or fewer"),
+];
+
+export const leadContactAttemptActionValidator = [
+  contactIdParam(),
+  body("channel")
+    .isIn(["call", "email", "sms", "whatsapp", "other"])
+    .withMessage("Contact attempt channel is required"),
+  body("outcome").optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
+  body("notes").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
+  body("attemptedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+];
+
 export const importContactsValidator = [
   body("filename").optional().isString().trim().isLength({ max: 255 }),
   body("mode").optional().isIn(["create_only", "upsert"]),

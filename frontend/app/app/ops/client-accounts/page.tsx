@@ -35,6 +35,7 @@ import type {
   ClientAccountServiceRecord,
   ClientAccountServiceType,
   ClientAccountSummaryRecord,
+  InternalTaskRecord,
 } from "@/lib/api-types";
 
 const SERVICE_TYPES: Array<{ value: ClientAccountServiceType; label: string }> = [
@@ -116,6 +117,17 @@ function renewalBadge(value?: string | null) {
   return <Badge variant="success">{days}d</Badge>;
 }
 
+function taskDueBadge(task?: InternalTaskRecord | null) {
+  if (!task) return <Badge variant="neutral">No open task</Badge>;
+  if (!task.dueDate) return <Badge variant="neutral">No due date</Badge>;
+  const days = daysUntil(task.dueDate);
+  if (days === null) return <Badge variant="neutral">No due date</Badge>;
+  if (days < 0) return <Badge variant="error">Overdue</Badge>;
+  if (days === 0) return <Badge variant="warning">Today</Badge>;
+  if (days <= 7) return <Badge variant="warning">{days}d</Badge>;
+  return <Badge variant="success">{days}d</Badge>;
+}
+
 export default function ClientAccountsPage() {
   const searchParams = useSearchParams();
   const requestedContractStatus = searchParams.get("contractStatus");
@@ -124,6 +136,7 @@ export default function ClientAccountsPage() {
   const [accounts, setAccounts] = useState<ClientAccountSummaryRecord[]>([]);
   const [profile, setProfile] = useState<ClientAccountProfileRecord | null>(null);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
+  const [tasks, setTasks] = useState<InternalTaskRecord[]>([]);
   const [accountQuery, setAccountQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState("");
@@ -132,20 +145,23 @@ export default function ClientAccountsPage() {
     if (!token) return;
     setIsLoading(true);
     try {
-      const [accountRows, profileRow, serviceRows] = await Promise.all([
+      const [accountRows, profileRow, serviceRows, taskRows] = await Promise.all([
         api.clientAccounts.list(token),
         api.clientAccounts.getProfile(token),
         api.clientAccounts.listServices(token, { includeArchived: false }),
+        api.internalTasks.list(token, { includeArchived: false, completed: false }),
       ]);
       setAccounts(accountRows);
       setProfile(profileRow);
       setServices(serviceRows);
+      setTasks(taskRows);
       setStatusMessage("");
     } catch (error) {
       console.error("Failed to load client package data", error);
       setAccounts([]);
       setProfile(null);
       setServices([]);
+      setTasks([]);
       setStatusMessage(
         error instanceof Error
           ? `Client package data could not load: ${error.message}`
@@ -174,6 +190,23 @@ export default function ClientAccountsPage() {
     return days !== null && days >= 0 && days <= 45;
   });
   const packageTier = packageName(activeServices.length, activeMonthlyValue);
+  const nextOpenTaskByClient = useMemo(() => {
+    const map = new Map<string, InternalTaskRecord>();
+    tasks
+      .filter((task) => task.status !== "completed" && task.clientAccountProfileId)
+      .sort((a, b) => {
+        if (!a.dueDate && !b.dueDate) return a.createdAt.localeCompare(b.createdAt);
+        if (!a.dueDate) return 1;
+        if (!b.dueDate) return -1;
+        return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      })
+      .forEach((task) => {
+        if (task.clientAccountProfileId && !map.has(task.clientAccountProfileId)) {
+          map.set(task.clientAccountProfileId, task);
+        }
+      });
+    return map;
+  }, [tasks]);
 
   const filteredAccounts = useMemo(() => {
     const search = accountQuery.trim().toLowerCase();
@@ -324,23 +357,26 @@ export default function ClientAccountsPage() {
             { label: "Services" },
             { label: "Contract" },
             { label: "Renewal" },
+            { label: "Next Task" },
             { label: "Action Plan" },
           ]}
         >
           {isLoading &&
             Array.from({ length: 3 }, (_, index) => (
-              <TableRowSkeleton key={`account-loading-${index}`} columns={6} />
+              <TableRowSkeleton key={`account-loading-${index}`} columns={7} />
             ))}
           {!isLoading && filteredAccounts.length === 0 && (
             <tr>
-              <td colSpan={6} className="px-6 py-10 text-center text-sm text-[#5e8a8d]">
+              <td colSpan={7} className="px-6 py-10 text-center text-sm text-[#5e8a8d]">
                 {accountQuery
                   ? "No client accounts match that search."
                   : "No client accounts are available for this user."}
               </td>
             </tr>
           )}
-          {!isLoading && filteredAccounts.map((account) => (
+          {!isLoading && filteredAccounts.map((account) => {
+            const nextTask = account.id ? nextOpenTaskByClient.get(account.id) : null;
+            return (
             <TableRow key={account.clinicId}>
               <TableCell>
                 <div>
@@ -383,6 +419,21 @@ export default function ClientAccountsPage() {
                 </div>
               </TableCell>
               <TableCell>
+                <div className="space-y-1">
+                  {taskDueBadge(nextTask)}
+                  {nextTask ? (
+                    <Link
+                      href={`/app/crm/tasks?taskId=${nextTask.id}`}
+                      className="block max-w-[180px] truncate text-xs font-medium text-[#315f62] hover:underline"
+                    >
+                      {nextTask.title}
+                    </Link>
+                  ) : (
+                    <p className="text-xs text-[#7A746A]">No follow-up task</p>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell>
                 <div className="min-w-[120px]">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="text-xs text-[#7A746A]">
@@ -406,7 +457,8 @@ export default function ClientAccountsPage() {
                 </div>
               </TableCell>
             </TableRow>
-          ))}
+            );
+          })}
         </DataTable>
       </Card>
     </div>

@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
 import { ApiError } from "../../utils/ApiError.js";
-import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
+import { buildTimelineMetadata, logTimelineActivity, type ActivityType } from "../../utils/activity.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { phase1TimelineActions } from "../events/phase1-events.js";
 import { appointmentsService } from "../appointments/appointments.service.js";
@@ -55,6 +55,8 @@ import type {
   ContactResponse,
   CreateContactDTO,
   DuplicateCandidateResponse,
+  AddContactNoteDTO,
+  RecordContactAttemptDTO,
   SendContactMessageTemplateDTO,
   UpdateContactDTO,
 } from "./contacts.types.js";
@@ -126,6 +128,17 @@ function csvCell(value: unknown) {
   if (value == null) return "";
   const text = Array.isArray(value) ? value.join("; ") : String(value);
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function contactAttemptActivityType(channel: RecordContactAttemptDTO["channel"]): ActivityType {
+  if (channel === "call") return "Call";
+  if (channel === "email") return "Email";
+  if (channel === "sms" || channel === "whatsapp") return "SMS";
+  return "Note";
+}
+
+function formatInternalNoteLine(note: string) {
+  return `[${new Date().toISOString()}] ${note}`;
 }
 
 function toContactsCsv(contacts: ContactResponse[]) {
@@ -507,6 +520,22 @@ export class ContactsService {
         method: "POST" as const,
         path: `/api/contacts/${contactId}/actions/task`,
         requiredPermission: "events:write",
+      },
+      {
+        key: "add_internal_note",
+        label: "Add internal note",
+        recordType: "note" as const,
+        method: "POST" as const,
+        path: `/api/contacts/${contactId}/actions/note`,
+        requiredPermission: "contacts:write",
+      },
+      {
+        key: "record_contact_attempt",
+        label: "Record contact attempt",
+        recordType: "contact_attempt" as const,
+        method: "POST" as const,
+        path: `/api/contacts/${contactId}/actions/contact-attempt`,
+        requiredPermission: "contacts:write",
       },
     ];
 
@@ -1276,6 +1305,136 @@ export class ContactsService {
     return {
       action: "create_task",
       record: { id: taskId, created: true },
+      activity: await this.getContactLinkedActivity(clinicId, contactId, context),
+    };
+  }
+
+  async addContactNote(
+    clinicId: string,
+    userId: string,
+    contactId: string,
+    data: AddContactNoteDTO,
+    context: ContactDrawerActionContext,
+    meta: RequestMeta = {},
+  ): Promise<ContactDrawerActionResult> {
+    const contact = await this.getContact(clinicId, contactId);
+    const note = String(data.note || "").trim();
+    if (!note) {
+      throw ApiError.badRequest("Note is required");
+    }
+
+    const nextNotes = [contact.notes, formatInternalNoteLine(note)]
+      .filter(Boolean)
+      .join("\n\n");
+
+    await pool.execute(
+      `UPDATE contact
+       SET notes = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+      [nextNotes, contactId, clinicId],
+    );
+
+    await logTimelineActivity({
+      clinicId,
+      contactId,
+      userId,
+      type: "Note",
+      metadata: buildTimelineMetadata({
+        action: phase1TimelineActions.internalNoteAdded,
+        source: "contact",
+        recordId: contactId,
+        title: "Internal note added",
+        changes: {
+          internal: true,
+          visibility: "internal",
+          note,
+        },
+      }),
+    });
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "CONTACT_INTERNAL_NOTE_ADDED",
+      entityType: "contact",
+      entityId: contactId,
+      changes: { noteLength: note.length, internal: true },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    return {
+      action: "add_internal_note",
+      record: { contactId, internal: true, notes: nextNotes },
+      activity: await this.getContactLinkedActivity(clinicId, contactId, context),
+    };
+  }
+
+  async recordContactAttempt(
+    clinicId: string,
+    userId: string,
+    contactId: string,
+    data: RecordContactAttemptDTO,
+    context: ContactDrawerActionContext,
+    meta: RequestMeta = {},
+  ): Promise<ContactDrawerActionResult> {
+    await this.getContact(clinicId, contactId);
+    const channel = data.channel;
+    const outcome = data.outcome ? String(data.outcome).trim() : null;
+    const notes = data.notes ? String(data.notes).trim() : null;
+    const attemptedAt = data.attemptedAt ? new Date(data.attemptedAt) : new Date();
+    const attemptedAtValue = Number.isNaN(attemptedAt.getTime()) ? new Date() : attemptedAt;
+
+    await pool.execute(
+      `UPDATE contact
+       SET last_contact_at = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+      [attemptedAtValue, contactId, clinicId],
+    );
+
+    await logTimelineActivity({
+      clinicId,
+      contactId,
+      userId,
+      type: contactAttemptActivityType(channel),
+      timestamp: attemptedAtValue,
+      metadata: buildTimelineMetadata({
+        action: phase1TimelineActions.contactAttemptRecorded,
+        source: "contact",
+        recordId: contactId,
+        title: "Contact attempt recorded",
+        status: outcome,
+        changes: {
+          channel,
+          outcome,
+          notes,
+          internal: true,
+          visibility: "internal",
+        },
+      }),
+    });
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "CONTACT_ATTEMPT_RECORDED",
+      entityType: "contact",
+      entityId: contactId,
+      changes: { channel, outcome, hasNotes: Boolean(notes), attemptedAt: attemptedAtValue.toISOString() },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    return {
+      action: "record_contact_attempt",
+      record: {
+        contactId,
+        channel,
+        outcome,
+        notes,
+        attemptedAt: attemptedAtValue.toISOString(),
+      },
       activity: await this.getContactLinkedActivity(clinicId, contactId, context),
     };
   }

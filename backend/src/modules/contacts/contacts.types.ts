@@ -284,7 +284,7 @@ export interface ContactLinkedActivityResponse {
 export interface ContactDrawerActionState {
   key: string;
   label: string;
-  recordType: "call" | "message" | "form" | "booking" | "deposit" | "task";
+  recordType: "call" | "message" | "form" | "booking" | "deposit" | "task" | "note" | "contact_attempt";
   method: "GET" | "POST" | "PATCH";
   path: string;
   requiredPermission: string;
@@ -302,6 +302,17 @@ export interface SendContactMessageTemplateDTO {
   channel?: "email" | "sms";
   sendNow?: boolean;
   variables?: Record<string, unknown>;
+}
+
+export interface AddContactNoteDTO {
+  note: string;
+}
+
+export interface RecordContactAttemptDTO {
+  channel: "call" | "email" | "sms" | "whatsapp" | "other";
+  outcome?: string | null;
+  notes?: string | null;
+  attemptedAt?: string | null;
 }
 
 export interface ContactDrawerActionResult {
