@@ -404,12 +404,12 @@ export default function InboxPage() {
     });
   };
 
-  const updateConversationPreview = (
+  function updateConversationPreview(
     conversationId: string,
     changes: Pick<InboxConversation, "preview" | "time"> &
       Partial<Pick<InboxConversation, "unread" | "channel">>,
     options: { moveToTop?: boolean } = { moveToTop: true },
-  ) => {
+  ) {
     setConversationRows((current) => {
       const existing = current.find((conversation) => conversation.id === conversationId);
       if (!existing) return current;
@@ -430,7 +430,7 @@ export default function InboxPage() {
         ...current.filter((conversation) => conversation.id !== conversationId),
       ];
     });
-  };
+  }
 
   const selectedContactId = selectedConv?.contactId || selectedConv?.id;
 

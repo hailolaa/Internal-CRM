@@ -141,10 +141,17 @@ export const config = {
     },
 
     googleDrive: {
-        accessToken: process.env.GOOGLE_DRIVE_ACCESS_TOKEN || "",
+        refreshToken: process.env.GOOGLE_DRIVE_REFRESH_TOKEN || "",
+        serviceAccountEmail: process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL || "",
+        serviceAccountPrivateKey: (process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
+        serviceAccountSubject: process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_SUBJECT || "",
+        scopes: (process.env.GOOGLE_DRIVE_SCOPES || "https://www.googleapis.com/auth/drive.metadata.readonly")
+            .split(",")
+            .map((scope) => scope.trim())
+            .filter(Boolean),
         validationEnabled: parseBoolean(
             process.env.GOOGLE_DRIVE_VALIDATION_ENABLED,
-            Boolean(process.env.GOOGLE_DRIVE_ACCESS_TOKEN),
+            true,
         ),
     },
 
@@ -214,8 +221,12 @@ export function getProductionConfigIssues() {
         issues.push("WHATSAPP_WEBHOOK_WORKSPACE_ID or WHATSAPP_WEBHOOK_WORKSPACE_MAP must be set when WHATSAPP_PROVIDER=meta.");
     }
 
-    if (config.googleDrive.validationEnabled && !config.googleDrive.accessToken) {
-        issues.push("GOOGLE_DRIVE_ACCESS_TOKEN must be set when GOOGLE_DRIVE_VALIDATION_ENABLED=true.");
+    if (
+        config.googleDrive.validationEnabled &&
+        !config.googleDrive.refreshToken &&
+        (!config.googleDrive.serviceAccountEmail || !config.googleDrive.serviceAccountPrivateKey)
+    ) {
+        issues.push("GOOGLE_DRIVE_REFRESH_TOKEN or GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL/PRIVATE_KEY must be set when GOOGLE_DRIVE_VALIDATION_ENABLED=true.");
     }
 
     return { issues, warnings };

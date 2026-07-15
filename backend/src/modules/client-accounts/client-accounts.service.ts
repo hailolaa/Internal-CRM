@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import crypto from "node:crypto";
 import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
@@ -72,6 +73,10 @@ function contactDisplayName(row: any) {
 }
 
 type GoogleDriveItemKind = "folder" | "zip" | "unknown";
+type GoogleDriveTokenCache = {
+  token: string;
+  expiresAt: number;
+};
 
 function extractGoogleDriveItem(value: string): { id: string; kindHint: GoogleDriveItemKind } {
   const input = value.trim().replace(/^["'<\s]+|[>"'\s]+$/g, "");
@@ -111,6 +116,8 @@ function extractGoogleDriveItem(value: string): { id: string; kindHint: GoogleDr
 }
 
 export class ClientAccountsService {
+  private googleDriveTokenCache: GoogleDriveTokenCache | null = null;
+
   async listAccounts(
     clinicId: string,
     options: { includeAllClinics: boolean; query?: ClientAccountListQuery },
@@ -644,13 +651,17 @@ export class ClientAccountsService {
   }
 
   async updateDriveFolder(
-    clinicId: string,
+    sourceClinicId: string,
+    clientClinicId: string,
     userId: string,
     data: UpdateClientAccountDriveFolderDTO,
+    access: { canManageAllClientAccounts: boolean },
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientAccountProfileResponse> {
-    const before = await this.getProfile(clinicId);
-    const profileId = before.id || await this.ensureProfileRow(clinicId, userId);
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+
+    const before = await this.getProfile(clientClinicId);
+    const profileId = before.id || await this.ensureProfileRow(clientClinicId, userId);
     const input = (data.folderId || data.folderUrl || "").trim();
     const displayName = data.displayName?.trim() || null;
 
@@ -666,11 +677,11 @@ export class ClientAccountsService {
              updated_by = ?,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND clinic_id = ?`,
-        [userId, profileId, clinicId],
+        [userId, profileId, clientClinicId],
       );
 
       await logAuditEvent({
-        clinicId,
+        clinicId: clientClinicId,
         userId,
         action: "CLIENT_ACCOUNT_DRIVE_FOLDER_REMOVED",
         entityType: "client_account_profile",
@@ -683,7 +694,7 @@ export class ClientAccountsService {
         userAgent: auditContext.userAgent || null,
       });
 
-      return this.getProfile(clinicId);
+      return this.getProfile(clientClinicId);
     }
 
     const driveItem = extractGoogleDriveItem(input);
@@ -694,16 +705,10 @@ export class ClientAccountsService {
         ? `https://drive.google.com/file/d/${folderId}/view`
         : `https://drive.google.com/drive/folders/${folderId}`;
 
-    if (!displayName && !accessCheck.name && !config.googleDrive.validationEnabled) {
-      throw ApiError.badRequest("Add a title for this Google Drive link, or enable Google Drive validation to read the title automatically.");
-    }
-
     const driveItemName =
       displayName ||
       accessCheck.name ||
-      (accessCheck.itemType === "zip" || driveItem.kindHint === "zip"
-        ? "Google Drive ZIP archive"
-        : "Google Drive folder");
+      (accessCheck.itemType === "zip" ? "Google Drive ZIP archive" : "Google Drive folder");
 
     await pool.execute(
       `UPDATE client_account_profile
@@ -725,12 +730,12 @@ export class ClientAccountsService {
         accessCheck.checkedAt,
         userId,
         profileId,
-        clinicId,
+        clientClinicId,
       ],
     );
 
     await logAuditEvent({
-      clinicId,
+      clinicId: clientClinicId,
       userId,
       action: "CLIENT_ACCOUNT_DRIVE_FOLDER_UPDATED",
       entityType: "client_account_profile",
@@ -744,7 +749,7 @@ export class ClientAccountsService {
       userAgent: auditContext.userAgent || null,
     });
 
-    return this.getProfile(clinicId);
+    return this.getProfile(clientClinicId);
   }
 
   async updateProfile(
@@ -1283,6 +1288,27 @@ export class ClientAccountsService {
     };
   }
 
+  private async ensureClientAccountAvailableToWorkspace(
+    sourceClinicId: string,
+    clientClinicId: string,
+    access: { canManageAllClientAccounts: boolean },
+  ) {
+    const [rows]: any = await pool.execute(
+      `SELECT id
+       FROM clinic
+       WHERE id = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [clientClinicId],
+    );
+    if (!rows[0]) throw ApiError.notFound("Client account not found");
+
+    if (sourceClinicId === clientClinicId) return;
+    if (access.canManageAllClientAccounts) return;
+
+    throw ApiError.forbidden("Client account is not available to this workspace");
+  }
+
   private async checkGoogleDriveItemAccess(folderId: string, kindHint: GoogleDriveItemKind): Promise<{
     name: string | null;
     itemType: "folder" | "zip" | null;
@@ -1291,26 +1317,17 @@ export class ClientAccountsService {
     checkedAt: string | null;
   }> {
     if (!config.googleDrive.validationEnabled) {
-      return {
-        name: null,
-        itemType: kindHint === "unknown" ? null : kindHint,
-        status: "not_checked",
-        error: null,
-        checkedAt: null,
-      };
+      throw ApiError.serviceUnavailable("Google Drive validation must be enabled before Drive links can be saved.");
     }
 
-    if (!config.googleDrive.accessToken) {
-      throw ApiError.serviceUnavailable("Google Drive validation is enabled but no access token is configured.");
-    }
-
+    const accessToken = await this.getGoogleDriveAccessToken();
     const checkedAt = new Date().toISOString().slice(0, 19).replace("T", " ");
     try {
       const response = await fetch(
         `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed&supportsAllDrives=true`,
         {
           headers: {
-            Authorization: `Bearer ${config.googleDrive.accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             Accept: "application/json",
           },
         },
@@ -1347,6 +1364,99 @@ export class ClientAccountsService {
       if (error instanceof ApiError) throw error;
       throw ApiError.serviceUnavailable("Google Drive item access could not be checked. Try again or check the Google credentials.");
     }
+  }
+
+  private async getGoogleDriveAccessToken() {
+    if (
+      this.googleDriveTokenCache &&
+      this.googleDriveTokenCache.expiresAt > Date.now() + 60_000
+    ) {
+      return this.googleDriveTokenCache.token;
+    }
+
+    const tokenPayload = config.googleDrive.refreshToken
+      ? await this.refreshGoogleDriveOAuthToken()
+      : await this.fetchGoogleDriveServiceAccountToken();
+
+    this.googleDriveTokenCache = {
+      token: tokenPayload.accessToken,
+      expiresAt: Date.now() + Math.max(tokenPayload.expiresInSeconds - 60, 60) * 1000,
+    };
+
+    return tokenPayload.accessToken;
+  }
+
+  private async refreshGoogleDriveOAuthToken() {
+    if (!config.oauth.google.clientId || !config.oauth.google.clientSecret) {
+      throw ApiError.serviceUnavailable("Google Drive OAuth refresh requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.");
+    }
+
+    const response = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: config.oauth.google.clientId,
+        client_secret: config.oauth.google.clientSecret,
+        refresh_token: config.googleDrive.refreshToken,
+        grant_type: "refresh_token",
+      }),
+    });
+    const payload: any = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.access_token) {
+      throw ApiError.serviceUnavailable(payload.error_description || payload.error || "Google Drive OAuth token refresh failed.");
+    }
+
+    return {
+      accessToken: String(payload.access_token),
+      expiresInSeconds: Number(payload.expires_in || 3600),
+    };
+  }
+
+  private async fetchGoogleDriveServiceAccountToken() {
+    if (!config.googleDrive.serviceAccountEmail || !config.googleDrive.serviceAccountPrivateKey) {
+      throw ApiError.serviceUnavailable("Google Drive validation requires GOOGLE_DRIVE_REFRESH_TOKEN or service-account credentials.");
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const header = { alg: "RS256", typ: "JWT" };
+    const claimSet: Record<string, unknown> = {
+      iss: config.googleDrive.serviceAccountEmail,
+      scope: config.googleDrive.scopes.join(" "),
+      aud: "https://oauth2.googleapis.com/token",
+      exp: now + 3600,
+      iat: now,
+    };
+    if (config.googleDrive.serviceAccountSubject) {
+      claimSet.sub = config.googleDrive.serviceAccountSubject;
+    }
+
+    const jwtUnsigned = [
+      Buffer.from(JSON.stringify(header)).toString("base64url"),
+      Buffer.from(JSON.stringify(claimSet)).toString("base64url"),
+    ].join(".");
+    const signature = crypto
+      .createSign("RSA-SHA256")
+      .update(jwtUnsigned)
+      .sign(config.googleDrive.serviceAccountPrivateKey, "base64url");
+    const assertion = `${jwtUnsigned}.${signature}`;
+
+    const response = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion,
+      }),
+    });
+    const payload: any = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.access_token) {
+      throw ApiError.serviceUnavailable(payload.error_description || payload.error || "Google Drive service-account token request failed.");
+    }
+
+    return {
+      accessToken: String(payload.access_token),
+      expiresInSeconds: Number(payload.expires_in || 3600),
+    };
   }
 
   private async listLinkedContacts(sourceClinicId: string, accountName: string): Promise<ClientAccountLinkedContactResponse[]> {

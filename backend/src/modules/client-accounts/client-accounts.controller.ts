@@ -100,10 +100,13 @@ export class ClientAccountsController {
   updateDriveFolder = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
+      const canManageAllClientAccounts = await userHasPermission(user.userId, user.clinicId, "*");
       const profile = await clientAccountsService.updateDriveFolder(
+        user.clinicId,
         String(req.params.clinicId),
         user.userId,
         req.body,
+        { canManageAllClientAccounts },
         this.auditContext(req),
       );
 

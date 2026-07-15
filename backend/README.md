@@ -124,16 +124,21 @@ Use `WHATSAPP_VERIFY_TOKEN` as the Meta webhook verify token. Subscribe the webh
 
 ## Google Drive Client Folders
 
-Client account profiles can store a designated Google Drive folder URL or folder ID. The backend normalizes accepted Drive folder links into a canonical folder URL and stores access-check metadata on the client account profile.
+Client account profiles can store a designated Google Drive folder URL, folder ID, or ZIP file link. The backend validates the item through Google Drive before saving it, normalizes accepted links into a canonical Drive URL, and stores access-check metadata on the client account profile.
 
-Optional live validation:
+Drive validation requires refreshable Google credentials:
 
 ```bash
 GOOGLE_DRIVE_VALIDATION_ENABLED=true
-GOOGLE_DRIVE_ACCESS_TOKEN=<Google token with Drive file metadata access>
+GOOGLE_DRIVE_REFRESH_TOKEN=<refresh token with Drive metadata access>
+# or
+GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL=<service account email>
+GOOGLE_DRIVE_SERVICE_ACCOUNT_PRIVATE_KEY=<service account private key>
+GOOGLE_DRIVE_SERVICE_ACCOUNT_SUBJECT=<optional delegated user>
+GOOGLE_DRIVE_SCOPES=https://www.googleapis.com/auth/drive.metadata.readonly
 ```
 
-When validation is enabled, Mission Control checks the folder through the Google Drive API and rejects inaccessible links, trashed folders and file links. When validation is disabled, malformed Google Drive links are still rejected, and the folder opens using the signed-in user's normal Google permissions.
+Mission Control rejects inaccessible links, trashed items and non-folder/non-ZIP files before saving. Static expiring access tokens are not used for Drive validation.
 
 ## Phase 1 Integration Inputs
 

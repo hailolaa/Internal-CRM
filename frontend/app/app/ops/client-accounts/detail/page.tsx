@@ -126,19 +126,13 @@ export default function ClientAccountDetailPage() {
   }, [clinicId, token]);
 
   const activeServices = useMemo(() => services.filter((service) => service.status === "active"), [services]);
-  const linkedContacts = linkedRecords?.contacts || [];
-  const openTasks = linkedRecords?.openTasks || [];
-  const completedTasks = linkedRecords?.completedTasks || [];
+  const linkedContacts = useMemo(() => linkedRecords?.contacts || [], [linkedRecords?.contacts]);
+  const openTasks = useMemo(() => linkedRecords?.openTasks || [], [linkedRecords?.openTasks]);
+  const completedTasks = useMemo(() => linkedRecords?.completedTasks || [], [linkedRecords?.completedTasks]);
   const availableContactSearchResults = useMemo(
     () => contactSearchResults.filter((contact) => !linkedContacts.some((linked) => linked.id === contact.id)),
     [contactSearchResults, linkedContacts],
   );
-
-  useEffect(() => {
-    if (!account) return;
-    setDriveDraft("");
-    setDriveTitleDraft("");
-  }, [account?.clinicId, account?.googleDriveFolderId, account?.googleDriveFolderUrl]);
 
   const handleSaveDriveFolder = async () => {
     if (!token || !account || isSavingDrive) return;
@@ -314,7 +308,7 @@ export default function ClientAccountDetailPage() {
             </div>
             {contactSearchTerm ? (
               <p className="mt-3 text-xs font-medium text-[#6F6A66]">
-                Results for "{contactSearchTerm}"
+                Results for &quot;{contactSearchTerm}&quot;
               </p>
             ) : null}
             {availableContactSearchResults.length > 0 && (
@@ -335,7 +329,7 @@ export default function ClientAccountDetailPage() {
             )}
             {contactSearchTerm && !isSearchingContacts && availableContactSearchResults.length === 0 ? (
               <p className="mt-3 rounded-xl border border-dashed border-[#E7E1DA] bg-white p-4 text-sm text-[#7A746A]">
-                No unlinked contacts found for "{contactSearchTerm}". The matching contacts may already be linked, or no contact matched that search.
+                No unlinked contacts found for &quot;{contactSearchTerm}&quot;. The matching contacts may already be linked, or no contact matched that search.
               </p>
             ) : null}
             {linkStatusMessage ? <p className="mt-3 text-sm text-[#315f62]">{linkStatusMessage}</p> : null}

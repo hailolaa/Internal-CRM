@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
+import { v4 as uuidv4 } from "uuid";
 import pool, { testConnection } from "../config/database.js";
+import { config } from "../config/index.js";
 import { authService } from "../modules/auth/auth.service.js";
-import { hashPassword } from "../utils/helpers.js";
+import { generateToken, hashPassword } from "../utils/helpers.js";
 import clientAccountsRoutes from "../modules/client-accounts/client-accounts.routes.js";
+import { clientAccountsService } from "../modules/client-accounts/client-accounts.service.js";
 import errorHandler from "../middleware/errorHandler.js";
 import { validate } from "../middleware/validate.js";
 import { createClientAccountValidator } from "../modules/client-accounts/client-accounts.validators.js";
@@ -14,37 +17,78 @@ function uniqueEmail(prefix: string) {
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
+  const clinicId = uuidv4();
+  const userId = uuidv4();
+  const email = uniqueEmail(`${prefix}_admin`);
+  const passwordHash = await hashPassword("password123");
+
+  await pool.execute(
+    `INSERT INTO clinic
+      (id, name, email, phone, address, city, state, postal_code, country, timezone,
+       subscription_plan, subscription_status, max_users)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'professional', 'active', 20)`,
+    [
+      clinicId,
+      `${prefix} Workspace`,
+      email,
+      "020 7946 0000",
+      "18 Harley Street",
+      "London",
+      "England",
+      "W1G 9QH",
+      "UK",
+      "Europe/London",
+    ],
+  );
+
+  await pool.execute(
+    `INSERT INTO user
+      (id, clinic_id, email, password_hash, first_name, last_name, phone, role,
+       email_verified_at, status, is_active)
+     VALUES (?, ?, ?, ?, ?, 'Admin', '555-0100', 'SUPER_ADMIN',
+       CURRENT_TIMESTAMP, 'active', 1)`,
+    [userId, clinicId, email, passwordHash, prefix],
+  );
+
+  await pool.execute(
+    `INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary)
+     VALUES (?, ?, 'SUPER_ADMIN', 'active', 1)`,
+    [userId, clinicId],
+  );
 
   return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
+    clinicId,
+    userId,
+    token: generateToken({
+      userId,
+      clinicId,
+      role: "SUPER_ADMIN",
+      email,
+    }),
   };
 }
 
 async function createInternalViewerUser(clinicId: string, prefix: string) {
-  const { v4: uuidv4 } = await import("uuid");
   const email = uniqueEmail(`${prefix}_viewer`);
   const password = "password123";
   const userId = uuidv4();
+  const roleId = uuidv4();
+  const roleName = `NOCLIENT_${Math.floor(Math.random() * 100000)}`;
   const passwordHash = await hashPassword(password);
 
   await pool.execute(
-    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, 'READ_ONLY', CURRENT_TIMESTAMP)",
-    [userId, clinicId, email, passwordHash, prefix, "Viewer"],
+    "INSERT INTO role (id, clinic_id, name, display_name, is_system) VALUES (?, ?, ?, ?, 0)",
+    [roleId, clinicId, roleName, "No Client Account Access"],
   );
 
   await pool.execute(
-    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, 'READ_ONLY', 'active', 1)",
-    [userId, clinicId],
+    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+    [userId, clinicId, email, passwordHash, prefix, "Viewer", roleName],
+  );
+
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
+    [userId, clinicId, roleName],
   );
 
   const result = await authService.login({ email, password });
@@ -52,8 +96,47 @@ async function createInternalViewerUser(clinicId: string, prefix: string) {
   return {
     userId: result.user.id,
     token: result.tokens.token,
+    roleId,
+    roleName,
   };
 }
+
+async function createClientAccountWriterUser(clinicId: string, prefix: string) {
+  const email = uniqueEmail(`${prefix}_writer`);
+  const password = "password123";
+  const userId = uuidv4();
+  const roleId = uuidv4();
+  const roleName = `${prefix.toUpperCase()}_CLIENT_ACCOUNT_WRITER_${Math.floor(Math.random() * 100000)}`;
+  const passwordHash = await hashPassword(password);
+
+  await pool.execute(
+    "INSERT INTO role (id, clinic_id, name, display_name, is_system) VALUES (?, ?, ?, ?, 0)",
+    [roleId, clinicId, roleName, "Client Account Writer"],
+  );
+  await pool.execute(
+    `INSERT INTO role_permission (role_id, permission_id)
+     SELECT ?, id FROM permission WHERE key_name IN ('client_accounts:read', 'client_accounts:write')`,
+    [roleId],
+  );
+  await pool.execute(
+    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+    [userId, clinicId, email, passwordHash, prefix, "Writer", roleName],
+  );
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
+    [userId, clinicId, roleName],
+  );
+
+  const result = await authService.login({ email, password });
+
+  return {
+    userId: result.user.id,
+    token: result.tokens.token,
+    roleId,
+    roleName,
+  };
+}
+
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
@@ -112,6 +195,199 @@ test("client account validation accepts seeded user identifiers", async () => {
     });
     assert.equal(rejected.status, 400);
   } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("client account Drive links require validated Google access and tenant availability", async () => {
+  await testConnection();
+
+  const primary = await createClinicAndAdmin("ClientDrivePrimary");
+  const secondary = await createClinicAndAdmin("ClientDriveSecondary");
+  const primaryWriter = await createClientAccountWriterUser(primary.clinicId, "ClientDrivePrimary");
+
+  const expressModule = await import("express") as any;
+  const express = expressModule.default;
+  const testApp = express();
+  testApp.use(express.json());
+  testApp.use("/api/client-accounts", clientAccountsRoutes);
+  testApp.use(errorHandler);
+
+  const server = testApp.listen(0);
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to start client account Drive test server");
+  }
+
+  const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
+  const originalFetch = globalThis.fetch;
+  const originalGoogleDrive = { ...config.googleDrive };
+  const originalGoogleOAuth = { ...config.oauth.google };
+  const driveResponses = new Map<string, { status: number; body: Record<string, unknown> }>();
+  const driveRequests: string[] = [];
+
+  (config as any).oauth.google.clientId = "drive-client-id";
+  (config as any).oauth.google.clientSecret = "drive-client-secret";
+  (config as any).googleDrive.validationEnabled = true;
+  (config as any).googleDrive.refreshToken = "refreshable-drive-token";
+  (config as any).googleDrive.serviceAccountEmail = "";
+  (config as any).googleDrive.serviceAccountPrivateKey = "";
+  (clientAccountsService as any).googleDriveTokenCache = null;
+
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith(baseUrl)) {
+      return originalFetch(input, init);
+    }
+    if (url === "https://oauth2.googleapis.com/token") {
+      return new Response(JSON.stringify({ access_token: "fresh-drive-token", expires_in: 3600 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url.startsWith("https://www.googleapis.com/drive/v3/files/")) {
+      driveRequests.push(url);
+      const encodedId = url.split("/files/")[1]?.split("?")[0] || "";
+      const itemId = decodeURIComponent(encodedId);
+      const mock = driveResponses.get(itemId) || {
+        status: 404,
+        body: { error: { message: "File not found" } },
+      };
+      return new Response(JSON.stringify(mock.body), {
+        status: mock.status,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+
+  const setDriveItem = (id: string, status: number, body: Record<string, unknown>) => {
+    driveResponses.set(id, { status, body });
+  };
+
+  try {
+    const inaccessible = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/drive-folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ folderUrl: "https://drive.google.com/drive/folders/inaccessible-folder" }),
+      },
+    );
+    assert.equal(inaccessible.response.status, 400);
+    assert.match(inaccessible.body.message, /File not found|inaccessible/i);
+
+    setDriveItem("wrong-type-file", 200, {
+      id: "wrong-type-file",
+      name: "Plan.txt",
+      mimeType: "text/plain",
+      trashed: false,
+    });
+    const wrongType = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/drive-folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ folderUrl: "https://drive.google.com/file/d/wrong-type-file/view" }),
+      },
+    );
+    assert.equal(wrongType.response.status, 400);
+    assert.match(wrongType.body.message, /folder or ZIP/i);
+
+    setDriveItem("trashed-folder", 200, {
+      id: "trashed-folder",
+      name: "Old Client Folder",
+      mimeType: "application/vnd.google-apps.folder",
+      trashed: true,
+    });
+    const trashed = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/drive-folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ folderUrl: "https://drive.google.com/drive/folders/trashed-folder" }),
+      },
+    );
+    assert.equal(trashed.response.status, 400);
+    assert.match(trashed.body.message, /trash/i);
+
+    setDriveItem("valid-folder", 200, {
+      id: "valid-folder",
+      name: "Client Delivery Folder",
+      mimeType: "application/vnd.google-apps.folder",
+      trashed: false,
+    });
+    const savedFolder = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/drive-folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ folderUrl: "https://drive.google.com/drive/folders/valid-folder" }),
+      },
+    );
+    assert.equal(savedFolder.response.status, 200);
+    assert.equal(savedFolder.body.data.googleDriveFolderId, "valid-folder");
+    assert.equal(savedFolder.body.data.googleDriveFolderName, "Client Delivery Folder");
+    assert.equal(savedFolder.body.data.googleDriveFolderAccessStatus, "accessible");
+
+    setDriveItem("valid-zip", 200, {
+      id: "valid-zip",
+      name: "Creative Assets.zip",
+      mimeType: "application/zip",
+      trashed: false,
+    });
+    const savedZip = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/drive-folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ folderUrl: "https://drive.google.com/file/d/valid-zip/view" }),
+      },
+    );
+    assert.equal(savedZip.response.status, 200);
+    assert.equal(savedZip.body.data.googleDriveFolderId, "valid-zip");
+    assert.equal(savedZip.body.data.googleDriveFolderName, "Creative Assets.zip");
+    assert.equal(savedZip.body.data.googleDriveFolderUrl, "https://drive.google.com/file/d/valid-zip/view");
+
+    const requestsBeforeCrossWorkspace = driveRequests.length;
+    const crossWorkspace = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${secondary.clinicId}/drive-folder`,
+      primaryWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ folderUrl: "https://drive.google.com/drive/folders/valid-folder" }),
+      },
+    );
+    assert.equal(crossWorkspace.response.status, 403);
+    assert.equal(driveRequests.length, requestsBeforeCrossWorkspace, "Cross-workspace rejection should happen before Google Drive validation");
+
+    const removed = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/drive-folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ folderUrl: null, folderId: null }),
+      },
+    );
+    assert.equal(removed.response.status, 200);
+    assert.equal(removed.body.data.googleDriveFolderId, null);
+    assert.equal(removed.body.data.googleDriveFolderUrl, null);
+
+    console.log("[client-accounts] Drive folder validation and tenant guard passed");
+  } finally {
+    globalThis.fetch = originalFetch;
+    Object.assign((config as any).googleDrive, originalGoogleDrive);
+    Object.assign((config as any).oauth.google, originalGoogleOAuth);
+    (clientAccountsService as any).googleDriveTokenCache = null;
+    await pool.execute("DELETE FROM role_permission WHERE role_id = ?", [primaryWriter.roleId]);
+    await pool.execute("DELETE FROM role WHERE id = ?", [primaryWriter.roleId]);
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
@@ -397,6 +673,9 @@ test("client account profile API is permission protected, updateable, audited, a
 
     console.log("[client-accounts] service CRUD integration test passed");
   } finally {
+    await pool.execute("DELETE FROM role_permission WHERE role_id = ?", [limitedUser.roleId]);
+    await pool.execute("DELETE FROM role WHERE id = ?", [limitedUser.roleId]);
+
     // Clean up service records before profile/contact cleanup
     await pool.execute(`DELETE FROM audit_log WHERE clinic_id = ? AND entity_type = 'client_account_service'`, [admin.clinicId]);
     await pool.execute(`DELETE FROM client_account_service WHERE clinic_id = ?`, [admin.clinicId]);
