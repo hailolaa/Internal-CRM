@@ -19,11 +19,13 @@ import { api } from "@/lib/api-client";
 import { mergeLeadRows } from "@/lib/lead-list";
 import type {
   ContactRecord,
-  DashboardSummaryRecord,
+  InternalTaskRecord,
   PipelineDealRecord,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
-import { Plus, PoundSterling, Target, TrendingUp, Users } from "lucide-react";
+import { AlertTriangle, Plus, PoundSterling, Target, Users } from "lucide-react";
+
+const LEAD_RESPONSE_SLA_HOURS = 2;
 
 const SALES_NAV = [
   { label: "Prospect List", href: "/app/leads", icon: Users },
@@ -43,6 +45,11 @@ interface Lead {
   followUpDate: string;
   followUpSort: number;
   followUpOverdue: boolean;
+  lastContactDate: string;
+  lastContactSort: number;
+  attemptCount: number;
+  slaStatus: "ok" | "uncontacted" | "overdue";
+  slaSort: number;
   status: string;
   revenue: number;
   createdDate: string;
@@ -71,6 +78,8 @@ const searchFn = (lead: Lead, query: string) =>
   lead.owner.toLowerCase().includes(query) ||
   lead.stage.toLowerCase().includes(query) ||
   lead.status.toLowerCase().includes(query) ||
+  lead.lastContactDate.toLowerCase().includes(query) ||
+  slaLabel(lead.slaStatus).toLowerCase().includes(query) ||
   lead.followUpDate.toLowerCase().includes(query);
 
 function formatMoney(value: number) {
@@ -108,6 +117,42 @@ function isPastDate(value: string | null | undefined) {
   return date.getTime() < today.getTime();
 }
 
+function hoursSince(value: string | null | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  if (Number.isNaN(time)) return 0;
+  return Math.max(0, (Date.now() - time) / 3600000);
+}
+
+function slaStatusForLead(createdAt: string | null | undefined, lastContactAt: string | null | undefined, attemptCount: number) {
+  if (lastContactAt || attemptCount > 0) return "ok" as const;
+  return hoursSince(createdAt) > LEAD_RESPONSE_SLA_HOURS ? "overdue" as const : "uncontacted" as const;
+}
+
+function slaLabel(status: Lead["slaStatus"]) {
+  if (status === "overdue") return "SLA overdue";
+  if (status === "uncontacted") return "Uncontacted";
+  return "Contacted";
+}
+
+function earliestTaskByContact(tasks: InternalTaskRecord[]) {
+  const map = new Map<string, InternalTaskRecord>();
+  tasks
+    .filter((task) => task.status !== "completed" && task.contactId)
+    .sort((a, b) => {
+      if (!a.dueDate && !b.dueDate) return a.createdAt.localeCompare(b.createdAt);
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    })
+    .forEach((task) => {
+      if (task.contactId && !map.has(task.contactId)) {
+        map.set(task.contactId, task);
+      }
+    });
+  return map;
+}
+
 function isNewProspect(lead: Lead) {
   const stage = lead.stage.toLowerCase();
   const status = lead.status.toLowerCase();
@@ -137,6 +182,7 @@ function toLead(contact: ContactRecord): Lead {
     contact.tags?.[0] ||
     "-";
   const status = contact.leadStatus || contact.status || "New";
+  const slaStatus = slaStatusForLead(contact.createdAt || contact.updatedAt, contact.lastContactAt, contact.contactAttemptCount || 0);
 
   return {
     id: contact.id,
@@ -147,9 +193,14 @@ function toLead(contact: ContactRecord): Lead {
     stage: contact.status || "New",
     packageInterest,
     owner: "Unassigned",
-    followUpDate: "No follow-up set",
-    followUpSort: Number.MAX_SAFE_INTEGER,
-    followUpOverdue: false,
+    followUpDate: formatDate(contact.nextFollowUpAt, "No follow-up set"),
+    followUpSort: toDateSort(contact.nextFollowUpAt),
+    followUpOverdue: isPastDate(contact.nextFollowUpAt),
+    lastContactDate: formatDate(contact.lastContactAt, "Not contacted"),
+    lastContactSort: toDateSort(contact.lastContactAt),
+    attemptCount: contact.contactAttemptCount || 0,
+    slaStatus,
+    slaSort: slaStatus === "overdue" ? 0 : slaStatus === "uncontacted" ? 1 : 2,
     status,
     revenue: contact.value,
     createdDate: formatDate(contact.createdAt || contact.updatedAt, "-"),
@@ -180,11 +231,45 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     followUpDate: formatDate(deal.expectedCloseDate, "No follow-up set"),
     followUpSort: toDateSort(deal.expectedCloseDate),
     followUpOverdue,
+    lastContactDate: "Not contacted",
+    lastContactSort: Number.MAX_SAFE_INTEGER,
+    attemptCount: 0,
+    slaStatus: "uncontacted",
+    slaSort: 1,
     status: deal.status,
     revenue: deal.valueCents / 100,
     createdDate: formatDate(createdAt, "-"),
     sortDate: new Date(createdAt).getTime(),
     contactId: deal.contactId || null,
+  };
+}
+
+function enrichLeadWithContactAndTask(
+  lead: Lead,
+  contact: ContactRecord | undefined,
+  task: InternalTaskRecord | undefined,
+): Lead {
+  const taskFollowUpSort = toDateSort(task?.dueDate);
+  const currentFollowUpSort = lead.followUpSort;
+  const useTaskFollowUp = task && taskFollowUpSort <= currentFollowUpSort;
+  const lastContactAt = contact?.lastContactAt || null;
+  const attemptCount = contact?.contactAttemptCount ?? lead.attemptCount;
+  const slaStatus = contact
+    ? slaStatusForLead(contact.createdAt || contact.updatedAt, lastContactAt, attemptCount)
+    : lead.slaStatus;
+
+  return {
+    ...lead,
+    followUpDate: useTaskFollowUp
+      ? formatDate(task.dueDate, "No follow-up set")
+      : lead.followUpDate,
+    followUpSort: useTaskFollowUp ? taskFollowUpSort : lead.followUpSort,
+    followUpOverdue: useTaskFollowUp ? isPastDate(task.dueDate) : lead.followUpOverdue,
+    lastContactDate: contact ? formatDate(lastContactAt, "Not contacted") : lead.lastContactDate,
+    lastContactSort: contact ? toDateSort(lastContactAt) : lead.lastContactSort,
+    attemptCount,
+    slaStatus,
+    slaSort: slaStatus === "overdue" ? 0 : slaStatus === "uncontacted" ? 1 : 2,
   };
 }
 
@@ -194,8 +279,6 @@ export default function LeadsPage() {
   const dashboardView = searchParams.get("view");
   const { session } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [dashboardSummary, setDashboardSummary] =
-    useState<DashboardSummaryRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [stageFilter, setStageFilter] = useState("all");
@@ -217,9 +300,12 @@ export default function LeadsPage() {
         sortBy: "createdAt",
         sortDir: "desc",
       }),
-      api.reports.dashboardSummary(session.token),
+      api.internalTasks.list(session.token, {
+        includeArchived: false,
+        completed: false,
+      }),
     ])
-      .then(([dealResult, contactResult, summaryResult]) => {
+      .then(([dealResult, contactResult, taskResult]) => {
         if (!isMounted) return;
 
         const dealRows =
@@ -245,17 +331,29 @@ export default function LeadsPage() {
                 .map(toLead)
             : [];
 
-        const rows = mergeLeadRows(dealRows, contactRows);
+        const contacts =
+          contactResult.status === "fulfilled" ? contactResult.value.contacts : [];
+        const contactById = new Map(contacts.map((contact) => [contact.id, contact]));
+        const taskByContactId = earliestTaskByContact(
+          taskResult.status === "fulfilled" ? taskResult.value : [],
+        );
+
+        const rows = mergeLeadRows(dealRows, contactRows).map((lead) =>
+          lead.contactId
+            ? enrichLeadWithContactAndTask(
+                lead,
+                contactById.get(lead.contactId),
+                taskByContactId.get(lead.contactId),
+              )
+            : lead,
+        );
 
         setLeads(rows.sort((a, b) => b.sortDate - a.sortDate));
-        setDashboardSummary(
-          summaryResult.status === "fulfilled" ? summaryResult.value : null,
-        );
 
         const failedSources = [
           dealResult.status === "rejected" ? "pipeline deals" : "",
           contactResult.status === "rejected" ? "contacts" : "",
-          summaryResult.status === "rejected" ? "report summary" : "",
+          taskResult.status === "rejected" ? "follow-up tasks" : "",
         ].filter(Boolean);
 
         setLoadError(
@@ -278,15 +376,15 @@ export default function LeadsPage() {
       (lead) => lead.owner === "Unassigned",
     ).length;
     const revenue = leads.reduce((total, lead) => total + lead.revenue, 0);
-    const costPerLead = dashboardSummary?.financials.costPerLead ?? 0;
+    const slaOverdue = leads.filter((lead) => lead.slaStatus === "overdue").length;
 
     return {
       total: leads.length,
       unassigned,
       revenue,
-      costPerLead,
+      slaOverdue,
     };
-  }, [dashboardSummary?.financials.costPerLead, leads]);
+  }, [leads]);
 
   const filterOptions = useMemo(
     () => ({
@@ -309,7 +407,9 @@ export default function LeadsPage() {
         packageFilter === "all" || lead.packageInterest === packageFilter;
       const followUpMatches =
         followUpFilter === "all" ||
-        (followUpFilter === "overdue" && lead.followUpOverdue);
+        (followUpFilter === "overdue" && lead.followUpOverdue) ||
+        (followUpFilter === "sla-overdue" && lead.slaStatus === "overdue") ||
+        (followUpFilter === "uncontacted" && lead.slaStatus !== "ok");
 
       return (
         dashboardViewMatches &&
@@ -401,15 +501,11 @@ export default function LeadsPage() {
               icon={Target}
             />
             <StatCard
-              label="Avg. Lead Cost"
-              value={leadStats.costPerLead > 0 ? formatMoney(leadStats.costPerLead) : "-"}
-              sub={
-                leadStats.costPerLead > 0
-                  ? "From live spend and prospects"
-                  : "No live spend for this period"
-              }
-              color="teal"
-              icon={TrendingUp}
+              label="SLA Risk"
+              value={String(leadStats.slaOverdue)}
+              sub={`>${LEAD_RESPONSE_SLA_HOURS}h uncontacted`}
+              color={leadStats.slaOverdue ? "rose" : "teal"}
+              icon={AlertTriangle}
             />
             <StatCard
               label="Pipeline Value"
@@ -431,9 +527,12 @@ export default function LeadsPage() {
       <SearchInput
         value={searchQuery}
         onChange={setSearchQuery}
-        placeholder="Search account, contact, source, package, owner, stage, status..."
+        placeholder="Search account, contact, source, package, owner, stage, status, SLA..."
         className="max-w-lg"
       />
+      <p className="text-xs text-[#7A746A]">
+        Response SLA flag is documented as {LEAD_RESPONSE_SLA_HOURS} hours from lead creation until the first recorded contact attempt.
+      </p>
 
       <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
         <select
@@ -497,6 +596,8 @@ export default function LeadsPage() {
           >
             <option value="all">All follow-ups</option>
             <option value="overdue">Overdue follow-up</option>
+            <option value="sla-overdue">SLA overdue</option>
+            <option value="uncontacted">Uncontacted</option>
           </select>
           {hasActiveFilters && (
             <button
@@ -518,8 +619,8 @@ export default function LeadsPage() {
           boxShadow: "0 2px 12px rgba(27, 29, 34, 0.05)",
         }}
       >
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        <div className="w-full overflow-hidden">
+          <table className="w-full table-fixed">
             <thead>
               <tr
                 style={{
@@ -527,60 +628,18 @@ export default function LeadsPage() {
                   backgroundColor: "#F6F3EF",
                 }}
               >
-                <SortableHeader
-                  label="Account"
-                  sortKey="clinic"
-                  direction={getSortDirection("clinic")}
-                  onSort={toggleSort}
-                />
-                <SortableHeader
-                  label="Contact"
-                  sortKey="contact"
-                  direction={getSortDirection("contact")}
-                  onSort={toggleSort}
-                />
-                <SortableHeader
-                  label="Source"
-                  sortKey="source"
-                  direction={getSortDirection("source")}
-                  onSort={toggleSort}
-                />
-                <SortableHeader
-                  label="Stage"
-                  sortKey="stage"
-                  direction={getSortDirection("stage")}
-                  onSort={toggleSort}
-                />
-                <SortableHeader
-                  label="Package Interest"
-                  sortKey="packageInterest"
-                  direction={getSortDirection("packageInterest")}
-                  onSort={toggleSort}
-                />
-                <SortableHeader
-                  label="Owner"
-                  sortKey="owner"
-                  direction={getSortDirection("owner")}
-                  onSort={toggleSort}
-                />
-                <SortableHeader
-                  label="Follow-up Date"
-                  sortKey="followUpSort"
-                  direction={getSortDirection("followUpSort")}
-                  onSort={toggleSort}
-                />
-                <SortableHeader
-                  label="Status"
-                  sortKey="status"
-                  direction={getSortDirection("status")}
-                  onSort={toggleSort}
-                />
+                <SortableHeader label="Prospect" sortKey="clinic" direction={getSortDirection("clinic")} onSort={toggleSort} />
+                <SortableHeader label="Source / Package" sortKey="source" direction={getSortDirection("source")} onSort={toggleSort} />
+                <SortableHeader label="Stage" sortKey="stage" direction={getSortDirection("stage")} onSort={toggleSort} />
+                <SortableHeader label="Owner" sortKey="owner" direction={getSortDirection("owner")} onSort={toggleSort} />
+                <SortableHeader label="Follow-up" sortKey="followUpSort" direction={getSortDirection("followUpSort")} onSort={toggleSort} />
+                <SortableHeader label="Attempts / SLA" sortKey="slaSort" direction={getSortDirection("slaSort")} onSort={toggleSort} />
               </tr>
             </thead>
             <tbody>
               {isLoading &&
                 Array.from({ length: 6 }, (_, index) => (
-                  <TableRowSkeleton key={index} columns={8} />
+                  <TableRowSkeleton key={index} columns={6} />
                 ))}
               {!isLoading && paginatedItems.map((lead) => (
                 <tr
@@ -604,57 +663,44 @@ export default function LeadsPage() {
                     lead.contactId ? "cursor-pointer" : ""
                   }`}
                 >
-                  <td className="px-5 py-4">
-                    <div
-                      className="text-sm font-semibold"
-                      style={{ color: "#1B1D22" }}
-                    >
-                      {lead.clinic}
-                    </div>
-                    <div className="text-xs" style={{ color: "#9E9890" }}>
-                      Created {lead.createdDate}
-                    </div>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div
-                      className="text-sm font-semibold"
-                      style={{ color: "#1B1D22" }}
-                    >
-                      {lead.contact}
-                    </div>
-                    <div className="text-xs" style={{ color: "#9E9890" }}>
-                      {lead.email}
+                  <td className="px-3 py-4 align-top md:px-4">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-[#1B1D22]">
+                        {lead.clinic}
+                      </div>
+                      <div className="truncate text-xs font-medium text-[#6F6A66]">
+                        {lead.contact}
+                      </div>
+                      <div className="truncate text-xs text-[#9E9890]">
+                        {lead.email}
+                      </div>
                     </div>
                   </td>
-                  <td
-                    className="px-5 py-4 text-sm"
-                    style={{ color: "#6F6A66" }}
-                  >
-                    {lead.source}
+                  <td className="px-3 py-4 align-top text-sm text-[#6F6A66] md:px-4">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-[#1B1D22]">{lead.source}</p>
+                      <p className="mt-1 truncate text-xs text-[#9E9890]">
+                        Package: {lead.packageInterest}
+                      </p>
+                    </div>
                   </td>
-                  <td
-                    className="px-5 py-4 text-sm"
-                    style={{ color: "#6F6A66" }}
-                  >
+                  <td className="px-3 py-4 align-top text-sm text-[#6F6A66] md:px-4">
+                    <div className="min-w-0">
                     <span
-                      className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STAGE_COLORS_WARM[lead.stage] || "bg-[#F6F3EF] text-[#6F6A66] border border-[#E7E1DA]"}`}
+                      className={`max-w-full truncate px-2.5 py-1 rounded-full text-xs font-semibold ${STAGE_COLORS_WARM[lead.stage] || "bg-[#F6F3EF] text-[#6F6A66] border border-[#E7E1DA]"}`}
                     >
                       {lead.stage}
                     </span>
+                    <p className="mt-2 truncate text-xs text-[#9E9890]">
+                      Status: {lead.status}
+                    </p>
+                    </div>
                   </td>
-                  <td
-                    className="px-5 py-4 text-sm"
-                    style={{ color: "#6F6A66" }}
-                  >
-                    {lead.packageInterest}
+                  <td className="px-3 py-4 align-top text-sm text-[#6F6A66] md:px-4">
+                    <span className="block truncate">{lead.owner}</span>
                   </td>
-                  <td
-                    className="px-5 py-4 text-sm"
-                    style={{ color: "#6F6A66" }}
-                  >
-                    {lead.owner}
-                  </td>
-                  <td className="px-5 py-4">
+                  <td className="px-3 py-4 align-top md:px-4">
+                    <div className="min-w-0">
                     <span
                       className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
                         lead.followUpOverdue
@@ -664,26 +710,35 @@ export default function LeadsPage() {
                     >
                       {lead.followUpDate}
                     </span>
+                    <p className="mt-2 truncate text-xs text-[#9E9890]">
+                      Last: {lead.lastContactDate}
+                    </p>
+                    </div>
                   </td>
-                  <td className="px-5 py-4">
+                  <td className="px-3 py-4 align-top md:px-4">
+                    <div className="min-w-0">
                     <span
-                      className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                        lead.status === "won"
-                          ? "bg-emerald-50 text-emerald-600 border border-emerald-200"
-                          : lead.status === "lost"
-                            ? "bg-red-50 text-red-600 border border-red-200"
-                            : "bg-blue-50 text-blue-600 border border-blue-200"
+                      className={`max-w-full truncate px-2.5 py-1 rounded-full text-xs font-semibold ${
+                        lead.slaStatus === "overdue"
+                          ? "bg-red-50 text-red-600 border border-red-200"
+                          : lead.slaStatus === "uncontacted"
+                            ? "bg-amber-50 text-amber-700 border border-amber-200"
+                            : "bg-emerald-50 text-emerald-600 border border-emerald-200"
                       }`}
                     >
-                      {lead.status}
+                      {slaLabel(lead.slaStatus)}
                     </span>
+                    <p className="mt-2 truncate text-xs text-[#9E9890]">
+                      {lead.attemptCount} attempts
+                    </p>
+                    </div>
                   </td>
                 </tr>
               ))}
               {!isLoading && paginatedItems.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={6}
                     className="px-5 py-12 text-center"
                     style={{ color: "#9E9890" }}
                   >

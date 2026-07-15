@@ -186,6 +186,8 @@ export interface ContactRecord {
   externalId: string | null;
   importBatchId: string | null;
   lastContactAt: string | null;
+  nextFollowUpAt: string | null;
+  contactAttemptCount: number;
   createdAt: string;
   updatedAt: string;
 }

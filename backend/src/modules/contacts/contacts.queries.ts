@@ -35,6 +35,8 @@ export const contactSelectFields = `c.id,
               c.import_batch_id as importBatchId,
               c.last_contact_at as lastContactAt,
               la.last_activity_at as lastActivityAt,
+              COALESCE(ca.contact_attempt_count, 0) as contactAttemptCount,
+              nf.next_follow_up_at as nextFollowUpAt,
               c.created_at as createdAt,
               c.updated_at as updatedAt`;
 
@@ -43,7 +45,29 @@ export const lastActivityJoin = `LEFT JOIN (
          FROM activity
          WHERE deleted_at IS NULL
          GROUP BY clinic_id, contact_id
-       ) la ON la.clinic_id = c.clinic_id AND la.contact_id = c.id`;
+       ) la ON la.clinic_id = c.clinic_id AND la.contact_id = c.id
+       LEFT JOIN (
+         SELECT clinic_id,
+                contact_id,
+                COUNT(*) as contact_attempt_count
+         FROM activity
+         WHERE deleted_at IS NULL
+           AND (
+             JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = 'contact_attempt_recorded'
+             OR JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = 'lead_contacted'
+           )
+         GROUP BY clinic_id, contact_id
+       ) ca ON ca.clinic_id = c.clinic_id AND ca.contact_id = c.id
+       LEFT JOIN (
+         SELECT clinic_id,
+                contact_id,
+                MIN(due_date) as next_follow_up_at
+         FROM task
+         WHERE deleted_at IS NULL
+           AND status <> 'completed'
+           AND due_date IS NOT NULL
+         GROUP BY clinic_id, contact_id
+       ) nf ON nf.clinic_id = c.clinic_id AND nf.contact_id = c.id`;
 
 // Keep phone comparisons aligned across list search and duplicate matching
 export function phoneSqlExpression(column: string) {

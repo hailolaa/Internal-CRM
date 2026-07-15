@@ -91,7 +91,9 @@ export function mapContact(row: any): ContactResponse {
     notes: row.notes || null,
     externalId: row.externalId || null,
     importBatchId: row.importBatchId || null,
-    lastContactAt: formatIso(row.lastContactAt || row.lastActivityAt),
+    lastContactAt: formatIso(row.lastContactAt),
+    nextFollowUpAt: formatIso(row.nextFollowUpAt),
+    contactAttemptCount: Number(row.contactAttemptCount || 0),
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
   };
