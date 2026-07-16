@@ -1,8 +1,15 @@
 import { Request, Response, NextFunction } from "express";
-import { userHasPermission } from "../../middleware/authorize.js";
+import { userCanManageAllClientAccounts } from "../../middleware/authorize.js";
+import { ApiError } from "../../utils/ApiError.js";
+import { roleMatchesAllowedRoles } from "../../utils/roles.js";
 import { clientAccountsService } from "./client-accounts.service.js";
+import { googleDriveOAuthService } from "./google-drive-oauth.service.js";
 
 export class ClientAccountsController {
+  private canConfigureDrive(user: any) {
+    return roleMatchesAllowedRoles(String(user?.role || ""), ["SUPER_ADMIN", "ADMIN"]);
+  }
+
   private auditContext(req: Request) {
     return {
       ipAddress: req.ip || null,
@@ -10,10 +17,34 @@ export class ClientAccountsController {
     };
   }
 
+  getDriveOAuthStatus = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await googleDriveOAuthService.getStatus(user.clinicId),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  startDriveOAuth = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: { authorizeUrl: googleDriveOAuthService.getAuthorizationUrl(user.clinicId, user.userId) },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listAccounts = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
-      const includeAllClinics = await userHasPermission(user.userId, user.clinicId, "*");
+      const includeAllClinics = await userCanManageAllClientAccounts(user.userId, user.clinicId);
       const accounts = await clientAccountsService.listAccounts(user.clinicId, {
         includeAllClinics,
         query: req.query as any,
@@ -100,7 +131,7 @@ export class ClientAccountsController {
   updateDriveFolder = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
-      const canManageAllClientAccounts = await userHasPermission(user.userId, user.clinicId, "*");
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
       const profile = await clientAccountsService.updateDriveFolder(
         user.clinicId,
         String(req.params.clinicId),
@@ -119,10 +150,125 @@ export class ClientAccountsController {
     }
   };
 
+  listDriveFolders = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const folders = await clientAccountsService.listDriveFolders(
+        user.clinicId,
+        String(req.params.clinicId),
+        String(req.query.parentId || "root"),
+        { canManageAllClientAccounts, canConfigureDrive: this.canConfigureDrive(user) },
+      );
+      res.status(200).json({ status: "success", data: folders });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createDriveFolder = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const folder = await clientAccountsService.createDriveFolder(
+        user.clinicId,
+        String(req.params.clinicId),
+        user.userId,
+        req.body,
+        { canManageAllClientAccounts, canConfigureDrive: this.canConfigureDrive(user) },
+        this.auditContext(req),
+      );
+      res.status(201).json({ status: "success", data: folder });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  uploadDriveFile = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.file) throw ApiError.badRequest("A file is required");
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const file = await clientAccountsService.uploadDriveFile(
+        user.clinicId,
+        String(req.params.clinicId),
+        user.userId,
+        req.file,
+        String(req.body.parentId || "root"),
+        { canManageAllClientAccounts, canConfigureDrive: this.canConfigureDrive(user) },
+        this.auditContext(req),
+      );
+      res.status(201).json({ status: "success", data: file });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  renameDriveFile = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const file = await clientAccountsService.renameDriveFile(
+        user.clinicId,
+        String(req.params.clinicId),
+        user.userId,
+        String(req.params.fileId),
+        req.body,
+        { canManageAllClientAccounts, canConfigureDrive: this.canConfigureDrive(user) },
+        this.auditContext(req),
+      );
+      res.status(200).json({ status: "success", data: file });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  deleteDriveFile = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      await clientAccountsService.deleteDriveFile(
+        user.clinicId,
+        String(req.params.clinicId),
+        user.userId,
+        String(req.params.fileId),
+        { canManageAllClientAccounts, canConfigureDrive: this.canConfigureDrive(user) },
+        this.auditContext(req),
+      );
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  downloadDriveFile = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const file = await clientAccountsService.downloadDriveFile(
+        user.clinicId,
+        String(req.params.clinicId),
+        String(req.params.fileId),
+        { canManageAllClientAccounts, canConfigureDrive: this.canConfigureDrive(user) },
+      );
+      const originalName = file.fileName.replace(/[\r\n]/g, "_");
+      const safeName = originalName.replace(/[^\x20-\x7E]|["\\/]/g, "_");
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(originalName)}`,
+      );
+      res.setHeader("Content-Length", file.buffer.length);
+      res.status(200).send(file.buffer);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getLinkedRecords = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
-      const canManageAllClientAccounts = await userHasPermission(user.userId, user.clinicId, "*");
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
       const records = await clientAccountsService.getLinkedRecords(
         user.clinicId,
         String(req.params.clinicId),
@@ -141,7 +287,7 @@ export class ClientAccountsController {
   linkContact = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
-      const canManageAllClientAccounts = await userHasPermission(user.userId, user.clinicId, "*");
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
       const records = await clientAccountsService.linkContactToAccount(
         user.clinicId,
         String(req.params.clinicId),
@@ -163,7 +309,7 @@ export class ClientAccountsController {
   unlinkContact = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
-      const canManageAllClientAccounts = await userHasPermission(user.userId, user.clinicId, "*");
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
       const records = await clientAccountsService.unlinkContactFromAccount(
         user.clinicId,
         String(req.params.clinicId),
@@ -202,7 +348,7 @@ export class ClientAccountsController {
   listServices = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
-      const canManageAllClientAccounts = await userHasPermission(user.userId, user.clinicId, "*");
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
       const services = await clientAccountsService.listServices(
         user.clinicId,
         req.query as any,

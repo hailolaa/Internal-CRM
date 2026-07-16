@@ -40,6 +40,43 @@ async function createContact(clinicId: string, userId: string, prefix: string) {
   return created.contact;
 }
 
+test("pipeline stage customisations survive subsequent pipeline reads", async () => {
+  await testConnection();
+
+  const primary = await createClinicAndAdmin("PipelineCustomStages");
+  const initialStages = await pipelineService.listStages(primary.clinicId, primary.userId);
+  const firstStage = initialStages.find((stage) => stage.name === "New Lead");
+  const removableStage = initialStages.find((stage) => stage.name === "Future Opportunity");
+  assert.ok(firstStage && removableStage, "Expected configurable default stages");
+
+  await pipelineService.updateStage(primary.clinicId, primary.userId, firstStage.id, {
+    name: "Inbox",
+    color: "bg-violet-500",
+    position: 1,
+  });
+  await pipelineService.deleteStage(primary.clinicId, primary.userId, removableStage.id);
+  const customStage = await pipelineService.createStage(primary.clinicId, primary.userId, {
+    name: "Re-engagement",
+    color: "bg-teal-500",
+    kind: "open",
+  });
+
+  const reloadedStages = await pipelineService.listStages(primary.clinicId, primary.userId);
+  const reloadedFirstStage = reloadedStages.find((stage) => stage.id === firstStage.id);
+  assert.equal(reloadedFirstStage?.name, "Inbox");
+  assert.equal(reloadedFirstStage?.color, "bg-violet-500");
+  assert.equal(
+    reloadedStages.some((stage) => stage.id === removableStage.id),
+    false,
+    "Deleted stages must not be recreated by a later read",
+  );
+  assert.equal(
+    reloadedStages.some((stage) => stage.id === customStage.id && stage.name === "Re-engagement"),
+    true,
+    "Added stages must remain visible after a later read",
+  );
+});
+
 test("pipeline stage delete is blocked when active opportunities exist", async () => {
   await testConnection();
   console.log("[pipeline] database connection OK");

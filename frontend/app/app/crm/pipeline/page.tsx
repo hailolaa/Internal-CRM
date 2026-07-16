@@ -12,9 +12,11 @@ import {
   Loader2,
   Search,
   Settings,
-  ArrowUpRight,
+  ArrowLeft,
+  ArrowRight,
   AlertTriangle,
   CheckCircle,
+  GripVertical,
   Info,
   Target,
   UserRound,
@@ -205,13 +207,23 @@ function DealCard({
   deal,
   isSelected,
   isMoving,
+  canMovePrevious,
+  canMoveNext,
   onClick,
+  onDragEnd,
+  onDragStart,
+  onMovePrevious,
   onMoveNext,
 }: {
   deal: PipelineDealData;
   isSelected: boolean;
   isMoving: boolean;
+  canMovePrevious: boolean;
+  canMoveNext: boolean;
   onClick: () => void;
+  onDragEnd: () => void;
+  onDragStart: (event: React.DragEvent<HTMLDivElement>) => void;
+  onMovePrevious: (deal: PipelineDealData) => void;
   onMoveNext: (deal: PipelineDealData) => void;
 }) {
   const followUpOverdue = isFollowUpOverdue(deal.nextFollowUpDate);
@@ -228,9 +240,12 @@ function DealCard({
       tabIndex={0}
       aria-expanded={isSelected}
       aria-label={`Opportunity: ${deal.name} - ${deal.treatment}, ${deal.value}. ${isSelected ? "Expanded. Press Enter to collapse." : "Press Enter to expand."}`}
+      draggable={!isMoving}
       onClick={onClick}
+      onDragEnd={onDragEnd}
+      onDragStart={onDragStart}
       onKeyDown={handleKeyDown}
-      className={`bg-[#FFFCF9] border rounded-2xl p-4 cursor-pointer transition-all hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[#FAF8F5] ${
+      className={`bg-[#FFFCF9] border rounded-2xl p-4 cursor-grab transition-all hover:scale-[1.02] active:cursor-grabbing focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[#FAF8F5] ${
         isSelected
           ? "border-[#6E6AE8]/40 shadow-sm"
           : "border-[rgba(0,0,0,0.06)] hover:border-[#6E6AE8]/25"
@@ -241,6 +256,7 @@ function DealCard({
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
+          <GripVertical className="h-4 w-4 shrink-0 text-[#9CA3AF]" aria-hidden="true" />
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#6E6AE8] to-[#9B8FEF] flex items-center justify-center text-xs font-medium text-white">
             {deal.avatar}
           </div>
@@ -310,7 +326,7 @@ function DealCard({
       )}
 
       {/* Action buttons - real <button> elements, not nested inside a <button> */}
-      <div className="flex gap-2 mt-3 pt-3 border-t border-[rgba(0,0,0,0.05)]">
+      <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-[rgba(0,0,0,0.05)]">
         <a
           href={deal.raw.contactPhone ? `tel:${deal.raw.contactPhone}` : undefined}
           aria-label={`Call ${deal.name}`}
@@ -330,16 +346,28 @@ function DealCard({
           <Mail className="w-3 h-3" /> Email
         </a>
         <button
+          aria-label={`Move ${deal.name} to previous stage`}
+          disabled={isMoving || !canMovePrevious}
+          onClick={(e) => {
+            e.stopPropagation();
+            onMovePrevious(deal);
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+          className="py-2 text-xs bg-[rgba(110,106,232,0.08)] text-[#6E6AE8] rounded-xl hover:bg-[rgba(110,106,232,0.15)] flex items-center justify-center gap-1 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <ArrowLeft className="w-3 h-3" /> Back
+        </button>
+        <button
           aria-label={`Move ${deal.name} to next stage`}
-          disabled={isMoving}
+          disabled={isMoving || !canMoveNext}
           onClick={(e) => {
             e.stopPropagation();
             onMoveNext(deal);
           }}
           onKeyDown={(e) => e.stopPropagation()}
-          className="flex-1 py-2 text-xs bg-[rgba(110,106,232,0.08)] text-[#6E6AE8] rounded-xl hover:bg-[rgba(110,106,232,0.15)] flex items-center justify-center gap-1 transition-colors disabled:opacity-60"
+          className="py-2 text-xs bg-[rgba(110,106,232,0.08)] text-[#6E6AE8] rounded-xl hover:bg-[rgba(110,106,232,0.15)] flex items-center justify-center gap-1 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <ArrowUpRight className="w-3 h-3" /> {isMoving ? "Moving" : "Move"}
+          <ArrowRight className="w-3 h-3" /> {isMoving ? "Moving" : "Next"}
         </button>
       </div>
     </div>
@@ -675,6 +703,8 @@ export default function PipelinePage() {
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [movingDealId, setMovingDealId] = useState<string | null>(null);
+  const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
+  const [dragOverStageId, setDragOverStageId] = useState<string | null>(null);
   const [addDealOpen, setAddDealOpen] = useState(false);
   const [addDealForm, setAddDealForm] =
     useState<AddDealForm>(EMPTY_ADD_DEAL_FORM);
@@ -842,34 +872,56 @@ export default function PipelinePage() {
     };
   }, [fetchPipeline, token]);
 
-  const handleMoveNext = useCallback(
-    async (deal: PipelineDealData) => {
-      if (!token) return;
-      const orderedStages = stages.slice().sort((a, b) => a.raw.position - b.raw.position);
+  const orderedStages = useMemo(
+    () => stages.slice().sort((a, b) => a.raw.position - b.raw.position),
+    [stages],
+  );
+
+  const findDealStageIndex = useCallback(
+    (deal: PipelineDealData) => {
       const currentStageKey = getPipelineStageKey(deal.raw.stageName || "");
-      const currentIndex = orderedStages.findIndex(
+      return orderedStages.findIndex(
         (stage) =>
           stage.id === deal.raw.stageId ||
           stage.mergedStageIds.includes(deal.raw.stageId || "") ||
           (!!currentStageKey && getPipelineStageKey(stage.name) === currentStageKey),
       );
-      const nextStage = orderedStages[currentIndex + 1];
+    },
+    [orderedStages],
+  );
 
-      if (currentIndex === -1 || !nextStage) {
-        setActionError(`${deal.name} is already in the final sales stage.`);
-        setActionMessage("");
-        return;
+  const handleMoveToStage = useCallback(
+    async (deal: PipelineDealData, targetStage: PipelineStageData) => {
+      if (!token || movingDealId) return;
+      const currentIndex = findDealStageIndex(deal);
+      const targetIndex = orderedStages.findIndex((stage) => stage.id === targetStage.id);
+
+      if (currentIndex === -1 || targetIndex === -1 || currentIndex === targetIndex) return;
+
+      let lostReason = deal.raw.lostReason || null;
+      if (targetStage.raw.kind === "lost" && !lostReason) {
+        lostReason = window.prompt(`Why was ${deal.name} lost?`)?.trim() || null;
+        if (!lostReason) {
+          setActionMessage("");
+          setActionError("A lost reason is required before moving an opportunity to Lost.");
+          return;
+        }
       }
+
+      const movePayload = {
+        stageId: targetStage.id,
+        ...(targetStage.raw.kind === "lost" ? { lostReason } : {}),
+      };
 
       setMovingDealId(deal.id);
       setActionError("");
-        setActionMessage("");
+      setActionMessage("");
       try {
-        await api.pipelineDeals.move(token, deal.id, { stageId: nextStage.id });
+        await api.pipelineDeals.move(token, deal.id, movePayload);
         const rows = await fetchPipeline();
         setStages(rows);
         setSelectedDeal(null);
-        setActionMessage(`${deal.name} moved to ${nextStage.name}.`);
+        setActionMessage(`${deal.name} moved to ${targetStage.name}.`);
       } catch (error) {
         setActionError(
           error instanceof Error ? error.message : "Could not move sales opportunity.",
@@ -878,7 +930,35 @@ export default function PipelinePage() {
         setMovingDealId(null);
       }
     },
-    [fetchPipeline, stages, token],
+    [fetchPipeline, findDealStageIndex, movingDealId, orderedStages, token],
+  );
+
+  const handleMovePrevious = useCallback(
+    (deal: PipelineDealData) => {
+      const currentIndex = findDealStageIndex(deal);
+      const previousStage = orderedStages[currentIndex - 1];
+      if (previousStage) void handleMoveToStage(deal, previousStage);
+    },
+    [findDealStageIndex, handleMoveToStage, orderedStages],
+  );
+
+  const handleMoveNext = useCallback(
+    (deal: PipelineDealData) => {
+      const currentIndex = findDealStageIndex(deal);
+      const nextStage = orderedStages[currentIndex + 1];
+      if (nextStage) void handleMoveToStage(deal, nextStage);
+    },
+    [findDealStageIndex, handleMoveToStage, orderedStages],
+  );
+
+  const handleDrop = useCallback(
+    (targetStage: PipelineStageData) => {
+      const deal = stages.flatMap((stage) => stage.deals).find((item) => item.id === draggedDealId);
+      setDraggedDealId(null);
+      setDragOverStageId(null);
+      if (deal) void handleMoveToStage(deal, targetStage);
+    },
+    [draggedDealId, handleMoveToStage, stages],
   );
 
   const showNotIntegrated = useCallback((message: string) => {
@@ -1096,9 +1176,35 @@ export default function PipelinePage() {
       {isLoading ? (
         <PipelineSkeleton columns={5} />
       ) : (
+      <>
+      <p className="text-sm text-[#6B7280]">
+        Drag opportunities between stages, or use Back and Next on each card.
+      </p>
       <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 md:mx-0 md:px-0">
         {filteredStages.map((stage) => (
-          <div key={stage.id} className="flex-shrink-0 w-72 md:w-80">
+          <div
+            key={stage.id}
+            role="region"
+            aria-label={`${stage.name} pipeline stage, ${stage.deals.length} opportunities. Drop an opportunity here.`}
+            onDragEnter={() => {
+              if (draggedDealId) setDragOverStageId(stage.id);
+            }}
+            onDragOver={(event) => {
+              if (!draggedDealId) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              setDragOverStageId(stage.id);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              handleDrop(stage);
+            }}
+            className={`flex-shrink-0 w-72 rounded-2xl p-2 transition-colors md:w-80 ${
+              dragOverStageId === stage.id
+                ? "bg-[rgba(110,106,232,0.10)] ring-2 ring-[#6E6AE8]/35"
+                : "bg-transparent"
+            }`}
+          >
             <div className="flex items-center justify-between mb-3 px-1">
               <div className="flex items-center gap-2">
                 <div className={`w-3 h-3 rounded-full ${stage.color}`} />
@@ -1124,9 +1230,22 @@ export default function PipelinePage() {
                   deal={deal}
                   isSelected={selectedDeal === deal.id}
                   isMoving={movingDealId === deal.id}
+                  canMovePrevious={findDealStageIndex(deal) > 0}
+                  canMoveNext={findDealStageIndex(deal) < orderedStages.length - 1}
                   onClick={() =>
                     setSelectedDeal(selectedDeal === deal.id ? null : deal.id)
                   }
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", deal.id);
+                    setDraggedDealId(deal.id);
+                    setSelectedDeal(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedDealId(null);
+                    setDragOverStageId(null);
+                  }}
+                  onMovePrevious={handleMovePrevious}
                   onMoveNext={handleMoveNext}
                 />
               ))}
@@ -1146,6 +1265,7 @@ export default function PipelinePage() {
           </div>
         )}
       </div>
+      </>
       )}
 
       {addDealOpen && (

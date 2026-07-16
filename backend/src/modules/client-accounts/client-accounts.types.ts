@@ -28,6 +28,15 @@ export interface UpdateClientAccountDriveFolderDTO {
   displayName?: string | null;
 }
 
+export interface CreateClientAccountDriveFolderDTO {
+  name: string;
+  parentId?: string;
+}
+
+export interface RenameClientAccountDriveFileDTO {
+  name: string;
+}
+
 export interface CreateClientAccountDTO extends UpdateClientAccountProfileDTO {
   name: string;
   email?: string | null;

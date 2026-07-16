@@ -17,10 +17,8 @@ import {
   Pencil,
   Phone,
   Plus,
-  Save,
   Search,
   ShieldCheck,
-  Trash2,
   Unlink,
   Users,
 } from "lucide-react";
@@ -100,10 +98,6 @@ export default function ClientAccountDetailPage() {
   const [linkStatusMessage, setLinkStatusMessage] = useState("");
   const [isLoading, setIsLoading] = useState(!missingAccountId);
   const [loadError, setLoadError] = useState(missingAccountId ? "No client account id was provided." : "");
-  const [driveDraft, setDriveDraft] = useState("");
-  const [driveTitleDraft, setDriveTitleDraft] = useState("");
-  const [driveStatusMessage, setDriveStatusMessage] = useState("");
-  const [isSavingDrive, setIsSavingDrive] = useState(false);
 
   useEffect(() => {
     if (!token || !clinicId) return;
@@ -133,46 +127,6 @@ export default function ClientAccountDetailPage() {
     () => contactSearchResults.filter((contact) => !linkedContacts.some((linked) => linked.id === contact.id)),
     [contactSearchResults, linkedContacts],
   );
-
-  const handleSaveDriveFolder = async () => {
-    if (!token || !account || isSavingDrive) return;
-    setIsSavingDrive(true);
-    setDriveStatusMessage("");
-    try {
-      const updated = await api.clientAccounts.updateDriveFolder(token, account.clinicId, {
-        folderUrl: driveDraft.trim() || null,
-        displayName: driveTitleDraft.trim() || null,
-      });
-      setAccount((current) => current ? { ...current, ...updated } : current);
-      setDriveDraft("");
-      setDriveTitleDraft("");
-      setDriveStatusMessage(updated.googleDriveFolderUrl ? "Google Drive link saved." : "Google Drive link removed.");
-    } catch (error) {
-      setDriveStatusMessage(error instanceof Error ? error.message : "Could not save Google Drive link.");
-    } finally {
-      setIsSavingDrive(false);
-    }
-  };
-
-  const handleRemoveDriveFolder = async () => {
-    if (!token || !account || isSavingDrive) return;
-    setIsSavingDrive(true);
-    setDriveStatusMessage("");
-    try {
-      const updated = await api.clientAccounts.updateDriveFolder(token, account.clinicId, {
-        folderUrl: null,
-        folderId: null,
-      });
-      setAccount((current) => current ? { ...current, ...updated } : current);
-      setDriveDraft("");
-      setDriveTitleDraft("");
-      setDriveStatusMessage("Google Drive link removed.");
-    } catch (error) {
-      setDriveStatusMessage(error instanceof Error ? error.message : "Could not remove Google Drive link.");
-    } finally {
-      setIsSavingDrive(false);
-    }
-  };
 
   const handleSearchContacts = async () => {
     const search = contactSearch.trim();
@@ -285,7 +239,16 @@ export default function ClientAccountDetailPage() {
                 <h2 className="text-lg font-semibold text-[#151f21]">Relevant contacts</h2>
                 <p className="mt-1 text-sm text-[#7A746A]">People from the internal workspace linked to this client account.</p>
               </div>
-              <Badge variant="info">{linkedContacts.length}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="info">{linkedContacts.length}</Badge>
+                <Link
+                  href={`/app/crm/contacts/new?clientId=${encodeURIComponent(account.clinicId)}`}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#315f62] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#264f51]"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add contact
+                </Link>
+              </div>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
               <div className="relative">
@@ -413,8 +376,8 @@ export default function ClientAccountDetailPage() {
           <Card padding="p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="flex items-center gap-2 font-semibold text-[#151f21]"><FolderOpen className="h-4 w-4 text-[#315f62]" />Google Drive link</h2>
-                <p className="mt-1 text-sm text-[#7A746A]">Designated account folder or ZIP archive for delivery assets.</p>
+                <h2 className="flex items-center gap-2 font-semibold text-[#151f21]"><FolderOpen className="h-4 w-4 text-[#315f62]" />Google Drive</h2>
+                <p className="mt-1 text-sm text-[#7A746A]">Browse, create, and select this client&apos;s delivery folder.</p>
               </div>
               {account.googleDriveFolderUrl ? (
                 <a href={account.googleDriveFolderUrl} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-[#315f62] px-3 py-2 text-sm font-semibold text-white hover:bg-[#264f51]">
@@ -422,7 +385,7 @@ export default function ClientAccountDetailPage() {
                 </a>
               ) : null}
             </div>
-            <div className="mt-4 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+            <div className="mt-4 rounded-2xl border border-[#cfe0dc] bg-[linear-gradient(145deg,#f3f8f6_0%,#fffaf6_100%)] p-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-[#8b9694]">Current Drive item</p>
               <p className="mt-1 break-all text-sm font-semibold text-[#151f21]">
                 {driveItemLabel(account)}
@@ -435,29 +398,13 @@ export default function ClientAccountDetailPage() {
                 <p className="mt-2 text-xs font-medium text-[#B42318]">{account.googleDriveFolderError}</p>
               ) : null}
             </div>
-            <div className="mt-4 space-y-3">
-              <input
-                value={driveTitleDraft}
-                onChange={(event) => setDriveTitleDraft(event.target.value)}
-                placeholder="Title shown on profile, e.g. Client launch assets"
-                className="w-full rounded-xl border border-[#d8ddda] bg-white px-3.5 py-2.5 text-sm text-[#151f21] outline-none transition focus:border-[#75aaa7] focus:ring-4 focus:ring-[rgba(96,180,175,0.1)]"
-              />
-              <input
-                value={driveDraft}
-                onChange={(event) => setDriveDraft(event.target.value)}
-                placeholder="Paste Google Drive folder URL, ZIP URL, or item ID"
-                className="w-full rounded-xl border border-[#d8ddda] bg-white px-3.5 py-2.5 text-sm text-[#151f21] outline-none transition focus:border-[#75aaa7] focus:ring-4 focus:ring-[rgba(96,180,175,0.1)]"
-              />
-              <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => void handleSaveDriveFolder()} disabled={isSavingDrive} className="inline-flex items-center gap-2 rounded-xl bg-[#5e8a8d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#507b7e] disabled:opacity-60">
-                  {isSavingDrive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save link
-                </button>
-                <button type="button" onClick={() => void handleRemoveDriveFolder()} disabled={isSavingDrive || !account.googleDriveFolderId} className="inline-flex items-center gap-2 rounded-xl border border-[#d8ddda] bg-white px-4 py-2 text-sm font-semibold text-[#7A746A] hover:bg-[#f4f7f5] disabled:opacity-60">
-                  <Trash2 className="h-4 w-4" />Remove
-                </button>
-              </div>
-              {driveStatusMessage ? <p className="text-sm text-[#315f62]">{driveStatusMessage}</p> : null}
-            </div>
+            <Link
+              href={`/app/ops/client-accounts/drive?id=${encodeURIComponent(account.clinicId)}`}
+              className="mt-4 flex min-h-11 items-center justify-between rounded-xl bg-[#315f62] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#264f51] focus:outline-none focus:ring-4 focus:ring-[rgba(49,95,98,0.18)]"
+            >
+              Manage Drive workspace
+              <ExternalLink className="h-4 w-4" />
+            </Link>
           </Card>
           <Card padding="p-5">
             <h2 className="font-semibold text-[#151f21]">Record links</h2>

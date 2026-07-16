@@ -92,6 +92,19 @@ export interface ClientAccountProfileRecord {
   updatedAt: string | null;
 }
 
+export interface GoogleDriveConnectionRecord {
+  connected: boolean;
+  accessLevel: "full" | "limited";
+  connectedEmail: string | null;
+  connectedAt: string | null;
+  tokenExpiresAt: string | null;
+  validationEnabled: boolean;
+}
+
+export interface GoogleDriveOAuthStartRecord {
+  authorizeUrl: string;
+}
+
 export interface ClientAccountSummaryRecord
   extends ClientAccountProfileRecord {
   activeServiceCount: number;
@@ -193,6 +206,30 @@ export interface ClientAccountDriveFolderPayload {
   folderUrl?: string | null;
   folderId?: string | null;
   displayName?: string | null;
+}
+
+export interface GoogleDriveFolderRecord {
+  id: string;
+  name: string;
+  webViewLink: string;
+  parentId: string | null;
+  modifiedTime: string | null;
+}
+
+export interface GoogleDriveFolderBrowserRecord {
+  currentFolder: GoogleDriveFolderRecord;
+  folders: GoogleDriveFolderRecord[];
+  files: GoogleDriveFileRecord[];
+}
+
+export interface GoogleDriveFileRecord extends GoogleDriveFolderRecord {
+  mimeType: string;
+  size: number | null;
+}
+
+export interface GoogleDriveFolderCreatePayload {
+  name: string;
+  parentId?: string;
 }
 
 export interface ClientAccountCreatePayload extends ClientAccountProfilePayload {

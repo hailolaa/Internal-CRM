@@ -93,6 +93,8 @@ export const config = {
         accountSid: process.env.TWILIO_ACCOUNT_SID || "",
         authToken: process.env.TWILIO_AUTH_TOKEN || "",
         webhookSecret: process.env.TWILIO_WEBHOOK_SECRET || "",
+        whatsappSender: process.env.TWILIO_WHATSAPP_SENDER || "",
+        whatsappWebhookUrl: process.env.TWILIO_WHATSAPP_WEBHOOK_URL || "",
     },
 
     whatsapp: {
@@ -144,11 +146,15 @@ export const config = {
     },
 
     googleDrive: {
+        databaseOAuthEnabled: parseBoolean(
+            process.env.GOOGLE_DRIVE_DATABASE_OAUTH_ENABLED,
+            false,
+        ),
         refreshToken: process.env.GOOGLE_DRIVE_REFRESH_TOKEN || "",
         serviceAccountEmail: process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL || "",
         serviceAccountPrivateKey: (process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
         serviceAccountSubject: process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_SUBJECT || "",
-        scopes: (process.env.GOOGLE_DRIVE_SCOPES || "https://www.googleapis.com/auth/drive.metadata.readonly")
+        scopes: (process.env.GOOGLE_DRIVE_SCOPES || "https://www.googleapis.com/auth/drive")
             .split(",")
             .map((scope) => scope.trim())
             .filter(Boolean),
@@ -220,6 +226,21 @@ export function getProductionConfigIssues() {
         issues.push("WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID must be set when WHATSAPP_PROVIDER=meta.");
     }
 
+    if (!["log", "meta", "twilio"].includes(config.whatsapp.provider)) {
+        issues.push("WHATSAPP_PROVIDER must be log, meta, or twilio.");
+    }
+
+    if (
+        config.whatsapp.provider === "twilio" &&
+        (!config.twilio.accountSid || !config.twilio.authToken || !config.twilio.whatsappSender)
+    ) {
+        issues.push("TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_WHATSAPP_SENDER must be set when WHATSAPP_PROVIDER=twilio.");
+    }
+
+    if (config.whatsapp.provider === "twilio" && !config.twilio.whatsappWebhookUrl.startsWith("https://")) {
+        issues.push("TWILIO_WHATSAPP_WEBHOOK_URL must be the exact public HTTPS webhook URL when WHATSAPP_PROVIDER=twilio.");
+    }
+
     if (config.whatsapp.provider === "meta" && !config.whatsapp.verifyToken) {
         issues.push("WHATSAPP_VERIFY_TOKEN must be set when WHATSAPP_PROVIDER=meta.");
     }
@@ -229,7 +250,7 @@ export function getProductionConfigIssues() {
     }
 
     if (
-        config.whatsapp.provider === "meta" &&
+        ["meta", "twilio"].includes(config.whatsapp.provider) &&
         !config.whatsapp.defaultWorkspaceId &&
         Object.keys(config.whatsapp.webhookWorkspaceMap).length === 0
     ) {
@@ -238,10 +259,11 @@ export function getProductionConfigIssues() {
 
     if (
         config.googleDrive.validationEnabled &&
+        !config.googleDrive.databaseOAuthEnabled &&
         !config.googleDrive.refreshToken &&
         (!config.googleDrive.serviceAccountEmail || !config.googleDrive.serviceAccountPrivateKey)
     ) {
-        issues.push("GOOGLE_DRIVE_REFRESH_TOKEN or GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL/PRIVATE_KEY must be set when GOOGLE_DRIVE_VALIDATION_ENABLED=true.");
+        issues.push("GOOGLE_DRIVE_DATABASE_OAUTH_ENABLED, GOOGLE_DRIVE_REFRESH_TOKEN, or GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL/PRIVATE_KEY must be set when GOOGLE_DRIVE_VALIDATION_ENABLED=true.");
     }
 
     return { issues, warnings };

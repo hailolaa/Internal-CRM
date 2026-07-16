@@ -3,6 +3,7 @@ import { authService } from "./auth.service.js";
 import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { OAuthProvider } from "./auth.types.js";
+import { googleDriveOAuthService } from "../client-accounts/google-drive-oauth.service.js";
 
 function isOAuthProvider(value: string | undefined): value is OAuthProvider {
     return value === "google" || value === "facebook" || value === "apple";
@@ -20,6 +21,13 @@ function redirectOAuthError(res: Response, error: unknown) {
     const message = error instanceof Error ? error.message : "OAuth sign-in failed";
     const params = new URLSearchParams({ error: message });
     res.redirect(`${frontendUrl}/oauth/callback#${params.toString()}`);
+}
+
+function redirectDriveOAuthError(res: Response, error: unknown) {
+    const frontendUrl = config.frontendUrl.replace(/\/$/, "");
+    const message = error instanceof Error ? error.message : "Google Drive connection failed";
+    const params = new URLSearchParams({ drive: "error", message });
+    res.redirect(`${frontendUrl}/app/integrations?${params.toString()}`);
 }
 
 export class AuthController {
@@ -49,6 +57,11 @@ export class AuthController {
             if (!isOAuthProvider(provider)) {
                 throw new Error("Unsupported OAuth provider");
             }
+            if (provider === "google" && googleDriveOAuthService.isDriveOAuthState(state)) {
+                await googleDriveOAuthService.completeOAuth(code, state, getRequestMeta(req));
+                res.redirect(`${frontendUrl}/app/integrations?drive=connected`);
+                return;
+            }
             const result = await authService.handleOAuthCallback(provider, code, state, appleUser, getRequestMeta(req));
             const user = Buffer.from(JSON.stringify(result.user), "utf8").toString("base64url");
             const hash = new URLSearchParams({
@@ -62,6 +75,10 @@ export class AuthController {
 
             res.redirect(`${frontendUrl}/oauth/callback#${hash.toString()}`);
         } catch (error) {
+            if (provider === "google" && googleDriveOAuthService.isDriveOAuthState(state)) {
+                redirectDriveOAuthError(res, error);
+                return;
+            }
             redirectOAuthError(res, error);
         }
     };

@@ -12,6 +12,7 @@ import {
 import { NAV_SECTIONS, BOTTOM_NAV } from "@/lib/navigation";
 import type { NavItem } from "@/lib/types";
 import ClinicGrowerLogo from "@/components/brand/ClinicGrowerLogo";
+import { useAuth } from "@/lib/auth-context";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -75,6 +76,7 @@ function NavItemLink({ item, isActive }: { item: NavItem; isActive: boolean }) {
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const { user } = useAuth();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const prevPathnameRef = useRef<string | null>(null);
 
@@ -82,10 +84,17 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     (href: string) => pathname === href || pathname.startsWith(href + "/"),
     [pathname],
   );
+  const canAccessNavItem = useCallback(
+    (item: NavItem) =>
+      item.href !== "/app/integrations" ||
+      user?.role === "SUPER_ADMIN" ||
+      user?.role === "ADMIN",
+    [user?.role],
+  );
 
   useEffect(() => {
     NAV_SECTIONS.forEach((section) => {
-      if (section.items.some((item) => isActive(item.href))) {
+      if (section.items.some((item) => canAccessNavItem(item) && isActive(item.href))) {
         setCollapsed((prev) => {
           const next = new Set(prev);
           next.delete(section.title);
@@ -93,7 +102,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         });
       }
     });
-  }, [pathname, isActive]);
+  }, [pathname, isActive, canAccessNavItem]);
 
   useEffect(() => {
     if (
@@ -183,7 +192,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         >
           {NAV_SECTIONS.map((section, idx) => {
             const isCollapsed = collapsed.has(section.title);
-            const hasActiveItem = section.items.some((item) =>
+            const visibleItems = section.items.filter(canAccessNavItem);
+            const hasActiveItem = visibleItems.some((item) =>
               isActive(item.href),
             );
 
@@ -210,7 +220,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
                 {!isCollapsed && (
                   <div className="space-y-0.5 animate-fade-in">
-                    {section.items.map((item) => (
+                    {visibleItems.map((item) => (
                       <NavItemLink
                         key={item.href}
                         item={item}

@@ -23,7 +23,7 @@ router.post("/twilio/recordings", webhooksController.handleTwilioRecording);
 router.get("/whatsapp/inbound", webhooksController.handleWhatsAppVerify);
 
 // @route   POST /api/webhooks/whatsapp/inbound
-// @desc    Public WhatsApp inbound lead message webhook
+// @desc    Public Meta or Twilio WhatsApp inbound lead message webhook
 // @access  Public provider webhook
 router.post("/whatsapp/inbound", webhooksController.handleWhatsAppInbound);
 
