@@ -2,6 +2,19 @@ import { body, param, query } from "express-validator";
 import { hasUsableLeadIdentity } from "./contacts.normalizers.js";
 
 const contactSortFields = ["name", "source", "status", "value", "lastContact", "createdAt", "updatedAt"];
+const attributionTextFields = [
+  "firstSource",
+  "latestSource",
+  "convertingSource",
+  "utmSource",
+  "utmMedium",
+  "utmCampaign",
+  "utmContent",
+  "utmTerm",
+];
+const attributionUrlFields = ["landingPage", "referrer", "pageSubmitted"];
+const attributionEventFields = ["formSubmitted", "ctaClicked"];
+const attributionClickIdFields = ["gclid", "fbclid", "msclkid", "ttclid", "gbraid", "wbraid"];
 const contactIdParam = () =>
   param("id")
     .isString()
@@ -45,6 +58,18 @@ const contactMutationValidator = [
   body("status").optional({ nullable: true }).isString().trim().isLength({ max: 50 }),
   body("leadStatus").optional({ nullable: true }).isString().trim().isLength({ max: 50 }),
   body("source").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
+  ...attributionTextFields.map((field) =>
+    body(field).optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
+  ),
+  ...attributionUrlFields.map((field) =>
+    body(field).optional({ nullable: true }).isString().trim().isLength({ max: 500 }),
+  ),
+  ...attributionEventFields.map((field) =>
+    body(field).optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
+  ),
+  ...attributionClickIdFields.map((field) =>
+    body(field).optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
+  ),
   body("value").optional({ nullable: true }).isFloat({ min: 0 }),
   body("treatmentInterests").optional().isArray({ max: 20 }),
   body("treatmentInterests.*").optional().isString().trim().isLength({ max: 100 }),
@@ -223,6 +248,18 @@ export const importContactsValidator = [
   body("rows.*.tags.*").optional().isString().trim().isLength({ max: 50 }),
   body("rows.*.status").optional().isString().trim().isLength({ max: 50 }),
   body("rows.*.source").optional().isString().trim().isLength({ max: 100 }),
+  ...attributionTextFields.map((field) =>
+    body(`rows.*.${field}`).optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
+  ),
+  ...attributionUrlFields.map((field) =>
+    body(`rows.*.${field}`).optional({ nullable: true }).isString().trim().isLength({ max: 500 }),
+  ),
+  ...attributionEventFields.map((field) =>
+    body(`rows.*.${field}`).optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
+  ),
+  ...attributionClickIdFields.map((field) =>
+    body(`rows.*.${field}`).optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
+  ),
   body("rows.*.value").optional({ nullable: true }).isFloat({ min: 0 }),
   body("rows.*.treatmentInterests").optional().isArray({ max: 20 }),
   body("rows.*.treatmentInterests.*").optional().isString().trim().isLength({ max: 100 }),

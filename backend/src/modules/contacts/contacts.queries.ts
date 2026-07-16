@@ -26,6 +26,25 @@ export const contactSelectFields = `c.id,
               c.status,
               c.lead_status as leadStatus,
               c.source,
+              c.first_source as firstSource,
+              c.latest_source as latestSource,
+              c.converting_source as convertingSource,
+              c.utm_source as utmSource,
+              c.utm_medium as utmMedium,
+              c.utm_campaign as utmCampaign,
+              c.utm_content as utmContent,
+              c.utm_term as utmTerm,
+              c.landing_page as landingPage,
+              c.referrer,
+              c.form_submitted as formSubmitted,
+              c.page_submitted as pageSubmitted,
+              c.cta_clicked as ctaClicked,
+              c.gclid,
+              c.fbclid,
+              c.msclkid,
+              c.ttclid,
+              c.gbraid,
+              c.wbraid,
               c.value,
               c.treatment_interests as treatmentInterests,
               c.package_interest as packageInterest,
@@ -112,7 +131,9 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
   if (campaign) {
     clauses.push(`(
       LOWER(COALESCE(c.source, '')) LIKE ?
-      OR LOWER(COALESCE(c.notes, '')) LIKE ?
+      OR LOWER(COALESCE(c.utm_campaign, '')) LIKE ?
+      OR LOWER(COALESCE(c.converting_source, '')) LIKE ?
+      OR LOWER(COALESCE(c.cta_clicked, '')) LIKE ?
       OR EXISTS (
         SELECT 1
         FROM campaign_contact cc
@@ -122,17 +143,22 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
           AND LOWER(ca.name) LIKE ?
       )
     )`);
-    values.push(`%${campaign}%`, `%${campaign}%`, `%${campaign}%`);
+    values.push(`%${campaign}%`, `%${campaign}%`, `%${campaign}%`, `%${campaign}%`, `%${campaign}%`);
   }
 
   if (utmSource) {
-    clauses.push("(LOWER(COALESCE(c.source, '')) = ? OR LOWER(COALESCE(c.notes, '')) LIKE ?)");
-    values.push(utmSource, `%utm_source=${utmSource}%`);
+    clauses.push(`(
+      LOWER(COALESCE(c.utm_source, '')) = ?
+      OR LOWER(COALESCE(c.first_source, '')) = ?
+      OR LOWER(COALESCE(c.latest_source, '')) = ?
+      OR LOWER(COALESCE(c.converting_source, '')) = ?
+    )`);
+    values.push(utmSource, utmSource, utmSource, utmSource);
   }
 
   if (utmMedium) {
-    clauses.push("LOWER(COALESCE(c.notes, '')) LIKE ?");
-    values.push(`%utm_medium=${utmMedium}%`);
+    clauses.push("LOWER(COALESCE(c.utm_medium, '')) = ?");
+    values.push(utmMedium);
   }
 
   if (createdFrom) {
@@ -156,6 +182,20 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
         OR LOWER(COALESCE(c.website, '')) LIKE ?
         OR ${phoneSqlExpression("c.phone")} LIKE ?
         OR LOWER(COALESCE(c.source, '')) LIKE ?
+        OR LOWER(COALESCE(c.first_source, '')) LIKE ?
+        OR LOWER(COALESCE(c.latest_source, '')) LIKE ?
+        OR LOWER(COALESCE(c.converting_source, '')) LIKE ?
+        OR LOWER(COALESCE(c.utm_source, '')) LIKE ?
+        OR LOWER(COALESCE(c.utm_medium, '')) LIKE ?
+        OR LOWER(COALESCE(c.utm_campaign, '')) LIKE ?
+        OR LOWER(COALESCE(c.landing_page, '')) LIKE ?
+        OR LOWER(COALESCE(c.referrer, '')) LIKE ?
+        OR LOWER(COALESCE(c.form_submitted, '')) LIKE ?
+        OR LOWER(COALESCE(c.page_submitted, '')) LIKE ?
+        OR LOWER(COALESCE(c.cta_clicked, '')) LIKE ?
+        OR LOWER(COALESCE(c.gclid, '')) LIKE ?
+        OR LOWER(COALESCE(c.fbclid, '')) LIKE ?
+        OR LOWER(COALESCE(c.msclkid, '')) LIKE ?
         OR LOWER(COALESCE(c.status, '')) LIKE ?
         OR LOWER(COALESCE(c.lead_status, '')) LIKE ?
         OR LOWER(COALESCE(c.package_interest, '')) LIKE ?
@@ -164,7 +204,36 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
         OR CAST(COALESCE(c.tags, JSON_ARRAY()) AS CHAR) LIKE ?
         OR CAST(COALESCE(c.treatment_interests, JSON_ARRAY()) AS CHAR) LIKE ?)`,
     );
-    values.push(like, like, like, like, like, `%${phoneSearch}%`, like, like, like, like, like, like, like, like);
+    values.push(
+      like,
+      like,
+      like,
+      like,
+      like,
+      `%${phoneSearch}%`,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+      like,
+    );
   }
 
   return {

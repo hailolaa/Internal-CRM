@@ -106,6 +106,17 @@ function EmptyState({ label }: { label: string }) {
   );
 }
 
+function DetailValue({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-3">
+      <p className="text-xs font-medium text-[#6F6A66]">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-[#151f21]">
+        {value || "Not set"}
+      </p>
+    </div>
+  );
+}
+
 export default function ContactDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -790,6 +801,25 @@ export default function ContactDetailPage() {
                   No service or package interests set.
                 </p>
               )}
+            </div>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <h2 className="text-base font-semibold text-[#151f21]">Attribution</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <DetailValue label="First source" value={contact.firstSource || contact.source} />
+              <DetailValue label="Latest source" value={contact.latestSource} />
+              <DetailValue label="Converting source" value={contact.convertingSource} />
+              <DetailValue label="UTM campaign" value={contact.utmCampaign} />
+              <DetailValue label="UTM source" value={contact.utmSource} />
+              <DetailValue label="UTM medium" value={contact.utmMedium} />
+              <DetailValue label="Landing page" value={contact.landingPage} />
+              <DetailValue label="Referrer" value={contact.referrer} />
+              <DetailValue label="Form submitted" value={contact.formSubmitted} />
+              <DetailValue label="CTA clicked" value={contact.ctaClicked} />
+              <DetailValue label="Google click ID" value={contact.gclid} />
+              <DetailValue label="Meta click ID" value={contact.fbclid} />
+              <DetailValue label="Microsoft click ID" value={contact.msclkid} />
             </div>
           </Card>
 

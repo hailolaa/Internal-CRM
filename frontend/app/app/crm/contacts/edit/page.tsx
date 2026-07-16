@@ -30,6 +30,22 @@ type FieldKey =
   | "postcode"
   | "status"
   | "source"
+  | "firstSource"
+  | "latestSource"
+  | "convertingSource"
+  | "utmSource"
+  | "utmMedium"
+  | "utmCampaign"
+  | "utmContent"
+  | "utmTerm"
+  | "landingPage"
+  | "referrer"
+  | "formSubmitted"
+  | "pageSubmitted"
+  | "ctaClicked"
+  | "gclid"
+  | "fbclid"
+  | "msclkid"
   | "packageInterest"
   | "recommendedPackage"
   | "value"
@@ -75,6 +91,22 @@ function toFields(contact: ContactRecord): Record<FieldKey, string> {
     postcode: contact.postalCode || "",
     status: contact.status || "lead",
     source: contact.source || "",
+    firstSource: contact.firstSource || "",
+    latestSource: contact.latestSource || "",
+    convertingSource: contact.convertingSource || "",
+    utmSource: contact.utmSource || "",
+    utmMedium: contact.utmMedium || "",
+    utmCampaign: contact.utmCampaign || "",
+    utmContent: contact.utmContent || "",
+    utmTerm: contact.utmTerm || "",
+    landingPage: contact.landingPage || "",
+    referrer: contact.referrer || "",
+    formSubmitted: contact.formSubmitted || "",
+    pageSubmitted: contact.pageSubmitted || "",
+    ctaClicked: contact.ctaClicked || "",
+    gclid: contact.gclid || "",
+    fbclid: contact.fbclid || "",
+    msclkid: contact.msclkid || "",
     packageInterest:
       contact.packageInterest ||
       contact.treatmentInterests?.[0] ||
@@ -147,6 +179,22 @@ export default function EditContactPage() {
     postcode: "",
     status: "lead",
     source: "",
+    firstSource: "",
+    latestSource: "",
+    convertingSource: "",
+    utmSource: "",
+    utmMedium: "",
+    utmCampaign: "",
+    utmContent: "",
+    utmTerm: "",
+    landingPage: "",
+    referrer: "",
+    formSubmitted: "",
+    pageSubmitted: "",
+    ctaClicked: "",
+    gclid: "",
+    fbclid: "",
+    msclkid: "",
     packageInterest: "",
     recommendedPackage: "",
     value: "",
@@ -301,6 +349,22 @@ export default function EditContactPage() {
       postalCode: emptyToNull(fields.postcode),
       status: emptyToNull(fields.status),
       source: emptyToNull(fields.source),
+      firstSource: emptyToNull(fields.firstSource),
+      latestSource: emptyToNull(fields.latestSource),
+      convertingSource: emptyToNull(fields.convertingSource),
+      utmSource: emptyToNull(fields.utmSource),
+      utmMedium: emptyToNull(fields.utmMedium),
+      utmCampaign: emptyToNull(fields.utmCampaign),
+      utmContent: emptyToNull(fields.utmContent),
+      utmTerm: emptyToNull(fields.utmTerm),
+      landingPage: emptyToNull(fields.landingPage),
+      referrer: emptyToNull(fields.referrer),
+      formSubmitted: emptyToNull(fields.formSubmitted),
+      pageSubmitted: emptyToNull(fields.pageSubmitted),
+      ctaClicked: emptyToNull(fields.ctaClicked),
+      gclid: emptyToNull(fields.gclid),
+      fbclid: emptyToNull(fields.fbclid),
+      msclkid: emptyToNull(fields.msclkid),
       value: Number.isFinite(value) ? value : 0,
       packageInterest: emptyToNull(fields.packageInterest),
       recommendedPackage: emptyToNull(fields.recommendedPackage),
@@ -778,6 +842,81 @@ export default function EditContactPage() {
                   onChange={handleInputChange("value")}
                   className={inputBase}
                 />
+              </div>
+            </div>
+          </Card>
+
+          <Card padding="p-6">
+            <h2 className="font-semibold text-[#111111] mb-2">Attribution</h2>
+            <p className="mb-5 text-sm text-[#6B7280]">
+              Track the original, latest, and converting source for this lead.
+            </p>
+            <div className="grid gap-4">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">First Source</label>
+                  <input value={fields.firstSource} onChange={handleInputChange("firstSource")} className={inputBase} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">Latest Source</label>
+                  <input value={fields.latestSource} onChange={handleInputChange("latestSource")} className={inputBase} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">Converting Source</label>
+                  <input value={fields.convertingSource} onChange={handleInputChange("convertingSource")} className={inputBase} />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">UTM Source</label>
+                  <input value={fields.utmSource} onChange={handleInputChange("utmSource")} className={inputBase} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">UTM Medium</label>
+                  <input value={fields.utmMedium} onChange={handleInputChange("utmMedium")} className={inputBase} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">UTM Campaign</label>
+                  <input value={fields.utmCampaign} onChange={handleInputChange("utmCampaign")} className={inputBase} />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">Landing Page</label>
+                  <input value={fields.landingPage} onChange={handleInputChange("landingPage")} className={inputBase} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">Referrer</label>
+                  <input value={fields.referrer} onChange={handleInputChange("referrer")} className={inputBase} />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">Form Submitted</label>
+                  <input value={fields.formSubmitted} onChange={handleInputChange("formSubmitted")} className={inputBase} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">Page Submitted</label>
+                  <input value={fields.pageSubmitted} onChange={handleInputChange("pageSubmitted")} className={inputBase} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">CTA Clicked</label>
+                  <input value={fields.ctaClicked} onChange={handleInputChange("ctaClicked")} className={inputBase} />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">Google Click ID</label>
+                  <input value={fields.gclid} onChange={handleInputChange("gclid")} className={inputBase} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">Meta Click ID</label>
+                  <input value={fields.fbclid} onChange={handleInputChange("fbclid")} className={inputBase} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">Microsoft Click ID</label>
+                  <input value={fields.msclkid} onChange={handleInputChange("msclkid")} className={inputBase} />
+                </div>
               </div>
             </div>
           </Card>

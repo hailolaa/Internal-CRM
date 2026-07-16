@@ -37,6 +37,52 @@ function splitName(name: string) {
   };
 }
 
+function pickSubmissionField(data: Record<string, any>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = cleanString(data[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function buildSubmissionAttribution(
+  data: Record<string, any>,
+  formName: string,
+  headers: Record<string, any>,
+) {
+  const source =
+    pickSubmissionField(data, "source", "first_source", "firstSource", "utm_source", "utmSource", "campaign")
+    || "Website";
+  const referrer =
+    pickSubmissionField(data, "referrer", "referer")
+    || cleanString(headers["referer"])
+    || cleanString(headers["referrer"]);
+  const landingPage = pickSubmissionField(data, "landing_page", "landingPage", "page_url", "pageUrl", "url");
+
+  return {
+    source,
+    firstSource: pickSubmissionField(data, "first_source", "firstSource") || source,
+    latestSource: pickSubmissionField(data, "latest_source", "latestSource") || source,
+    convertingSource: pickSubmissionField(data, "converting_source", "convertingSource") || source,
+    utmSource: pickSubmissionField(data, "utm_source", "utmSource"),
+    utmMedium: pickSubmissionField(data, "utm_medium", "utmMedium"),
+    utmCampaign: pickSubmissionField(data, "utm_campaign", "utmCampaign", "campaign"),
+    utmContent: pickSubmissionField(data, "utm_content", "utmContent"),
+    utmTerm: pickSubmissionField(data, "utm_term", "utmTerm"),
+    landingPage,
+    referrer,
+    formSubmitted: pickSubmissionField(data, "form_submitted", "formSubmitted", "form_name", "formName") || formName,
+    pageSubmitted: pickSubmissionField(data, "page_submitted", "pageSubmitted") || landingPage,
+    ctaClicked: pickSubmissionField(data, "cta_clicked", "ctaClicked", "cta"),
+    gclid: pickSubmissionField(data, "gclid"),
+    fbclid: pickSubmissionField(data, "fbclid"),
+    msclkid: pickSubmissionField(data, "msclkid"),
+    ttclid: pickSubmissionField(data, "ttclid"),
+    gbraid: pickSubmissionField(data, "gbraid"),
+    wbraid: pickSubmissionField(data, "wbraid"),
+  };
+}
+
 function getSubmissionTreatment(data: Record<string, any>) {
   return cleanString(data.treatment) || cleanString(data.treatmentInterest) || "";
 }
@@ -307,14 +353,14 @@ export class FormsService {
     const email = payload.email || null;
     const phone = payload.phone || null;
     const treatment = payload.treatment || payload.treatmentInterest || payload.treatmentInterest || null;
-    const source = payload.source || payload.utm_source || payload.campaign || "Website";
-    const campaign = payload.campaign || null;
+    const attribution = buildSubmissionAttribution(payload, forms[0].name, headers);
+    const campaign = attribution.utmCampaign || null;
     const utm = {
-      utm_source: payload.utm_source || null,
-      utm_medium: payload.utm_medium || null,
-      utm_campaign: payload.utm_campaign || null,
-      utm_content: payload.utm_content || null,
-      utm_term: payload.utm_term || null,
+      utm_source: attribution.utmSource,
+      utm_medium: attribution.utmMedium,
+      utm_campaign: attribution.utmCampaign,
+      utm_content: attribution.utmContent,
+      utm_term: attribution.utmTerm,
     };
 
     // Build contact DTO consistent with contacts.createContact
@@ -323,7 +369,7 @@ export class FormsService {
       lastName: null,
       email,
       phone,
-      source,
+      ...attribution,
       value: payload.value || 0,
       treatmentInterests: treatment ? [treatment] : [],
       notes: payload.message || payload.notes || null,
@@ -399,12 +445,13 @@ export class FormsService {
     const name = getSubmissionName(data);
     const { firstName, lastName } = splitName(name);
     const treatment = getSubmissionTreatment(data);
+    const attribution = buildSubmissionAttribution(data, "Form submission", {});
     const contact = await contactsService.createContact(clinicId, userId, {
       firstName,
       lastName,
       email,
       phone,
-      source: cleanString(data.source) || cleanString(data.utm_source) || "Website",
+      ...attribution,
       value: Number(data.value || 0) || 0,
       treatmentInterests: treatment ? [treatment] : [],
       notes: cleanString(data.message) || cleanString(data.notes) || null,

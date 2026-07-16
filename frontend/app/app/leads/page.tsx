@@ -36,6 +36,7 @@ interface Lead {
   contact: string;
   email: string;
   source: string;
+  attributionDetail: string;
   stage: string;
   packageInterest: string;
   recommendedPackage: string;
@@ -74,6 +75,7 @@ const searchFn = (lead: Lead, query: string) =>
   lead.contact.toLowerCase().includes(query) ||
   lead.email.toLowerCase().includes(query) ||
   lead.source.toLowerCase().includes(query) ||
+  lead.attributionDetail.toLowerCase().includes(query) ||
   lead.packageInterest.toLowerCase().includes(query) ||
   lead.recommendedPackage.toLowerCase().includes(query) ||
   lead.owner.toLowerCase().includes(query) ||
@@ -185,6 +187,14 @@ function toLead(contact: ContactRecord): Lead {
     contact: contact.name,
     email: contact.email || "-",
     source: contact.source || "Unknown",
+    attributionDetail:
+      contact.utmCampaign ||
+      contact.ctaClicked ||
+      contact.landingPage ||
+      contact.convertingSource ||
+      contact.latestSource ||
+      contact.firstSource ||
+      "-",
     stage: contact.status || "New",
     packageInterest,
     recommendedPackage: contact.recommendedPackage || "-",
@@ -223,6 +233,7 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     contact: deal.contactName || deal.title,
     email: deal.contactEmail || "-",
     source: deal.source || "Unknown",
+    attributionDetail: "-",
     stage: deal.stageName || deal.status || "New",
     packageInterest: deal.treatment || "-",
     recommendedPackage: "-",
@@ -269,6 +280,14 @@ function enrichLeadWithContactAndTask(
     lastContactDate: contact ? formatDate(lastContactAt, "Not contacted") : lead.lastContactDate,
     lastContactSort: contact ? toDateSort(lastContactAt) : lead.lastContactSort,
     recommendedPackage: contact?.recommendedPackage || lead.recommendedPackage,
+    attributionDetail:
+      contact?.utmCampaign ||
+      contact?.ctaClicked ||
+      contact?.landingPage ||
+      contact?.convertingSource ||
+      contact?.latestSource ||
+      contact?.firstSource ||
+      lead.attributionDetail,
     attemptCount,
     slaStatus,
     slaSort: slaStatus === "overdue" ? 0 : slaStatus === "uncontacted" ? 1 : 2,
@@ -689,6 +708,11 @@ export default function LeadsPage() {
                       <p className="mt-1 truncate text-xs text-[#9E9890]">
                         Recommend: {lead.recommendedPackage}
                       </p>
+                      {lead.attributionDetail !== "-" && (
+                        <p className="mt-1 truncate text-xs text-[#9E9890]">
+                          Attribution: {lead.attributionDetail}
+                        </p>
+                      )}
                     </div>
                   </td>
                   <td className="px-3 py-4 align-top text-sm text-[#6F6A66] md:px-4">

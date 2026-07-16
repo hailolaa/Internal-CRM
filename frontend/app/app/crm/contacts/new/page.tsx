@@ -22,6 +22,22 @@ type FieldKey =
   | "postcode"
   | "status"
   | "source"
+  | "firstSource"
+  | "latestSource"
+  | "convertingSource"
+  | "utmSource"
+  | "utmMedium"
+  | "utmCampaign"
+  | "utmContent"
+  | "utmTerm"
+  | "landingPage"
+  | "referrer"
+  | "formSubmitted"
+  | "pageSubmitted"
+  | "ctaClicked"
+  | "gclid"
+  | "fbclid"
+  | "msclkid"
   | "packageInterest"
   | "recommendedPackage"
   | "value"
@@ -169,6 +185,22 @@ export default function NewContactPage() {
     postcode: "",
     status: isContactMode ? "active" : "lead",
     source: "",
+    firstSource: "",
+    latestSource: "",
+    convertingSource: "",
+    utmSource: "",
+    utmMedium: "",
+    utmCampaign: "",
+    utmContent: "",
+    utmTerm: "",
+    landingPage: "",
+    referrer: "",
+    formSubmitted: "",
+    pageSubmitted: "",
+    ctaClicked: "",
+    gclid: "",
+    fbclid: "",
+    msclkid: "",
     packageInterest: "",
     recommendedPackage: "",
     value: "",
@@ -256,6 +288,22 @@ export default function NewContactPage() {
         postalCode: emptyToNull(fields.postcode),
         status: emptyToNull(fields.status),
         source: isContactMode ? null : emptyToNull(fields.source),
+        firstSource: isContactMode ? null : emptyToNull(fields.firstSource || fields.source),
+        latestSource: isContactMode ? null : emptyToNull(fields.latestSource || fields.source),
+        convertingSource: isContactMode ? null : emptyToNull(fields.convertingSource || fields.source),
+        utmSource: isContactMode ? null : emptyToNull(fields.utmSource),
+        utmMedium: isContactMode ? null : emptyToNull(fields.utmMedium),
+        utmCampaign: isContactMode ? null : emptyToNull(fields.utmCampaign),
+        utmContent: isContactMode ? null : emptyToNull(fields.utmContent),
+        utmTerm: isContactMode ? null : emptyToNull(fields.utmTerm),
+        landingPage: isContactMode ? null : emptyToNull(fields.landingPage),
+        referrer: isContactMode ? null : emptyToNull(fields.referrer),
+        formSubmitted: isContactMode ? null : emptyToNull(fields.formSubmitted),
+        pageSubmitted: isContactMode ? null : emptyToNull(fields.pageSubmitted),
+        ctaClicked: isContactMode ? null : emptyToNull(fields.ctaClicked),
+        gclid: isContactMode ? null : emptyToNull(fields.gclid),
+        fbclid: isContactMode ? null : emptyToNull(fields.fbclid),
+        msclkid: isContactMode ? null : emptyToNull(fields.msclkid),
         value: !isContactMode && Number.isFinite(value) ? value : 0,
         packageInterest: isContactMode ? null : emptyToNull(fields.packageInterest),
         recommendedPackage: isContactMode ? null : emptyToNull(fields.recommendedPackage),
@@ -438,6 +486,90 @@ export default function NewContactPage() {
               </div>
             </div>
           </div>
+
+          {!isContactMode && (
+            <div
+              className="rounded-[24px] p-6"
+              style={{
+                backgroundColor: "#FFFCF9",
+                border: "1px solid rgba(0,0,0,0.06)",
+                boxShadow: "0 1px 6px rgba(0,0,0,0.03)",
+              }}
+            >
+              <h2 className="font-semibold text-[#111111] mb-2">Attribution</h2>
+              <p className="mb-5 text-sm text-[#6B7280]">
+                Track where this lead first came from and which page, campaign, or CTA converted it.
+              </p>
+              <div className="grid gap-4">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">First Source</label>
+                    <input value={fields.firstSource} onChange={handleInputChange("firstSource")} placeholder="Website, Meta, referral..." className={inputBase} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">Latest Source</label>
+                    <input value={fields.latestSource} onChange={handleInputChange("latestSource")} placeholder="Latest touchpoint" className={inputBase} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">Converting Source</label>
+                    <input value={fields.convertingSource} onChange={handleInputChange("convertingSource")} placeholder="Source that converted" className={inputBase} />
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">UTM Source</label>
+                    <input value={fields.utmSource} onChange={handleInputChange("utmSource")} placeholder="google, meta, email" className={inputBase} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">UTM Medium</label>
+                    <input value={fields.utmMedium} onChange={handleInputChange("utmMedium")} placeholder="cpc, organic, referral" className={inputBase} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">UTM Campaign</label>
+                    <input value={fields.utmCampaign} onChange={handleInputChange("utmCampaign")} placeholder="summer-growth-audit" className={inputBase} />
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">Landing Page</label>
+                    <input value={fields.landingPage} onChange={handleInputChange("landingPage")} placeholder="https://..." className={inputBase} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">Referrer</label>
+                    <input value={fields.referrer} onChange={handleInputChange("referrer")} placeholder="https://..." className={inputBase} />
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">Form Submitted</label>
+                    <input value={fields.formSubmitted} onChange={handleInputChange("formSubmitted")} placeholder="Growth score form" className={inputBase} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">Page Submitted</label>
+                    <input value={fields.pageSubmitted} onChange={handleInputChange("pageSubmitted")} placeholder="/growth-score" className={inputBase} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">CTA Clicked</label>
+                    <input value={fields.ctaClicked} onChange={handleInputChange("ctaClicked")} placeholder="Book growth audit" className={inputBase} />
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">Google Click ID</label>
+                    <input value={fields.gclid} onChange={handleInputChange("gclid")} placeholder="gclid" className={inputBase} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">Meta Click ID</label>
+                    <input value={fields.fbclid} onChange={handleInputChange("fbclid")} placeholder="fbclid" className={inputBase} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">Microsoft Click ID</label>
+                    <input value={fields.msclkid} onChange={handleInputChange("msclkid")} placeholder="msclkid" className={inputBase} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div
             className="rounded-[24px] p-6"
