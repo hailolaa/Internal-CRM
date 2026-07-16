@@ -247,7 +247,7 @@ export default function ClientAccountDetailPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#e4efed] text-[#315f62]"><BriefcaseBusiness className="h-6 w-6" /></div>
           <div>
             <div className="flex flex-wrap items-center gap-3"><h1 className="text-2xl font-bold text-[#151f21]">{account.clinicName}</h1><StatusBadge status={formatLabel(account.clientStatus)} /></div>
-            <p className="mt-1 text-sm text-[#7A746A]">Master client record · {formatLabel(account.healthStatus)} · {formatLabel(account.churnRisk)} risk</p>
+            <p className="mt-1 text-sm text-[#7A746A]">Master client record - {formatLabel(account.healthStatus)} - {formatLabel(account.churnRisk)} risk</p>
           </div>
         </div>
         {canEditProfile ? (
