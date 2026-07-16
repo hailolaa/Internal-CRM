@@ -33,6 +33,7 @@ import type {
   ClientAccountServiceRecord,
   ClientAccountSummaryRecord,
   ContactRecord,
+  GrowthScoreSnapshotList,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 
@@ -109,6 +110,7 @@ export default function ClientAccountDetailPage() {
   const [account, setAccount] = useState<ClientAccountSummaryRecord | null>(null);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [linkedRecords, setLinkedRecords] = useState<ClientAccountLinkedRecords | null>(null);
+  const [growthScoreHistory, setGrowthScoreHistory] = useState<GrowthScoreSnapshotList | null>(null);
   const [contactSearch, setContactSearch] = useState("");
   const [contactSearchTerm, setContactSearchTerm] = useState("");
   const [contactSearchResults, setContactSearchResults] = useState<ContactRecord[]>([]);
@@ -132,6 +134,14 @@ export default function ClientAccountDetailPage() {
         setAccount(selected);
         setServices(allServices.filter((service) => service.clinicId === clinicId));
         setLinkedRecords(records);
+        if (selected.id) {
+          void api.growthScores
+            .listSnapshots(token, { clientAccountProfileId: selected.id, limit: 5 })
+            .then(setGrowthScoreHistory)
+            .catch(() => setGrowthScoreHistory(null));
+        } else {
+          setGrowthScoreHistory(null);
+        }
         setLoadError("");
       })
       .catch((error) => setLoadError(error instanceof Error ? error.message : "Unable to load this client account."))
@@ -300,6 +310,21 @@ export default function ClientAccountDetailPage() {
                 </div>
               ))}
             </div>
+            {growthScoreHistory?.previous.length ? (
+              <div className="mt-5 border-t border-[#E7E1DA] pt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6F6A66]">
+                  Previous scores
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {growthScoreHistory.previous.slice(0, 4).map((snapshot) => (
+                    <div key={snapshot.id} className="flex items-center justify-between rounded-xl bg-[#FAF8F5] px-3 py-2.5 text-sm text-[#6F6A66]">
+                      <span>{new Date(snapshot.scoredAt).toLocaleDateString()}</span>
+                      <span className="font-semibold text-[#151f21]">{formatScore(snapshot.overallScore)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </Card>
 
           <Card padding="p-5 sm:p-6">

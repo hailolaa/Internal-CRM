@@ -8,6 +8,7 @@ export * from "@/lib/api-types/compliance";
 export * from "@/lib/api-types/command-palette";
 export * from "@/lib/api-types/core";
 export * from "@/lib/api-types/crm";
+export * from "@/lib/api-types/growth-scores";
 export * from "@/lib/api-types/insights";
 export * from "@/lib/api-types/marketing";
 export * from "@/lib/api-types/monthly-action-plans";

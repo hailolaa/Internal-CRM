@@ -20,6 +20,7 @@ import { createCatalogApi } from "@/lib/api-client/catalog-api";
 import { createComplianceApi } from "@/lib/api-client/compliance-api";
 import { createDeveloperSettingsApi } from "@/lib/api-client/developer-settings-api";
 import { createFormsApi } from "@/lib/api-client/forms-api";
+import { createGrowthScoresApi } from "@/lib/api-client/growth-scores-api";
 import { createLocationsIntegrationsApi } from "@/lib/api-client/locations-integrations-api";
 import { createOperationsApi } from "@/lib/api-client/operations-api";
 import { createPackagesApi } from "@/lib/api-client/packages-api";
@@ -144,6 +145,9 @@ export type {
   InternalTaskUpdatePayload,
   GrowthPackagePayload,
   GrowthPackageRecord,
+  GrowthScoreSnapshotList,
+  GrowthScoreSnapshotPayload,
+  GrowthScoreSnapshotRecord,
   MessageTemplateRecord,
   ManualConsultRecord,
   ManualSpendRecord,
@@ -218,6 +222,7 @@ export const api = {
   ...createPackagesApi(apiRequest),
   ...createLocationsIntegrationsApi(apiRequest),
   ...createFormsApi(apiRequest),
+  ...createGrowthScoresApi(apiRequest),
   ...createSequencesApi(apiRequest),
   ...createSopsApi(apiRequest),
 };

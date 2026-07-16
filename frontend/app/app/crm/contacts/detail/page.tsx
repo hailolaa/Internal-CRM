@@ -28,7 +28,12 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { ClientAccountContactAccountLinkRecord, ContactLinkedActivity, ContactRecord } from "@/lib/api-types";
+import type {
+  ClientAccountContactAccountLinkRecord,
+  ContactLinkedActivity,
+  ContactRecord,
+  GrowthScoreSnapshotList,
+} from "@/lib/api-types";
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-GB", {
@@ -148,6 +153,7 @@ export default function ContactDetailPage() {
   const canWriteClientAccounts = hasPermission("client_accounts:write");
   const [contact, setContact] = useState<ContactRecord | null>(null);
   const [activity, setActivity] = useState<ContactLinkedActivity | null>(null);
+  const [growthScoreHistory, setGrowthScoreHistory] = useState<GrowthScoreSnapshotList | null>(null);
   const [linkedAccountLinks, setLinkedAccountLinks] = useState<ClientAccountContactAccountLinkRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activityError, setActivityError] = useState("");
@@ -175,9 +181,10 @@ export default function ContactDetailPage() {
 
     try {
       setIsLoading(true);
-      const [contactResult, activityResult] = await Promise.allSettled([
+      const [contactResult, activityResult, historyResult] = await Promise.allSettled([
         api.contacts.get(token, contactId),
         api.contacts.getActivity(token, contactId),
+        api.growthScores.listSnapshots(token, { contactId, limit: 5 }),
       ]);
 
       if (contactResult.status === "rejected") {
@@ -189,6 +196,9 @@ export default function ContactDetailPage() {
       setActivity(
         activityResult.status === "fulfilled" ? activityResult.value : null,
       );
+      setGrowthScoreHistory(
+        historyResult.status === "fulfilled" ? historyResult.value : null,
+      );
       setActivityError(
         activityResult.status === "rejected"
           ? "Related activity could not be loaded for this contact."
@@ -197,6 +207,7 @@ export default function ContactDetailPage() {
     } catch (error) {
       setContact(null);
       setActivity(null);
+      setGrowthScoreHistory(null);
       setLoadError(
         error instanceof Error
           ? error.message
@@ -875,6 +886,21 @@ export default function ContactDetailPage() {
                 </div>
               ))}
             </div>
+            {growthScoreHistory?.previous.length ? (
+              <div className="mt-5 border-t border-[#E7E1DA] pt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6F6A66]">
+                  Previous scores
+                </p>
+                <div className="mt-3 space-y-2">
+                  {growthScoreHistory.previous.slice(0, 4).map((snapshot) => (
+                    <div key={snapshot.id} className="flex items-center justify-between rounded-xl bg-[#FAF8F5] px-3 py-2.5 text-sm text-[#6F6A66]">
+                      <span>{new Date(snapshot.scoredAt).toLocaleDateString()}</span>
+                      <span className="font-semibold text-[#151f21]">{formatScore(snapshot.overallScore)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </Card>
 
           <Card padding="p-5 sm:p-6">
