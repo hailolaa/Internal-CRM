@@ -121,6 +121,9 @@ export const config = {
         google: {
             clientId: process.env.GOOGLE_CLIENT_ID || "",
             clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+            allowedDomains: parseCsv(process.env.GOOGLE_OAUTH_ALLOWED_DOMAINS).map((domain) => domain.toLowerCase()),
+            autoProvisionClinicId: process.env.GOOGLE_OAUTH_AUTO_PROVISION_CLINIC_ID || "",
+            autoProvisionRole: (process.env.GOOGLE_OAUTH_AUTO_PROVISION_ROLE || "ADMIN").toUpperCase(),
         },
         facebook: {
             clientId: process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID || "",
@@ -195,6 +198,18 @@ export function getProductionConfigIssues() {
 
     if (config.email.provider === "brevo" && !config.email.brevoApiKey) {
         issues.push("BREVO_API_KEY must be set when EMAIL_PROVIDER=brevo.");
+    }
+
+    if (config.oauth.google.clientId && config.oauth.google.allowedDomains.length === 0) {
+        issues.push("GOOGLE_OAUTH_ALLOWED_DOMAINS must be set when Google OAuth is enabled.");
+    }
+
+    if (config.oauth.google.allowedDomains.length > 0 && !config.oauth.google.autoProvisionClinicId) {
+        issues.push("GOOGLE_OAUTH_AUTO_PROVISION_CLINIC_ID must be set when Google Workspace auto-provisioning is enabled.");
+    }
+
+    if (!["ADMIN", "SALES", "DELIVERY", "FINANCE", "READ_ONLY"].includes(config.oauth.google.autoProvisionRole)) {
+        issues.push("GOOGLE_OAUTH_AUTO_PROVISION_ROLE must be ADMIN, SALES, DELIVERY, FINANCE, or READ_ONLY.");
     }
 
     if ((config.openai.insightsEnabled || config.openai.callIntelligenceEnabled || config.openai.callTranscriptionEnabled) && !config.openai.apiKey) {

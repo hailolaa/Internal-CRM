@@ -37,6 +37,7 @@ import {
 import logger from "../../utils/logger.js";
 
 import { securityService, SecurityService } from "../security/security.service.js";
+import { decideGoogleOAuthAccess } from "./google-oauth-access.js";
 
 type TokenUser = {
   id: string;
@@ -47,6 +48,14 @@ type TokenUser = {
   last_name?: string;
   clinic_name?: string | null;
   email_verified_at?: string | Date | null;
+};
+
+type OAuthProfile = {
+  providerUserId: string;
+  email: string;
+  emailVerified?: boolean;
+  firstName: string;
+  lastName: string;
 };
 
 export class AuthService {
@@ -85,6 +94,9 @@ export class AuthService {
         state,
         prompt: "select_account",
       });
+      if (config.oauth.google.allowedDomains.length === 1) {
+        params.set("hd", config.oauth.google.allowedDomains[0]!);
+      }
 
       return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
     }
@@ -138,6 +150,20 @@ export class AuthService {
       throw ApiError.badRequest("OAuth provider did not return an email address");
     }
 
+    profile.email = profile.email.trim().toLowerCase();
+    if (provider === "google") {
+      if (profile.emailVerified !== true) {
+        throw ApiError.forbidden("Google account email is not verified");
+      }
+
+      if (
+        decideGoogleOAuthAccess(profile.email, false, config.oauth.google.allowedDomains) === "reject" &&
+        config.oauth.google.allowedDomains.length > 0
+      ) {
+        throw ApiError.forbidden("Google account is not part of the authorised Workspace");
+      }
+    }
+
     const connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -149,6 +175,7 @@ export class AuthService {
 
       let userId = linkedAccounts[0]?.user_id as string | undefined;
       let linkedNow = false;
+      let autoProvisioned = false;
 
       if (!userId) {
         const [existingUsers]: any = await connection.execute(
@@ -158,8 +185,37 @@ export class AuthService {
 
         userId = existingUsers[0]?.id;
 
+        if (!userId && provider === "google") {
+          const access = decideGoogleOAuthAccess(
+            profile.email,
+            false,
+            config.oauth.google.allowedDomains,
+          );
+
+          if (access === "auto_provision") {
+            const newUserId = uuidv4();
+            const passwordHash = await hashPassword(`${uuidv4()}${uuidv4()}`);
+            await connection.execute(
+              `INSERT INTO user
+                (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at, status, is_active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 'active', 1)`,
+              [
+                newUserId,
+                config.oauth.google.autoProvisionClinicId,
+                profile.email,
+                passwordHash,
+                profile.firstName || null,
+                profile.lastName || null,
+                config.oauth.google.autoProvisionRole,
+              ],
+            );
+            userId = newUserId;
+            autoProvisioned = true;
+          }
+        }
+
         if (!userId) {
-          throw ApiError.forbidden("Mission Control access is invitation-only. Ask an admin to invite you before using OAuth.");
+          throw ApiError.forbidden("This account is not authorised to access Mission Control.");
         }
 
         await connection.execute(
@@ -208,9 +264,21 @@ export class AuthService {
           userAgent: meta.userAgent,
         });
       }
+      if (autoProvisioned) {
+        await logAuditEvent({
+          clinicId: user.clinic_id,
+          userId: user.id,
+          action: "OAUTH_AUTO_PROVISIONED",
+          entityType: "user",
+          entityId: user.id,
+          changes: { provider, email: profile.email, role: user.role },
+          ipAddress: meta.ipAddress,
+          userAgent: meta.userAgent,
+        });
+      }
 
       return {
-        isNewUser: false,
+        isNewUser: autoProvisioned,
         rememberMe: oauthState.rememberMe,
         user: this.toAuthUser(user),
         tokens: {
@@ -1176,7 +1244,7 @@ export class AuthService {
     provider: OAuthProvider,
     code: string,
     appleUserJson?: string,
-  ) {
+  ): Promise<OAuthProfile> {
     if (provider === "google") {
       return this.fetchGoogleProfile(code);
     }
@@ -1220,6 +1288,7 @@ export class AuthService {
     return {
       providerUserId: profile.sub as string,
       email: profile.email as string,
+      emailVerified: profile.email_verified === true,
       firstName: (profile.given_name || "") as string,
       lastName: (profile.family_name || "") as string,
     };
