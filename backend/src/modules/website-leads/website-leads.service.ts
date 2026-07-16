@@ -22,6 +22,12 @@ interface WebsiteLeadIntentMapping {
   tags: string[];
 }
 
+interface GuideDownloadContext {
+  downloadedAt: string;
+  guideName: string;
+  nextAction: string;
+}
+
 function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -57,12 +63,32 @@ function buildIntentSearchText(data: WebsiteLeadCapturePayload) {
     pick(data, "leadType"),
     pick(data, "formSubmitted", "form_submitted", "formName"),
     pick(data, "ctaClicked", "cta_clicked", "cta"),
-    pick(data, "guideName"),
+    pick(data, "guideName", "guideTitle"),
     pick(data, "packageInterest", "package_interest", "package", "serviceInterest"),
     pick(data, "source"),
     pick(data, "landingPage", "landing_page", "pageUrl", "page_url"),
     pick(data, "utmCampaign", "utm_campaign", "campaign"),
   ].filter(Boolean).join(" "));
+}
+
+function toIsoDateTime(value: string | null) {
+  const parsed = value ? new Date(value) : new Date();
+  const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  return date.toISOString();
+}
+
+function tomorrowDateOnly() {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+export function buildGuideDownloadContext(data: WebsiteLeadCapturePayload): GuideDownloadContext {
+  return {
+    downloadedAt: toIsoDateTime(pick(data, "downloadedAt", "downloaded_at", "downloadAt", "download_at", "downloadDate", "download_date")),
+    guideName: pick(data, "guideName", "guideTitle") || "Free guide",
+    nextAction: "Request/calculate Clinic Growth Score",
+  };
 }
 
 export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLeadIntentMapping {
@@ -196,10 +222,14 @@ function buildCommunicationPermissions(data: WebsiteLeadCapturePayload) {
 }
 
 function buildNotes(data: WebsiteLeadCapturePayload, mapping: WebsiteLeadIntentMapping) {
+  const guideContext = mapping.leadType === "lead_magnet_nurture" ? buildGuideDownloadContext(data) : null;
   const lines = [
     pick(data, "message", "notes"),
     `Lead type: ${mapping.leadType}`,
-    pick(data, "guideName") ? `Guide requested: ${pick(data, "guideName")}` : null,
+    guideContext ? `Guide downloaded: ${guideContext.guideName}` : null,
+    guideContext ? `Guide downloaded at: ${guideContext.downloadedAt}` : null,
+    guideContext ? `Recommended next action: ${guideContext.nextAction}` : null,
+    !guideContext && pick(data, "guideName", "guideTitle") ? `Guide requested: ${pick(data, "guideName", "guideTitle")}` : null,
     pick(data, "ctaClicked", "cta_clicked", "cta") ? `CTA clicked: ${pick(data, "ctaClicked", "cta_clicked", "cta")}` : null,
     boolFromValue(data.marketingConsent) ? "Marketing consent: yes" : null,
     boolFromValue(data.privacyPolicyConsent) ? "Privacy policy consent: yes" : null,
@@ -253,7 +283,8 @@ function toContactPayload(data: WebsiteLeadCapturePayload, rawPayloadId: string)
   const mapping = mapWebsiteLeadIntent(data);
   const source = mapping.source || pick(data, "source", "firstSource", "first_source", "utmSource", "utm_source") || "website";
   const packageInterest = mapping.packageInterest;
-  const guideName = pick(data, "guideName");
+  const guideContext = mapping.leadType === "lead_magnet_nurture" ? buildGuideDownloadContext(data) : null;
+  const guideName = guideContext?.guideName || pick(data, "guideName", "guideTitle");
   const ctaClicked = pick(data, "ctaClicked", "cta_clicked", "cta");
   const landingPage = pick(data, "landingPage", "landing_page", "pageUrl", "page_url");
   const communicationPermissions = buildCommunicationPermissions(data);
@@ -293,13 +324,14 @@ function toContactPayload(data: WebsiteLeadCapturePayload, rawPayloadId: string)
     gbraid: pick(data, "gbraid"),
     wbraid: pick(data, "wbraid"),
     packageInterest,
-    recommendedPackage: null,
+    recommendedPackage: guideContext ? PACKAGE_NAMES.growthScore : null,
     treatmentInterests: packageInterest ? [packageInterest] : [],
     tags: Array.from(new Set([
       "website_lead",
       `lead_type:${mapping.leadType}`,
       ...mapping.tags,
       guideName ? `guide:${guideName}` : null,
+      guideContext ? "next_action:clinic_growth_score" : null,
       ctaClicked ? `cta:${ctaClicked}` : null,
     ].filter(Boolean) as string[])),
     notes: buildNotes(data, mapping),
@@ -338,6 +370,13 @@ export class WebsiteLeadsService {
         toContactPayload(normalizedPayload, rawPayload.id),
         meta,
       );
+      const nextActionTaskId = await this.applyGuideDownloadFlow(
+        clinicId,
+        result.contact.id,
+        rawPayload.id,
+        normalizedPayload,
+        mapping,
+      );
 
       await this.markPayloadProcessed(clinicId, rawPayload.id, result.contact.id);
 
@@ -354,6 +393,7 @@ export class WebsiteLeadsService {
           leadType: mapping.leadType,
           packageInterest: mapping.packageInterest,
           guideName: pick(normalizedPayload, "guideName"),
+          nextActionTaskId,
         },
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
@@ -364,6 +404,7 @@ export class WebsiteLeadsService {
         contactId: result.contact.id,
         duplicateCandidates: result.duplicateCandidates || [],
         duplicateEvent: false,
+        nextActionTaskId,
         rawPayloadId: rawPayload.id,
       };
     } catch (error) {
@@ -383,6 +424,117 @@ export class WebsiteLeadsService {
       });
       throw error;
     }
+  }
+
+  private async applyGuideDownloadFlow(
+    clinicId: string,
+    contactId: string,
+    rawPayloadId: string,
+    payload: WebsiteLeadCapturePayload,
+    mapping: WebsiteLeadIntentMapping,
+  ) {
+    if (mapping.leadType !== "lead_magnet_nurture") return null;
+
+    const guideContext = buildGuideDownloadContext(payload);
+    const contact = await contactsService.getContact(clinicId, contactId);
+    const tags = Array.from(new Set([
+      ...(contact.tags || []),
+      "website_lead",
+      "website_form",
+      "lead_type:lead_magnet_nurture",
+      "next_action:clinic_growth_score",
+      `guide:${guideContext.guideName}`,
+    ]));
+    const guideNote = [
+      `[Website guide download ${guideContext.downloadedAt}]`,
+      `Guide downloaded: ${guideContext.guideName}`,
+      `Recommended next action: ${guideContext.nextAction}`,
+    ].join("\n");
+    const notes = contact.notes?.includes(`[Website guide download ${guideContext.downloadedAt}]`)
+      ? contact.notes
+      : [contact.notes, guideNote].filter(Boolean).join("\n\n");
+
+    await pool.execute(
+      `UPDATE contact
+       SET tags = ?,
+           notes = ?,
+           lead_status = 'nurture',
+           latest_source = 'website_lead_magnet',
+           recommended_package = COALESCE(recommended_package, ?),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+      [JSON.stringify(tags), notes, PACKAGE_NAMES.growthScore, contactId, clinicId],
+    );
+
+    await pool.execute(
+      `UPDATE integration_raw_payload
+       SET payload = JSON_SET(
+             COALESCE(payload, JSON_OBJECT()),
+             '$._guideDownload.guideName', ?,
+             '$._guideDownload.downloadedAt', ?,
+             '$._guideDownload.nextAction', ?
+           ),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ?`,
+      [guideContext.guideName, guideContext.downloadedAt, guideContext.nextAction, rawPayloadId, clinicId],
+    );
+
+    return this.ensureGuideNextActionTask(clinicId, contactId, contact.name, guideContext);
+  }
+
+  private async ensureGuideNextActionTask(
+    clinicId: string,
+    contactId: string,
+    contactName: string,
+    guideContext: GuideDownloadContext,
+  ) {
+    const title = "Request/calculate Clinic Growth Score";
+    const [existingRows]: any = await pool.execute(
+      `SELECT id
+       FROM task
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND title = ?
+         AND status <> 'completed'
+         AND deleted_at IS NULL
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [clinicId, contactId, title],
+    );
+    if (existingRows[0]?.id) return existingRows[0].id as string;
+
+    const taskId = uuidv4();
+    await pool.execute(
+      `INSERT INTO task
+        (id, clinic_id, title, description, priority, status, category,
+         contact_id, contact_name, due_label, due_date, assigned_to, created_by)
+       VALUES (?, ?, ?, ?, 'medium', 'pending', 'sales_follow_up', ?, ?, 'Next action', ?, NULL, NULL)`,
+      [
+        taskId,
+        clinicId,
+        title,
+        `Free guide downloaded: ${guideContext.guideName}\nDownloaded at: ${guideContext.downloadedAt}\nNext action: ${guideContext.nextAction}`,
+        contactId,
+        contactName,
+        tomorrowDateOnly(),
+      ],
+    );
+
+    await logAuditEvent({
+      clinicId,
+      userId: null,
+      action: "WEBSITE_GUIDE_NEXT_ACTION_TASK_CREATED",
+      entityType: "task",
+      entityId: taskId,
+      changes: {
+        contactId,
+        guideName: guideContext.guideName,
+        downloadedAt: guideContext.downloadedAt,
+        nextAction: guideContext.nextAction,
+      },
+    });
+
+    return taskId;
   }
 
   private async createPayloadLog(

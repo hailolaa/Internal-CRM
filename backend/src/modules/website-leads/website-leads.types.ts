@@ -33,6 +33,7 @@ export interface WebsiteLeadCapturePayload {
   gbraid?: string | null;
   gclid?: string | null;
   guideName?: string | null;
+  guideTitle?: string | null;
   honeypot?: string | null;
   landingPage?: string | null;
   landing_page?: string | null;
@@ -46,6 +47,12 @@ export interface WebsiteLeadCapturePayload {
   msclkid?: string | null;
   name?: string | null;
   notes?: string | null;
+  downloadAt?: string | null;
+  downloadedAt?: string | null;
+  downloadDate?: string | null;
+  download_at?: string | null;
+  downloaded_at?: string | null;
+  download_date?: string | null;
   package?: string | null;
   packageInterest?: string | null;
   package_interest?: string | null;
@@ -85,5 +92,6 @@ export interface WebsiteLeadCaptureResult {
   contactId: string | null;
   duplicateCandidates: unknown[];
   duplicateEvent: boolean;
+  nextActionTaskId?: string | null;
   rawPayloadId: string;
 }

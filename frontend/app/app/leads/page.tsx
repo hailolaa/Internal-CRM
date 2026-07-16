@@ -29,6 +29,9 @@ import { AlertTriangle, Plus, PoundSterling, Target, Users } from "lucide-react"
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
 
 const LEAD_RESPONSE_SLA_HOURS = 2;
+const SOURCE_LABELS: Record<string, string> = {
+  website_lead_magnet: "Free guide downloads",
+};
 
 interface Lead {
   id: string;
@@ -169,6 +172,10 @@ function uniqueOptions(values: string[]) {
   return Array.from(
     new Set(values.map((value) => value.trim()).filter((value) => value && value !== "-")),
   ).sort((a, b) => a.localeCompare(b));
+}
+
+function formatSourceLabel(source: string) {
+  return SOURCE_LABELS[source] || source;
 }
 
 function toLead(contact: ContactRecord): Lead {
@@ -410,7 +417,7 @@ export default function LeadsPage() {
   const filterOptions = useMemo(
     () => ({
       stages: uniqueOptions(leads.map((lead) => lead.stage)),
-      sources: uniqueOptions(leads.map((lead) => lead.source)),
+      sources: uniqueOptions([...leads.map((lead) => lead.source), "website_lead_magnet"]),
       owners: uniqueOptions(leads.map((lead) => lead.owner)),
       packages: uniqueOptions(leads.map((lead) => lead.packageInterest)),
     }),
@@ -580,7 +587,7 @@ export default function LeadsPage() {
           <option value="all">All sources</option>
           {filterOptions.sources.map((source) => (
             <option key={source} value={source}>
-              {source}
+              {formatSourceLabel(source)}
             </option>
           ))}
         </select>
@@ -701,7 +708,7 @@ export default function LeadsPage() {
                   </td>
                   <td className="px-3 py-4 align-top text-sm text-[#6F6A66] md:px-4">
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-[#1B1D22]">{lead.source}</p>
+                      <p className="truncate font-medium text-[#1B1D22]">{formatSourceLabel(lead.source)}</p>
                       <p className="mt-1 truncate text-xs text-[#9E9890]">
                         Package: {lead.packageInterest}
                       </p>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mapWebsiteLeadIntent } from "../modules/website-leads/website-leads.service.js";
+import { buildGuideDownloadContext, mapWebsiteLeadIntent } from "../modules/website-leads/website-leads.service.js";
 
 test("Clinic Growth Score form maps to Growth Score free audit", () => {
   const result = mapWebsiteLeadIntent({
@@ -22,6 +22,17 @@ test("free guide download maps to lead magnet nurture", () => {
   assert.equal(result.source, "website_lead_magnet");
   assert.equal(result.leadType, "lead_magnet_nurture");
   assert.equal(result.packageInterest, null);
+});
+
+test("free guide download stores guide title, download time, and Growth Score next action", () => {
+  const context = buildGuideDownloadContext({
+    guideTitle: "Clinic Growth Guide",
+    downloadedAt: "2026-07-16T10:30:00.000Z",
+  });
+
+  assert.equal(context.guideName, "Clinic Growth Guide");
+  assert.equal(context.downloadedAt, "2026-07-16T10:30:00.000Z");
+  assert.equal(context.nextAction, "Request/calculate Clinic Growth Score");
 });
 
 test("website package CTAs map to the correct package interests", () => {
@@ -53,5 +64,4 @@ test("contact form and manual referral sources are supported", () => {
   const referral = mapWebsiteLeadIntent({ source: "Partner referral" });
   assert.equal(referral.source, "referral");
   assert.equal(referral.leadType, "referral");
-}
-);
+});
