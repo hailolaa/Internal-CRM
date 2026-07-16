@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileCheck2,
   FolderOpen,
+  Gauge,
   Link2,
   Loader2,
   Mail,
@@ -78,6 +79,24 @@ function linkedContactSubtitle(contact: ClientAccountLinkedContactRecord) {
     contact.roleTitle || contact.role || "Role not set",
     contact.email || contact.phone || "No contact method",
   ].filter(Boolean).join(" - ");
+}
+
+const growthScoreCategoryLabels = [
+  ["websiteVisibility", "Website visibility"],
+  ["seo", "SEO"],
+  ["gbp", "GBP"],
+  ["tracking", "Tracking"],
+  ["conversion", "Conversion"],
+  ["leadHandling", "Lead handling"],
+  ["responseSpeed", "Response speed"],
+  ["enquiryVisibility", "Enquiry visibility"],
+  ["treatmentPerformance", "Treatment performance"],
+  ["revenueLeakage", "Revenue leakage"],
+  ["growthOpportunity", "Growth opportunity"],
+] as const;
+
+function formatScore(value: number | null | undefined) {
+  return value === null || value === undefined ? "Not scored" : `${Math.round(value)} / 100`;
 }
 
 export default function ClientAccountDetailPage() {
@@ -230,6 +249,56 @@ export default function ClientAccountDetailPage() {
                 const DetailIcon = Icon as typeof BriefcaseBusiness;
                 return <div key={String(label)} className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4"><p className="flex items-center gap-2 text-xs font-medium text-[#6F6A66]"><DetailIcon className="h-4 w-4" />{String(label)}</p><p className="mt-2 text-sm font-semibold text-[#151f21]">{String(value)}</p></div>;
               })}
+            </div>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-[#151f21]">
+                  <Gauge className="h-5 w-5 text-[#315f62]" />
+                  Clinic Growth Score
+                </h2>
+                <p className="mt-1 text-sm text-[#7A746A]">
+                  Latest structured score, gaps, and recommended next package.
+                </p>
+              </div>
+              <span className="inline-flex rounded-full bg-[#edf5f3] px-4 py-2 text-sm font-bold text-[#315f62]">
+                {formatScore(account.growthScoreOverall)}
+              </span>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                <p className="text-xs font-medium text-[#6F6A66]">Recommended package</p>
+                <p className="mt-2 text-sm font-semibold text-[#151f21]">
+                  {account.growthScoreRecommendedPackage || account.recommendedNextPackage || "Not set"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                <p className="text-xs font-medium text-[#6F6A66]">Last scored</p>
+                <p className="mt-2 text-sm font-semibold text-[#151f21]">
+                  {account.growthScoreUpdatedAt ? new Date(account.growthScoreUpdatedAt).toLocaleString() : "Not set"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                <p className="text-xs font-medium text-[#6F6A66]">Package link</p>
+                <p className="mt-2 text-sm font-semibold text-[#151f21]">
+                  {account.growthScoreRecommendedPackage ? "Linked to score gaps" : "No score recommendation"}
+                </p>
+              </div>
+            </div>
+            {account.growthScoreGapSummary ? (
+              <p className="mt-4 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 text-sm leading-relaxed text-[#7A746A]">
+                {account.growthScoreGapSummary}
+              </p>
+            ) : null}
+            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {growthScoreCategoryLabels.map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between rounded-xl bg-[#FAF8F5] px-3 py-2.5 text-sm text-[#6F6A66]">
+                  <span>{label}</span>
+                  <span className="font-semibold text-[#151f21]">{formatScore(account.growthScoreCategories[key])}</span>
+                </div>
+              ))}
             </div>
           </Card>
 

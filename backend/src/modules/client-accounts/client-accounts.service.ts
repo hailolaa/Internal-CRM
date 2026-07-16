@@ -38,6 +38,20 @@ const DEFAULT_PROFILE = {
   contractStatus: "pending",
 };
 
+const emptyGrowthScoreCategories = {
+  websiteVisibility: null as number | null,
+  seo: null as number | null,
+  gbp: null as number | null,
+  tracking: null as number | null,
+  conversion: null as number | null,
+  leadHandling: null as number | null,
+  responseSpeed: null as number | null,
+  enquiryVisibility: null as number | null,
+  treatmentPerformance: null as number | null,
+  revenueLeakage: null as number | null,
+  growthOpportunity: null as number | null,
+};
+
 function parseServices(value: unknown): string[] {
   if (!value) return [];
   if (Array.isArray(value)) return value.map(String);
@@ -48,6 +62,105 @@ function parseServices(value: unknown): string[] {
   } catch {
     return [];
   }
+}
+
+function parseJsonObject(value: unknown) {
+  if (!value) return null;
+  if (typeof value === "object") return value as Record<string, unknown>;
+  try {
+    return JSON.parse(String(value)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function normalizeScore(value: unknown) {
+  const numericValue = numberOrNull(value);
+  if (numericValue === null) return null;
+  return Math.min(100, Math.max(0, numericValue));
+}
+
+function cleanString(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function mapGrowthScoreCategories(row: any) {
+  const parsed = parseJsonObject(row.growthScoreCategories) || {};
+  const score = (columnValue: unknown, key: string) => numberOrNull(columnValue ?? parsed[key]);
+  return {
+    websiteVisibility: score(row.growthScoreWebsiteVisibility, "websiteVisibility"),
+    seo: score(row.growthScoreSeo, "seo"),
+    gbp: score(row.growthScoreGbp, "gbp"),
+    tracking: score(row.growthScoreTracking, "tracking"),
+    conversion: score(row.growthScoreConversion, "conversion"),
+    leadHandling: score(row.growthScoreLeadHandling, "leadHandling"),
+    responseSpeed: score(row.growthScoreResponseSpeed, "responseSpeed"),
+    enquiryVisibility: score(row.growthScoreEnquiryVisibility, "enquiryVisibility"),
+    treatmentPerformance: score(row.growthScoreTreatmentPerformance, "treatmentPerformance"),
+    revenueLeakage: score(row.growthScoreRevenueLeakage, "revenueLeakage"),
+    growthOpportunity: score(row.growthScoreGrowthOpportunity, "growthOpportunity"),
+  };
+}
+
+function mapGrowthScoreSnapshot(row: any) {
+  const categories = mapGrowthScoreCategories(row);
+  const overall = numberOrNull(row.growthScoreOverall);
+  const recommendedPackage = row.growthScoreRecommendedPackage || row.recommendedNextPackage || null;
+  const gapSummary = row.growthScoreGapSummary || null;
+  const updatedAt = toIsoString(row.growthScoreUpdatedAt);
+  return {
+    growthScore: {
+      overall,
+      categories,
+      recommendedPackage,
+      gapSummary,
+      updatedAt,
+    },
+    growthScoreOverall: overall,
+    growthScoreCategories: categories,
+    growthScoreRecommendedPackage: recommendedPackage,
+    growthScoreGapSummary: gapSummary,
+    growthScoreUpdatedAt: updatedAt,
+  };
+}
+
+function normalizeGrowthScore(data: UpdateClientAccountProfileDTO) {
+  const snapshot = data.growthScore && typeof data.growthScore === "object" ? data.growthScore : null;
+  const rawCategories = data.growthScoreCategories || snapshot?.categories || {};
+  return {
+    overall: normalizeScore(data.growthScoreOverall ?? snapshot?.overall),
+    categories: {
+      websiteVisibility: normalizeScore(rawCategories.websiteVisibility),
+      seo: normalizeScore(rawCategories.seo),
+      gbp: normalizeScore(rawCategories.gbp),
+      tracking: normalizeScore(rawCategories.tracking),
+      conversion: normalizeScore(rawCategories.conversion),
+      leadHandling: normalizeScore(rawCategories.leadHandling),
+      responseSpeed: normalizeScore(rawCategories.responseSpeed),
+      enquiryVisibility: normalizeScore(rawCategories.enquiryVisibility),
+      treatmentPerformance: normalizeScore(rawCategories.treatmentPerformance),
+      revenueLeakage: normalizeScore(rawCategories.revenueLeakage),
+      growthOpportunity: normalizeScore(rawCategories.growthOpportunity),
+    },
+    recommendedPackage: cleanString(data.growthScoreRecommendedPackage ?? snapshot?.recommendedPackage),
+    gapSummary: cleanString(data.growthScoreGapSummary ?? snapshot?.gapSummary),
+    updatedAt: toDateTimeString(data.growthScoreUpdatedAt ?? snapshot?.updatedAt),
+  };
+}
+
+function toDateTimeString(value: unknown) {
+  if (!value) return null;
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toISOString().slice(0, 19).replace("T", " ");
 }
 
 function toDateString(value: unknown) {
@@ -188,6 +301,22 @@ export class ClientAccountsService {
           cap.current_package as currentPackage,
           cap.recommended_next_package as recommendedNextPackage,
           cap.upsell_opportunity as upsellOpportunity,
+          cap.growth_score_overall as growthScoreOverall,
+          cap.growth_score_categories as growthScoreCategories,
+          cap.growth_score_website_visibility as growthScoreWebsiteVisibility,
+          cap.growth_score_seo as growthScoreSeo,
+          cap.growth_score_gbp as growthScoreGbp,
+          cap.growth_score_tracking as growthScoreTracking,
+          cap.growth_score_conversion as growthScoreConversion,
+          cap.growth_score_lead_handling as growthScoreLeadHandling,
+          cap.growth_score_response_speed as growthScoreResponseSpeed,
+          cap.growth_score_enquiry_visibility as growthScoreEnquiryVisibility,
+          cap.growth_score_treatment_performance as growthScoreTreatmentPerformance,
+          cap.growth_score_revenue_leakage as growthScoreRevenueLeakage,
+          cap.growth_score_growth_opportunity as growthScoreGrowthOpportunity,
+          cap.growth_score_recommended_package as growthScoreRecommendedPackage,
+          cap.growth_score_gap_summary as growthScoreGapSummary,
+          cap.growth_score_updated_at as growthScoreUpdatedAt,
           cap.churn_risk as churnRisk,
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
@@ -337,9 +466,13 @@ export class ClientAccountsService {
         `INSERT INTO client_account_profile
           (id, clinic_id, account_manager_id, active_services, onboarding_status, health_status,
            client_status, current_package, recommended_next_package, upsell_opportunity,
+           growth_score_overall, growth_score_categories, growth_score_website_visibility, growth_score_seo, growth_score_gbp,
+           growth_score_tracking, growth_score_conversion, growth_score_lead_handling, growth_score_response_speed,
+           growth_score_enquiry_visibility, growth_score_treatment_performance, growth_score_revenue_leakage,
+           growth_score_growth_opportunity, growth_score_recommended_package, growth_score_gap_summary, growth_score_updated_at,
            churn_risk, renewal_date, contract_status, key_notes,
            created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           profileId,
           clinicId,
@@ -351,6 +484,22 @@ export class ClientAccountsService {
           payload.currentPackage,
           payload.recommendedNextPackage,
           payload.upsellOpportunity,
+          payload.growthScoreOverall,
+          JSON.stringify(payload.growthScoreCategories),
+          payload.growthScoreCategories.websiteVisibility,
+          payload.growthScoreCategories.seo,
+          payload.growthScoreCategories.gbp,
+          payload.growthScoreCategories.tracking,
+          payload.growthScoreCategories.conversion,
+          payload.growthScoreCategories.leadHandling,
+          payload.growthScoreCategories.responseSpeed,
+          payload.growthScoreCategories.enquiryVisibility,
+          payload.growthScoreCategories.treatmentPerformance,
+          payload.growthScoreCategories.revenueLeakage,
+          payload.growthScoreCategories.growthOpportunity,
+          payload.growthScoreRecommendedPackage,
+          payload.growthScoreGapSummary,
+          payload.growthScoreUpdatedAt,
           payload.churnRisk,
           payload.renewalDate,
           payload.contractStatus,
@@ -504,6 +653,22 @@ export class ClientAccountsService {
           cap.current_package as currentPackage,
           cap.recommended_next_package as recommendedNextPackage,
           cap.upsell_opportunity as upsellOpportunity,
+          cap.growth_score_overall as growthScoreOverall,
+          cap.growth_score_categories as growthScoreCategories,
+          cap.growth_score_website_visibility as growthScoreWebsiteVisibility,
+          cap.growth_score_seo as growthScoreSeo,
+          cap.growth_score_gbp as growthScoreGbp,
+          cap.growth_score_tracking as growthScoreTracking,
+          cap.growth_score_conversion as growthScoreConversion,
+          cap.growth_score_lead_handling as growthScoreLeadHandling,
+          cap.growth_score_response_speed as growthScoreResponseSpeed,
+          cap.growth_score_enquiry_visibility as growthScoreEnquiryVisibility,
+          cap.growth_score_treatment_performance as growthScoreTreatmentPerformance,
+          cap.growth_score_revenue_leakage as growthScoreRevenueLeakage,
+          cap.growth_score_growth_opportunity as growthScoreGrowthOpportunity,
+          cap.growth_score_recommended_package as growthScoreRecommendedPackage,
+          cap.growth_score_gap_summary as growthScoreGapSummary,
+          cap.growth_score_updated_at as growthScoreUpdatedAt,
           cap.churn_risk as churnRisk,
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
@@ -531,6 +696,7 @@ export class ClientAccountsService {
     }
 
     const row = rows[0];
+    const growthScore = mapGrowthScoreSnapshot(row);
     return {
       id: row.id || null,
       clinicId: row.clinicId,
@@ -558,6 +724,7 @@ export class ClientAccountsService {
       currentPackage: row.currentPackage || DEFAULT_PROFILE.currentPackage,
       recommendedNextPackage: row.recommendedNextPackage || DEFAULT_PROFILE.recommendedNextPackage,
       upsellOpportunity: row.upsellOpportunity || DEFAULT_PROFILE.upsellOpportunity,
+      ...growthScore,
       churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
@@ -947,11 +1114,16 @@ export class ClientAccountsService {
     const fields: string[] = [];
     const values: any[] = [];
     const changes: Record<string, { before: unknown; after: unknown }> = {};
+    const growthScore = normalizeGrowthScore(data);
 
     const addChange = (field: string, column: string, beforeValue: unknown, afterValue: unknown) => {
       if (JSON.stringify(beforeValue) === JSON.stringify(afterValue)) return;
       fields.push(`${column} = ?`);
-      values.push(Array.isArray(afterValue) ? JSON.stringify(afterValue) : afterValue);
+      values.push(
+        afterValue && typeof afterValue === "object"
+          ? JSON.stringify(afterValue)
+          : afterValue,
+      );
       changes[field] = { before: beforeValue, after: afterValue };
     };
 
@@ -985,6 +1157,37 @@ export class ClientAccountsService {
 
     if (ownKey(data, "upsellOpportunity")) {
       addChange("upsellOpportunity", "upsell_opportunity", before.upsellOpportunity, data.upsellOpportunity || null);
+    }
+
+    if (ownKey(data, "growthScore") || ownKey(data, "growthScoreOverall")) {
+      addChange("growthScoreOverall", "growth_score_overall", before.growthScoreOverall, growthScore.overall);
+    }
+
+    if (ownKey(data, "growthScore") || ownKey(data, "growthScoreCategories")) {
+      addChange("growthScoreCategories", "growth_score_categories", before.growthScoreCategories, growthScore.categories);
+      addChange("growthScoreWebsiteVisibility", "growth_score_website_visibility", before.growthScoreCategories.websiteVisibility, growthScore.categories.websiteVisibility);
+      addChange("growthScoreSeo", "growth_score_seo", before.growthScoreCategories.seo, growthScore.categories.seo);
+      addChange("growthScoreGbp", "growth_score_gbp", before.growthScoreCategories.gbp, growthScore.categories.gbp);
+      addChange("growthScoreTracking", "growth_score_tracking", before.growthScoreCategories.tracking, growthScore.categories.tracking);
+      addChange("growthScoreConversion", "growth_score_conversion", before.growthScoreCategories.conversion, growthScore.categories.conversion);
+      addChange("growthScoreLeadHandling", "growth_score_lead_handling", before.growthScoreCategories.leadHandling, growthScore.categories.leadHandling);
+      addChange("growthScoreResponseSpeed", "growth_score_response_speed", before.growthScoreCategories.responseSpeed, growthScore.categories.responseSpeed);
+      addChange("growthScoreEnquiryVisibility", "growth_score_enquiry_visibility", before.growthScoreCategories.enquiryVisibility, growthScore.categories.enquiryVisibility);
+      addChange("growthScoreTreatmentPerformance", "growth_score_treatment_performance", before.growthScoreCategories.treatmentPerformance, growthScore.categories.treatmentPerformance);
+      addChange("growthScoreRevenueLeakage", "growth_score_revenue_leakage", before.growthScoreCategories.revenueLeakage, growthScore.categories.revenueLeakage);
+      addChange("growthScoreGrowthOpportunity", "growth_score_growth_opportunity", before.growthScoreCategories.growthOpportunity, growthScore.categories.growthOpportunity);
+    }
+
+    if (ownKey(data, "growthScore") || ownKey(data, "growthScoreRecommendedPackage")) {
+      addChange("growthScoreRecommendedPackage", "growth_score_recommended_package", before.growthScoreRecommendedPackage, growthScore.recommendedPackage);
+    }
+
+    if (ownKey(data, "growthScore") || ownKey(data, "growthScoreGapSummary")) {
+      addChange("growthScoreGapSummary", "growth_score_gap_summary", before.growthScoreGapSummary, growthScore.gapSummary);
+    }
+
+    if (ownKey(data, "growthScore") || ownKey(data, "growthScoreUpdatedAt")) {
+      addChange("growthScoreUpdatedAt", "growth_score_updated_at", before.growthScoreUpdatedAt, growthScore.updatedAt);
     }
 
     if (ownKey(data, "churnRisk")) {
@@ -1385,6 +1588,7 @@ export class ClientAccountsService {
     const derivedServices = row.derivedActiveServices
       ? String(row.derivedActiveServices).split(",").filter(Boolean)
       : [];
+    const growthScore = mapGrowthScoreSnapshot(row);
 
     return {
       id: row.id || null,
@@ -1413,6 +1617,7 @@ export class ClientAccountsService {
       currentPackage: row.currentPackage || DEFAULT_PROFILE.currentPackage,
       recommendedNextPackage: row.recommendedNextPackage || DEFAULT_PROFILE.recommendedNextPackage,
       upsellOpportunity: row.upsellOpportunity || DEFAULT_PROFILE.upsellOpportunity,
+      ...growthScore,
       churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
@@ -1456,6 +1661,7 @@ export class ClientAccountsService {
   }
 
   private normalizeAccountPayload(data: CreateClientAccountDTO) {
+    const growthScore = normalizeGrowthScore(data);
     return {
       name: data.name.trim(),
       email: data.email?.trim() || null,
@@ -1474,6 +1680,11 @@ export class ClientAccountsService {
       currentPackage: data.currentPackage?.trim() || null,
       recommendedNextPackage: data.recommendedNextPackage?.trim() || null,
       upsellOpportunity: data.upsellOpportunity?.trim() || null,
+      growthScoreOverall: growthScore.overall,
+      growthScoreCategories: growthScore.categories,
+      growthScoreRecommendedPackage: growthScore.recommendedPackage,
+      growthScoreGapSummary: growthScore.gapSummary,
+      growthScoreUpdatedAt: growthScore.updatedAt,
       churnRisk: data.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(data.renewalDate),
       contractStatus: data.contractStatus || DEFAULT_PROFILE.contractStatus,

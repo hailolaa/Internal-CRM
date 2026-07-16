@@ -7,6 +7,39 @@ const contractStatuses = ["active", "trial", "pending", "paused", "cancelled", "
 const clientStatuses = ["prospect", "onboarding", "active", "paused", "at_risk", "churned", "inactive"];
 const healthStatuses = ["healthy", "attention_needed", "at_risk", "critical"];
 const churnRisks = ["low", "medium", "high", "critical"];
+const growthScoreCategoryFields = [
+  "websiteVisibility",
+  "seo",
+  "gbp",
+  "tracking",
+  "conversion",
+  "leadHandling",
+  "responseSpeed",
+  "enquiryVisibility",
+  "treatmentPerformance",
+  "revenueLeakage",
+  "growthOpportunity",
+];
+
+const growthScoreValidators = [
+  body("growthScore").optional({ nullable: true }).isObject(),
+  body("growthScore.overall").optional({ nullable: true }).isFloat({ min: 0, max: 100 }).toFloat(),
+  body("growthScore.categories").optional({ nullable: true }).isObject(),
+  ...growthScoreCategoryFields.map((field) =>
+    body(`growthScore.categories.${field}`).optional({ nullable: true }).isFloat({ min: 0, max: 100 }).toFloat(),
+  ),
+  body("growthScore.recommendedPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Growth Score recommended package must be 150 characters or fewer"),
+  body("growthScore.gapSummary").optional({ nullable: true }).trim().isLength({ max: 5000 }).withMessage("Growth Score gap summary must be 5000 characters or fewer"),
+  body("growthScore.updatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Growth Score timestamp must be a valid date"),
+  body("growthScoreOverall").optional({ nullable: true }).isFloat({ min: 0, max: 100 }).toFloat(),
+  body("growthScoreCategories").optional({ nullable: true }).isObject(),
+  ...growthScoreCategoryFields.map((field) =>
+    body(`growthScoreCategories.${field}`).optional({ nullable: true }).isFloat({ min: 0, max: 100 }).toFloat(),
+  ),
+  body("growthScoreRecommendedPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Growth Score recommended package must be 150 characters or fewer"),
+  body("growthScoreGapSummary").optional({ nullable: true }).trim().isLength({ max: 5000 }).withMessage("Growth Score gap summary must be 5000 characters or fewer"),
+  body("growthScoreUpdatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Growth Score timestamp must be a valid date"),
+];
 
 function userIdentifier(field: "accountManagerId" | "ownerId", label: string) {
   return body(field)
@@ -44,6 +77,7 @@ export const createClientAccountValidator = [
   body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
   body("recommendedNextPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Recommended next package must be 150 characters or fewer"),
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
+  ...growthScoreValidators,
   body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),
@@ -62,6 +96,7 @@ export const createClientAccountFromContactValidator = [
   body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
   body("recommendedNextPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Recommended next package must be 150 characters or fewer"),
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
+  ...growthScoreValidators,
   body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),
@@ -150,6 +185,7 @@ export const updateClientAccountProfileValidator = [
   body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
   body("recommendedNextPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Recommended next package must be 150 characters or fewer"),
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
+  ...growthScoreValidators,
   body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),

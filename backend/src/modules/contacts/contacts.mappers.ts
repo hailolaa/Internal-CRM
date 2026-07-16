@@ -50,6 +50,30 @@ function booleanOrNull(value: unknown) {
   return Boolean(value);
 }
 
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function mapGrowthScoreCategories(row: any) {
+  const parsed = parseJsonObject(row.growthScoreCategories) || {};
+  const score = (columnValue: unknown, key: string) => numberOrNull(columnValue ?? parsed[key]);
+  return {
+    websiteVisibility: score(row.growthScoreWebsiteVisibility, "websiteVisibility"),
+    seo: score(row.growthScoreSeo, "seo"),
+    gbp: score(row.growthScoreGbp, "gbp"),
+    tracking: score(row.growthScoreTracking, "tracking"),
+    conversion: score(row.growthScoreConversion, "conversion"),
+    leadHandling: score(row.growthScoreLeadHandling, "leadHandling"),
+    responseSpeed: score(row.growthScoreResponseSpeed, "responseSpeed"),
+    enquiryVisibility: score(row.growthScoreEnquiryVisibility, "enquiryVisibility"),
+    treatmentPerformance: score(row.growthScoreTreatmentPerformance, "treatmentPerformance"),
+    revenueLeakage: score(row.growthScoreRevenueLeakage, "revenueLeakage"),
+    growthOpportunity: score(row.growthScoreGrowthOpportunity, "growthOpportunity"),
+  };
+}
+
 // Map contact rows into frontend-friendly camelCase response fields
 export function mapContact(row: any): ContactResponse {
   const accountName = row.accountName || null;
@@ -69,6 +93,11 @@ export function mapContact(row: any): ContactResponse {
     whatsapp: doNotContact || unsubscribed ? false : whatsappPermission ?? storedCommunicationPermissions.whatsapp,
     phone: doNotContact ? false : phonePermission ?? storedCommunicationPermissions.phone,
   };
+  const growthScoreCategories = mapGrowthScoreCategories(row);
+  const growthScoreOverall = numberOrNull(row.growthScoreOverall);
+  const growthScoreRecommendedPackage = row.growthScoreRecommendedPackage || row.recommendedPackage || null;
+  const growthScoreGapSummary = row.growthScoreGapSummary || null;
+  const growthScoreUpdatedAt = formatIso(row.growthScoreUpdatedAt);
 
   return {
     id: row.id,
@@ -129,6 +158,18 @@ export function mapContact(row: any): ContactResponse {
     treatmentInterests: parseJsonArray(row.treatmentInterests),
     packageInterest: row.packageInterest || null,
     recommendedPackage: row.recommendedPackage || null,
+    growthScore: {
+      overall: growthScoreOverall,
+      categories: growthScoreCategories,
+      recommendedPackage: growthScoreRecommendedPackage,
+      gapSummary: growthScoreGapSummary,
+      updatedAt: growthScoreUpdatedAt,
+    },
+    growthScoreOverall,
+    growthScoreCategories,
+    growthScoreRecommendedPackage,
+    growthScoreGapSummary,
+    growthScoreUpdatedAt,
     notes: row.notes || null,
     externalId: row.externalId || null,
     importBatchId: row.importBatchId || null,

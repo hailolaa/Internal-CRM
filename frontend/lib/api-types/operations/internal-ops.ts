@@ -52,6 +52,28 @@ export type ClientAccountActionPlanStatus =
   | "completed"
   | "archived";
 
+export interface ClientAccountGrowthScoreCategories {
+  websiteVisibility: number | null;
+  seo: number | null;
+  gbp: number | null;
+  tracking: number | null;
+  conversion: number | null;
+  leadHandling: number | null;
+  responseSpeed: number | null;
+  enquiryVisibility: number | null;
+  treatmentPerformance: number | null;
+  revenueLeakage: number | null;
+  growthOpportunity: number | null;
+}
+
+export interface ClientAccountGrowthScoreSnapshot {
+  overall: number | null;
+  categories: ClientAccountGrowthScoreCategories;
+  recommendedPackage: string | null;
+  gapSummary: string | null;
+  updatedAt: string | null;
+}
+
 export interface ClientAccountPerson {
   id: string;
   firstName: string | null;
@@ -79,6 +101,12 @@ export interface ClientAccountProfileRecord {
   currentPackage: string | null;
   recommendedNextPackage: string | null;
   upsellOpportunity: string | null;
+  growthScore: ClientAccountGrowthScoreSnapshot;
+  growthScoreOverall: number | null;
+  growthScoreCategories: ClientAccountGrowthScoreCategories;
+  growthScoreRecommendedPackage: string | null;
+  growthScoreGapSummary: string | null;
+  growthScoreUpdatedAt: string | null;
   churnRisk: ClientAccountChurnRisk;
   renewalDate: string | null;
   contractStatus: ClientAccountContractStatus;
@@ -196,6 +224,12 @@ export interface ClientAccountProfilePayload {
   currentPackage?: string | null;
   recommendedNextPackage?: string | null;
   upsellOpportunity?: string | null;
+  growthScore?: Partial<ClientAccountGrowthScoreSnapshot> | null;
+  growthScoreOverall?: number | null;
+  growthScoreCategories?: Partial<ClientAccountGrowthScoreCategories> | null;
+  growthScoreRecommendedPackage?: string | null;
+  growthScoreGapSummary?: string | null;
+  growthScoreUpdatedAt?: string | null;
   churnRisk?: ClientAccountChurnRisk;
   renewalDate?: string | null;
   contractStatus?: ClientAccountContractStatus;

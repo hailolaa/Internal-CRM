@@ -7,6 +7,28 @@ export type ClientServiceType = "ppc" | "seo" | "gbp" | "website" | "landing_pag
 export type ClientServiceStatus = "onboarding" | "active" | "paused" | "ended" | "archived";
 export type MonthlyActionPlanStatus = "draft" | "active" | "completed" | "archived";
 
+export interface GrowthScoreCategories {
+  websiteVisibility: number | null;
+  seo: number | null;
+  gbp: number | null;
+  tracking: number | null;
+  conversion: number | null;
+  leadHandling: number | null;
+  responseSpeed: number | null;
+  enquiryVisibility: number | null;
+  treatmentPerformance: number | null;
+  revenueLeakage: number | null;
+  growthOpportunity: number | null;
+}
+
+export interface GrowthScoreSnapshot {
+  overall: number | null;
+  categories: GrowthScoreCategories;
+  recommendedPackage: string | null;
+  gapSummary: string | null;
+  updatedAt: string | null;
+}
+
 export interface UpdateClientAccountProfileDTO {
   accountManagerId?: string | null;
   activeServices?: string[];
@@ -16,6 +38,12 @@ export interface UpdateClientAccountProfileDTO {
   currentPackage?: string | null;
   recommendedNextPackage?: string | null;
   upsellOpportunity?: string | null;
+  growthScore?: Partial<GrowthScoreSnapshot> | null;
+  growthScoreOverall?: number | string | null;
+  growthScoreCategories?: Partial<GrowthScoreCategories> | null;
+  growthScoreRecommendedPackage?: string | null;
+  growthScoreGapSummary?: string | null;
+  growthScoreUpdatedAt?: string | null;
   churnRisk?: ChurnRisk;
   renewalDate?: string | null;
   contractStatus?: ContractStatus;
@@ -80,6 +108,12 @@ export interface ClientAccountProfileResponse {
   currentPackage: string | null;
   recommendedNextPackage: string | null;
   upsellOpportunity: string | null;
+  growthScore: GrowthScoreSnapshot;
+  growthScoreOverall: number | null;
+  growthScoreCategories: GrowthScoreCategories;
+  growthScoreRecommendedPackage: string | null;
+  growthScoreGapSummary: string | null;
+  growthScoreUpdatedAt: string | null;
   churnRisk: ChurnRisk;
   renewalDate: string | null;
   contractStatus: ContractStatus;

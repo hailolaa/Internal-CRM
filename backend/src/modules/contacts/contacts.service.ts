@@ -186,6 +186,10 @@ function toContactsCsv(contacts: ContactResponse[]) {
     "treatmentInterests",
     "packageInterest",
     "recommendedPackage",
+    "growthScoreOverall",
+    "growthScoreRecommendedPackage",
+    "growthScoreGapSummary",
+    "growthScoreUpdatedAt",
     "tags",
     "lastContactAt",
     "createdAt",
@@ -221,6 +225,10 @@ function toContactsCsv(contacts: ContactResponse[]) {
     contact.treatmentInterests,
     contact.packageInterest,
     contact.recommendedPackage,
+    contact.growthScoreOverall,
+    contact.growthScoreRecommendedPackage,
+    contact.growthScoreGapSummary,
+    contact.growthScoreUpdatedAt,
     contact.tags,
     contact.lastContactAt,
     contact.createdAt,
@@ -783,6 +791,52 @@ export class ContactsService {
     addField("treatmentInterests", "treatment_interests", JSON.stringify(normalized.treatmentInterests));
     addField("packageInterest", "package_interest", normalized.packageInterest);
     addField("recommendedPackage", "recommended_package", normalized.recommendedPackage);
+    if (hasOwn(data, "growthScore") && !hasOwn(data, "growthScoreOverall")) {
+      fields.push("growth_score_overall = ?");
+      values.push(normalized.growthScoreOverall);
+    }
+    addField("growthScoreOverall", "growth_score_overall", normalized.growthScoreOverall);
+    if (hasOwn(data, "growthScore") || hasOwn(data, "growthScoreCategories")) {
+      fields.push("growth_score_categories = ?");
+      values.push(JSON.stringify(normalized.growthScoreCategories));
+      fields.push("growth_score_website_visibility = ?");
+      values.push(normalized.growthScoreCategories.websiteVisibility);
+      fields.push("growth_score_seo = ?");
+      values.push(normalized.growthScoreCategories.seo);
+      fields.push("growth_score_gbp = ?");
+      values.push(normalized.growthScoreCategories.gbp);
+      fields.push("growth_score_tracking = ?");
+      values.push(normalized.growthScoreCategories.tracking);
+      fields.push("growth_score_conversion = ?");
+      values.push(normalized.growthScoreCategories.conversion);
+      fields.push("growth_score_lead_handling = ?");
+      values.push(normalized.growthScoreCategories.leadHandling);
+      fields.push("growth_score_response_speed = ?");
+      values.push(normalized.growthScoreCategories.responseSpeed);
+      fields.push("growth_score_enquiry_visibility = ?");
+      values.push(normalized.growthScoreCategories.enquiryVisibility);
+      fields.push("growth_score_treatment_performance = ?");
+      values.push(normalized.growthScoreCategories.treatmentPerformance);
+      fields.push("growth_score_revenue_leakage = ?");
+      values.push(normalized.growthScoreCategories.revenueLeakage);
+      fields.push("growth_score_growth_opportunity = ?");
+      values.push(normalized.growthScoreCategories.growthOpportunity);
+    }
+    if (hasOwn(data, "growthScore") && !hasOwn(data, "growthScoreRecommendedPackage")) {
+      fields.push("growth_score_recommended_package = ?");
+      values.push(normalized.growthScoreRecommendedPackage);
+    }
+    if (hasOwn(data, "growthScore") && !hasOwn(data, "growthScoreGapSummary")) {
+      fields.push("growth_score_gap_summary = ?");
+      values.push(normalized.growthScoreGapSummary);
+    }
+    if (hasOwn(data, "growthScore") && !hasOwn(data, "growthScoreUpdatedAt")) {
+      fields.push("growth_score_updated_at = ?");
+      values.push(normalized.growthScoreUpdatedAt);
+    }
+    addField("growthScoreRecommendedPackage", "growth_score_recommended_package", normalized.growthScoreRecommendedPackage);
+    addField("growthScoreGapSummary", "growth_score_gap_summary", normalized.growthScoreGapSummary);
+    addField("growthScoreUpdatedAt", "growth_score_updated_at", normalized.growthScoreUpdatedAt);
     addField("notes", "notes", normalized.notes);
     addField("lastContactAt", "last_contact_at", normalized.lastContactAt);
 

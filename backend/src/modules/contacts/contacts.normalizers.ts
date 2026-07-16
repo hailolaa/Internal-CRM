@@ -1,5 +1,6 @@
 import type {
   ContactCommunicationPermissions,
+  GrowthScoreCategories,
   ContactImportRow,
   ContactMutationDTO,
   NormalizedContactData,
@@ -106,6 +107,13 @@ function normalizeBoolean(value: unknown) {
   return null;
 }
 
+function normalizeScore(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return null;
+  return Math.min(100, Math.max(0, numericValue));
+}
+
 function normalizePermission(value: unknown, alias: unknown) {
   const normalizedValue = normalizeBoolean(value);
   return normalizedValue === null ? normalizeBoolean(alias) : normalizedValue;
@@ -128,8 +136,54 @@ function normalizeCommunicationPermissions(
   };
 }
 
+const emptyGrowthScoreCategories: GrowthScoreCategories = {
+  websiteVisibility: null,
+  seo: null,
+  gbp: null,
+  tracking: null,
+  conversion: null,
+  leadHandling: null,
+  responseSpeed: null,
+  enquiryVisibility: null,
+  treatmentPerformance: null,
+  revenueLeakage: null,
+  growthOpportunity: null,
+};
+
+function normalizeGrowthScoreCategories(value: Partial<GrowthScoreCategories> | null | undefined): GrowthScoreCategories {
+  return {
+    websiteVisibility: normalizeScore(value?.websiteVisibility),
+    seo: normalizeScore(value?.seo),
+    gbp: normalizeScore(value?.gbp),
+    tracking: normalizeScore(value?.tracking),
+    conversion: normalizeScore(value?.conversion),
+    leadHandling: normalizeScore(value?.leadHandling),
+    responseSpeed: normalizeScore(value?.responseSpeed),
+    enquiryVisibility: normalizeScore(value?.enquiryVisibility),
+    treatmentPerformance: normalizeScore(value?.treatmentPerformance),
+    revenueLeakage: normalizeScore(value?.revenueLeakage),
+    growthOpportunity: normalizeScore(value?.growthOpportunity),
+  };
+}
+
+function normalizeGrowthScore(data: Partial<ContactMutationDTO>) {
+  const snapshot = data.growthScore && typeof data.growthScore === "object" ? data.growthScore : null;
+  const categories = normalizeGrowthScoreCategories(
+    data.growthScoreCategories || snapshot?.categories || emptyGrowthScoreCategories,
+  );
+
+  return {
+    overall: normalizeScore(data.growthScoreOverall ?? snapshot?.overall),
+    categories,
+    recommendedPackage: cleanString(data.growthScoreRecommendedPackage ?? snapshot?.recommendedPackage),
+    gapSummary: cleanString(data.growthScoreGapSummary ?? snapshot?.gapSummary),
+    updatedAt: normalizeDateTime(data.growthScoreUpdatedAt ?? snapshot?.updatedAt),
+  };
+}
+
 // Normalize manual create/update payloads before database writes and duplicate checks
 export function normalizeContactData(data: Partial<ContactMutationDTO>): NormalizedContactData {
+  const growthScore = normalizeGrowthScore(data);
   return {
     externalId: cleanString(data.externalId),
     accountName: cleanString(data.accountName),
@@ -188,6 +242,12 @@ export function normalizeContactData(data: Partial<ContactMutationDTO>): Normali
     treatmentInterests: normalizeStringList(data.treatmentInterests),
     packageInterest: cleanString(data.packageInterest),
     recommendedPackage: cleanString(data.recommendedPackage),
+    growthScore,
+    growthScoreOverall: growthScore.overall,
+    growthScoreCategories: growthScore.categories,
+    growthScoreRecommendedPackage: growthScore.recommendedPackage,
+    growthScoreGapSummary: growthScore.gapSummary,
+    growthScoreUpdatedAt: growthScore.updatedAt,
     notes: cleanString(data.notes),
     lastContactAt: normalizeDateTime(data.lastContactAt),
   };

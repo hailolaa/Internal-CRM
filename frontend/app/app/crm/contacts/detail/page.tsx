@@ -9,6 +9,7 @@ import {
   Clock,
   Edit3,
   ExternalLink,
+  Gauge,
   Loader2,
   Mail,
   MessageSquare,
@@ -116,6 +117,24 @@ function DetailValue({ label, value }: { label: string; value: string | null | u
       </p>
     </div>
   );
+}
+
+const growthScoreCategoryLabels = [
+  ["websiteVisibility", "Website visibility"],
+  ["seo", "SEO"],
+  ["gbp", "GBP"],
+  ["tracking", "Tracking"],
+  ["conversion", "Conversion"],
+  ["leadHandling", "Lead handling"],
+  ["responseSpeed", "Response speed"],
+  ["enquiryVisibility", "Enquiry visibility"],
+  ["treatmentPerformance", "Treatment performance"],
+  ["revenueLeakage", "Revenue leakage"],
+  ["growthOpportunity", "Growth opportunity"],
+] as const;
+
+function formatScore(value: number | null | undefined) {
+  return value === null || value === undefined ? "Not scored" : `${Math.round(value)} / 100`;
 }
 
 export default function ContactDetailPage() {
@@ -821,6 +840,40 @@ export default function ContactDetailPage() {
               <DetailValue label="Google click ID" value={contact.gclid} />
               <DetailValue label="Meta click ID" value={contact.fbclid} />
               <DetailValue label="Microsoft click ID" value={contact.msclkid} />
+            </div>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="flex items-center gap-2 text-base font-semibold text-[#151f21]">
+                  <Gauge className="h-4 w-4 text-[#6E6AE8]" />
+                  Clinic Growth Score
+                </h2>
+                <p className="mt-1 text-sm text-[#6F6A66]">
+                  Structured audit score and package recommendation.
+                </p>
+              </div>
+              <span className="rounded-full bg-[#edf5f3] px-3 py-1 text-sm font-bold text-[#315f62]">
+                {formatScore(contact.growthScoreOverall)}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <DetailValue label="Recommended package" value={contact.growthScoreRecommendedPackage || contact.recommendedPackage} />
+              <DetailValue label="Last scored" value={contact.growthScoreUpdatedAt ? formatDateTime(contact.growthScoreUpdatedAt) : null} />
+            </div>
+            {contact.growthScoreGapSummary ? (
+              <p className="mt-4 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-3 text-sm leading-relaxed text-[#6F6A66]">
+                {contact.growthScoreGapSummary}
+              </p>
+            ) : null}
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {growthScoreCategoryLabels.map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between rounded-xl bg-[#FAF8F5] px-3 py-2.5 text-sm text-[#6F6A66]">
+                  <span>{label}</span>
+                  <span className="font-semibold text-[#151f21]">{formatScore(contact.growthScoreCategories[key])}</span>
+                </div>
+              ))}
             </div>
           </Card>
 

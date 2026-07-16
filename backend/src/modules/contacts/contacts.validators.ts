@@ -15,6 +15,19 @@ const attributionTextFields = [
 const attributionUrlFields = ["landingPage", "referrer", "pageSubmitted"];
 const attributionEventFields = ["formSubmitted", "ctaClicked"];
 const attributionClickIdFields = ["gclid", "fbclid", "msclkid", "ttclid", "gbraid", "wbraid"];
+const growthScoreCategoryFields = [
+  "websiteVisibility",
+  "seo",
+  "gbp",
+  "tracking",
+  "conversion",
+  "leadHandling",
+  "responseSpeed",
+  "enquiryVisibility",
+  "treatmentPerformance",
+  "revenueLeakage",
+  "growthOpportunity",
+];
 const contactIdParam = () =>
   param("id")
     .isString()
@@ -84,6 +97,23 @@ const contactMutationValidator = [
   body("treatmentInterests.*").optional().isString().trim().isLength({ max: 100 }),
   body("packageInterest").optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
   body("recommendedPackage").optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
+  body("growthScore").optional({ nullable: true }).isObject(),
+  body("growthScore.overall").optional({ nullable: true }).isFloat({ min: 0, max: 100 }).toFloat(),
+  body("growthScore.categories").optional({ nullable: true }).isObject(),
+  ...growthScoreCategoryFields.map((field) =>
+    body(`growthScore.categories.${field}`).optional({ nullable: true }).isFloat({ min: 0, max: 100 }).toFloat(),
+  ),
+  body("growthScore.recommendedPackage").optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
+  body("growthScore.gapSummary").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
+  body("growthScore.updatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("growthScoreOverall").optional({ nullable: true }).isFloat({ min: 0, max: 100 }).toFloat(),
+  body("growthScoreCategories").optional({ nullable: true }).isObject(),
+  ...growthScoreCategoryFields.map((field) =>
+    body(`growthScoreCategories.${field}`).optional({ nullable: true }).isFloat({ min: 0, max: 100 }).toFloat(),
+  ),
+  body("growthScoreRecommendedPackage").optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
+  body("growthScoreGapSummary").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
+  body("growthScoreUpdatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("notes").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
   body("lastContactAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
 ];

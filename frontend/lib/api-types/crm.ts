@@ -146,6 +146,28 @@ export interface AppointmentRecurrenceRule {
 export type ContactSortBy = "name" | "source" | "status" | "value" | "lastContact" | "createdAt" | "updatedAt";
 export type ContactSortOrder = "asc" | "desc";
 
+export interface GrowthScoreCategories {
+  websiteVisibility: number | null;
+  seo: number | null;
+  gbp: number | null;
+  tracking: number | null;
+  conversion: number | null;
+  leadHandling: number | null;
+  responseSpeed: number | null;
+  enquiryVisibility: number | null;
+  treatmentPerformance: number | null;
+  revenueLeakage: number | null;
+  growthOpportunity: number | null;
+}
+
+export interface GrowthScoreSnapshot {
+  overall: number | null;
+  categories: GrowthScoreCategories;
+  recommendedPackage: string | null;
+  gapSummary: string | null;
+  updatedAt: string | null;
+}
+
 export interface ContactRecord {
   id: string;
   accountName: string | null;
@@ -210,6 +232,12 @@ export interface ContactRecord {
   treatmentInterests: string[];
   packageInterest: string | null;
   recommendedPackage: string | null;
+  growthScore: GrowthScoreSnapshot;
+  growthScoreOverall: number | null;
+  growthScoreCategories: GrowthScoreCategories;
+  growthScoreRecommendedPackage: string | null;
+  growthScoreGapSummary: string | null;
+  growthScoreUpdatedAt: string | null;
   notes: string | null;
   externalId: string | null;
   importBatchId: string | null;
@@ -296,6 +324,12 @@ export interface ContactCreatePayload {
   treatmentInterests?: string[];
   packageInterest?: string | null;
   recommendedPackage?: string | null;
+  growthScore?: Partial<GrowthScoreSnapshot> | null;
+  growthScoreOverall?: number | null;
+  growthScoreCategories?: Partial<GrowthScoreCategories> | null;
+  growthScoreRecommendedPackage?: string | null;
+  growthScoreGapSummary?: string | null;
+  growthScoreUpdatedAt?: string | null;
   notes?: string | null;
 }
 
