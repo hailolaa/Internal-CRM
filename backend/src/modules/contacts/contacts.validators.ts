@@ -37,10 +37,19 @@ const contactMutationValidator = [
   body("email").optional({ nullable: true, checkFalsy: true }).isEmail().normalizeEmail(),
   body("phone").optional({ nullable: true }).isString().trim().isLength({ max: 30 }),
   body("roleTitle").optional({ nullable: true }).isString().trim().isLength({ max: 120 }),
+  body("canEmail").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("canCall").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("canWhatsAppMessage").optional({ nullable: true }).isBoolean().toBoolean(),
   body("emailPermission").optional({ nullable: true }).isBoolean().toBoolean(),
   body("phonePermission").optional({ nullable: true }).isBoolean().toBoolean(),
   body("smsPermission").optional({ nullable: true }).isBoolean().toBoolean(),
   body("whatsappPermission").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("unsubscribed").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("doNotContact").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("permissionSource").optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
+  body("optInAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("optOutAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("consentUpdatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("website")
     .optional({ nullable: true, checkFalsy: true })
     .isURL({ protocols: ["http", "https"], require_protocol: false })
@@ -228,10 +237,19 @@ export const importContactsValidator = [
   body("rows.*.email").optional({ nullable: true, checkFalsy: true }).isEmail().normalizeEmail(),
   body("rows.*.phone").optional().isString().trim().isLength({ max: 30 }),
   body("rows.*.roleTitle").optional().isString().trim().isLength({ max: 120 }),
+  body("rows.*.canEmail").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("rows.*.canCall").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("rows.*.canWhatsAppMessage").optional({ nullable: true }).isBoolean().toBoolean(),
   body("rows.*.emailPermission").optional({ nullable: true }).isBoolean().toBoolean(),
   body("rows.*.phonePermission").optional({ nullable: true }).isBoolean().toBoolean(),
   body("rows.*.smsPermission").optional({ nullable: true }).isBoolean().toBoolean(),
   body("rows.*.whatsappPermission").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("rows.*.unsubscribed").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("rows.*.doNotContact").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("rows.*.permissionSource").optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
+  body("rows.*.optInAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("rows.*.optOutAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("rows.*.consentUpdatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("rows.*.website")
     .optional({ nullable: true, checkFalsy: true })
     .isURL({ protocols: ["http", "https"], require_protocol: false })

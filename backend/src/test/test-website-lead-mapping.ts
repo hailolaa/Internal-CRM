@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildGuideDownloadContext, mapWebsiteLeadIntent } from "../modules/website-leads/website-leads.service.js";
+import {
+  buildGuideDownloadContext,
+  buildWebsiteLeadContactPermissions,
+  mapWebsiteLeadIntent,
+} from "../modules/website-leads/website-leads.service.js";
 
 test("Clinic Growth Score form maps to Growth Score free audit", () => {
   const result = mapWebsiteLeadIntent({
@@ -64,4 +68,61 @@ test("contact form and manual referral sources are supported", () => {
   const referral = mapWebsiteLeadIntent({ source: "Partner referral" });
   assert.equal(referral.source, "referral");
   assert.equal(referral.leadType, "referral");
+});
+
+test("website submissions map consent values into CRM contact permissions", () => {
+  const permissions = buildWebsiteLeadContactPermissions({
+    consent: {
+      email: true,
+      phone: "yes",
+      whatsapp: 1,
+      permissionSource: "growth score form",
+      optInAt: "2026-07-16T08:45:00.000Z",
+    },
+  });
+
+  assert.deepEqual(permissions.communicationPermissions, {
+    email: true,
+    sms: false,
+    whatsapp: true,
+    phone: true,
+  });
+  assert.equal(permissions.canEmail, true);
+  assert.equal(permissions.canCall, true);
+  assert.equal(permissions.canWhatsAppMessage, true);
+  assert.equal(permissions.permissionSource, "growth score form");
+  assert.equal(permissions.optInAt, "2026-07-16 08:45:00");
+});
+
+test("unsubscribe and do-not-contact suppress unsafe outreach channels", () => {
+  const unsubscribed = buildWebsiteLeadContactPermissions({
+    emailConsent: true,
+    whatsappConsent: true,
+    phoneConsent: true,
+    unsubscribed: true,
+    permissionSource: "unsubscribe link",
+  });
+
+  assert.equal(unsubscribed.emailPermission, false);
+  assert.equal(unsubscribed.whatsappPermission, false);
+  assert.equal(unsubscribed.phonePermission, true);
+  assert.equal(unsubscribed.unsubscribed, true);
+  assert.equal(Boolean(unsubscribed.optOutAt), true);
+
+  const doNotContact = buildWebsiteLeadContactPermissions({
+    consent: {
+      email: true,
+      phone: true,
+      whatsapp: true,
+      doNotContact: "yes",
+    },
+  });
+
+  assert.deepEqual(doNotContact.communicationPermissions, {
+    email: false,
+    sms: false,
+    whatsapp: false,
+    phone: false,
+  });
+  assert.equal(doNotContact.doNotContact, true);
 });

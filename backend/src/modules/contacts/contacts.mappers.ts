@@ -56,22 +56,44 @@ export function mapContact(row: any): ContactResponse {
   const firstName = row.firstName || null;
   const lastName = row.lastName || null;
   const name = [firstName, lastName].filter(Boolean).join(" ") || accountName || row.email || row.phone || "Unknown";
+  const emailPermission = booleanOrNull(row.emailPermission);
+  const phonePermission = booleanOrNull(row.phonePermission);
+  const smsPermission = booleanOrNull(row.smsPermission);
+  const whatsappPermission = booleanOrNull(row.whatsappPermission);
+  const unsubscribed = booleanOrNull(row.unsubscribed);
+  const doNotContact = booleanOrNull(row.doNotContact);
+  const storedCommunicationPermissions = parseCommunicationPermissions(row.communicationPermissions);
+  const communicationPermissions = {
+    email: doNotContact || unsubscribed ? false : emailPermission ?? storedCommunicationPermissions.email,
+    sms: doNotContact || unsubscribed ? false : smsPermission ?? storedCommunicationPermissions.sms,
+    whatsapp: doNotContact || unsubscribed ? false : whatsappPermission ?? storedCommunicationPermissions.whatsapp,
+    phone: doNotContact ? false : phonePermission ?? storedCommunicationPermissions.phone,
+  };
 
   return {
     id: row.id,
     accountName,
     role: row.role || null,
-    communicationPermissions: parseCommunicationPermissions(row.communicationPermissions),
+    communicationPermissions,
     firstName,
     lastName,
     name,
     email: row.email || null,
     phone: row.phone || null,
     roleTitle: row.roleTitle || null,
-    emailPermission: booleanOrNull(row.emailPermission),
-    phonePermission: booleanOrNull(row.phonePermission),
-    smsPermission: booleanOrNull(row.smsPermission),
-    whatsappPermission: booleanOrNull(row.whatsappPermission),
+    canEmail: communicationPermissions.email,
+    canCall: communicationPermissions.phone,
+    canWhatsAppMessage: communicationPermissions.whatsapp,
+    emailPermission: communicationPermissions.email,
+    phonePermission: communicationPermissions.phone,
+    smsPermission: communicationPermissions.sms,
+    whatsappPermission: communicationPermissions.whatsapp,
+    unsubscribed,
+    doNotContact,
+    permissionSource: row.permissionSource || null,
+    optInAt: formatIso(row.optInAt),
+    optOutAt: formatIso(row.optOutAt),
+    consentUpdatedAt: formatIso(row.consentUpdatedAt),
     website: row.website || null,
     dateOfBirth: formatDate(row.dateOfBirth),
     gender: row.gender || null,

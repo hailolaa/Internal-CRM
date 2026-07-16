@@ -1,9 +1,20 @@
 export interface WebsiteLeadConsentPayload {
+  canCall?: boolean | string | number | null;
+  canEmail?: boolean | string | number | null;
+  canMessage?: boolean | string | number | null;
+  canWhatsApp?: boolean | string | number | null;
+  canWhatsAppMessage?: boolean | string | number | null;
+  consentSource?: string | null;
+  doNotContact?: boolean | string | number | null;
   email?: boolean | string | number | null;
   marketing?: boolean | string | number | null;
+  optInAt?: string | null;
+  optOutAt?: string | null;
   phone?: boolean | string | number | null;
+  permissionSource?: string | null;
   privacyPolicy?: boolean | string | number | null;
   sms?: boolean | string | number | null;
+  unsubscribed?: boolean | string | number | null;
   whatsapp?: boolean | string | number | null;
 }
 
@@ -14,6 +25,8 @@ export interface WebsiteLeadCapturePayload {
   companyName?: string | null;
   consent?: WebsiteLeadConsentPayload | null;
   contactName?: string | null;
+  consentSource?: string | null;
+  consent_source?: string | null;
   convertingSource?: string | null;
   converting_source?: string | null;
   cta?: string | null;
@@ -21,6 +34,13 @@ export interface WebsiteLeadCapturePayload {
   cta_clicked?: string | null;
   email?: string | null;
   emailConsent?: boolean | string | number | null;
+  canEmail?: boolean | string | number | null;
+  canCall?: boolean | string | number | null;
+  canMessage?: boolean | string | number | null;
+  canWhatsApp?: boolean | string | number | null;
+  canWhatsAppMessage?: boolean | string | number | null;
+  doNotContact?: boolean | string | number | null;
+  do_not_contact?: boolean | string | number | null;
   eventId?: string | null;
   fbclid?: string | null;
   firstName?: string | null;
@@ -60,8 +80,14 @@ export interface WebsiteLeadCapturePayload {
   page_submitted?: string | null;
   pageUrl?: string | null;
   page_url?: string | null;
+  optInAt?: string | null;
+  opt_in_at?: string | null;
+  optOutAt?: string | null;
+  opt_out_at?: string | null;
   phone?: string | null;
   phoneConsent?: boolean | string | number | null;
+  permissionSource?: string | null;
+  permission_source?: string | null;
   privacyPolicyConsent?: boolean | string | number | null;
   referrer?: string | null;
   serviceInterest?: string | null;
@@ -79,6 +105,7 @@ export interface WebsiteLeadCapturePayload {
   utm_medium?: string | null;
   utm_source?: string | null;
   utm_term?: string | null;
+  unsubscribed?: boolean | string | number | null;
   wbraid?: string | null;
   website?: string | null;
   websiteLeadTrap?: string | null;

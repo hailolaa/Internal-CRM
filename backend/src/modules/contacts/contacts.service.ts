@@ -90,6 +90,11 @@ const importHeaderAliases: Record<string, keyof ContactImportRow | "tags"> = {
   title: "roleTitle",
   jobtitle: "roleTitle",
   contactrole: "roleTitle",
+  canemail: "canEmail",
+  cancall: "canCall",
+  canwhatsapp: "canWhatsAppMessage",
+  canmessage: "canWhatsAppMessage",
+  canwhatsappmessage: "canWhatsAppMessage",
   emailpermission: "emailPermission",
   emailoptin: "emailPermission",
   phonepermission: "phonePermission",
@@ -98,6 +103,14 @@ const importHeaderAliases: Record<string, keyof ContactImportRow | "tags"> = {
   smsoptin: "smsPermission",
   whatsapppermission: "whatsappPermission",
   whatsappoptin: "whatsappPermission",
+  unsubscribed: "unsubscribed",
+  donotcontact: "doNotContact",
+  dnc: "doNotContact",
+  permissionsource: "permissionSource",
+  consentsource: "permissionSource",
+  optinat: "optInAt",
+  optoutat: "optOutAt",
+  consentupdatedat: "consentUpdatedAt",
   email: "email",
   emailaddress: "email",
   phone: "phone",
@@ -152,10 +165,19 @@ function toContactsCsv(contacts: ContactResponse[]) {
     "email",
     "phone",
     "roleTitle",
+    "canEmail",
+    "canCall",
+    "canWhatsAppMessage",
     "emailPermission",
     "phonePermission",
     "smsPermission",
     "whatsappPermission",
+    "unsubscribed",
+    "doNotContact",
+    "permissionSource",
+    "optInAt",
+    "optOutAt",
+    "consentUpdatedAt",
     "website",
     "status",
     "leadStatus",
@@ -178,10 +200,19 @@ function toContactsCsv(contacts: ContactResponse[]) {
     contact.email,
     contact.phone,
     contact.roleTitle,
+    contact.canEmail,
+    contact.canCall,
+    contact.canWhatsAppMessage,
     contact.emailPermission,
     contact.phonePermission,
     contact.smsPermission,
     contact.whatsappPermission,
+    contact.unsubscribed,
+    contact.doNotContact,
+    contact.permissionSource,
+    contact.optInAt,
+    contact.optOutAt,
+    contact.consentUpdatedAt,
     contact.website,
     contact.status,
     contact.leadStatus,
@@ -288,14 +319,22 @@ function parseImportText(text: string): ContactImportRow[] {
       packageInterest: raw.packageInterest || raw.package || "",
       recommendedPackage: raw.recommendedPackage || raw.recommendedservice || "",
     };
-    const emailPermission = parseImportBoolean(raw.emailPermission);
-    const phonePermission = parseImportBoolean(raw.phonePermission);
+    const emailPermission = parseImportBoolean(raw.emailPermission || raw.canEmail);
+    const phonePermission = parseImportBoolean(raw.phonePermission || raw.canCall);
     const smsPermission = parseImportBoolean(raw.smsPermission);
-    const whatsappPermission = parseImportBoolean(raw.whatsappPermission);
+    const whatsappPermission = parseImportBoolean(raw.whatsappPermission || raw.canWhatsAppMessage);
+    const unsubscribed = parseImportBoolean(raw.unsubscribed);
+    const doNotContact = parseImportBoolean(raw.doNotContact);
     if (emailPermission !== undefined) row.emailPermission = emailPermission;
     if (phonePermission !== undefined) row.phonePermission = phonePermission;
     if (smsPermission !== undefined) row.smsPermission = smsPermission;
     if (whatsappPermission !== undefined) row.whatsappPermission = whatsappPermission;
+    if (unsubscribed !== undefined) row.unsubscribed = unsubscribed;
+    if (doNotContact !== undefined) row.doNotContact = doNotContact;
+    if (raw.permissionSource) row.permissionSource = raw.permissionSource;
+    if (raw.optInAt) row.optInAt = raw.optInAt;
+    if (raw.optOutAt) row.optOutAt = raw.optOutAt;
+    if (raw.consentUpdatedAt) row.consentUpdatedAt = raw.consentUpdatedAt;
     if (raw.notes) row.notes = raw.notes;
     return row;
   });
@@ -687,10 +726,28 @@ export class ContactsService {
     addField("email", "email", normalized.email);
     addField("phone", "phone", normalized.phone);
     addField("roleTitle", "role_title", normalized.roleTitle);
+    if (hasOwn(data, "canEmail") && !hasOwn(data, "emailPermission")) {
+      fields.push("email_permission = ?");
+      values.push(normalized.canEmail);
+    }
+    if (hasOwn(data, "canCall") && !hasOwn(data, "phonePermission")) {
+      fields.push("phone_permission = ?");
+      values.push(normalized.canCall);
+    }
+    if (hasOwn(data, "canWhatsAppMessage") && !hasOwn(data, "whatsappPermission")) {
+      fields.push("whatsapp_permission = ?");
+      values.push(normalized.canWhatsAppMessage);
+    }
     addField("emailPermission", "email_permission", normalized.emailPermission);
     addField("phonePermission", "phone_permission", normalized.phonePermission);
     addField("smsPermission", "sms_permission", normalized.smsPermission);
     addField("whatsappPermission", "whatsapp_permission", normalized.whatsappPermission);
+    addField("unsubscribed", "unsubscribed", normalized.unsubscribed);
+    addField("doNotContact", "do_not_contact", normalized.doNotContact);
+    addField("permissionSource", "permission_source", normalized.permissionSource);
+    addField("optInAt", "opt_in_at", normalized.optInAt);
+    addField("optOutAt", "opt_out_at", normalized.optOutAt);
+    addField("consentUpdatedAt", "consent_updated_at", normalized.consentUpdatedAt);
     addField("website", "website", normalized.website);
     addField("dateOfBirth", "date_of_birth", normalized.dateOfBirth);
     addField("gender", "gender", normalized.gender);

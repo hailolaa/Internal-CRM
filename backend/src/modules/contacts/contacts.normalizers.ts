@@ -106,6 +106,11 @@ function normalizeBoolean(value: unknown) {
   return null;
 }
 
+function normalizePermission(value: unknown, alias: unknown) {
+  const normalizedValue = normalizeBoolean(value);
+  return normalizedValue === null ? normalizeBoolean(alias) : normalizedValue;
+}
+
 function normalizeStringList(values: unknown): string[] {
   return Array.isArray(values)
     ? values.map((value) => cleanString(value)).filter(Boolean) as string[]
@@ -135,10 +140,19 @@ export function normalizeContactData(data: Partial<ContactMutationDTO>): Normali
     email: normalizeEmail(data.email),
     phone: normalizePhone(data.phone),
     roleTitle: cleanString(data.roleTitle),
-    emailPermission: normalizeBoolean(data.emailPermission),
-    phonePermission: normalizeBoolean(data.phonePermission),
+    canEmail: normalizePermission(data.emailPermission, data.canEmail),
+    canCall: normalizePermission(data.phonePermission, data.canCall),
+    canWhatsAppMessage: normalizePermission(data.whatsappPermission, data.canWhatsAppMessage),
+    emailPermission: normalizePermission(data.emailPermission, data.canEmail),
+    phonePermission: normalizePermission(data.phonePermission, data.canCall),
     smsPermission: normalizeBoolean(data.smsPermission),
-    whatsappPermission: normalizeBoolean(data.whatsappPermission),
+    whatsappPermission: normalizePermission(data.whatsappPermission, data.canWhatsAppMessage),
+    unsubscribed: normalizeBoolean(data.unsubscribed),
+    doNotContact: normalizeBoolean(data.doNotContact),
+    permissionSource: cleanString(data.permissionSource),
+    optInAt: normalizeDateTime(data.optInAt),
+    optOutAt: normalizeDateTime(data.optOutAt),
+    consentUpdatedAt: normalizeDateTime(data.consentUpdatedAt),
     website: cleanString(data.website),
     dateOfBirth: normalizeDate(data.dateOfBirth),
     gender: cleanString(data.gender),

@@ -42,6 +42,17 @@ function boolFromValue(value: unknown) {
   return ["1", "true", "yes", "y", "on", "accepted", "allowed", "consented"].includes(cleaned);
 }
 
+function nullableBoolFromValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  const cleaned = cleanString(value)?.toLowerCase();
+  if (!cleaned) return null;
+  if (["1", "true", "yes", "y", "on", "accepted", "allowed", "consented"].includes(cleaned)) return true;
+  if (["0", "false", "no", "n", "off", "blocked", "declined", "unsubscribed"].includes(cleaned)) return false;
+  return null;
+}
+
 function pick(data: WebsiteLeadCapturePayload, ...keys: string[]) {
   for (const key of keys) {
     const value = cleanString(data[key]);
@@ -75,6 +86,10 @@ function toIsoDateTime(value: string | null) {
   const parsed = value ? new Date(value) : new Date();
   const date = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
   return date.toISOString();
+}
+
+function toMysqlDateTime(value: string | null) {
+  return value ? toIsoDateTime(value).slice(0, 19).replace("T", " ") : null;
 }
 
 function tomorrowDateOnly() {
@@ -211,13 +226,93 @@ function isValidWebsite(value: string | null) {
   return /^https?:\/\/[^\s]+\.[^\s]+$/i.test(value) || /^[^\s]+\.[^\s]{2,}$/i.test(value);
 }
 
-function buildCommunicationPermissions(data: WebsiteLeadCapturePayload) {
+export function buildWebsiteLeadContactPermissions(data: WebsiteLeadCapturePayload) {
   const consent = data.consent && typeof data.consent === "object" ? data.consent : {};
+  const email = nullableBoolFromValue(data.emailConsent)
+    ?? nullableBoolFromValue(data.canEmail)
+    ?? nullableBoolFromValue(consent.email)
+    ?? nullableBoolFromValue(consent.canEmail)
+    ?? nullableBoolFromValue(data.marketingConsent)
+    ?? nullableBoolFromValue(consent.marketing)
+    ?? false;
+  const sms = nullableBoolFromValue(data.smsConsent) ?? nullableBoolFromValue(consent.sms) ?? false;
+  const whatsapp = nullableBoolFromValue(data.whatsappConsent)
+    ?? nullableBoolFromValue(data.canWhatsAppMessage)
+    ?? nullableBoolFromValue(data.canWhatsApp)
+    ?? nullableBoolFromValue(data.canMessage)
+    ?? nullableBoolFromValue(consent.whatsapp)
+    ?? nullableBoolFromValue(consent.canWhatsAppMessage)
+    ?? nullableBoolFromValue(consent.canWhatsApp)
+    ?? nullableBoolFromValue(consent.canMessage)
+    ?? false;
+  const phone = nullableBoolFromValue(data.phoneConsent)
+    ?? nullableBoolFromValue(data.canCall)
+    ?? nullableBoolFromValue(consent.phone)
+    ?? nullableBoolFromValue(consent.canCall)
+    ?? false;
+  const unsubscribed = nullableBoolFromValue(data.unsubscribed)
+    ?? nullableBoolFromValue(consent.unsubscribed)
+    ?? false;
+  const doNotContact = nullableBoolFromValue(data.doNotContact)
+    ?? nullableBoolFromValue(data.do_not_contact)
+    ?? nullableBoolFromValue(consent.doNotContact)
+    ?? false;
+  const permissionSource = pick(data, "permissionSource", "permission_source", "consentSource", "consent_source")
+    || cleanString(consent.permissionSource)
+    || cleanString(consent.consentSource)
+    || null;
+  const optInAt = toMysqlDateTime(
+    pick(data, "optInAt", "opt_in_at") || cleanString(consent.optInAt),
+  );
+  const optOutAt = toMysqlDateTime(
+    pick(data, "optOutAt", "opt_out_at") || cleanString(consent.optOutAt),
+  );
+  const hasExplicitConsentSignal = [
+    data.emailConsent,
+    data.phoneConsent,
+    data.smsConsent,
+    data.whatsappConsent,
+    data.canEmail,
+    data.canCall,
+    data.canMessage,
+    data.canWhatsApp,
+    data.canWhatsAppMessage,
+    data.marketingConsent,
+    data.unsubscribed,
+    data.doNotContact,
+    data.do_not_contact,
+    consent.email,
+    consent.phone,
+    consent.sms,
+    consent.whatsapp,
+    consent.marketing,
+    consent.unsubscribed,
+    consent.doNotContact,
+  ].some((value) => value !== null && value !== undefined && value !== "");
+  const consentTimestamp = hasExplicitConsentSignal ? new Date().toISOString().slice(0, 19).replace("T", " ") : null;
+
+  const communicationPermissions = {
+    email: doNotContact || unsubscribed ? false : email,
+    sms: doNotContact || unsubscribed ? false : sms,
+    whatsapp: doNotContact || unsubscribed ? false : whatsapp,
+    phone: doNotContact ? false : phone,
+  };
+
   return {
-    email: boolFromValue(data.emailConsent) || boolFromValue(consent.email) || boolFromValue(consent.marketing),
-    sms: boolFromValue(data.smsConsent) || boolFromValue(consent.sms),
-    whatsapp: boolFromValue(data.whatsappConsent) || boolFromValue(consent.whatsapp),
-    phone: boolFromValue(data.phoneConsent) || boolFromValue(consent.phone),
+    communicationPermissions,
+    emailPermission: communicationPermissions.email,
+    phonePermission: communicationPermissions.phone,
+    smsPermission: communicationPermissions.sms,
+    whatsappPermission: communicationPermissions.whatsapp,
+    canEmail: communicationPermissions.email,
+    canCall: communicationPermissions.phone,
+    canWhatsAppMessage: communicationPermissions.whatsapp,
+    unsubscribed,
+    doNotContact,
+    permissionSource,
+    optInAt: optInAt || (Object.values(communicationPermissions).some(Boolean) ? consentTimestamp : null),
+    optOutAt: optOutAt || (unsubscribed || doNotContact ? consentTimestamp : null),
+    consentUpdatedAt: consentTimestamp,
   };
 }
 
@@ -287,7 +382,8 @@ function toContactPayload(data: WebsiteLeadCapturePayload, rawPayloadId: string)
   const guideName = guideContext?.guideName || pick(data, "guideName", "guideTitle");
   const ctaClicked = pick(data, "ctaClicked", "cta_clicked", "cta");
   const landingPage = pick(data, "landingPage", "landing_page", "pageUrl", "page_url");
-  const communicationPermissions = buildCommunicationPermissions(data);
+  const contactPermissions = buildWebsiteLeadContactPermissions(data);
+  const { communicationPermissions } = contactPermissions;
 
   return {
     accountName,
@@ -297,10 +393,19 @@ function toContactPayload(data: WebsiteLeadCapturePayload, rawPayloadId: string)
     website: pick(data, "website"),
     address: pick(data, "location"),
     communicationPermissions,
-    emailPermission: communicationPermissions.email,
-    phonePermission: communicationPermissions.phone,
-    smsPermission: communicationPermissions.sms,
-    whatsappPermission: communicationPermissions.whatsapp,
+    canEmail: contactPermissions.canEmail,
+    canCall: contactPermissions.canCall,
+    canWhatsAppMessage: contactPermissions.canWhatsAppMessage,
+    emailPermission: contactPermissions.emailPermission,
+    phonePermission: contactPermissions.phonePermission,
+    smsPermission: contactPermissions.smsPermission,
+    whatsappPermission: contactPermissions.whatsappPermission,
+    unsubscribed: contactPermissions.unsubscribed,
+    doNotContact: contactPermissions.doNotContact,
+    permissionSource: contactPermissions.permissionSource,
+    optInAt: contactPermissions.optInAt,
+    optOutAt: contactPermissions.optOutAt,
+    consentUpdatedAt: contactPermissions.consentUpdatedAt,
     status: "lead",
     leadStatus: mapping.leadType === "lead_magnet_nurture" ? "nurture" : "new",
     source,
