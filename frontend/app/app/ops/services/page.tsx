@@ -27,6 +27,8 @@ import {
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/lib/toast-context";
+import { isDashboardActiveProjectStatus } from "@/lib/dashboard-cards";
+import { DashboardReturnLink } from "@/components/dashboard-return-link";
 import type {
   ClientAccountContractStatus,
   ClientAccountServiceRecord,
@@ -99,6 +101,7 @@ function formatMoney(value: number | null | undefined, currency = "GBP") {
 export default function ServicesPage() {
   const searchParams = useSearchParams();
   const requestedStatus = searchParams.get("status");
+  const requestedView = searchParams.get("view");
   const { session } = useAuth();
   const { addToast } = useToast();
   const token = session?.token;
@@ -131,7 +134,9 @@ export default function ServicesPage() {
   const filteredServices = useMemo(() => {
     const search = query.trim().toLowerCase();
     return services.filter((service) => {
-      const statusMatches = !requestedStatus || service.status === requestedStatus;
+      const statusMatches = requestedView === "active-project"
+        ? isDashboardActiveProjectStatus(service.status)
+        : !requestedStatus || service.status === requestedStatus;
       const searchMatches =
         !search ||
         [service.name, service.serviceType, service.status, service.contractStatus, personName(service.owner)]
@@ -139,7 +144,7 @@ export default function ServicesPage() {
 
       return statusMatches && searchMatches;
     });
-  }, [query, requestedStatus, services]);
+  }, [query, requestedStatus, requestedView, services]);
 
   const activeServices = services.filter((service) => service.status === "active");
   const monthlyValue = activeServices.reduce((sum, service) => sum + Number(service.recurringValue || 0), 0);
@@ -189,6 +194,8 @@ export default function ServicesPage() {
           </div>
         }
       />
+
+      <DashboardReturnLink visible={searchParams.get("from") === "dashboard"} />
 
       {statusMessage && <div className="rounded-2xl border border-[rgba(154,85,36,0.14)] bg-[rgba(154,85,36,0.05)] px-4 py-3 text-sm text-[#8a4b22]">{statusMessage}</div>}
 

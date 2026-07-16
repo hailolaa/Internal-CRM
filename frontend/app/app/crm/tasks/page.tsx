@@ -28,6 +28,7 @@ import type {
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { AlertBanner, PageHeader, SkeletonLine } from "@/components/ui";
+import { DashboardReturnLink } from "@/components/dashboard-return-link";
 
 type TaskRow = {
   id: string;
@@ -438,6 +439,8 @@ export default function TasksPage() {
           </Link>
         }
       />
+
+      <DashboardReturnLink visible={searchParams.get("from") === "dashboard"} />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div

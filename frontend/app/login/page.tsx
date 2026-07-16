@@ -84,6 +84,7 @@ export default function LoginPage() {
             {/* Email */}
             <div>
               <label
+                htmlFor="email"
                 className="block text-sm font-medium mb-1.5"
                 style={{ color: "#111111" }}
               >
@@ -95,8 +96,11 @@ export default function LoginPage() {
                   style={{ color: "#9CA3AF" }}
                 />
                 <input
+                  id="email"
+                  name="email"
                   type="email"
-                  placeholder="you@thegrowthgroup.com"
+                  autoComplete="email"
+                  placeholder="you@leapdigital.online"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -126,6 +130,7 @@ export default function LoginPage() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label
+                  htmlFor="password"
                   className="block text-sm font-medium"
                   style={{ color: "#111111" }}
                 >
@@ -145,7 +150,10 @@ export default function LoginPage() {
                   style={{ color: "#9CA3AF" }}
                 />
                 <input
+                  id="password"
+                  name="password"
                   type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
                   placeholder="••••••••"
                   required
                   value={password}
@@ -171,6 +179,7 @@ export default function LoginPage() {
                 />
                 <button
                   type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 transition-opacity hover:opacity-60"
                   style={{ color: "#9CA3AF" }}
@@ -323,7 +332,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-sm mt-6" style={{ color: "#6B7280" }}>
-          Access is limited to invited ClinicGrower team members.
+          Access is limited to authorised Leap Digital Workspace accounts.
         </p>
       </div>
     </div>

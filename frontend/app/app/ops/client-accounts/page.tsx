@@ -29,6 +29,7 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { DashboardReturnLink } from "@/components/dashboard-return-link";
 import type {
   ClientAccountContractStatus,
   ClientAccountProfileRecord,
@@ -232,7 +233,7 @@ export default function ClientAccountsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="order-1">
+      <div className="order-1 space-y-3">
         <PageHeader
           title="Client Accounts"
           subtitle="See every client relationship clearly, then manage package and delivery details when needed."
@@ -274,6 +275,7 @@ export default function ClientAccountsPage() {
             </div>
           }
         />
+        <DashboardReturnLink visible={searchParams.get("from") === "dashboard"} />
       </div>
 
       {statusMessage && (

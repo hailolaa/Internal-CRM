@@ -491,6 +491,16 @@ test("client account contacts and tasks use stable workspace-scoped relations", 
     const clientAProfileId = linked.body.data.account.id;
     assert.ok(clientAProfileId);
 
+    const duplicateLink = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${clientA.clinicId}/contacts/${contactId}/link`,
+      primary.token,
+      { method: "POST" },
+    );
+    assert.equal(duplicateLink.response.status, 200);
+    assert.equal(duplicateLink.body.data.contacts.length, 1);
+    assert.equal(duplicateLink.body.data.contacts[0].relationId, linked.body.data.contacts[0].relationId);
+
     await pool.execute("UPDATE clinic SET name = 'Renamed Client A' WHERE id = ?", [clientA.clinicId]);
 
     const afterRename = await fetchJson(

@@ -29,6 +29,7 @@ import type {
   PipelineStageRecord,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
+import { DashboardReturnLink } from "@/components/dashboard-return-link";
 import {
   dedupePipelineStages,
   getPipelineStageKey,
@@ -986,6 +987,8 @@ export default function PipelinePage() {
           </div>
         }
       />
+
+      <DashboardReturnLink visible={searchParams.get("from") === "dashboard"} />
 
       {loadError && (
         <AlertBanner

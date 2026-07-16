@@ -35,6 +35,7 @@ export interface WhatsAppApproveDTO {
 
 export interface WhatsAppRetryDTO {
   body?: string | null;
+  confirmProviderDidNotSend?: boolean;
 }
 
 export interface WhatsAppManualSendDTO {

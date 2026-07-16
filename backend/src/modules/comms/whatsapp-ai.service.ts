@@ -344,19 +344,15 @@ export class WhatsAppAiService {
     if (!phone) throw ApiError.badRequest("Inbound WhatsApp sender is required");
     if (!body) throw ApiError.badRequest("Inbound WhatsApp message body is required");
 
-    const lockConnection = providerMessageId ? await pool.getConnection() : null;
-    const lockName = providerMessageId
-      ? idempotencyLockName(`whatsapp-inbound:${clinicId}:${providerMessageId}`)
-      : "";
+    const lockConnection = await pool.getConnection();
+    const lockName = idempotencyLockName(`whatsapp-inbound-contact:${clinicId}:${phone}`);
     let lockAcquired = false;
 
     try {
-      if (lockConnection && lockName) {
-        const [lockRows]: any = await lockConnection.execute("SELECT GET_LOCK(?, 10) as acquired", [lockName]);
-        lockAcquired = Number(lockRows[0]?.acquired || 0) === 1;
-        if (!lockAcquired) {
-          throw ApiError.serviceUnavailable("WhatsApp inbound message is already being processed; please try again");
-        }
+      const [lockRows]: any = await lockConnection.execute("SELECT GET_LOCK(?, 10) as acquired", [lockName]);
+      lockAcquired = Number(lockRows[0]?.acquired || 0) === 1;
+      if (!lockAcquired) {
+        throw ApiError.serviceUnavailable("WhatsApp inbound contact is already being processed; please try again");
       }
 
       const existing = providerMessageId
@@ -423,12 +419,10 @@ export class WhatsAppAiService {
       const aiReply = await this.createDraft(clinicId, userId, { inboundMessageId: messageId });
       return { message: await this.getMessage(clinicId, messageId), aiReply };
     } finally {
-      if (lockConnection) {
-        if (lockAcquired && lockName) {
-          await lockConnection.execute("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => undefined);
-        }
-        lockConnection.release();
+      if (lockAcquired) {
+        await lockConnection.execute("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => undefined);
       }
+      lockConnection.release();
     }
   }
 
@@ -548,6 +542,42 @@ export class WhatsAppAiService {
     if (reply.sendAttempts >= settings.maxAutoSendRetries + 1) {
       throw ApiError.badRequest("Maximum WhatsApp retry attempts reached");
     }
+
+    const idempotencyKey = `whatsapp-ai-reply:${replyId}`;
+    const existingOutbound = await this.findMessageByIdempotencyKey(clinicId, idempotencyKey);
+    if (existingOutbound?.status === "failed" && !isRetrySafeFailure(existingOutbound)) {
+      if (!data.confirmProviderDidNotSend) {
+        throw ApiError.conflict(
+          "The provider result is unknown. Confirm that Meta did not send the message before retrying.",
+        );
+      }
+
+      await pool.execute(
+        `UPDATE whatsapp_message
+         SET metadata = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ? AND status = 'failed'`,
+        [
+          JSON.stringify({
+            ...parseJsonObject(existingOutbound.metadata),
+            retrySafe: true,
+            providerResultResolution: "confirmed_not_sent",
+            providerResultResolvedByUserId: userId,
+            providerResultResolvedAt: new Date().toISOString(),
+          }),
+          existingOutbound.id,
+          clinicId,
+        ],
+      );
+      await logAuditEvent({
+        clinicId,
+        userId,
+        action: "WHATSAPP_PROVIDER_RESULT_RESOLVED_NOT_SENT",
+        entityType: "whatsapp_message",
+        entityId: existingOutbound.id,
+        changes: { replyId, idempotencyKey },
+      });
+    }
+
     return this.sendReply(clinicId, userId, replyId, { body: data.body || reply.finalBody || reply.draftBody, sendNow: true }, false);
   }
 
@@ -996,15 +1026,37 @@ export class WhatsAppAiService {
       if (rows[0]) return this.normalizeContact(rows[0]);
     }
 
+    const [conversationRows]: any = await pool.execute(
+      `SELECT c.id, c.account_name as accountName, c.first_name as firstName,
+              c.last_name as lastName, c.phone
+       FROM whatsapp_conversation wc
+       JOIN contact c
+         ON c.id = wc.contact_id
+        AND c.clinic_id = wc.clinic_id
+        AND c.deleted_at IS NULL
+       WHERE wc.clinic_id = ?
+         AND wc.whatsapp_number = ?
+         AND wc.deleted_at IS NULL
+       ORDER BY wc.last_message_at DESC, wc.updated_at DESC
+       LIMIT 1`,
+      [clinicId, phone],
+    );
+    if (conversationRows[0]) return this.normalizeContact(conversationRows[0]);
+
     const [rows]: any = await pool.execute(
       `SELECT id, account_name as accountName, first_name as firstName, last_name as lastName, phone
        FROM contact
        WHERE clinic_id = ? AND deleted_at IS NULL
          AND REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '') = ?
        ORDER BY updated_at DESC
-       LIMIT 1`,
+       LIMIT 2`,
       [clinicId, phone],
     );
+    if (rows.length > 1) {
+      throw ApiError.conflict(
+        "Multiple contacts share this WhatsApp number. Merge them or select the correct contact before continuing.",
+      );
+    }
     if (rows[0]) return this.normalizeContact(rows[0]);
 
     if (!data.createLeadIfMissing) {

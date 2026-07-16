@@ -13,7 +13,6 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import type { KeyboardEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertBanner,
@@ -24,9 +23,11 @@ import {
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import {
-  getDashboardKeyboardTargetIndex,
   getDashboardKpiCards,
+  isDashboardActiveProjectStatus,
+  isDashboardNewProspect,
 } from "@/lib/dashboard-cards";
+import { DashboardKpiCardLink } from "@/components/dashboard-kpi-card-link";
 import type {
   ClientAccountServiceRecord,
   ClientAccountSummaryRecord,
@@ -34,62 +35,6 @@ import type {
   PipelineDealRecord,
   PipelineStageRecord,
 } from "@/lib/api-types";
-
-function ActionableStatCard({
-  href,
-  ariaLabel,
-  index,
-  activeIndex,
-  setActiveIndex,
-  registerItemRef,
-  totalItems,
-  children,
-}: {
-  href: string;
-  ariaLabel: string;
-  index: number;
-  activeIndex: number;
-  setActiveIndex: (index: number) => void;
-  registerItemRef: (index: number, node: HTMLAnchorElement | null) => void;
-  totalItems: number;
-  children: ReactNode;
-}) {
-  const handleKeyDown = (event: KeyboardEvent<HTMLAnchorElement>) => {
-    const isWide = window.matchMedia("(min-width: 1280px)").matches;
-    const isTablet = window.matchMedia("(min-width: 640px)").matches;
-    const columnCount = isWide ? 6 : isTablet ? 2 : 1;
-    const targetIndex = getDashboardKeyboardTargetIndex({
-      currentIndex: index,
-      key: event.key,
-      totalItems,
-      columnCount,
-    });
-
-    if (targetIndex !== index || event.key === "Home" || event.key === "End") {
-      event.preventDefault();
-      setActiveIndex(targetIndex);
-      event.currentTarget
-        .closest("[data-dashboard-kpi-grid]")
-        ?.querySelectorAll<HTMLAnchorElement>("[data-dashboard-kpi-card]")
-        [targetIndex]?.focus();
-    }
-  };
-
-  return (
-    <Link
-      href={href}
-      aria-label={ariaLabel}
-      ref={(node) => registerItemRef(index, node)}
-      data-dashboard-kpi-card
-      tabIndex={activeIndex === index ? 0 : -1}
-      onFocus={() => setActiveIndex(index)}
-      onKeyDown={handleKeyDown}
-      className="group block rounded-[24px] transition-transform hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FAF8F5] [&_[data-gsap-metric]]:h-full [&_[data-gsap-metric]]:transition-all [&_[data-gsap-metric]]:group-hover:border-[rgba(96,180,175,0.24)] [&_[data-gsap-metric]]:group-hover:shadow-[0_8px_24px_rgba(21,31,33,0.08)]"
-    >
-      {children}
-    </Link>
-  );
-}
 
 type DeadlineRow = {
   id: string;
@@ -144,15 +89,12 @@ function formatLabel(value: string) {
 }
 
 function isNewLead(deal: PipelineDealRecord) {
-  const stage = (deal.stageName || "").toLowerCase();
-  const createdDays = daysFromToday(deal.createdAt);
-  return (
-    deal.stageKind === "open" &&
-    deal.status === "open" &&
-    (stage.includes("new") ||
-      stage.includes("enquiry") ||
-      (createdDays !== null && createdDays >= -7))
-  );
+  return isDashboardNewProspect({
+    status: deal.status,
+    stageKind: deal.stageKind,
+    stageName: deal.stageName,
+    createdAt: deal.createdAt,
+  });
 }
 
 function isOpenClient(account: ClientAccountSummaryRecord) {
@@ -160,7 +102,7 @@ function isOpenClient(account: ClientAccountSummaryRecord) {
 }
 
 function isActiveProject(service: ClientAccountServiceRecord) {
-  return service.status === "active" || service.status === "onboarding";
+  return isDashboardActiveProjectStatus(service.status);
 }
 
 function isTaskOverdue(task: InternalTaskRecord) {
@@ -437,7 +379,7 @@ export default function AppPage() {
           ))
         ) : (
           <>
-            <ActionableStatCard index={0} href={dashboardKpiCards[0].href} ariaLabel={dashboardKpiCards[0].ariaLabel} {...dashboardCardKeyboardProps}>
+            <DashboardKpiCardLink index={0} href={dashboardKpiCards[0].href} ariaLabel={dashboardKpiCards[0].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="New Prospects"
                 value={String(metrics.newLeads.length)}
@@ -445,8 +387,8 @@ export default function AppPage() {
                 icon={Users}
                 color="cyan"
               />
-            </ActionableStatCard>
-            <ActionableStatCard index={1} href={dashboardKpiCards[1].href} ariaLabel={dashboardKpiCards[1].ariaLabel} {...dashboardCardKeyboardProps}>
+            </DashboardKpiCardLink>
+            <DashboardKpiCardLink index={1} href={dashboardKpiCards[1].href} ariaLabel={dashboardKpiCards[1].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="Won"
                 value={String(metrics.wonDeals.length)}
@@ -459,8 +401,8 @@ export default function AppPage() {
                 icon={CircleCheckBig}
                 color="green"
               />
-            </ActionableStatCard>
-            <ActionableStatCard index={2} href={dashboardKpiCards[2].href} ariaLabel={dashboardKpiCards[2].ariaLabel} {...dashboardCardKeyboardProps}>
+            </DashboardKpiCardLink>
+            <DashboardKpiCardLink index={2} href={dashboardKpiCards[2].href} ariaLabel={dashboardKpiCards[2].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="Lost"
                 value={String(metrics.lostDeals.length)}
@@ -468,8 +410,8 @@ export default function AppPage() {
                 icon={CircleX}
                 color="rose"
               />
-            </ActionableStatCard>
-            <ActionableStatCard index={3} href={dashboardKpiCards[3].href} ariaLabel={dashboardKpiCards[3].ariaLabel} {...dashboardCardKeyboardProps}>
+            </DashboardKpiCardLink>
+            <DashboardKpiCardLink index={3} href={dashboardKpiCards[3].href} ariaLabel={dashboardKpiCards[3].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="Open Clients"
                 value={String(metrics.openClients.length)}
@@ -477,8 +419,8 @@ export default function AppPage() {
                 icon={BriefcaseBusiness}
                 color="blue"
               />
-            </ActionableStatCard>
-            <ActionableStatCard index={4} href={dashboardKpiCards[4].href} ariaLabel={dashboardKpiCards[4].ariaLabel} {...dashboardCardKeyboardProps}>
+            </DashboardKpiCardLink>
+            <DashboardKpiCardLink index={4} href={dashboardKpiCards[4].href} ariaLabel={dashboardKpiCards[4].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="Active Projects"
                 value={String(metrics.activeProjects.length)}
@@ -486,8 +428,8 @@ export default function AppPage() {
                 icon={Target}
                 color="purple"
               />
-            </ActionableStatCard>
-            <ActionableStatCard index={5} href={dashboardKpiCards[5].href} ariaLabel={dashboardKpiCards[5].ariaLabel} {...dashboardCardKeyboardProps}>
+            </DashboardKpiCardLink>
+            <DashboardKpiCardLink index={5} href={dashboardKpiCards[5].href} ariaLabel={dashboardKpiCards[5].ariaLabel} {...dashboardCardKeyboardProps}>
               <StatCard
                 label="Overdue Tasks"
                 value={String(metrics.overdueTasks.length)}
@@ -495,7 +437,7 @@ export default function AppPage() {
                 icon={CheckSquare}
                 color="amber"
               />
-            </ActionableStatCard>
+            </DashboardKpiCardLink>
           </>
         )}
       </div>

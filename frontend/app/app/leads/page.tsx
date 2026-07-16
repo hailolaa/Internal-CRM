@@ -24,7 +24,9 @@ import type {
   PipelineDealRecord,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
+import { isDashboardNewProspect } from "@/lib/dashboard-cards";
 import { AlertTriangle, Plus, PoundSterling, Target, Users } from "lucide-react";
+import { DashboardReturnLink } from "@/components/dashboard-return-link";
 
 const LEAD_RESPONSE_SLA_HOURS = 2;
 
@@ -50,6 +52,8 @@ interface Lead {
   createdDate: string;
   sortDate: number;
   contactId: string | null;
+  recordKind: "deal" | "contact";
+  stageKind: string | null;
 }
 
 const STAGE_COLORS_WARM: Record<string, string> = {
@@ -149,18 +153,12 @@ function earliestTaskByContact(tasks: InternalTaskRecord[]) {
 }
 
 function isNewProspect(lead: Lead) {
-  const stage = lead.stage.toLowerCase();
-  const status = lead.status.toLowerCase();
-  if (status === "won" || status === "lost" || stage.includes("won") || stage.includes("lost")) {
-    return false;
-  }
-  const createdDays = Math.ceil((lead.sortDate - Date.now()) / 86400000);
-  return (
-    status === "open" ||
-    stage.includes("new") ||
-    stage.includes("enquiry") ||
-    createdDays >= -7
-  );
+  return lead.recordKind === "deal" && isDashboardNewProspect({
+    status: lead.status,
+    stageKind: lead.stageKind,
+    stageName: lead.stage,
+    createdAt: lead.sortDate,
+  });
 }
 
 function uniqueOptions(values: string[]) {
@@ -201,6 +199,8 @@ function toLead(contact: ContactRecord): Lead {
     createdDate: formatDate(contact.createdAt || contact.updatedAt, "-"),
     sortDate: new Date(contact.createdAt || contact.updatedAt).getTime(),
     contactId: contact.id,
+    recordKind: "contact",
+    stageKind: null,
   };
 }
 
@@ -236,6 +236,8 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     createdDate: formatDate(createdAt, "-"),
     sortDate: new Date(createdAt).getTime(),
     contactId: deal.contactId || null,
+    recordKind: "deal",
+    stageKind: deal.stageKind,
   };
 }
 
@@ -475,6 +477,8 @@ export default function LeadsPage() {
           </button>
         }
       />
+
+      <DashboardReturnLink visible={searchParams.get("from") === "dashboard"} />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {isLoading ? (
