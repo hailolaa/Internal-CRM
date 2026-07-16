@@ -23,6 +23,43 @@ export const DASHBOARD_KPI_CARD_ORDER: DashboardKpiKey[] = [
   "overdueTasks",
 ];
 
+function startOfDayTimestamp(value: string | number | Date) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+export function isDashboardNewProspect({
+  status,
+  stageKind,
+  stageName,
+  createdAt,
+  now = new Date(),
+}: {
+  status: string;
+  stageKind: string | null | undefined;
+  stageName: string | null | undefined;
+  createdAt: string | number | Date;
+  now?: Date;
+}) {
+  const stage = String(stageName || "").toLowerCase();
+  const createdDay = startOfDayTimestamp(createdAt);
+  const today = startOfDayTimestamp(now);
+  const daysAgo = createdDay === null || today === null
+    ? null
+    : Math.floor((today - createdDay) / 86400000);
+
+  return (
+    stageKind === "open" &&
+    status === "open" &&
+    (stage.includes("new") || stage.includes("enquiry") || (daysAgo !== null && daysAgo >= 0 && daysAgo <= 7))
+  );
+}
+
+export function isDashboardActiveProjectStatus(status: string) {
+  return status === "active" || status === "onboarding";
+}
+
 export function getDashboardKpiCards(counts: DashboardMetricCounts): DashboardKpiCard[] {
   return [
     {
@@ -47,7 +84,7 @@ export function getDashboardKpiCards(counts: DashboardMetricCounts): DashboardKp
     },
     {
       key: "activeProjects",
-      href: "/app/ops/services?status=active&from=dashboard",
+      href: "/app/ops/services?view=active-project&from=dashboard",
       ariaLabel: `Open ${counts.activeProjects} active delivery projects`,
     },
     {

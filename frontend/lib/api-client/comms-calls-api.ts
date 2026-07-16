@@ -217,7 +217,7 @@ export function createCommsCallsApi(apiRequest: ApiRequest) {
       async retryWhatsAppReply(
         token: string,
         replyId: string,
-        payload: { body?: string | null } = {},
+        payload: { body?: string | null; confirmProviderDidNotSend?: boolean } = {},
       ) {
         const response = await apiRequest<WhatsAppAiReplyRecord>(
           `/api/comms/whatsapp/ai-replies/${replyId}/retry`,

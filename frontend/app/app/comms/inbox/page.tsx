@@ -204,6 +204,11 @@ export default function InboxPage() {
     actionableWhatsAppReply && !dismissedAiReplyIds.has(actionableWhatsAppReply.id)
       ? actionableWhatsAppReply
       : null;
+  const visibleWhatsAppOutbound = visibleWhatsAppReply?.outboundMessageId
+    ? whatsappThread?.messages.find((item) => item.id === visibleWhatsAppReply.outboundMessageId) || null
+    : null;
+  const visibleWhatsAppRetryNeedsConfirmation =
+    visibleWhatsAppOutbound?.metadata?.retrySafe === false;
   const filteredConversations = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return conversationRows.filter((conversation) => {
@@ -687,6 +692,43 @@ export default function InboxPage() {
     }
   };
 
+  const handleRetryAiDraft = async () => {
+    if (!token || !selectedConv?.contactId || !visibleWhatsAppReply || isAiSending) return;
+
+    let confirmProviderDidNotSend = false;
+    if (visibleWhatsAppRetryNeedsConfirmation) {
+      confirmProviderDidNotSend = window.confirm(
+        "Meta's result is unknown. Check WhatsApp Manager first. Only continue if you have confirmed this message was not sent.",
+      );
+      if (!confirmProviderDidNotSend) return;
+    }
+
+    setIsAiSending(true);
+    try {
+      const reply = await api.comms.retryWhatsAppReply(token, visibleWhatsAppReply.id, {
+        body: message.trim() || visibleWhatsAppReply.finalBody || visibleWhatsAppReply.draftBody,
+        confirmProviderDidNotSend,
+      });
+      const updatedThread = await api.comms.getWhatsAppConversation(token, selectedConv.contactId);
+      setWhatsappThread(updatedThread);
+      if (reply.status !== "failed") {
+        clearComposer();
+        setDismissedAiReplyIds((current) => new Set(current).add(visibleWhatsAppReply.id));
+      }
+      setStatusMessage(
+        reply.status === "failed"
+          ? reply.failureReason || "WhatsApp retry failed."
+          : "WhatsApp reply retried and sent.",
+      );
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error ? error.message : "Could not retry the WhatsApp reply.",
+      );
+    } finally {
+      setIsAiSending(false);
+    }
+  };
+
   const handleInsertEmoji = () => {
     setComposerValue(`${message}${String.fromCodePoint(0x1f642)}`);
   };
@@ -1026,16 +1068,30 @@ export default function InboxPage() {
                         >
                           Use Draft
                         </button>
-                        <button
-                          onClick={() => void handleApproveAiDraft()}
-                          disabled={
-                            isAiSending ||
-                            ["sent", "auto_sent"].includes(visibleWhatsAppReply.status)
-                          }
-                          className="btn-primary text-xs disabled:opacity-50"
-                        >
-                          {isAiSending ? "Sending..." : "Approve & Send"}
-                        </button>
+                        {visibleWhatsAppReply.status === "failed" ? (
+                          <button
+                            onClick={() => void handleRetryAiDraft()}
+                            disabled={isAiSending}
+                            className="btn-primary text-xs disabled:opacity-50"
+                          >
+                            {isAiSending
+                              ? "Retrying..."
+                              : visibleWhatsAppRetryNeedsConfirmation
+                                ? "Confirm Not Sent & Retry"
+                                : "Retry Send"}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => void handleApproveAiDraft()}
+                            disabled={
+                              isAiSending ||
+                              ["sent", "auto_sent"].includes(visibleWhatsAppReply.status)
+                            }
+                            className="btn-primary text-xs disabled:opacity-50"
+                          >
+                            {isAiSending ? "Sending..." : "Approve & Send"}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

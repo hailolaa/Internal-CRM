@@ -59,6 +59,7 @@ export const whatsAppApproveValidator = [
 
 export const whatsAppRetryValidator = [
   body("body").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
+  body("confirmProviderDidNotSend").optional().isBoolean().toBoolean(),
 ];
 
 export const whatsAppManualSendValidator = [

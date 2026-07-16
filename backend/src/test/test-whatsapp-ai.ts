@@ -215,6 +215,55 @@ test("WhatsApp AI webhooks are authenticated, tenant-routed, guarded, idempotent
     );
     assert.equal(unmappedPhone.response.status, 403);
 
+    const duplicatePhoneContactA = uuidv4();
+    const duplicatePhoneContactB = uuidv4();
+    const duplicatePhoneConversation = uuidv4();
+    await pool.execute(
+      `INSERT INTO contact (id, clinic_id, first_name, last_name, email, phone, status, lead_status, source)
+       VALUES (?, ?, 'Duplicate', 'One', ?, '447700900117', 'lead', 'new', 'whatsapp'),
+              (?, ?, 'Duplicate', 'Two', ?, '447700900117', 'lead', 'new', 'whatsapp')`,
+      [
+        duplicatePhoneContactA,
+        primary.clinicId,
+        uniqueEmail("whatsapp_duplicate_one"),
+        duplicatePhoneContactB,
+        primary.clinicId,
+        uniqueEmail("whatsapp_duplicate_two"),
+      ],
+    );
+    const ambiguousContact = await postJson(
+      `${baseUrl}/api/webhooks/whatsapp/inbound`,
+      metaPayload({
+        id: "wa-ambiguous-contact",
+        from: "447700900117",
+        text: "Which record should receive this?",
+        phoneNumberId: "meta-phone-primary",
+      }),
+      { appSecret },
+    );
+    assert.equal(ambiguousContact.response.status, 409);
+    assert.match(ambiguousContact.payload.message, /multiple contacts/i);
+
+    await pool.execute(
+      `INSERT INTO whatsapp_conversation
+        (id, clinic_id, contact_id, whatsapp_number, owner_user_id, status, last_message_at)
+       VALUES (?, ?, ?, '447700900117', ?, 'open', CURRENT_TIMESTAMP)`,
+      [duplicatePhoneConversation, primary.clinicId, duplicatePhoneContactA, primary.userId],
+    );
+    const establishedConversation = await postJson(
+      `${baseUrl}/api/webhooks/whatsapp/inbound`,
+      metaPayload({
+        id: "wa-established-conversation",
+        from: "447700900117",
+        text: "Continue the existing conversation",
+        phoneNumberId: "meta-phone-primary",
+      }),
+      { appSecret },
+    );
+    assert.equal(establishedConversation.response.status, 200);
+    assert.equal(establishedConversation.payload.data.message.contactId, duplicatePhoneContactA);
+    assert.equal(establishedConversation.payload.data.message.conversationId, duplicatePhoneConversation);
+
     const optOut = await postJson(
       `${baseUrl}/api/webhooks/whatsapp/inbound`,
       metaPayload({
@@ -447,12 +496,47 @@ test("WhatsApp AI webhooks are authenticated, tenant-routed, guarded, idempotent
       },
       body: JSON.stringify({}),
     });
-    assert.equal(rejectedRetry.status, 400);
+    assert.equal(rejectedRetry.status, 409);
     assert.equal(timeoutProviderSendCount, 1);
     assert.equal(
       await countRows(
         "SELECT COUNT(*) as count FROM whatsapp_message WHERE clinic_id = ? AND direction = 'outbound' AND idempotency_key = ? AND deleted_at IS NULL",
         [primary.clinicId, `whatsapp-ai-reply:${timeoutReplyId}`],
+      ),
+      1,
+    );
+
+    globalThis.fetch = (async () => {
+      timeoutProviderSendCount += 1;
+      return new Response(JSON.stringify({ messages: [{ id: "meta-reconciled-retry" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+    const reconciledRetry = await originalFetch(`${baseUrl}/api/comms/whatsapp/ai-replies/${timeoutReplyId}/retry`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${primary.token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ confirmProviderDidNotSend: true }),
+    });
+    const reconciledRetryBody: any = await reconciledRetry.json();
+    assert.equal(reconciledRetry.status, 200);
+    assert.equal(reconciledRetryBody.data.status, "sent");
+    assert.equal(timeoutProviderSendCount, 2);
+    assert.equal(
+      await countRows(
+        "SELECT COUNT(*) as count FROM whatsapp_message WHERE clinic_id = ? AND direction = 'outbound' AND idempotency_key = ? AND deleted_at IS NULL",
+        [primary.clinicId, `whatsapp-ai-reply:${timeoutReplyId}`],
+      ),
+      1,
+    );
+    assert.equal(
+      await countRows(
+        "SELECT COUNT(*) as count FROM audit_log WHERE clinic_id = ? AND action = 'WHATSAPP_PROVIDER_RESULT_RESOLVED_NOT_SENT' AND entity_id = ?",
+        [primary.clinicId, reconciledRetryBody.data.outboundMessageId],
       ),
       1,
     );
