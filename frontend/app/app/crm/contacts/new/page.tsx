@@ -23,6 +23,7 @@ type FieldKey =
   | "status"
   | "source"
   | "packageInterest"
+  | "recommendedPackage"
   | "value"
   | "notes";
 
@@ -169,6 +170,7 @@ export default function NewContactPage() {
     status: isContactMode ? "active" : "lead",
     source: "",
     packageInterest: "",
+    recommendedPackage: "",
     value: "",
     notes: "",
   });
@@ -256,7 +258,7 @@ export default function NewContactPage() {
         source: isContactMode ? null : emptyToNull(fields.source),
         value: !isContactMode && Number.isFinite(value) ? value : 0,
         packageInterest: isContactMode ? null : emptyToNull(fields.packageInterest),
-        recommendedPackage: isContactMode ? null : emptyToNull(fields.packageInterest),
+        recommendedPackage: isContactMode ? null : emptyToNull(fields.recommendedPackage),
         notes: emptyToNull(fields.notes),
         tags,
         treatmentInterests,
@@ -635,6 +637,23 @@ export default function NewContactPage() {
                         className={`${inputBase} mt-2`}
                       />
                     )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                      Recommended Next Package
+                    </label>
+                    <select
+                      value={fields.recommendedPackage}
+                      onChange={handleSelectChange("recommendedPackage")}
+                      className={selectBase}
+                    >
+                      <option value="">No recommendation yet</option>
+                      {packageOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-[#111111] mb-1.5">

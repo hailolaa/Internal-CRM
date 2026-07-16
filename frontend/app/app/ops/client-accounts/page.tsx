@@ -34,21 +34,9 @@ import type {
   ClientAccountContractStatus,
   ClientAccountProfileRecord,
   ClientAccountServiceRecord,
-  ClientAccountServiceType,
   ClientAccountSummaryRecord,
   InternalTaskRecord,
 } from "@/lib/api-types";
-
-const SERVICE_TYPES: Array<{ value: ClientAccountServiceType; label: string }> = [
-  { value: "ppc", label: "PPC" },
-  { value: "seo", label: "SEO" },
-  { value: "gbp", label: "GBP" },
-  { value: "website", label: "Website" },
-  { value: "landing_pages", label: "Landing Pages" },
-  { value: "cro", label: "CRO" },
-  { value: "strategy", label: "Strategy" },
-  { value: "other", label: "Other" },
-];
 
 function formatLabel(value: string) {
   return value
@@ -80,10 +68,6 @@ function accountPersonName(
 ) {
   if (!person) return "Unassigned";
   return [person.firstName, person.lastName].filter(Boolean).join(" ") || person.email || "Unassigned";
-}
-
-function serviceLabel(type: ClientAccountServiceType | string) {
-  return SERVICE_TYPES.find((service) => service.value === type)?.label || formatLabel(type);
 }
 
 function formatMoney(value: number | null | undefined, currency = "GBP") {
@@ -222,6 +206,9 @@ export default function ClientAccountsPage() {
           account.contractStatus,
           account.healthStatus,
           account.churnRisk,
+          account.currentPackage || "",
+          account.recommendedNextPackage || "",
+          account.upsellOpportunity || "",
           accountPersonName(account.accountManager),
           account.activeServices.join(" "),
         ].some((value) => value.toLowerCase().includes(search));
@@ -356,7 +343,7 @@ export default function ClientAccountsPage() {
           headers={[
             { label: "Client" },
             { label: "Manager" },
-            { label: "Services" },
+            { label: "Package" },
             { label: "Contract" },
             { label: "Renewal" },
             { label: "Next Task" },
@@ -398,17 +385,18 @@ export default function ClientAccountsPage() {
                 </span>
               </TableCell>
               <TableCell>
-                <div className="flex flex-wrap gap-1">
-                  {account.activeServices.slice(0, 4).map((service) => (
-                    <Badge key={service} variant="neutral" size="xs">
-                      {serviceLabel(service)}
-                    </Badge>
-                  ))}
-                  {account.activeServices.length === 0 && (
-                    <Badge variant="warning" size="xs">
-                      None
-                    </Badge>
-                  )}
+                <div className="min-w-[180px] space-y-1">
+                  <p className="text-sm font-semibold text-[#151f21]">
+                    {account.currentPackage || "No current package"}
+                  </p>
+                  <p className="text-xs text-[#7A746A]">
+                    Next: {account.recommendedNextPackage || "Not set"}
+                  </p>
+                  {account.upsellOpportunity ? (
+                    <p className="max-w-[220px] truncate text-xs font-medium text-[#315f62]">
+                      {account.upsellOpportunity}
+                    </p>
+                  ) : null}
                 </div>
               </TableCell>
               <TableCell>{contractBadge(account.contractStatus)}</TableCell>

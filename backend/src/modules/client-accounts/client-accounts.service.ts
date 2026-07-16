@@ -29,6 +29,8 @@ const DEFAULT_PROFILE = {
   healthStatus: "attention_needed",
   clientStatus: "prospect",
   currentPackage: null as string | null,
+  recommendedNextPackage: null as string | null,
+  upsellOpportunity: null as string | null,
   churnRisk: "low",
   contractStatus: "pending",
 };
@@ -181,6 +183,8 @@ export class ClientAccountsService {
           cap.health_status as healthStatus,
           cap.client_status as clientStatus,
           cap.current_package as currentPackage,
+          cap.recommended_next_package as recommendedNextPackage,
+          cap.upsell_opportunity as upsellOpportunity,
           cap.churn_risk as churnRisk,
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
@@ -329,9 +333,10 @@ export class ClientAccountsService {
       await connection.execute(
         `INSERT INTO client_account_profile
           (id, clinic_id, account_manager_id, active_services, onboarding_status, health_status,
-           client_status, current_package, churn_risk, renewal_date, contract_status, key_notes,
+           client_status, current_package, recommended_next_package, upsell_opportunity,
+           churn_risk, renewal_date, contract_status, key_notes,
            created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           profileId,
           clinicId,
@@ -341,6 +346,8 @@ export class ClientAccountsService {
           payload.healthStatus,
           payload.clientStatus,
           payload.currentPackage,
+          payload.recommendedNextPackage,
+          payload.upsellOpportunity,
           payload.churnRisk,
           payload.renewalDate,
           payload.contractStatus,
@@ -419,6 +426,8 @@ export class ClientAccountsService {
         clientStatus: data.clientStatus || "onboarding",
         onboardingStatus: data.onboardingStatus || "in_progress",
         currentPackage: recommendedPackage,
+        recommendedNextPackage: data.recommendedNextPackage || contact.recommendedPackage || null,
+        upsellOpportunity: data.upsellOpportunity || null,
         keyNotes:
           data.keyNotes ||
           [
@@ -490,6 +499,8 @@ export class ClientAccountsService {
           cap.health_status as healthStatus,
           cap.client_status as clientStatus,
           cap.current_package as currentPackage,
+          cap.recommended_next_package as recommendedNextPackage,
+          cap.upsell_opportunity as upsellOpportunity,
           cap.churn_risk as churnRisk,
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
@@ -542,6 +553,8 @@ export class ClientAccountsService {
       healthStatus: row.healthStatus || DEFAULT_PROFILE.healthStatus,
       clientStatus: row.clientStatus || DEFAULT_PROFILE.clientStatus,
       currentPackage: row.currentPackage || DEFAULT_PROFILE.currentPackage,
+      recommendedNextPackage: row.recommendedNextPackage || DEFAULT_PROFILE.recommendedNextPackage,
+      upsellOpportunity: row.upsellOpportunity || DEFAULT_PROFILE.upsellOpportunity,
       churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
@@ -813,6 +826,14 @@ export class ClientAccountsService {
 
     if (ownKey(data, "currentPackage")) {
       addChange("currentPackage", "current_package", before.currentPackage, data.currentPackage || null);
+    }
+
+    if (ownKey(data, "recommendedNextPackage")) {
+      addChange("recommendedNextPackage", "recommended_next_package", before.recommendedNextPackage, data.recommendedNextPackage || null);
+    }
+
+    if (ownKey(data, "upsellOpportunity")) {
+      addChange("upsellOpportunity", "upsell_opportunity", before.upsellOpportunity, data.upsellOpportunity || null);
     }
 
     if (ownKey(data, "churnRisk")) {
@@ -1239,6 +1260,8 @@ export class ClientAccountsService {
       healthStatus: row.healthStatus || DEFAULT_PROFILE.healthStatus,
       clientStatus: row.clientStatus || DEFAULT_PROFILE.clientStatus,
       currentPackage: row.currentPackage || DEFAULT_PROFILE.currentPackage,
+      recommendedNextPackage: row.recommendedNextPackage || DEFAULT_PROFILE.recommendedNextPackage,
+      upsellOpportunity: row.upsellOpportunity || DEFAULT_PROFILE.upsellOpportunity,
       churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
@@ -1298,6 +1321,8 @@ export class ClientAccountsService {
       healthStatus: data.healthStatus || DEFAULT_PROFILE.healthStatus,
       clientStatus: data.clientStatus || "onboarding",
       currentPackage: data.currentPackage?.trim() || null,
+      recommendedNextPackage: data.recommendedNextPackage?.trim() || null,
+      upsellOpportunity: data.upsellOpportunity?.trim() || null,
       churnRisk: data.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(data.renewalDate),
       contractStatus: data.contractStatus || DEFAULT_PROFILE.contractStatus,

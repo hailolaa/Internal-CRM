@@ -31,6 +31,7 @@ type FieldKey =
   | "status"
   | "source"
   | "packageInterest"
+  | "recommendedPackage"
   | "value"
   | "notes";
 
@@ -76,9 +77,9 @@ function toFields(contact: ContactRecord): Record<FieldKey, string> {
     source: contact.source || "",
     packageInterest:
       contact.packageInterest ||
-      contact.recommendedPackage ||
       contact.treatmentInterests?.[0] ||
       "",
+    recommendedPackage: contact.recommendedPackage || "",
     value: contact.value ? String(contact.value) : "",
     notes: contact.notes || "",
   };
@@ -147,6 +148,7 @@ export default function EditContactPage() {
     status: "lead",
     source: "",
     packageInterest: "",
+    recommendedPackage: "",
     value: "",
     notes: "",
   });
@@ -301,7 +303,7 @@ export default function EditContactPage() {
       source: emptyToNull(fields.source),
       value: Number.isFinite(value) ? value : 0,
       packageInterest: emptyToNull(fields.packageInterest),
-      recommendedPackage: emptyToNull(fields.packageInterest),
+      recommendedPackage: emptyToNull(fields.recommendedPackage),
       notes: emptyToNull(fields.notes),
       tags,
       treatmentInterests: combinedPackageInterests,
@@ -743,6 +745,29 @@ export default function EditContactPage() {
                     placeholder="Enter bespoke package name"
                   />
                 )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                  Recommended Next Package
+                </label>
+                <select
+                  value={fields.recommendedPackage}
+                  onChange={handleSelectChange("recommendedPackage")}
+                  className={selectBase}
+                >
+                  <option value="">No recommendation yet</option>
+                  {allTreatmentOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                  {fields.recommendedPackage &&
+                    !allTreatmentOptions.includes(fields.recommendedPackage) && (
+                      <option value={fields.recommendedPackage}>
+                        {fields.recommendedPackage}
+                      </option>
+                    )}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">

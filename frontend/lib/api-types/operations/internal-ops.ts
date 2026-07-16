@@ -77,6 +77,8 @@ export interface ClientAccountProfileRecord {
   healthStatus: ClientAccountHealthStatus;
   clientStatus: ClientAccountClientStatus;
   currentPackage: string | null;
+  recommendedNextPackage: string | null;
+  upsellOpportunity: string | null;
   churnRisk: ClientAccountChurnRisk;
   renewalDate: string | null;
   contractStatus: ClientAccountContractStatus;
@@ -179,6 +181,8 @@ export interface ClientAccountProfilePayload {
   healthStatus?: ClientAccountHealthStatus;
   clientStatus?: ClientAccountClientStatus;
   currentPackage?: string | null;
+  recommendedNextPackage?: string | null;
+  upsellOpportunity?: string | null;
   churnRisk?: ClientAccountChurnRisk;
   renewalDate?: string | null;
   contractStatus?: ClientAccountContractStatus;

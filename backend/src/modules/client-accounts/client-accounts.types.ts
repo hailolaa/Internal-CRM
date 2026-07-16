@@ -14,6 +14,8 @@ export interface UpdateClientAccountProfileDTO {
   healthStatus?: HealthStatus;
   clientStatus?: ClientStatus;
   currentPackage?: string | null;
+  recommendedNextPackage?: string | null;
+  upsellOpportunity?: string | null;
   churnRisk?: ChurnRisk;
   renewalDate?: string | null;
   contractStatus?: ContractStatus;
@@ -67,6 +69,8 @@ export interface ClientAccountProfileResponse {
   healthStatus: HealthStatus;
   clientStatus: ClientStatus;
   currentPackage: string | null;
+  recommendedNextPackage: string | null;
+  upsellOpportunity: string | null;
   churnRisk: ChurnRisk;
   renewalDate: string | null;
   contractStatus: ContractStatus;

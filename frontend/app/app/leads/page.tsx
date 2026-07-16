@@ -38,6 +38,7 @@ interface Lead {
   source: string;
   stage: string;
   packageInterest: string;
+  recommendedPackage: string;
   owner: string;
   followUpDate: string;
   followUpSort: number;
@@ -74,6 +75,7 @@ const searchFn = (lead: Lead, query: string) =>
   lead.email.toLowerCase().includes(query) ||
   lead.source.toLowerCase().includes(query) ||
   lead.packageInterest.toLowerCase().includes(query) ||
+  lead.recommendedPackage.toLowerCase().includes(query) ||
   lead.owner.toLowerCase().includes(query) ||
   lead.stage.toLowerCase().includes(query) ||
   lead.status.toLowerCase().includes(query) ||
@@ -185,6 +187,7 @@ function toLead(contact: ContactRecord): Lead {
     source: contact.source || "Unknown",
     stage: contact.status || "New",
     packageInterest,
+    recommendedPackage: contact.recommendedPackage || "-",
     owner: "Unassigned",
     followUpDate: formatDate(contact.nextFollowUpAt, "No follow-up set"),
     followUpSort: toDateSort(contact.nextFollowUpAt),
@@ -222,6 +225,7 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     source: deal.source || "Unknown",
     stage: deal.stageName || deal.status || "New",
     packageInterest: deal.treatment || "-",
+    recommendedPackage: "-",
     owner: deal.ownerName || "Unassigned",
     followUpDate: formatDate(deal.expectedCloseDate, "No follow-up set"),
     followUpSort: toDateSort(deal.expectedCloseDate),
@@ -264,6 +268,7 @@ function enrichLeadWithContactAndTask(
     followUpOverdue: useTaskFollowUp ? isPastDate(task.dueDate) : lead.followUpOverdue,
     lastContactDate: contact ? formatDate(lastContactAt, "Not contacted") : lead.lastContactDate,
     lastContactSort: contact ? toDateSort(lastContactAt) : lead.lastContactSort,
+    recommendedPackage: contact?.recommendedPackage || lead.recommendedPackage,
     attemptCount,
     slaStatus,
     slaSort: slaStatus === "overdue" ? 0 : slaStatus === "uncontacted" ? 1 : 2,
@@ -680,6 +685,9 @@ export default function LeadsPage() {
                       <p className="truncate font-medium text-[#1B1D22]">{lead.source}</p>
                       <p className="mt-1 truncate text-xs text-[#9E9890]">
                         Package: {lead.packageInterest}
+                      </p>
+                      <p className="mt-1 truncate text-xs text-[#9E9890]">
+                        Recommend: {lead.recommendedPackage}
                       </p>
                     </div>
                   </td>

@@ -762,6 +762,20 @@ export default function ContactDetailPage() {
             <h2 className="text-base font-semibold text-[#151f21]">
               Service / package interests
             </h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                <p className="text-xs font-medium text-[#6F6A66]">Package interest</p>
+                <p className="mt-2 text-sm font-semibold text-[#151f21]">
+                  {contact.packageInterest || "Not set"}
+                </p>
+              </div>
+              <div className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                <p className="text-xs font-medium text-[#6F6A66]">Recommended next package</p>
+                <p className="mt-2 text-sm font-semibold text-[#151f21]">
+                  {contact.recommendedPackage || "Not set"}
+                </p>
+              </div>
+            </div>
             <div className="mt-4 flex flex-wrap gap-2">
               {(contact.treatmentInterests || []).map((interest) => (
                 <span

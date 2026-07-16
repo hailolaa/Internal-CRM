@@ -43,6 +43,8 @@ const emptyAccountForm: ClientAccountCreatePayload = {
   contractStatus: "pending",
   churnRisk: "low",
   currentPackage: "",
+  recommendedNextPackage: "",
+  upsellOpportunity: "",
   activeServices: [],
   keyNotes: "",
 };
@@ -115,6 +117,8 @@ export default function NewClientAccountPage() {
         phone: form.phone || null,
         website: form.website || null,
         currentPackage: form.currentPackage || null,
+        recommendedNextPackage: form.recommendedNextPackage || null,
+        upsellOpportunity: form.upsellOpportunity || null,
         keyNotes: form.keyNotes || null,
       });
       addToast("Client account added.", "success");
@@ -258,6 +262,28 @@ export default function NewClientAccountPage() {
                     placeholder="Enter bespoke package name"
                   />
                 )}
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Recommended next package</span>
+                <select
+                  value={form.recommendedNextPackage || ""}
+                  onChange={(event) => setForm((current) => ({ ...current, recommendedNextPackage: event.target.value }))}
+                  className={fieldClass}
+                >
+                  <option value="">No recommendation yet</option>
+                  {packageOptions.map((packageName) => (
+                    <option key={packageName} value={packageName}>{packageName}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1.5 md:col-span-2">
+                <span className="text-sm font-semibold text-[#344446]">Upsell opportunity</span>
+                <input
+                  value={form.upsellOpportunity || ""}
+                  onChange={(event) => setForm((current) => ({ ...current, upsellOpportunity: event.target.value }))}
+                  className={fieldClass}
+                  placeholder="e.g. Move to Growth Engine after tracking QA"
+                />
               </label>
             </div>
           </Card>

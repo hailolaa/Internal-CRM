@@ -79,6 +79,8 @@ function toPayload(profile: ClientAccountProfileRecord): ClientAccountProfilePay
     onboardingStatus: profile.onboardingStatus,
     healthStatus: profile.healthStatus,
     currentPackage: profile.currentPackage,
+    recommendedNextPackage: profile.recommendedNextPackage,
+    upsellOpportunity: profile.upsellOpportunity,
     churnRisk: profile.churnRisk,
     renewalDate: profile.renewalDate,
     contractStatus: profile.contractStatus,
@@ -237,6 +239,31 @@ export default function ClientPackagePage() {
                     placeholder="Enter bespoke package name"
                   />
                 )}
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Recommended next package</span>
+                <select
+                  value={draft?.recommendedNextPackage || ""}
+                  disabled={isLoading || !draft}
+                  onChange={(event) => updateDraft("recommendedNextPackage", event.target.value || null)}
+                  className={fieldClass}
+                >
+                  <option value="">No recommendation yet</option>
+                  {packageOptions.map((packageName) => <option key={packageName} value={packageName}>{packageName}</option>)}
+                  {draft?.recommendedNextPackage && !packageOptions.includes(draft.recommendedNextPackage) && (
+                    <option value={draft.recommendedNextPackage}>{draft.recommendedNextPackage}</option>
+                  )}
+                </select>
+              </label>
+              <label className="space-y-1.5 md:col-span-2">
+                <span className="text-sm font-semibold text-[#344446]">Upsell opportunity</span>
+                <input
+                  value={draft?.upsellOpportunity || ""}
+                  disabled={isLoading || !draft}
+                  onChange={(event) => updateDraft("upsellOpportunity", event.target.value)}
+                  className={fieldClass}
+                  placeholder="e.g. Recommend Market Leader after next renewal"
+                />
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Onboarding</span>
