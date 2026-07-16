@@ -427,7 +427,7 @@ export default function ClientAccountDetailPage() {
               </p>
               <p className="mt-2 text-xs text-[#7A746A]">
                 {driveStatusLabel(account)}
-                {account.googleDriveFolderCheckedAt ? ` · checked ${new Date(account.googleDriveFolderCheckedAt).toLocaleString()}` : ""}
+                {account.googleDriveFolderCheckedAt ? ` - checked ${new Date(account.googleDriveFolderCheckedAt).toLocaleString()}` : ""}
               </p>
               {account.googleDriveFolderError ? (
                 <p className="mt-2 text-xs font-medium text-[#B42318]">{account.googleDriveFolderError}</p>
