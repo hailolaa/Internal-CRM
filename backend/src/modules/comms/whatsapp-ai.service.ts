@@ -340,59 +340,96 @@ export class WhatsAppAiService {
   async ingestInbound(clinicId: string, userId: string | null, data: WhatsAppInboundDTO) {
     const phone = normalizePhone(data.from);
     const body = cleanString(data.body);
+    const providerMessageId = cleanString(data.providerMessageId);
     if (!phone) throw ApiError.badRequest("Inbound WhatsApp sender is required");
     if (!body) throw ApiError.badRequest("Inbound WhatsApp message body is required");
 
-    const existing = data.providerMessageId
-      ? await this.findMessageByProviderId(clinicId, data.providerMessageId)
-      : null;
-    if (existing) return { message: existing, aiReply: await this.getReplyByInboundMessage(clinicId, existing.id) };
+    const lockConnection = providerMessageId ? await pool.getConnection() : null;
+    const lockName = providerMessageId
+      ? idempotencyLockName(`whatsapp-inbound:${clinicId}:${providerMessageId}`)
+      : "";
+    let lockAcquired = false;
 
-    const contact = await this.findOrCreateContact(clinicId, userId, phone, data);
-    const conversation = await this.ensureConversation(clinicId, contact.id, phone, userId);
-    const messageId = uuidv4();
-    const receivedAt = toMysqlDateTime(data.receivedAt) || new Date().toISOString().slice(0, 19).replace("T", " ");
+    try {
+      if (lockConnection && lockName) {
+        const [lockRows]: any = await lockConnection.execute("SELECT GET_LOCK(?, 10) as acquired", [lockName]);
+        lockAcquired = Number(lockRows[0]?.acquired || 0) === 1;
+        if (!lockAcquired) {
+          throw ApiError.serviceUnavailable("WhatsApp inbound message is already being processed; please try again");
+        }
+      }
 
-    await pool.execute(
-      `INSERT INTO whatsapp_message
-        (id, clinic_id, conversation_id, contact_id, direction, body, status, provider_message_id, metadata, received_at)
-       VALUES (?, ?, ?, ?, 'inbound', ?, 'received', ?, ?, ?)`,
-      [
-        messageId,
+      const existing = providerMessageId
+        ? await this.findMessageByProviderId(clinicId, providerMessageId)
+        : null;
+      if (existing) return { message: existing, aiReply: await this.getReplyByInboundMessage(clinicId, existing.id) };
+
+      const contact = await this.findOrCreateContact(clinicId, userId, phone, data);
+      const conversation = await this.ensureConversation(clinicId, contact.id, phone, userId);
+      const messageId = uuidv4();
+      const receivedAt = toMysqlDateTime(data.receivedAt) || new Date().toISOString().slice(0, 19).replace("T", " ");
+
+      try {
+        await pool.execute(
+          `INSERT INTO whatsapp_message
+            (id, clinic_id, conversation_id, contact_id, direction, body, status, provider_message_id, metadata, received_at)
+           VALUES (?, ?, ?, ?, 'inbound', ?, 'received', ?, ?, ?)`,
+          [
+            messageId,
+            clinicId,
+            conversation.id,
+            contact.id,
+            body,
+            providerMessageId || null,
+            JSON.stringify({ source: "whatsapp_inbound", from: data.from }),
+            receivedAt,
+          ],
+        );
+      } catch (error) {
+        if (!providerMessageId || !isDuplicateKeyError(error)) throw error;
+        const existingAfterDuplicate = await this.findMessageByProviderId(clinicId, providerMessageId);
+        if (existingAfterDuplicate) {
+          return {
+            message: existingAfterDuplicate,
+            aiReply: await this.getReplyByInboundMessage(clinicId, existingAfterDuplicate.id),
+          };
+        }
+        throw error;
+      }
+
+      await this.touchConversation(conversation.id, "open", receivedAt);
+
+      await logTimelineActivity({
         clinicId,
-        conversation.id,
-        contact.id,
-        body,
-        data.providerMessageId || null,
-        JSON.stringify({ source: "whatsapp_inbound", from: data.from }),
-        receivedAt,
-      ],
-    );
-    await this.touchConversation(conversation.id, "open", receivedAt);
+        contactId: contact.id,
+        userId: userId || undefined,
+        type: "SMS",
+        metadata: buildTimelineMetadata({
+          action: "whatsapp.inbound_received",
+          source: "contact",
+          recordId: messageId,
+          changes: { providerMessageId: providerMessageId || null },
+        }),
+      });
+      await logAuditEvent({
+        clinicId,
+        userId,
+        action: "WHATSAPP_INBOUND_RECEIVED",
+        entityType: "whatsapp_message",
+        entityId: messageId,
+        changes: { contactId: contact.id, conversationId: conversation.id },
+      });
 
-    await logTimelineActivity({
-      clinicId,
-      contactId: contact.id,
-      userId: userId || undefined,
-      type: "SMS",
-      metadata: buildTimelineMetadata({
-        action: "whatsapp.inbound_received",
-        source: "contact",
-        recordId: messageId,
-        changes: { providerMessageId: data.providerMessageId || null },
-      }),
-    });
-    await logAuditEvent({
-      clinicId,
-      userId,
-      action: "WHATSAPP_INBOUND_RECEIVED",
-      entityType: "whatsapp_message",
-      entityId: messageId,
-      changes: { contactId: contact.id, conversationId: conversation.id },
-    });
-
-    const aiReply = await this.createDraft(clinicId, userId, { inboundMessageId: messageId });
-    return { message: await this.getMessage(clinicId, messageId), aiReply };
+      const aiReply = await this.createDraft(clinicId, userId, { inboundMessageId: messageId });
+      return { message: await this.getMessage(clinicId, messageId), aiReply };
+    } finally {
+      if (lockConnection) {
+        if (lockAcquired && lockName) {
+          await lockConnection.execute("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => undefined);
+        }
+        lockConnection.release();
+      }
+    }
   }
 
   async createDraft(clinicId: string, userId: string | null, data: WhatsAppDraftDTO) {

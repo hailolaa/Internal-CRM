@@ -287,6 +287,54 @@ test("WhatsApp AI webhooks are authenticated, tenant-routed, guarded, idempotent
       1,
     );
 
+    const concurrentDuplicatePayload = metaPayload({
+      id: "wa-concurrent-duplicate",
+      from: "447700900117",
+      text: "Hi, I want help with tracking and reports",
+      phoneNumberId: "meta-phone-primary",
+    });
+    const [firstConcurrentInbound, secondConcurrentInbound] = await Promise.all([
+      postJson(`${baseUrl}/api/webhooks/whatsapp/inbound`, concurrentDuplicatePayload, { appSecret }),
+      postJson(`${baseUrl}/api/webhooks/whatsapp/inbound`, concurrentDuplicatePayload, { appSecret }),
+    ]);
+    assert.equal(firstConcurrentInbound.response.status, 200);
+    assert.equal(secondConcurrentInbound.response.status, 200);
+    assert.equal(
+      firstConcurrentInbound.payload.data.message.id,
+      secondConcurrentInbound.payload.data.message.id,
+    );
+    assert.equal(
+      firstConcurrentInbound.payload.data.aiReply.id,
+      secondConcurrentInbound.payload.data.aiReply.id,
+    );
+    assert.equal(
+      await countRows(
+        "SELECT COUNT(*) as count FROM whatsapp_message WHERE clinic_id = ? AND provider_message_id = ? AND direction = 'inbound' AND deleted_at IS NULL",
+        [primary.clinicId, "wa-concurrent-duplicate"],
+      ),
+      1,
+    );
+    assert.equal(
+      await countRows(
+        `SELECT COUNT(*) as count
+         FROM whatsapp_ai_reply war
+         JOIN whatsapp_message wm ON wm.id = war.inbound_message_id
+         WHERE war.clinic_id = ? AND wm.provider_message_id = ? AND war.deleted_at IS NULL`,
+        [primary.clinicId, "wa-concurrent-duplicate"],
+      ),
+      1,
+    );
+    assert.equal(
+      await countRows(
+        "SELECT COUNT(*) as count FROM whatsapp_message WHERE clinic_id = ? AND direction = 'outbound' AND idempotency_key = ? AND deleted_at IS NULL",
+        [
+          primary.clinicId,
+          `whatsapp-ai-reply:${firstConcurrentInbound.payload.data.aiReply.id}`,
+        ],
+      ),
+      1,
+    );
+
     await whatsappAiService.updateSettings(primary.clinicId, primary.userId, {
       autoSendEnabled: false,
       businessHoursEnabled: false,
