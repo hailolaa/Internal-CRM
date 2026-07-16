@@ -4,6 +4,7 @@ import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
+import { googleDriveOAuthService } from "./google-drive-oauth.service.js";
 import type {
   ClientAccountAuditContext,
   ClientAccountContactAccountLinkResponse,
@@ -17,6 +18,8 @@ import type {
   ClientAccountSummaryResponse,
   CreateClientAccountDTO,
   CreateClientAccountFromContactDTO,
+  CreateClientAccountDriveFolderDTO,
+  RenameClientAccountDriveFileDTO,
   CreateClientAccountServiceDTO,
   UpdateClientAccountDriveFolderDTO,
   UpdateClientAccountServiceDTO,
@@ -714,7 +717,7 @@ export class ClientAccountsService {
     }
 
     const driveItem = extractGoogleDriveItem(input);
-    const accessCheck = await this.checkGoogleDriveItemAccess(driveItem.id, driveItem.kindHint);
+    const accessCheck = await this.checkGoogleDriveItemAccess(sourceClinicId, driveItem.id, driveItem.kindHint);
     const folderId = driveItem.id;
     const folderUrl =
       accessCheck.itemType === "zip" || driveItem.kindHint === "zip"
@@ -766,6 +769,154 @@ export class ClientAccountsService {
     });
 
     return this.getProfile(clientClinicId);
+  }
+
+  async listDriveFolders(
+    sourceClinicId: string,
+    clientClinicId: string,
+    parentId: string,
+    access: { canManageAllClientAccounts: boolean; canConfigureDrive?: boolean },
+  ) {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const resolvedParentId = await this.ensureDriveItemAvailable(
+      sourceClinicId,
+      clientClinicId,
+      parentId || "root",
+      Boolean(access.canConfigureDrive),
+    );
+    return googleDriveOAuthService.listFolders(sourceClinicId, resolvedParentId);
+  }
+
+  async createDriveFolder(
+    sourceClinicId: string,
+    clientClinicId: string,
+    userId: string,
+    data: CreateClientAccountDriveFolderDTO,
+    access: { canManageAllClientAccounts: boolean; canConfigureDrive?: boolean },
+    auditContext: ClientAccountAuditContext,
+  ) {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const parentId = await this.ensureDriveItemAvailable(
+      sourceClinicId,
+      clientClinicId,
+      data.parentId || "root",
+      Boolean(access.canConfigureDrive),
+    );
+    const folder = await googleDriveOAuthService.createFolder(
+      sourceClinicId,
+      data.name.trim(),
+      parentId,
+    );
+
+    await logAuditEvent({
+      clinicId: clientClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_DRIVE_FOLDER_CREATED",
+      entityType: "client_account",
+      entityId: clientClinicId,
+      changes: {
+        folderId: folder.id,
+        folderName: folder.name,
+        parentId: folder.parentId,
+      },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return folder;
+  }
+
+  async uploadDriveFile(
+    sourceClinicId: string,
+    clientClinicId: string,
+    userId: string,
+    file: { originalname: string; mimetype: string; buffer: Buffer },
+    parentId: string,
+    access: { canManageAllClientAccounts: boolean; canConfigureDrive?: boolean },
+    auditContext: ClientAccountAuditContext,
+  ) {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const resolvedParentId = await this.ensureDriveItemAvailable(
+      sourceClinicId,
+      clientClinicId,
+      parentId || "root",
+      Boolean(access.canConfigureDrive),
+    );
+    const uploaded = await googleDriveOAuthService.uploadFile(
+      sourceClinicId,
+      { name: file.originalname, mimeType: file.mimetype, buffer: file.buffer },
+      resolvedParentId,
+    );
+    await logAuditEvent({
+      clinicId: clientClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_DRIVE_FILE_UPLOADED",
+      entityType: "client_account",
+      entityId: clientClinicId,
+      changes: { fileId: uploaded.id, fileName: uploaded.name, parentId: uploaded.parentId },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+    return uploaded;
+  }
+
+  async renameDriveFile(
+    sourceClinicId: string,
+    clientClinicId: string,
+    userId: string,
+    fileId: string,
+    data: RenameClientAccountDriveFileDTO,
+    access: { canManageAllClientAccounts: boolean; canConfigureDrive?: boolean },
+    auditContext: ClientAccountAuditContext,
+  ) {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    await this.ensureDriveItemAvailable(sourceClinicId, clientClinicId, fileId, Boolean(access.canConfigureDrive));
+    const renamed = await googleDriveOAuthService.renameFile(sourceClinicId, fileId, data.name.trim());
+    await logAuditEvent({
+      clinicId: clientClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_DRIVE_FILE_RENAMED",
+      entityType: "client_account",
+      entityId: clientClinicId,
+      changes: { fileId, fileName: renamed.name },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+    return renamed;
+  }
+
+  async deleteDriveFile(
+    sourceClinicId: string,
+    clientClinicId: string,
+    userId: string,
+    fileId: string,
+    access: { canManageAllClientAccounts: boolean; canConfigureDrive?: boolean },
+    auditContext: ClientAccountAuditContext,
+  ) {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    await this.ensureDriveItemAvailable(sourceClinicId, clientClinicId, fileId, Boolean(access.canConfigureDrive));
+    await googleDriveOAuthService.deleteFile(sourceClinicId, fileId);
+    await logAuditEvent({
+      clinicId: clientClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_DRIVE_FILE_DELETED",
+      entityType: "client_account",
+      entityId: clientClinicId,
+      changes: { fileId },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+  }
+
+  async downloadDriveFile(
+    sourceClinicId: string,
+    clientClinicId: string,
+    fileId: string,
+    access: { canManageAllClientAccounts: boolean; canConfigureDrive?: boolean },
+  ) {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    await this.ensureDriveItemAvailable(sourceClinicId, clientClinicId, fileId, Boolean(access.canConfigureDrive));
+    return googleDriveOAuthService.downloadFile(sourceClinicId, fileId);
   }
 
   async updateProfile(
@@ -1326,7 +1477,26 @@ export class ClientAccountsService {
     throw ApiError.forbidden("Client account is not available to this workspace");
   }
 
-  private async checkGoogleDriveItemAccess(folderId: string, kindHint: GoogleDriveItemKind): Promise<{
+  private async ensureDriveItemAvailable(
+    sourceClinicId: string,
+    clientClinicId: string,
+    itemId: string,
+    canConfigureDrive: boolean,
+  ) {
+    if (canConfigureDrive) return itemId;
+    const profile = await this.getProfile(clientClinicId);
+    const rootFolderId = profile.googleDriveFolderId;
+    if (!rootFolderId) {
+      throw ApiError.badRequest("An Admin must select a Google Drive folder for this client first.");
+    }
+    const resolvedItemId = itemId === "root" ? rootFolderId : itemId;
+    if (!await googleDriveOAuthService.isItemWithinFolder(sourceClinicId, resolvedItemId, rootFolderId)) {
+      throw ApiError.forbidden("This Google Drive item is outside the selected client folder.");
+    }
+    return resolvedItemId;
+  }
+
+  private async checkGoogleDriveItemAccess(clinicId: string, folderId: string, kindHint: GoogleDriveItemKind): Promise<{
     name: string | null;
     itemType: "folder" | "zip" | null;
     status: "not_checked" | "accessible" | "inaccessible";
@@ -1337,7 +1507,7 @@ export class ClientAccountsService {
       throw ApiError.serviceUnavailable("Google Drive validation must be enabled before Drive links can be saved.");
     }
 
-    const accessToken = await this.getGoogleDriveAccessToken();
+    const accessToken = await this.getGoogleDriveAccessToken(clinicId);
     const checkedAt = new Date().toISOString().slice(0, 19).replace("T", " ");
     try {
       const response = await fetch(
@@ -1383,7 +1553,10 @@ export class ClientAccountsService {
     }
   }
 
-  private async getGoogleDriveAccessToken() {
+  private async getGoogleDriveAccessToken(clinicId: string) {
+    if (config.googleDrive.databaseOAuthEnabled) {
+      return googleDriveOAuthService.getAccessToken(clinicId);
+    }
     if (
       this.googleDriveTokenCache &&
       this.googleDriveTokenCache.expiresAt > Date.now() + 60_000

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, CheckCircle, Loader2, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
+import type { ClientAccountSummaryRecord } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 
 type FieldKey =
@@ -117,7 +118,8 @@ export default function NewContactPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { session } = useAuth();
-  const isContactMode = searchParams.get("mode") === "contact";
+  const isContactMode = searchParams.get("mode") !== "lead";
+  const requestedClientClinicId = isContactMode ? searchParams.get("clientId") || "" : "";
   const pageCopy = isContactMode
     ? {
         title: "Add Contact",
@@ -148,6 +150,11 @@ export default function NewContactPage() {
     phone: false,
   });
   const [customTag, setCustomTag] = useState("");
+  const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
+  const [selectedClientClinicId, setSelectedClientClinicId] = useState(requestedClientClinicId);
+  const [isLoadingClientAccounts, setIsLoadingClientAccounts] = useState(isContactMode);
+  const [clientAccountLoadError, setClientAccountLoadError] = useState<string | null>(null);
+  const [pendingCreatedContactId, setPendingCreatedContactId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
     "idle",
@@ -194,6 +201,44 @@ export default function NewContactPage() {
     return () => window.clearTimeout(timer);
   }, [isContactMode, session?.token]);
 
+  useEffect(() => {
+    if (!isContactMode || !session?.token) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setIsLoadingClientAccounts(true);
+      setClientAccountLoadError(null);
+      api.clientAccounts
+        .list(session.token)
+        .then((accounts) => {
+          if (!cancelled) {
+            setClientAccounts(accounts);
+            if (
+              requestedClientClinicId
+              && !accounts.some((account) => account.clinicId === requestedClientClinicId)
+            ) {
+              setSelectedClientClinicId("");
+            }
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setClientAccountLoadError(
+              "Client accounts could not be loaded. You can still save an unlinked contact.",
+            );
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoadingClientAccounts(false);
+        });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isContactMode, requestedClientClinicId, session?.token]);
+
   const updateField = useCallback((name: FieldKey, value: string) => {
     setFields((prev) => ({ ...prev, [name]: value }));
   }, []);
@@ -218,6 +263,28 @@ export default function NewContactPage() {
   const handleSave = async () => {
     if (!session?.token) return;
 
+    if (pendingCreatedContactId && selectedClientClinicId) {
+      try {
+        setSaveStatus("saving");
+        setStatusMessage(null);
+        await api.clientAccounts.linkContact(
+          session.token,
+          selectedClientClinicId,
+          pendingCreatedContactId,
+        );
+        setSaveStatus("saved");
+        router.push(`/app/crm/contacts/detail?id=${pendingCreatedContactId}`);
+      } catch (error) {
+        setStatusMessage(
+          error instanceof Error
+            ? `Contact saved, but the client link still failed: ${error.message}`
+            : "Contact saved, but the client link still failed. Please try again.",
+        );
+        setSaveStatus("idle");
+      }
+      return;
+    }
+
     const validationMessage = isContactMode
       ? validateContactFields(fields)
       : validateLeadFields(fields);
@@ -231,11 +298,14 @@ export default function NewContactPage() {
     const treatmentInterests = Array.from(
       new Set([primaryPackage, ...(isContactMode ? [] : packageInterests)].filter(Boolean)),
     );
+    const selectedClientAccount = clientAccounts.find(
+      (account) => account.clinicId === selectedClientClinicId,
+    );
     try {
       setSaveStatus("saving");
       setStatusMessage(null);
       const result = await api.contacts.create(session.token, {
-        accountName: emptyToNull(fields.clinicName),
+        accountName: selectedClientAccount?.clinicName || emptyToNull(fields.clinicName),
         role: emptyToNull(fields.role),
         communicationPermissions,
         firstName: emptyToNull(fields.firstName),
@@ -261,6 +331,26 @@ export default function NewContactPage() {
         tags,
         treatmentInterests,
       });
+
+      if (isContactMode && selectedClientClinicId) {
+        try {
+          await api.clientAccounts.linkContact(
+            session.token,
+            selectedClientClinicId,
+            result.contact.id,
+          );
+        } catch (error) {
+          setPendingCreatedContactId(result.contact.id);
+          setStatusMessage(
+            error instanceof Error
+              ? `Contact saved, but it could not be linked to the client: ${error.message}`
+              : "Contact saved, but it could not be linked to the client. Please try again.",
+          );
+          setSaveStatus("idle");
+          return;
+        }
+      }
+
       setSaveStatus("saved");
       router.push(`/app/crm/contacts/detail?id=${result.contact.id}`);
     } catch (error) {
@@ -314,7 +404,8 @@ export default function NewContactPage() {
             </>
           ) : (
             <>
-              <Save className="w-4 h-4" /> {pageCopy.saveLabel}
+              <Save className="w-4 h-4" />
+              {pendingCreatedContactId ? "Retry Client Link" : pageCopy.saveLabel}
             </>
           )}
         </button>
@@ -338,9 +429,34 @@ export default function NewContactPage() {
           >
             <h2 className="font-semibold text-[#111111] mb-5">{pageCopy.identityTitle}</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {isContactMode && (
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                    Link to Client <span className="font-normal text-[#6B7280]">(optional)</span>
+                  </label>
+                  <select
+                    value={selectedClientClinicId}
+                    onChange={(event) => setSelectedClientClinicId(event.target.value)}
+                    disabled={isLoadingClientAccounts || Boolean(pendingCreatedContactId)}
+                    className={selectBase}
+                  >
+                    <option value="">
+                      {isLoadingClientAccounts ? "Loading clients..." : "No linked client"}
+                    </option>
+                    {clientAccounts.map((account) => (
+                      <option key={account.clinicId} value={account.clinicId}>
+                        {account.clinicName}
+                      </option>
+                    ))}
+                  </select>
+                  {clientAccountLoadError && (
+                    <p className="mt-1.5 text-xs text-amber-700">{clientAccountLoadError}</p>
+                  )}
+                </div>
+              )}
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  {isContactMode ? "Linked Account Name" : "Account Name"}
+                  Account Name
                 </label>
                 <input
                   type="text"

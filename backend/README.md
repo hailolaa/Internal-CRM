@@ -135,7 +135,7 @@ GOOGLE_DRIVE_REFRESH_TOKEN=<refresh token with Drive metadata access>
 GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL=<service account email>
 GOOGLE_DRIVE_SERVICE_ACCOUNT_PRIVATE_KEY=<service account private key>
 GOOGLE_DRIVE_SERVICE_ACCOUNT_SUBJECT=<optional delegated user>
-GOOGLE_DRIVE_SCOPES=https://www.googleapis.com/auth/drive.metadata.readonly
+GOOGLE_DRIVE_SCOPES=https://www.googleapis.com/auth/drive
 ```
 
 Mission Control rejects inaccessible links, trashed items and non-folder/non-ZIP files before saving. Static expiring access tokens are not used for Drive validation.

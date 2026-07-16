@@ -6,6 +6,7 @@ import {
   FolderKanban,
   Inbox,
   Package,
+  Plug,
   Settings,
   Shield,
   Target,
@@ -52,6 +53,7 @@ export const NAV_SECTIONS: NavSection[] = [
     colorClass: "text-[#7A746A]/60",
     items: [
       { label: "Team Members", href: "/app/ops/team", icon: Users },
+      { label: "Integrations", href: "/app/integrations", icon: Plug },
       { label: "Roles & Permissions", href: "/app/ops/roles", icon: Shield },
       { label: "Packages", href: "/app/settings/packages", icon: Package },
     ],

@@ -80,6 +80,49 @@ export const updateClientAccountDriveFolderValidator = [
     .withMessage("Google Drive title must be 255 characters or fewer"),
 ];
 
+const driveParentId = () =>
+  body("parentId")
+    .optional()
+    .isString()
+    .trim()
+    .matches(/^(root|[A-Za-z0-9_-]{10,255})$/)
+    .withMessage("Google Drive parent folder ID is not valid");
+
+export const listClientAccountDriveFoldersValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  query("parentId")
+    .optional()
+    .isString()
+    .trim()
+    .matches(/^(root|[A-Za-z0-9_-]{10,255})$/)
+    .withMessage("Google Drive parent folder ID is not valid"),
+];
+
+export const createClientAccountDriveFolderValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  body("name").isString().trim().isLength({ min: 1, max: 150 }).withMessage("Folder name must be 1-150 characters"),
+  driveParentId(),
+];
+
+export const uploadClientAccountDriveFileValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  driveParentId(),
+];
+
+export const clientAccountDriveFileValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  param("fileId")
+    .isString()
+    .trim()
+    .matches(/^[A-Za-z0-9_-]{10,255}$/)
+    .withMessage("Google Drive file ID is not valid"),
+];
+
+export const renameClientAccountDriveFileValidator = [
+  ...clientAccountDriveFileValidator,
+  body("name").isString().trim().isLength({ min: 1, max: 255 }).withMessage("File name must be 1-255 characters"),
+];
+
 export const clientAccountClinicIdParamValidator = [
   param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
 ];

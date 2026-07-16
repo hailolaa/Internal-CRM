@@ -1,6 +1,7 @@
 import { Router } from "express";
+import multer from "multer";
 import { authenticate } from "../../middleware/authenticate.js";
-import { authorizePermission } from "../../middleware/authorize.js";
+import { authorize, authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
 import { clientAccountsController } from "./client-accounts.controller.js";
 import {
@@ -9,18 +10,39 @@ import {
   clientAccountContactLinkValidator,
   clientAccountServiceIdParamValidator,
   createClientAccountFromContactValidator,
+  createClientAccountDriveFolderValidator,
   createClientAccountValidator,
   createClientAccountServiceValidator,
   listClientAccountsValidator,
+  listClientAccountDriveFoldersValidator,
   listClientAccountServicesValidator,
   updateClientAccountDriveFolderValidator,
   updateClientAccountProfileValidator,
   updateClientAccountServiceValidator,
+  uploadClientAccountDriveFileValidator,
+  clientAccountDriveFileValidator,
+  renameClientAccountDriveFileValidator,
 } from "./client-accounts.validators.js";
 
 const router = Router();
+const driveUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 1, fileSize: 25 * 1024 * 1024 },
+});
 
 router.use(authenticate);
+
+router.get(
+  "/drive/oauth/status",
+  authorizePermission("client_accounts:read"),
+  clientAccountsController.getDriveOAuthStatus,
+);
+
+router.post(
+  "/drive/oauth/start",
+  authorize("SUPER_ADMIN", "ADMIN"),
+  clientAccountsController.startDriveOAuth,
+);
 
 router.get(
   "/",
@@ -56,10 +78,59 @@ router.get(
 
 router.patch(
   "/:clinicId/drive-folder",
-  authorizePermission("client_accounts:write"),
+  authorize("SUPER_ADMIN", "ADMIN"),
   updateClientAccountDriveFolderValidator,
   validate,
   clientAccountsController.updateDriveFolder,
+);
+
+router.get(
+  "/:clinicId/drive/folders",
+  authorizePermission("client_accounts:read"),
+  listClientAccountDriveFoldersValidator,
+  validate,
+  clientAccountsController.listDriveFolders,
+);
+
+router.post(
+  "/:clinicId/drive/folders",
+  authorizePermission("client_accounts:write"),
+  createClientAccountDriveFolderValidator,
+  validate,
+  clientAccountsController.createDriveFolder,
+);
+
+router.post(
+  "/:clinicId/drive/files",
+  authorizePermission("client_accounts:write"),
+  driveUpload.single("file"),
+  uploadClientAccountDriveFileValidator,
+  validate,
+  clientAccountsController.uploadDriveFile,
+);
+
+router.get(
+  "/:clinicId/drive/files/:fileId/download",
+  authorizePermission("client_accounts:read"),
+  clientAccountDriveFileValidator,
+  validate,
+  clientAccountsController.downloadDriveFile,
+);
+
+router.patch(
+  "/:clinicId/drive/files/:fileId",
+  authorizePermission("client_accounts:write"),
+  renameClientAccountDriveFileValidator,
+  validate,
+  clientAccountsController.renameDriveFile,
+);
+
+router.delete(
+  "/:clinicId/drive/files/:fileId",
+  authorizePermission("client_accounts:write"),
+  clientAccountDriveFileValidator,
+  validate,
+  clientAccountsController.deleteDriveFile,
 );
 
 router.get(

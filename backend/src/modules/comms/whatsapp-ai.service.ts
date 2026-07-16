@@ -15,6 +15,7 @@ import type {
   WhatsAppManualSendDTO,
   WhatsAppRetryDTO,
 } from "./whatsapp-ai.types.js";
+import { sendTwilioWhatsAppMessage } from "./twilio-whatsapp.provider.js";
 
 const defaultGuardrails = [
   "Do not make clinical, legal, financial or guaranteed outcome claims.",
@@ -802,6 +803,12 @@ export class WhatsAppAiService {
       if (config.whatsapp.provider === "meta" && (!config.whatsapp.accessToken || !config.whatsapp.phoneNumberId)) {
         throw ApiError.serviceUnavailable("WhatsApp provider is not configured");
       }
+      if (
+        config.whatsapp.provider === "twilio" &&
+        (!config.twilio.accountSid || !config.twilio.authToken || !config.twilio.whatsappSender)
+      ) {
+        throw ApiError.serviceUnavailable("Twilio WhatsApp provider is not configured");
+      }
 
       messageId = existing?.id || uuidv4();
       if (!existing) {
@@ -902,6 +909,31 @@ export class WhatsAppAiService {
             provider: "meta",
             providerAttempted: true,
             providerResultUnknown: true,
+            error: failureReason,
+          };
+        }
+      }
+
+      if (config.whatsapp.provider === "twilio") {
+        try {
+          const result = await sendTwilioWhatsAppMessage({
+            accountSid: config.twilio.accountSid,
+            authToken: config.twilio.authToken,
+            from: config.twilio.whatsappSender,
+            to,
+            body: input.body,
+            timeoutMs: config.openai.timeoutMs,
+          });
+          providerMessageId = result.providerMessageId;
+          providerResponse = result.providerResponse;
+        } catch (error) {
+          status = "failed";
+          retrySafe = error instanceof ApiError;
+          failureReason = error instanceof Error ? error.message : "Twilio WhatsApp provider result is unknown";
+          providerResponse = {
+            provider: "twilio",
+            providerAttempted: true,
+            providerResultUnknown: !retrySafe,
             error: failureReason,
           };
         }

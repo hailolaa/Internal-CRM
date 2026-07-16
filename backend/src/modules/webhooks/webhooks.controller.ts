@@ -5,6 +5,10 @@ import { config } from "../../config/index.js";
 import { webhooksService } from "./webhooks.service.js";
 import { callsService } from "../calls/calls.service.js";
 import { whatsappAiService } from "../comms/whatsapp-ai.service.js";
+import {
+  toTwilioWhatsAppAddress,
+  validateTwilioWhatsAppRequest,
+} from "../comms/twilio-whatsapp.provider.js";
 
 function splitDisplayName(value: unknown) {
   const name = String(value || "").trim();
@@ -53,7 +57,7 @@ function extractWhatsAppInboundMessages(body: any) {
       firstName: body?.firstName || firstName,
       lastName: body?.lastName || lastName,
       accountName: body?.accountName || null,
-      createLeadIfMissing: Boolean(body?.createLeadIfMissing),
+      createLeadIfMissing: Boolean(body?.createLeadIfMissing || (body?.MessageSid && body?.From)),
     },
   ];
 }
@@ -98,6 +102,27 @@ export class WebhooksController {
   }
 
   private assertWhatsAppWebhookAllowed(req: Request) {
+    if (config.whatsapp.provider === "twilio") {
+      if (!config.twilio.authToken || !config.twilio.accountSid) {
+        throw ApiError.serviceUnavailable("Twilio WhatsApp credentials are not configured");
+      }
+      if (String(req.body?.AccountSid || "") !== config.twilio.accountSid) {
+        throw ApiError.unauthorized("Invalid Twilio WhatsApp account");
+      }
+      const signature = String(req.get("x-twilio-signature") || "");
+      if (!signature) throw ApiError.unauthorized("Missing Twilio webhook signature");
+      const webhookUrl = config.twilio.whatsappWebhookUrl || `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+      if (!validateTwilioWhatsAppRequest({
+        authToken: config.twilio.authToken,
+        signature,
+        url: webhookUrl,
+        params: req.body || {},
+      })) {
+        throw ApiError.unauthorized("Invalid Twilio webhook signature");
+      }
+      return;
+    }
+
     if (!config.whatsapp.appSecret) {
       throw ApiError.serviceUnavailable("WhatsApp app secret is not configured");
     }
@@ -119,6 +144,21 @@ export class WebhooksController {
   }
 
   private resolveWhatsAppWorkspaceId(req: Request) {
+    if (config.whatsapp.provider === "twilio") {
+      const recipient = toTwilioWhatsAppAddress(String(req.body?.To || ""));
+      if (!recipient) throw ApiError.badRequest("Twilio WhatsApp receiving number is required for tenant routing");
+      const sender = toTwilioWhatsAppAddress(config.twilio.whatsappSender);
+      const rawRecipient = recipient.slice("whatsapp:".length);
+      const mappedWorkspaceId =
+        config.whatsapp.webhookWorkspaceMap[recipient] ||
+        config.whatsapp.webhookWorkspaceMap[rawRecipient] ||
+        (recipient === sender ? config.whatsapp.defaultWorkspaceId : "");
+      if (!mappedWorkspaceId) {
+        throw ApiError.forbidden("Twilio WhatsApp sender is not mapped to an internal workspace");
+      }
+      return mappedWorkspaceId;
+    }
+
     const phoneNumberIds = extractWhatsAppPhoneNumberIds(req.body || {});
     if (phoneNumberIds.length > 1) {
       throw ApiError.badRequest("WhatsApp webhook must contain messages for a single receiving phone number");
@@ -179,6 +219,10 @@ export class WebhooksController {
         data.push(await whatsappAiService.ingestInbound(clinicId, null, message));
       }
 
+      if (config.whatsapp.provider === "twilio") {
+        res.status(200).type("text/xml").send("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>");
+        return;
+      }
       res.status(200).json({ status: "success", data: data.length === 1 ? data[0] : data });
     } catch (error) {
       next(error);

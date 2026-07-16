@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { integrationsController } from "./integrations.controller.js";
 import { authenticate } from "../../middleware/authenticate.js";
-import { authorizePermission } from "../../middleware/authorize.js";
+import { authorize, authorizePermission } from "../../middleware/authorize.js";
 import { oauthRateLimit } from "../../middleware/rateLimit.js";
 import { validate } from "../../middleware/validate.js";
 import {
@@ -29,6 +29,7 @@ router.get(
 );
 
 router.use(authenticate);
+router.use(authorize("SUPER_ADMIN", "ADMIN"));
 
 // @route   GET /api/integrations
 // @desc    List clinic integrations

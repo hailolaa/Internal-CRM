@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { ApiError } from "../utils/ApiError.js";
 import pool from "../config/database.js";
+import { config } from "../config/index.js";
 import { getRoleAliases, roleMatchesAllowedRoles } from "../utils/roles.js";
 
 
@@ -149,4 +150,13 @@ export async function userHasPermission(
   );
 
   return rows.length > 0;
+}
+
+export async function userCanManageAllClientAccounts(userId: string, clinicId: string) {
+  if (await userHasPermission(userId, clinicId, "*")) return true;
+
+  const internalWorkspaceId = config.oauth.google.autoProvisionClinicId;
+  if (!internalWorkspaceId || clinicId !== internalWorkspaceId) return false;
+
+  return userHasPermission(userId, clinicId, "client_accounts:read");
 }

@@ -469,7 +469,7 @@ export default function LeadsPage() {
         right={
           <button
             type="button"
-            onClick={() => router.push("/app/crm/contacts/new")}
+            onClick={() => router.push("/app/crm/contacts/new?mode=lead")}
             className="inline-flex items-center gap-2 rounded-xl bg-[#6E6AE8] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#5A56D4]"
           >
             <Plus className="h-4 w-4" />

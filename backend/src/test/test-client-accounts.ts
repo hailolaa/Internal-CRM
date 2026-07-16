@@ -293,6 +293,29 @@ test("client account Drive links require validated Google access and tenant avai
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (url.startsWith("https://www.googleapis.com/drive/v3/files?")) {
+      driveRequests.push(url);
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body || "{}"));
+        return new Response(JSON.stringify({
+          id: "created-folder-123",
+          name: body.name,
+          webViewLink: "https://drive.google.com/drive/folders/created-folder-123",
+          parents: body.parents,
+          modifiedTime: "2026-07-16T12:00:00.000Z",
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({
+        files: [{
+          id: "existing-folder-123",
+          name: "Existing Client Folder",
+          mimeType: "application/vnd.google-apps.folder",
+          webViewLink: "https://drive.google.com/drive/folders/existing-folder-123",
+          parents: ["root"],
+          modifiedTime: "2026-07-15T12:00:00.000Z",
+        }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (url.startsWith("https://www.googleapis.com/drive/v3/files/")) {
       driveRequests.push(url);
       const encodedId = url.split("/files/")[1]?.split("?")[0] || "";
@@ -381,6 +404,28 @@ test("client account Drive links require validated Google access and tenant avai
     assert.equal(savedFolder.body.data.googleDriveFolderId, "valid-folder");
     assert.equal(savedFolder.body.data.googleDriveFolderName, "Client Delivery Folder");
     assert.equal(savedFolder.body.data.googleDriveFolderAccessStatus, "accessible");
+
+    const folderBrowser = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/drive/folders?parentId=root`,
+      primary.token,
+    );
+    assert.equal(folderBrowser.response.status, 200);
+    assert.equal(folderBrowser.body.data.currentFolder.name, "My Drive");
+    assert.equal(folderBrowser.body.data.folders[0].name, "Existing Client Folder");
+
+    const createdFolder = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/drive/folders`,
+      primary.token,
+      {
+        method: "POST",
+        body: JSON.stringify({ name: "New Client Delivery", parentId: "root" }),
+      },
+    );
+    assert.equal(createdFolder.response.status, 201);
+    assert.equal(createdFolder.body.data.id, "created-folder-123");
+    assert.equal(createdFolder.body.data.name, "New Client Delivery");
 
     setDriveItem("valid-zip", 200, {
       id: "valid-zip",
