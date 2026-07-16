@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasUsableLeadIdentity, normalizeContactData } from "../modules/contacts/contacts.normalizers.js";
+import {
+  hasUsableLeadIdentity,
+  normalizeAccountNameForMatch,
+  normalizeContactData,
+  normalizeWebsiteDomain,
+} from "../modules/contacts/contacts.normalizers.js";
 
 test("manual leads require a name and contact method", () => {
   assert.equal(hasUsableLeadIdentity({ accountName: "Smile Clinic", email: "hello@example.com" }), true);
@@ -24,4 +29,13 @@ test("contact role and communication permissions are normalized", () => {
     whatsapp: true,
     phone: false,
   });
+});
+
+test("duplicate matching normalizes website domains and account names", () => {
+  assert.equal(normalizeWebsiteDomain("https://www.example.com/pricing?utm=1"), "example.com");
+  assert.equal(normalizeWebsiteDomain("example.com/contact"), "example.com");
+  assert.equal(normalizeWebsiteDomain("WWW.EXAMPLE.CO.UK"), "example.co.uk");
+
+  assert.equal(normalizeAccountNameForMatch("The Growth Clinic Ltd."), "the growth");
+  assert.equal(normalizeAccountNameForMatch("Growth & Partners Practice"), "growth and partners");
 });

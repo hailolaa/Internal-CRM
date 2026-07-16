@@ -28,6 +28,7 @@ import {
   findExistingContact,
   insertContact,
   insertImportedContact,
+  mergeStrongDuplicateIntoContact,
   updateImportedContact,
 } from "./contacts.persistence.js";
 import {
@@ -546,7 +547,7 @@ export class ContactsService {
     }));
   }
 
-  // Create a lead/contact and flag likely duplicates without overwriting existing records
+  // Create a lead/contact, merging strong duplicates and flagging weaker matches for review
   async createContact(
     clinicId: string,
     userId: string,
@@ -559,32 +560,24 @@ export class ContactsService {
     }
 
     const duplicateMatches = await findDuplicateContacts(clinicId, normalized);
-    const blockingMatches = duplicateMatches.filter((match) =>
-      match.matchType === "email" || match.matchType === "phone",
+    const strongMatches = duplicateMatches.filter((match) =>
+      match.matchType === "email" || match.matchType === "phone" || match.matchType === "website_domain",
     );
 
-    if (blockingMatches.length > 0) {
-      const duplicateCandidates: DuplicateCandidateResponse[] = [];
-      for (const match of blockingMatches) {
-        duplicateCandidates.push(await createDuplicateCandidate({
-          clinicId,
-          batchId: null,
-          existingContactId: match.existingContactId,
-          candidateContactId: null,
-          matchType: match.matchType,
-          score: match.score,
-          candidateData: { ...normalized },
-        }));
-      }
+    if (strongMatches.length > 0) {
+      const primaryMatch = strongMatches[0]!;
+      await mergeStrongDuplicateIntoContact(primaryMatch.existingContactId, clinicId, normalized);
 
       await logAuditEvent({
         clinicId,
         userId,
-        action: "CONTACT_CREATE_BLOCKED_DUPLICATE",
+        action: "CONTACT_STRONG_DUPLICATE_MERGED",
         entityType: "contact",
+        entityId: primaryMatch.existingContactId,
         changes: {
-          duplicateCandidates: duplicateCandidates.length,
-          blockingMatchTypes: blockingMatches.map((item) => item.matchType),
+          matchType: primaryMatch.matchType,
+          score: primaryMatch.score,
+          matchedContactIds: strongMatches.map((item) => item.existingContactId),
           accountName: normalized.accountName,
           email: normalized.email,
           phone: normalized.phone,
@@ -594,14 +587,28 @@ export class ContactsService {
         userAgent: meta.userAgent,
       });
 
-      throw ApiError.conflict(
-        "Potential duplicate contact found. Review duplicate candidates before creating.",
-        {
-          duplicateCandidates,
-          duplicateDetected: true,
-          blockingRules: ["email", "phone"],
-        },
-      );
+      await logTimelineActivity({
+        clinicId,
+        contactId: primaryMatch.existingContactId,
+        userId,
+        type: "Note",
+        metadata: buildTimelineMetadata({
+          action: "duplicate_submission_merged",
+          source: "contact",
+          recordId: primaryMatch.existingContactId,
+          changes: {
+            matchType: primaryMatch.matchType,
+            score: primaryMatch.score,
+            source: normalized.source,
+            packageInterest: normalized.packageInterest,
+          },
+        }),
+      });
+
+      return {
+        contact: await this.getContact(clinicId, primaryMatch.existingContactId),
+        duplicateCandidates: [],
+      };
     }
 
     const contactId = uuidv4();

@@ -22,6 +22,37 @@ export function normalizePhone(value: unknown) {
   return cleaned.replace(/\D/g, "");
 }
 
+export function normalizeWebsiteDomain(value: unknown) {
+  const cleaned = cleanString(value)?.toLowerCase();
+  if (!cleaned) return null;
+
+  try {
+    const url = new URL(cleaned.includes("://") ? cleaned : `https://${cleaned}`);
+    return url.hostname.replace(/^www\./, "").replace(/\.$/, "") || null;
+  } catch {
+    const host = cleaned
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .split("/")[0] || "";
+
+    return host.split("?")[0]?.replace(/\.$/, "") || null;
+  }
+}
+
+export function normalizeAccountNameForMatch(value: unknown) {
+  const cleaned = cleanString(value)?.toLowerCase();
+  if (!cleaned) return null;
+
+  const normalized = cleaned
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(ltd|limited|llc|inc|plc|company|co|clinic|practice)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return normalized || null;
+}
+
 export function hasOwn(data: object, key: string) {
   return Object.prototype.hasOwnProperty.call(data, key);
 }

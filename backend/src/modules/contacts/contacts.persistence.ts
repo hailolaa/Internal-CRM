@@ -1,6 +1,12 @@
 import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
-import { cleanString, normalizeEmail, normalizePhone } from "./contacts.normalizers.js";
+import {
+  cleanString,
+  normalizeAccountNameForMatch,
+  normalizeEmail,
+  normalizePhone,
+  normalizeWebsiteDomain,
+} from "./contacts.normalizers.js";
 import { phoneSqlExpression } from "./contacts.queries.js";
 import type {
   DuplicateCandidateResponse,
@@ -17,10 +23,11 @@ export async function insertContact(
 ) {
   await pool.execute(
     `INSERT INTO contact
-      (id, clinic_id, account_name, contact_role, communication_permissions, first_name, last_name, email, phone, website, date_of_birth, gender,
+      (id, clinic_id, account_name, contact_role, communication_permissions, first_name, last_name, email, phone,
+       role_title, email_permission, phone_permission, sms_permission, whatsapp_permission, website, date_of_birth, gender,
        address, city, state, postal_code, country, tags, status, lead_status, source, value,
        treatment_interests, package_interest, recommended_package, notes, last_contact_at, external_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       contactId,
       clinicId,
@@ -66,15 +73,19 @@ export async function findDuplicateContacts(
 ): Promise<DuplicateContactMatch[]> {
   const clauses: string[] = [];
   const values: any[] = [clinicId];
+  const websiteDomain = normalizeWebsiteDomain(contact.website);
+  const accountMatchName = normalizeAccountNameForMatch(contact.accountName);
 
   if (contact.email) {
     clauses.push("LOWER(TRIM(c.email)) = ?");
     values.push(contact.email);
   }
 
-  if (contact.website) {
-    clauses.push("LOWER(TRIM(c.website)) = ?");
-    values.push(contact.website.toLowerCase());
+  if (websiteDomain) {
+    clauses.push(
+      "LOWER(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(c.website, ''), '^https?://', ''), '^www[.]', ''), '[/?#].*$', '')) = ?",
+    );
+    values.push(websiteDomain);
   }
 
   if (contact.phone) {
@@ -87,6 +98,11 @@ export async function findDuplicateContacts(
     values.push(contact.firstName.toLowerCase(), contact.lastName.toLowerCase());
   }
 
+  if (contact.accountName) {
+    clauses.push("LOWER(TRIM(c.account_name)) = ?");
+    values.push(contact.accountName.toLowerCase());
+  }
+
   if (clauses.length === 0) return [];
 
   const [rows]: any = await pool.execute(
@@ -94,6 +110,7 @@ export async function findDuplicateContacts(
             c.email,
             c.phone,
             c.website,
+            c.account_name as accountName,
             c.first_name as firstName,
             c.last_name as lastName
      FROM contact c
@@ -105,21 +122,34 @@ export async function findDuplicateContacts(
     values,
   );
 
-  return rows.map((row: any) => {
+  const matches = rows.map((row: any) => {
     const emailMatches = contact.email && normalizeEmail(row.email) === contact.email;
-    const websiteMatches = contact.website && cleanString(row.website)?.toLowerCase() === contact.website.toLowerCase();
+    const websiteMatches = websiteDomain && normalizeWebsiteDomain(row.website) === websiteDomain;
     const phoneMatches = contact.phone && normalizePhone(row.phone) === contact.phone;
+    const accountNameMatches = accountMatchName
+      && normalizeAccountNameForMatch(row.accountName) === accountMatchName;
     const nameMatches = contact.firstName
       && contact.lastName
       && cleanString(row.firstName)?.toLowerCase() === contact.firstName.toLowerCase()
       && cleanString(row.lastName)?.toLowerCase() === contact.lastName.toLowerCase();
 
     if (emailMatches) return { existingContactId: row.id, matchType: "email", score: 100 };
-    if (websiteMatches) return { existingContactId: row.id, matchType: "website", score: 80 };
-    if (phoneMatches) return { existingContactId: row.id, matchType: "phone", score: 90 };
+    if (phoneMatches) return { existingContactId: row.id, matchType: "phone", score: 95 };
+    if (websiteMatches) return { existingContactId: row.id, matchType: "website_domain", score: 90 };
+    if (accountNameMatches) return { existingContactId: row.id, matchType: "account_name", score: 72 };
     if (nameMatches) return { existingContactId: row.id, matchType: "name", score: 70 };
     return { existingContactId: row.id, matchType: "unknown", score: 50 };
   });
+
+  const strongestByContact = new Map<string, DuplicateContactMatch>();
+  for (const match of matches) {
+    const current = strongestByContact.get(match.existingContactId);
+    if (!current || match.score > current.score) {
+      strongestByContact.set(match.existingContactId, match);
+    }
+  }
+
+  return [...strongestByContact.values()].sort((a, b) => b.score - a.score);
 }
 
 // Import upsert uses the strongest deterministic email/phone match
@@ -163,10 +193,11 @@ export async function insertImportedContact(
 
   await pool.execute(
     `INSERT INTO contact
-      (id, clinic_id, account_name, contact_role, communication_permissions, first_name, last_name, email, phone, website, date_of_birth, gender,
+      (id, clinic_id, account_name, contact_role, communication_permissions, first_name, last_name, email, phone,
+       role_title, email_permission, phone_permission, sms_permission, whatsapp_permission, website, date_of_birth, gender,
        address, city, state, postal_code, country, tags, status, lead_status, source, value,
        treatment_interests, package_interest, recommended_package, notes, last_contact_at, import_batch_id, external_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       contactId,
       clinicId,
@@ -206,6 +237,105 @@ export async function insertImportedContact(
   );
 
   return contactId;
+}
+
+export async function mergeStrongDuplicateIntoContact(
+  contactId: string,
+  clinicId: string,
+  row: NormalizedContactData,
+) {
+  const notePrefix = `[Duplicate submission ${new Date().toISOString().slice(0, 10)}]`;
+  const appendedNote = row.notes ? `${notePrefix}\n${row.notes}` : null;
+
+  await pool.execute(
+    `UPDATE contact
+     SET account_name = COALESCE(account_name, ?),
+         contact_role = COALESCE(contact_role, ?),
+         communication_permissions = CASE
+           WHEN communication_permissions IS NULL THEN ?
+           ELSE communication_permissions
+         END,
+         first_name = COALESCE(first_name, ?),
+         last_name = COALESCE(last_name, ?),
+         email = COALESCE(email, ?),
+         phone = COALESCE(phone, ?),
+         role_title = COALESCE(role_title, ?),
+         email_permission = COALESCE(email_permission, ?),
+         phone_permission = COALESCE(phone_permission, ?),
+         sms_permission = COALESCE(sms_permission, ?),
+         whatsapp_permission = COALESCE(whatsapp_permission, ?),
+         website = COALESCE(website, ?),
+         date_of_birth = COALESCE(date_of_birth, ?),
+         gender = COALESCE(gender, ?),
+         address = COALESCE(address, ?),
+         city = COALESCE(city, ?),
+         state = COALESCE(state, ?),
+         postal_code = COALESCE(postal_code, ?),
+         country = COALESCE(country, ?),
+         tags = CASE
+           WHEN JSON_LENGTH(COALESCE(tags, JSON_ARRAY())) = 0 THEN ?
+           ELSE tags
+         END,
+         status = COALESCE(status, ?),
+         lead_status = COALESCE(lead_status, ?),
+         source = COALESCE(source, ?),
+         value = CASE WHEN COALESCE(value, 0) = 0 THEN ? ELSE value END,
+         treatment_interests = CASE
+           WHEN JSON_LENGTH(COALESCE(treatment_interests, JSON_ARRAY())) = 0 THEN ?
+           ELSE treatment_interests
+         END,
+         package_interest = COALESCE(package_interest, ?),
+         recommended_package = COALESCE(recommended_package, ?),
+         notes = CASE
+           WHEN ? IS NULL THEN notes
+           WHEN notes IS NULL OR notes = '' THEN ?
+           WHEN LOCATE(?, notes) > 0 THEN notes
+           ELSE CONCAT(notes, '\n\n', ?, '\n', ?)
+         END,
+         last_contact_at = COALESCE(?, last_contact_at),
+         external_id = COALESCE(external_id, ?),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+    [
+      row.accountName,
+      row.role,
+      JSON.stringify(row.communicationPermissions),
+      row.firstName,
+      row.lastName,
+      row.email,
+      row.phone,
+      row.roleTitle,
+      row.emailPermission,
+      row.phonePermission,
+      row.smsPermission,
+      row.whatsappPermission,
+      row.website,
+      row.dateOfBirth,
+      row.gender,
+      row.address,
+      row.city,
+      row.state,
+      row.postalCode,
+      row.country,
+      JSON.stringify(row.tags),
+      row.status || "lead",
+      row.leadStatus || "new",
+      row.source,
+      row.value || 0,
+      JSON.stringify(row.treatmentInterests),
+      row.packageInterest,
+      row.recommendedPackage,
+      appendedNote,
+      appendedNote,
+      row.notes || "",
+      notePrefix,
+      row.notes,
+      row.lastContactAt,
+      row.externalId,
+      contactId,
+      clinicId,
+    ],
+  );
 }
 
 // Upsert imports fill missing contact fields without replacing useful existing data
