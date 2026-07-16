@@ -37,6 +37,7 @@ export interface WebsiteLeadCapturePayload {
   landingPage?: string | null;
   landing_page?: string | null;
   lastName?: string | null;
+  leadType?: string | null;
   latestSource?: string | null;
   latest_source?: string | null;
   location?: string | null;

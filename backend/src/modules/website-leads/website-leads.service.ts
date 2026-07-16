@@ -6,6 +6,21 @@ import { contactsService } from "../contacts/contacts.service.js";
 import type { WebsiteLeadCapturePayload, WebsiteLeadCaptureResult } from "./website-leads.types.js";
 
 const PAYLOAD_SOURCE = "website_lead_capture";
+const PACKAGE_NAMES = {
+  growthScore: "Clinic Growth Score",
+  growthDiagnostic: "Growth Diagnostic",
+  leadConcierge: "Lead Concierge",
+  performanceOs: "Performance OS",
+  growthEngine: "Growth Engine",
+  marketLeader: "Market Leader",
+} as const;
+
+interface WebsiteLeadIntentMapping {
+  leadType: string;
+  packageInterest: string | null;
+  source: string;
+  tags: string[];
+}
 
 function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
@@ -27,6 +42,122 @@ function pick(data: WebsiteLeadCapturePayload, ...keys: string[]) {
     if (value) return value;
   }
   return null;
+}
+
+function normalizeText(value: string | null) {
+  return (value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildIntentSearchText(data: WebsiteLeadCapturePayload) {
+  return normalizeText([
+    pick(data, "leadType"),
+    pick(data, "formSubmitted", "form_submitted", "formName"),
+    pick(data, "ctaClicked", "cta_clicked", "cta"),
+    pick(data, "guideName"),
+    pick(data, "packageInterest", "package_interest", "package", "serviceInterest"),
+    pick(data, "source"),
+    pick(data, "landingPage", "landing_page", "pageUrl", "page_url"),
+    pick(data, "utmCampaign", "utm_campaign", "campaign"),
+  ].filter(Boolean).join(" "));
+}
+
+export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLeadIntentMapping {
+  const text = buildIntentSearchText(data);
+  const explicitPackage = pick(data, "packageInterest", "package_interest", "package", "serviceInterest");
+  const explicitLeadType = pick(data, "leadType");
+
+  if (/\b(market leader|market leadership|dominant market)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "package_interest",
+      packageInterest: PACKAGE_NAMES.marketLeader,
+      source: "website_market_leader_cta",
+      tags: ["website_cta", "lead_type:package_interest", "package:market_leader"],
+    };
+  }
+
+  if (/\b(growth engine|engine call|engine demo)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "package_interest",
+      packageInterest: PACKAGE_NAMES.growthEngine,
+      source: "website_growth_engine_cta",
+      tags: ["website_cta", "lead_type:package_interest", "package:growth_engine"],
+    };
+  }
+
+  if (/\b(performance os|performance demo|os demo|demo performance)\b/.test(text)) {
+    const leadType = explicitLeadType || (/\bdemo\b/.test(text) ? "demo_request" : "package_interest");
+    return {
+      leadType,
+      packageInterest: PACKAGE_NAMES.performanceOs,
+      source: "website_performance_os_demo",
+      tags: ["website_cta", `lead_type:${leadType}`, "package:performance_os"],
+    };
+  }
+
+  if (/\b(lead concierge|concierge)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "package_interest",
+      packageInterest: PACKAGE_NAMES.leadConcierge,
+      source: "website_lead_concierge_cta",
+      tags: ["website_cta", "lead_type:package_interest", "package:lead_concierge"],
+    };
+  }
+
+  if (/\b(growth diagnostic|diagnostic)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "package_interest",
+      packageInterest: PACKAGE_NAMES.growthDiagnostic,
+      source: "website_growth_diagnostic_cta",
+      tags: ["website_cta", "lead_type:package_interest", "package:growth_diagnostic"],
+    };
+  }
+
+  if (/\b(clinic growth score|growth score|free audit|audit form|score form)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "free_audit",
+      packageInterest: PACKAGE_NAMES.growthScore,
+      source: "website_growth_score_form",
+      tags: ["website_form", "lead_type:free_audit", "package:clinic_growth_score"],
+    };
+  }
+
+  if (/\b(free guide|guide download|download guide|lead magnet|checklist|playbook|ebook|pdf)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "lead_magnet_nurture",
+      packageInterest: explicitPackage,
+      source: "website_lead_magnet",
+      tags: ["website_form", "lead_type:lead_magnet_nurture"],
+    };
+  }
+
+  if (/\b(referral|referred|partner intro)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "referral",
+      packageInterest: explicitPackage,
+      source: "referral",
+      tags: ["manual_or_referral", "lead_type:referral"],
+    };
+  }
+
+  if (/\b(manual|phone|whatsapp|email|direct conversation)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "manual",
+      packageInterest: explicitPackage,
+      source: pick(data, "source") || "manual",
+      tags: ["manual_or_referral", "lead_type:manual"],
+    };
+  }
+
+  return {
+    leadType: explicitLeadType || "contact_enquiry",
+    packageInterest: explicitPackage,
+    source: pick(data, "source") || "website_contact_form",
+    tags: ["website_form", "lead_type:contact_enquiry"],
+  };
 }
 
 function splitName(data: WebsiteLeadCapturePayload) {
@@ -64,9 +195,10 @@ function buildCommunicationPermissions(data: WebsiteLeadCapturePayload) {
   };
 }
 
-function buildNotes(data: WebsiteLeadCapturePayload) {
+function buildNotes(data: WebsiteLeadCapturePayload, mapping: WebsiteLeadIntentMapping) {
   const lines = [
     pick(data, "message", "notes"),
+    `Lead type: ${mapping.leadType}`,
     pick(data, "guideName") ? `Guide requested: ${pick(data, "guideName")}` : null,
     pick(data, "ctaClicked", "cta_clicked", "cta") ? `CTA clicked: ${pick(data, "ctaClicked", "cta_clicked", "cta")}` : null,
     boolFromValue(data.marketingConsent) ? "Marketing consent: yes" : null,
@@ -118,8 +250,9 @@ function validatePayload(data: WebsiteLeadCapturePayload) {
 function toContactPayload(data: WebsiteLeadCapturePayload, rawPayloadId: string) {
   const name = splitName(data);
   const accountName = pick(data, "accountName", "clinicName", "companyName");
-  const source = pick(data, "source", "firstSource", "first_source", "utmSource", "utm_source") || "website";
-  const packageInterest = pick(data, "packageInterest", "package_interest", "package", "serviceInterest");
+  const mapping = mapWebsiteLeadIntent(data);
+  const source = mapping.source || pick(data, "source", "firstSource", "first_source", "utmSource", "utm_source") || "website";
+  const packageInterest = mapping.packageInterest;
   const guideName = pick(data, "guideName");
   const ctaClicked = pick(data, "ctaClicked", "cta_clicked", "cta");
   const landingPage = pick(data, "landingPage", "landing_page", "pageUrl", "page_url");
@@ -138,7 +271,7 @@ function toContactPayload(data: WebsiteLeadCapturePayload, rawPayloadId: string)
     smsPermission: communicationPermissions.sms,
     whatsappPermission: communicationPermissions.whatsapp,
     status: "lead",
-    leadStatus: "new",
+    leadStatus: mapping.leadType === "lead_magnet_nurture" ? "nurture" : "new",
     source,
     firstSource: pick(data, "firstSource", "first_source") || source,
     latestSource: pick(data, "latestSource", "latest_source") || source,
@@ -162,12 +295,14 @@ function toContactPayload(data: WebsiteLeadCapturePayload, rawPayloadId: string)
     packageInterest,
     recommendedPackage: null,
     treatmentInterests: packageInterest ? [packageInterest] : [],
-    tags: [
+    tags: Array.from(new Set([
       "website_lead",
+      `lead_type:${mapping.leadType}`,
+      ...mapping.tags,
       guideName ? `guide:${guideName}` : null,
       ctaClicked ? `cta:${ctaClicked}` : null,
-    ].filter(Boolean) as string[],
-    notes: buildNotes(data),
+    ].filter(Boolean) as string[])),
+    notes: buildNotes(data, mapping),
     externalId: pick(data, "eventId", "submissionId") || rawPayloadId,
   };
 }
@@ -196,6 +331,7 @@ export class WebsiteLeadsService {
 
     try {
       validatePayload(normalizedPayload);
+      const mapping = mapWebsiteLeadIntent(normalizedPayload);
       const result = await contactsService.createContact(
         clinicId,
         null as any,
@@ -214,8 +350,9 @@ export class WebsiteLeadsService {
         changes: {
           apiKeyId,
           rawPayloadId: rawPayload.id,
-          source: pick(normalizedPayload, "source", "utmSource", "utm_source"),
-          packageInterest: pick(normalizedPayload, "packageInterest", "package_interest", "package"),
+          source: mapping.source,
+          leadType: mapping.leadType,
+          packageInterest: mapping.packageInterest,
           guideName: pick(normalizedPayload, "guideName"),
         },
         ipAddress: meta.ipAddress,
