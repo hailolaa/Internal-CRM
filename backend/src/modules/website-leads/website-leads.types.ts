@@ -1,0 +1,88 @@
+export interface WebsiteLeadConsentPayload {
+  email?: boolean | string | number | null;
+  marketing?: boolean | string | number | null;
+  phone?: boolean | string | number | null;
+  privacyPolicy?: boolean | string | number | null;
+  sms?: boolean | string | number | null;
+  whatsapp?: boolean | string | number | null;
+}
+
+export interface WebsiteLeadCapturePayload {
+  accountName?: string | null;
+  campaign?: string | null;
+  clinicName?: string | null;
+  companyName?: string | null;
+  consent?: WebsiteLeadConsentPayload | null;
+  contactName?: string | null;
+  convertingSource?: string | null;
+  converting_source?: string | null;
+  cta?: string | null;
+  ctaClicked?: string | null;
+  cta_clicked?: string | null;
+  email?: string | null;
+  emailConsent?: boolean | string | number | null;
+  eventId?: string | null;
+  fbclid?: string | null;
+  firstName?: string | null;
+  firstSource?: string | null;
+  first_source?: string | null;
+  formName?: string | null;
+  formSubmitted?: string | null;
+  form_submitted?: string | null;
+  fullName?: string | null;
+  gbraid?: string | null;
+  gclid?: string | null;
+  guideName?: string | null;
+  honeypot?: string | null;
+  landingPage?: string | null;
+  landing_page?: string | null;
+  lastName?: string | null;
+  latestSource?: string | null;
+  latest_source?: string | null;
+  location?: string | null;
+  marketingConsent?: boolean | string | number | null;
+  message?: string | null;
+  msclkid?: string | null;
+  name?: string | null;
+  notes?: string | null;
+  package?: string | null;
+  packageInterest?: string | null;
+  package_interest?: string | null;
+  pageSubmitted?: string | null;
+  page_submitted?: string | null;
+  pageUrl?: string | null;
+  page_url?: string | null;
+  phone?: string | null;
+  phoneConsent?: boolean | string | number | null;
+  privacyPolicyConsent?: boolean | string | number | null;
+  referrer?: string | null;
+  serviceInterest?: string | null;
+  smsConsent?: boolean | string | number | null;
+  source?: string | null;
+  submissionId?: string | null;
+  ttclid?: string | null;
+  utmCampaign?: string | null;
+  utmContent?: string | null;
+  utmMedium?: string | null;
+  utmSource?: string | null;
+  utmTerm?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  utm_medium?: string | null;
+  utm_source?: string | null;
+  utm_term?: string | null;
+  wbraid?: string | null;
+  website?: string | null;
+  websiteLeadTrap?: string | null;
+  botField?: string | null;
+  _hp?: string | null;
+  [key: string]: unknown;
+}
+
+export interface WebsiteLeadCaptureResult {
+  accepted: boolean;
+  contactId: string | null;
+  duplicateCandidates: unknown[];
+  duplicateEvent: boolean;
+  rawPayloadId: string;
+}
