@@ -43,13 +43,13 @@ const TAG_OPTIONS = [
   "High Intent",
 ];
 
-const TREATMENT_OPTIONS = [
-  "Website build",
-  "SEO campaign",
-  "Google Ads management",
-  "Landing page build",
-  "CRM onboarding",
-  "Monthly reporting",
+const FALLBACK_PACKAGE_OPTIONS = [
+  "Clinic Growth Score",
+  "Growth Diagnostic",
+  "Lead Concierge",
+  "Performance OS",
+  "Growth Engine",
+  "Market Leader",
 ];
 
 function isValidWebsite(value: string) {
@@ -152,6 +152,8 @@ export default function EditContactPage() {
   });
   const [tags, setTags] = useState<string[]>([]);
   const [treatmentInterests, setTreatmentInterests] = useState<string[]>([]);
+  const [catalogPackageOptions, setCatalogPackageOptions] = useState<string[]>([]);
+  const [isBespokePackage, setIsBespokePackage] = useState(false);
   const [communicationPermissions, setCommunicationPermissions] = useState({
     email: false,
     sms: false,
@@ -198,6 +200,20 @@ export default function EditContactPage() {
     };
   }, [contactId, token]);
 
+  useEffect(() => {
+    if (!token) return;
+    const timer = window.setTimeout(() => {
+      void api.packages
+        .list(token)
+        .then((records) => setCatalogPackageOptions(records.map((record) => record.name)))
+        .catch((error) => {
+          console.warn("Package catalog unavailable, using fallback options", error);
+        });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [token]);
+
   const allTagOptions = useMemo(
     () => Array.from(new Set([...TAG_OPTIONS, ...tags])).filter(Boolean),
     [tags],
@@ -205,10 +221,13 @@ export default function EditContactPage() {
 
   const allTreatmentOptions = useMemo(
     () =>
-      Array.from(new Set([...TREATMENT_OPTIONS, ...treatmentInterests])).filter(
+      Array.from(new Set([
+        ...(catalogPackageOptions.length > 0 ? catalogPackageOptions : FALLBACK_PACKAGE_OPTIONS),
+        ...treatmentInterests,
+      ])).filter(
         Boolean,
       ),
-    [treatmentInterests],
+    [catalogPackageOptions, treatmentInterests],
   );
 
   const updateField = useCallback((name: FieldKey, value: string) => {
@@ -223,6 +242,12 @@ export default function EditContactPage() {
 
   const handleSelectChange =
     (name: FieldKey) => (event: React.ChangeEvent<HTMLSelectElement>) => {
+      if (name === "packageInterest" && event.target.value === "__bespoke__") {
+        setIsBespokePackage(true);
+        updateField(name, "");
+        return;
+      }
+      if (name === "packageInterest") setIsBespokePackage(false);
       updateField(name, event.target.value);
     };
 
@@ -692,7 +717,7 @@ export default function EditContactPage() {
                   Package Interest
                 </label>
                 <select
-                  value={fields.packageInterest}
+                  value={isBespokePackage ? "__bespoke__" : fields.packageInterest}
                   onChange={handleSelectChange("packageInterest")}
                   className={selectBase}
                 >
@@ -703,16 +728,21 @@ export default function EditContactPage() {
                     </option>
                   ))}
                   {fields.packageInterest &&
-                    fields.packageInterest !== "Other" &&
                     !allTreatmentOptions.includes(fields.packageInterest) && (
                       <option value={fields.packageInterest}>
                         {fields.packageInterest}
                       </option>
                     )}
-                  {!allTreatmentOptions.includes("Other") && (
-                    <option value="Other">Other</option>
-                  )}
+                  <option value="__bespoke__">Bespoke / custom</option>
                 </select>
+                {isBespokePackage && (
+                  <input
+                    value={fields.packageInterest}
+                    onChange={handleInputChange("packageInterest")}
+                    className={`${inputBase} mt-2`}
+                    placeholder="Enter bespoke package name"
+                  />
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">

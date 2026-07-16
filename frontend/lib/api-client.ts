@@ -22,6 +22,7 @@ import { createDeveloperSettingsApi } from "@/lib/api-client/developer-settings-
 import { createFormsApi } from "@/lib/api-client/forms-api";
 import { createLocationsIntegrationsApi } from "@/lib/api-client/locations-integrations-api";
 import { createOperationsApi } from "@/lib/api-client/operations-api";
+import { createPackagesApi } from "@/lib/api-client/packages-api";
 import { createSequencesApi } from "@/lib/api-client/sequences-api";
 import { createSopsApi } from "@/lib/api-client/sops-api";
 
@@ -141,6 +142,8 @@ export type {
   InternalTaskRecord,
   InternalTaskStatus,
   InternalTaskUpdatePayload,
+  GrowthPackagePayload,
+  GrowthPackageRecord,
   MessageTemplateRecord,
   ManualConsultRecord,
   ManualSpendRecord,
@@ -212,6 +215,7 @@ export const api = {
   ...createComplianceApi(apiRequest),
   ...createDeveloperSettingsApi(apiRequest),
   ...createOperationsApi(apiRequest),
+  ...createPackagesApi(apiRequest),
   ...createLocationsIntegrationsApi(apiRequest),
   ...createFormsApi(apiRequest),
   ...createSequencesApi(apiRequest),

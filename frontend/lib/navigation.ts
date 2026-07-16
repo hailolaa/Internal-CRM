@@ -5,6 +5,7 @@ import {
   ClipboardList,
   FolderKanban,
   Inbox,
+  Package,
   Settings,
   Shield,
   Target,
@@ -52,6 +53,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Team Members", href: "/app/ops/team", icon: Users },
       { label: "Roles & Permissions", href: "/app/ops/roles", icon: Shield },
+      { label: "Packages", href: "/app/settings/packages", icon: Package },
     ],
   },
 ];

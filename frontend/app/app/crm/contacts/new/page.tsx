@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, CheckCircle, Loader2, Save } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 
@@ -35,13 +35,13 @@ const TAG_OPTIONS = [
   "High Intent",
 ];
 
-const PACKAGE_OPTIONS = [
-  "Website build",
-  "SEO campaign",
-  "Google Ads management",
-  "Landing page build",
-  "CRM onboarding",
-  "Monthly reporting",
+const FALLBACK_PACKAGE_OPTIONS = [
+  "Clinic Growth Score",
+  "Growth Diagnostic",
+  "Lead Concierge",
+  "Performance OS",
+  "Growth Engine",
+  "Market Leader",
 ];
 
 function emptyToNull(value: string) {
@@ -139,6 +139,8 @@ export default function NewContactPage() {
       };
   const [tags, setTags] = useState<string[]>([]);
   const [packageInterests, setPackageInterests] = useState<string[]>([]);
+  const [catalogPackageOptions, setCatalogPackageOptions] = useState<string[]>([]);
+  const [isBespokePackage, setIsBespokePackage] = useState(false);
   const [communicationPermissions, setCommunicationPermissions] = useState({
     email: false,
     sms: false,
@@ -171,12 +173,39 @@ export default function NewContactPage() {
     notes: "",
   });
 
+  const packageOptions = useMemo(
+    () => catalogPackageOptions.length > 0 ? catalogPackageOptions : FALLBACK_PACKAGE_OPTIONS,
+    [catalogPackageOptions],
+  );
+
+  useEffect(() => {
+    if (!session?.token || isContactMode) return;
+    const timer = window.setTimeout(() => {
+      void api.packages
+        .list(session.token)
+        .then((records) => {
+          setCatalogPackageOptions(records.map((record) => record.name));
+        })
+        .catch((error) => {
+          console.warn("Package catalog unavailable, using fallback options", error);
+        });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [isContactMode, session?.token]);
+
   const updateField = useCallback((name: FieldKey, value: string) => {
     setFields((prev) => ({ ...prev, [name]: value }));
   }, []);
 
   const handleSelectChange =
     (name: FieldKey) => (e: React.ChangeEvent<HTMLSelectElement>) => {
+      if (name === "packageInterest" && e.target.value === "__bespoke__") {
+        setIsBespokePackage(true);
+        updateField(name, "");
+        return;
+      }
+      if (name === "packageInterest") setIsBespokePackage(false);
       updateField(name, e.target.value);
     };
 
@@ -585,18 +614,27 @@ export default function NewContactPage() {
                       Package Interest
                     </label>
                     <select
-                      value={fields.packageInterest}
+                      value={isBespokePackage ? "__bespoke__" : fields.packageInterest}
                       onChange={handleSelectChange("packageInterest")}
                       className={selectBase}
                     >
                       <option value="">Select package</option>
-                      {PACKAGE_OPTIONS.map((option) => (
+                      {packageOptions.map((option) => (
                         <option key={option} value={option}>
                           {option}
                         </option>
                       ))}
-                      <option value="Other">Other</option>
+                      <option value="__bespoke__">Bespoke / custom</option>
                     </select>
+                    {isBespokePackage && (
+                      <input
+                        type="text"
+                        value={fields.packageInterest}
+                        onChange={handleInputChange("packageInterest")}
+                        placeholder="Enter bespoke package name"
+                        className={`${inputBase} mt-2`}
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-[#111111] mb-1.5">
@@ -685,7 +723,7 @@ export default function NewContactPage() {
                 Additional Interests
               </h2>
               <div className="space-y-1">
-                {PACKAGE_OPTIONS.map((option) => (
+                {packageOptions.map((option) => (
                   <label
                     key={option}
                     className="flex items-center gap-3 p-2.5 rounded-[12px] cursor-pointer transition-colors hover:bg-[rgba(110,106,232,0.04)]"

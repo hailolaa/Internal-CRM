@@ -4,12 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
+  Package,
   Users,
   Shield,
 } from "lucide-react";
 
 const SETTINGS_NAV = [
   { label: "Mission Control Profile", href: "/app/settings/clinic", icon: Building2 },
+  { label: "Packages", href: "/app/settings/packages", icon: Package },
   { label: "Team Members", href: "/app/settings/team", icon: Users },
   { label: "Security", href: "/app/settings/security", icon: Shield },
 ];

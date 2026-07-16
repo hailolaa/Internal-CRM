@@ -356,6 +356,7 @@ function AddDealModal({
   onRefreshContacts,
   onSelectContact,
   onUpdateForm,
+  packageOptions,
   stages,
 }: {
   contacts: ContactRecord[];
@@ -368,6 +369,7 @@ function AddDealModal({
   onRefreshContacts: () => void;
   onSelectContact: (contact: ContactRecord) => void;
   onUpdateForm: (patch: Partial<AddDealForm>) => void;
+  packageOptions: string[];
   stages: PipelineStageData[];
 }) {
   const selectedContact = contacts.find((contact) => contact.id === form.contactId);
@@ -592,9 +594,15 @@ function AddDealModal({
                   onChange={(event) =>
                     onUpdateForm({ treatment: event.target.value })
                   }
+                  list="pipeline-package-options"
                   placeholder="Website build"
                   className="w-full rounded-xl border border-[rgba(0,0,0,0.06)] bg-[#FAF8F5] px-3 py-2.5 text-sm text-[#111111] outline-none focus:border-[#6E6AE8]/50"
                 />
+                <datalist id="pipeline-package-options">
+                  {packageOptions.map((packageName) => (
+                    <option key={packageName} value={packageName} />
+                  ))}
+                </datalist>
               </div>
             </div>
 
@@ -672,6 +680,7 @@ export default function PipelinePage() {
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
   const [contactsError, setContactsError] = useState("");
   const [contactsLoading, setContactsLoading] = useState(false);
+  const [packageOptions, setPackageOptions] = useState<string[]>([]);
   const [isCreatingDeal, setIsCreatingDeal] = useState(false);
 
   const fetchPipeline = useCallback(async () => {
@@ -705,6 +714,20 @@ export default function PipelinePage() {
     } finally {
       setContactsLoading(false);
     }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const timer = window.setTimeout(() => {
+      void api.packages
+        .list(token)
+        .then((records) => setPackageOptions(records.map((record) => record.name)))
+        .catch((error) => {
+          console.warn("Package catalog unavailable", error);
+        });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [token]);
 
   const openAddDeal = useCallback(
@@ -1134,6 +1157,7 @@ export default function PipelinePage() {
           onRefreshContacts={() => void loadContacts()}
           onSelectContact={handleSelectContact}
           onUpdateForm={updateAddDealForm}
+          packageOptions={packageOptions}
           stages={stages}
         />
       )}

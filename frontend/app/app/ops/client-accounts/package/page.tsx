@@ -78,6 +78,7 @@ function toPayload(profile: ClientAccountProfileRecord): ClientAccountProfilePay
     activeServices: profile.activeServices,
     onboardingStatus: profile.onboardingStatus,
     healthStatus: profile.healthStatus,
+    currentPackage: profile.currentPackage,
     churnRisk: profile.churnRisk,
     renewalDate: profile.renewalDate,
     contractStatus: profile.contractStatus,
@@ -92,6 +93,8 @@ export default function ClientPackagePage() {
   const [profile, setProfile] = useState<ClientAccountProfileRecord | null>(null);
   const [draft, setDraft] = useState<ClientAccountProfilePayload | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [packageOptions, setPackageOptions] = useState<string[]>([]);
+  const [isBespokePackage, setIsBespokePackage] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -109,6 +112,20 @@ export default function ClientPackagePage() {
       })
       .finally(() => setIsLoading(false));
   }, [addToast, token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const timer = window.setTimeout(() => {
+      void api.packages
+        .list(token)
+        .then((records) => setPackageOptions(records.map((record) => record.name)))
+        .catch((error) => {
+          console.warn("Package catalog unavailable", error);
+        });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [token]);
 
   const updateDraft = <K extends keyof ClientAccountProfilePayload>(
     key: K,
@@ -187,6 +204,39 @@ export default function ClientPackagePage() {
                 <select value={draft?.contractStatus || "pending"} disabled={isLoading || !draft} onChange={(event) => updateDraft("contractStatus", event.target.value as ClientAccountContractStatus)} className={fieldClass}>
                   {CONTRACT_STATUSES.map((status) => <option key={status} value={status}>{formatLabel(status)}</option>)}
                 </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Current package</span>
+                <select
+                  value={isBespokePackage ? "__bespoke__" : draft?.currentPackage || ""}
+                  disabled={isLoading || !draft}
+                  onChange={(event) => {
+                    if (event.target.value === "__bespoke__") {
+                      setIsBespokePackage(true);
+                      updateDraft("currentPackage", "");
+                      return;
+                    }
+                    setIsBespokePackage(false);
+                    updateDraft("currentPackage", event.target.value || null);
+                  }}
+                  className={fieldClass}
+                >
+                  <option value="">Select package</option>
+                  {packageOptions.map((packageName) => <option key={packageName} value={packageName}>{packageName}</option>)}
+                  {draft?.currentPackage && !packageOptions.includes(draft.currentPackage) && (
+                    <option value={draft.currentPackage}>{draft.currentPackage}</option>
+                  )}
+                  <option value="__bespoke__">Bespoke / custom</option>
+                </select>
+                {isBespokePackage && (
+                  <input
+                    value={draft?.currentPackage || ""}
+                    disabled={isLoading || !draft}
+                    onChange={(event) => updateDraft("currentPackage", event.target.value)}
+                    className={fieldClass}
+                    placeholder="Enter bespoke package name"
+                  />
+                )}
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Onboarding</span>

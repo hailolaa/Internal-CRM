@@ -60,6 +60,8 @@ export default function NewClientAccountPage() {
   const { addToast } = useToast();
   const token = session?.token;
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [packageOptions, setPackageOptions] = useState<string[]>([]);
+  const [isBespokePackage, setIsBespokePackage] = useState(false);
   const [form, setForm] = useState<ClientAccountCreatePayload>(emptyAccountForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -73,6 +75,20 @@ export default function NewClientAccountPage() {
         addToast("Account managers could not be loaded.", "error");
       });
   }, [addToast, token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const timer = window.setTimeout(() => {
+      void api.packages
+        .list(token)
+        .then((records) => setPackageOptions(records.map((record) => record.name)))
+        .catch((error) => {
+          console.warn("Package catalog unavailable", error);
+        });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [token]);
 
   const toggleService = (serviceType: ClientAccountServiceType) => {
     setForm((current) => {
@@ -215,12 +231,33 @@ export default function NewClientAccountPage() {
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Current package</span>
-                <input
-                  value={form.currentPackage || ""}
-                  onChange={(event) => setForm((current) => ({ ...current, currentPackage: event.target.value }))}
+                <select
+                  value={isBespokePackage ? "__bespoke__" : form.currentPackage || ""}
+                  onChange={(event) => {
+                    if (event.target.value === "__bespoke__") {
+                      setIsBespokePackage(true);
+                      setForm((current) => ({ ...current, currentPackage: "" }));
+                      return;
+                    }
+                    setIsBespokePackage(false);
+                    setForm((current) => ({ ...current, currentPackage: event.target.value }));
+                  }}
                   className={fieldClass}
-                  placeholder="e.g. Growth"
-                />
+                >
+                  <option value="">Select package</option>
+                  {packageOptions.map((packageName) => (
+                    <option key={packageName} value={packageName}>{packageName}</option>
+                  ))}
+                  <option value="__bespoke__">Bespoke / custom</option>
+                </select>
+                {isBespokePackage && (
+                  <input
+                    value={form.currentPackage || ""}
+                    onChange={(event) => setForm((current) => ({ ...current, currentPackage: event.target.value }))}
+                    className={fieldClass}
+                    placeholder="Enter bespoke package name"
+                  />
+                )}
               </label>
             </div>
           </Card>
