@@ -27,6 +27,11 @@ router.get("/whatsapp/inbound", webhooksController.handleWhatsAppVerify);
 // @access  Public provider webhook
 router.post("/whatsapp/inbound", webhooksController.handleWhatsAppInbound);
 
+// @route   POST /api/webhooks/email/inbound
+// @desc    Public inbound email webhook for Mission Control inbox
+// @access  Public provider webhook
+router.post("/email/inbound", webhooksController.handleEmailInbound);
+
 router.use(authenticate);
 
 // @route   GET /api/webhooks/endpoints

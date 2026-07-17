@@ -69,6 +69,9 @@ export const config = {
         provider: process.env.EMAIL_PROVIDER || "log",
         brevoApiKey: process.env.BREVO_API_KEY || "",
         brevoApiUrl: process.env.BREVO_API_URL || "https://api.brevo.com/v3/smtp/email",
+        inboundWebhookSecret: process.env.EMAIL_INBOUND_WEBHOOK_SECRET || "",
+        inboundDefaultWorkspaceId: process.env.EMAIL_INBOUND_WORKSPACE_ID || process.env.EMAIL_INBOUND_CLINIC_ID || "",
+        inboundWorkspaceMap: parseJsonRecord(process.env.EMAIL_INBOUND_WORKSPACE_MAP),
     },
 
     openai: {

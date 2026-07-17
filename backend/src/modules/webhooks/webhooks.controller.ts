@@ -4,6 +4,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { config } from "../../config/index.js";
 import { webhooksService } from "./webhooks.service.js";
 import { callsService } from "../calls/calls.service.js";
+import { inboundEmailService } from "../comms/inbound-email.service.js";
 import { whatsappAiService } from "../comms/whatsapp-ai.service.js";
 import {
   toTwilioWhatsAppAddress,
@@ -92,6 +93,17 @@ function metaSignatureFor(rawBody: Buffer, appSecret: string) {
 }
 
 export class WebhooksController {
+  private assertEmailInboundWebhookAllowed(req: Request) {
+    if (!config.email.inboundWebhookSecret) {
+      throw ApiError.serviceUnavailable("Inbound email webhook secret is not configured");
+    }
+
+    const provided = String(req.get("x-webhook-secret") || req.query.secret || "");
+    if (!provided || !constantTimeEquals(provided, config.email.inboundWebhookSecret)) {
+      throw ApiError.unauthorized("Invalid inbound email webhook secret");
+    }
+  }
+
   private assertTwilioWebhookAllowed(req: Request) {
     if (!config.twilio.webhookSecret) return;
 
@@ -223,6 +235,28 @@ export class WebhooksController {
         res.status(200).type("text/xml").send("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>");
         return;
       }
+      res.status(200).json({ status: "success", data: data.length === 1 ? data[0] : data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /api/webhooks/email/inbound
+  handleEmailInbound = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      this.assertEmailInboundWebhookAllowed(req);
+      const parsedItems = inboundEmailService.parsePayloads(req.body || {});
+      const data = [];
+
+      for (const parsed of parsedItems) {
+        const clinicId = inboundEmailService.resolveWorkspaceId(
+          parsed,
+          config.email.inboundWorkspaceMap,
+          config.email.inboundDefaultWorkspaceId,
+        );
+        data.push(await inboundEmailService.ingest(clinicId, parsed));
+      }
+
       res.status(200).json({ status: "success", data: data.length === 1 ? data[0] : data });
     } catch (error) {
       next(error);
