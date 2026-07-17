@@ -33,6 +33,10 @@ export interface PipelineDealInsertValues {
   source: string | null;
   treatment: string | null;
   status: PipelineDealStatus;
+  auditStatus: string | null;
+  auditAssignedTo: string | null;
+  auditFollowUpDueAt: string | null;
+  auditStatusUpdatedAt: string | null;
   userId: string;
 }
 
@@ -45,6 +49,10 @@ export interface PipelineDealUpdateValues {
   source?: string | null;
   treatment?: string | null;
   status?: PipelineDealStatus;
+  auditStatus?: string | null;
+  auditAssignedTo?: string | null;
+  auditFollowUpDueAt?: string | null;
+  auditStatusUpdatedAt?: string | null;
 }
 
 export interface PipelineDealMoveValues {
@@ -118,6 +126,10 @@ const dealSelect = `
          d.sold_at as soldAt,
          d.lost_at as lostAt,
          d.lost_reason as lostReason,
+         d.audit_status as auditStatus,
+         d.audit_assigned_to as auditAssignedTo,
+         d.audit_follow_up_due_at as auditFollowUpDueAt,
+         d.audit_status_updated_at as auditStatusUpdatedAt,
          d.created_at as createdAt,
          d.updated_at as updatedAt
   FROM deal d
@@ -227,8 +239,9 @@ export async function insertPipelineDeal(values: PipelineDealInsertValues) {
     `INSERT INTO deal
       (id, clinic_id, contact_id, pipeline_id, pipeline_stage_id, title, value,
        stage, probability, expected_close_date, owner_id, source, treatment,
-       status, stage_changed_at, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
+       status, audit_status, audit_assigned_to, audit_follow_up_due_at,
+       audit_status_updated_at, stage_changed_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
     [
       values.id,
       values.clinicId,
@@ -244,6 +257,12 @@ export async function insertPipelineDeal(values: PipelineDealInsertValues) {
       values.source,
       values.treatment,
       values.status,
+      values.auditStatus,
+      values.auditAssignedTo,
+      values.auditFollowUpDueAt,
+      values.auditStatus || values.auditAssignedTo || values.auditFollowUpDueAt
+        ? values.auditStatusUpdatedAt || new Date().toISOString().slice(0, 19).replace("T", " ")
+        : values.auditStatusUpdatedAt,
       values.userId,
     ],
   );
@@ -262,6 +281,10 @@ export async function updatePipelineDealFields(
     probability: "probability",
     source: "source",
     status: "status",
+    auditStatus: "audit_status",
+    auditAssignedTo: "audit_assigned_to",
+    auditFollowUpDueAt: "audit_follow_up_due_at",
+    auditStatusUpdatedAt: "audit_status_updated_at",
     title: "title",
     treatment: "treatment",
     value: "value",

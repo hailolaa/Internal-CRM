@@ -3,6 +3,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { phase1TimelineActions } from "../events/phase1-events.js";
+import { isAuditWorkflowStatus } from "../audit-workflow/audit-workflow.constants.js";
 import {
   buildPipelineDealList,
   mapPipelineDeal,
@@ -43,6 +44,17 @@ function toMysqlDate(value: string | null | undefined) {
 function toMysqlDateTime(value?: string | null) {
   const date = value ? new Date(value) : new Date();
   return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+function optionalMysqlDateTime(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 19).replace("T", " ");
+  return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+function normalizeAuditStatus(value: unknown) {
+  return isAuditWorkflowStatus(value) ? value : null;
 }
 
 function getContactName(contact: PipelineDealContactRow) {
@@ -158,6 +170,10 @@ export class PipelineDealsService {
       source: data.source || contact.source || null,
       treatment,
       status: getStatusForStage(stage),
+      auditStatus: normalizeAuditStatus(data.auditStatus),
+      auditAssignedTo: data.auditAssignedTo || null,
+      auditFollowUpDueAt: optionalMysqlDateTime(data.auditFollowUpDueAt),
+      auditStatusUpdatedAt: optionalMysqlDateTime(data.auditStatusUpdatedAt),
       userId,
     });
 
@@ -205,8 +221,40 @@ export class PipelineDealsService {
     if (data.source !== undefined) values.source = data.source || null;
     if (data.treatment !== undefined) values.treatment = data.treatment || null;
     if (data.status !== undefined) values.status = data.status;
+    const auditStatusChanged = data.auditStatus !== undefined && normalizeAuditStatus(data.auditStatus) !== existing.auditStatus;
+    if (data.auditStatus !== undefined) values.auditStatus = normalizeAuditStatus(data.auditStatus);
+    if (data.auditAssignedTo !== undefined) values.auditAssignedTo = data.auditAssignedTo || null;
+    if (data.auditFollowUpDueAt !== undefined) values.auditFollowUpDueAt = optionalMysqlDateTime(data.auditFollowUpDueAt);
+    if (data.auditStatusUpdatedAt !== undefined) {
+      values.auditStatusUpdatedAt = optionalMysqlDateTime(data.auditStatusUpdatedAt);
+    } else if (
+      data.auditStatus !== undefined
+      || data.auditAssignedTo !== undefined
+      || data.auditFollowUpDueAt !== undefined
+    ) {
+      values.auditStatusUpdatedAt = toMysqlDateTime();
+    }
 
     await updatePipelineDealFields(clinicId, dealId, values);
+    if (auditStatusChanged) {
+      await logTimelineActivity({
+        clinicId,
+        contactId: existing.contactId,
+        type: "StatusChange",
+        userId,
+        metadata: buildTimelineMetadata({
+          action: "audit_status_changed",
+          source: "pipeline",
+          recordId: dealId,
+          changes: {
+            previousAuditStatus: existing.auditStatus,
+            auditStatus: values.auditStatus,
+            auditAssignedTo: values.auditAssignedTo ?? existing.auditAssignedTo,
+            auditFollowUpDueAt: values.auditFollowUpDueAt ?? existing.auditFollowUpDueAt,
+          },
+        }),
+      });
+    }
     await logAuditEvent({
       clinicId,
       userId,

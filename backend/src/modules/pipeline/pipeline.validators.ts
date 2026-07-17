@@ -1,5 +1,6 @@
 import { body, param } from "express-validator";
 import { pipelineDealStatuses, pipelineStageKinds } from "./pipeline.constants.js";
+import { auditWorkflowStatuses } from "../audit-workflow/audit-workflow.constants.js";
 
 const colorPattern = /^bg-[a-z]+-\d{3}$/;
 const idValidator = param("id").isString().trim().isLength({ min: 1, max: 100 });
@@ -12,6 +13,10 @@ const dealMutationValidator = [
   body("probability").optional({ nullable: true }).isInt({ min: 0, max: 100 }).toInt(),
   body("expectedCloseDate").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("ownerId").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
+  body("auditStatus").optional({ nullable: true, checkFalsy: true }).isIn(auditWorkflowStatuses),
+  body("auditAssignedTo").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
+  body("auditFollowUpDueAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("auditStatusUpdatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
 ];
 
 export const createPipelineStageValidator = [

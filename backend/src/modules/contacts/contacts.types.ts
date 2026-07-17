@@ -1,7 +1,10 @@
+import type { AuditWorkflowStatus } from "../audit-workflow/audit-workflow.constants.js";
+
 export type ContactImportMode = "create_only" | "upsert";
 
 export type ContactSortBy = "name" | "source" | "status" | "value" | "lastContact" | "createdAt" | "updatedAt";
 export type ContactSortOrder = "asc" | "desc";
+export type ContactAuditWorkflowFilter = "due" | "overdue" | "in_progress" | "completed";
 
 export interface ContactCommunicationPermissions {
   email: boolean;
@@ -45,6 +48,8 @@ export interface ContactListQuery {
   utmMedium?: string;
   utmCampaign?: string;
   leadStatus?: string;
+  auditStatus?: AuditWorkflowStatus;
+  auditWorkflow?: ContactAuditWorkflowFilter;
   createdFrom?: string;
   createdTo?: string;
   sortBy?: ContactSortBy;
@@ -116,6 +121,10 @@ export interface ContactMutationDTO {
   growthScoreRecommendedPackage?: string | null;
   growthScoreGapSummary?: string | null;
   growthScoreUpdatedAt?: string | null;
+  auditStatus?: AuditWorkflowStatus | null;
+  auditAssignedTo?: string | null;
+  auditFollowUpDueAt?: string | null;
+  auditStatusUpdatedAt?: string | null;
   notes?: string | null;
   lastContactAt?: string | null;
 }
@@ -187,6 +196,10 @@ export interface NormalizedContactData {
   growthScoreRecommendedPackage: string | null;
   growthScoreGapSummary: string | null;
   growthScoreUpdatedAt: string | null;
+  auditStatus: AuditWorkflowStatus | null;
+  auditAssignedTo: string | null;
+  auditFollowUpDueAt: string | null;
+  auditStatusUpdatedAt: string | null;
   notes: string | null;
   lastContactAt: string | null;
 }
@@ -267,6 +280,10 @@ export interface ContactResponse {
   growthScoreRecommendedPackage: string | null;
   growthScoreGapSummary: string | null;
   growthScoreUpdatedAt: string | null;
+  auditStatus: AuditWorkflowStatus | null;
+  auditAssignedTo: string | null;
+  auditFollowUpDueAt: string | null;
+  auditStatusUpdatedAt: string | null;
   notes: string | null;
   externalId: string | null;
   importBatchId: string | null;
@@ -509,6 +526,10 @@ export interface ContactImportRow {
   growthScoreRecommendedPackage?: string;
   growthScoreGapSummary?: string;
   growthScoreUpdatedAt?: string;
+  auditStatus?: AuditWorkflowStatus;
+  auditAssignedTo?: string;
+  auditFollowUpDueAt?: string;
+  auditStatusUpdatedAt?: string;
   notes?: string;
   lastContactAt?: string;
 }

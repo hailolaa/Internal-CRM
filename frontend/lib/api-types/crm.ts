@@ -168,6 +168,16 @@ export interface GrowthScoreSnapshot {
   updatedAt: string | null;
 }
 
+export type AuditWorkflowStatus =
+  | "audit_requested"
+  | "audit_assigned"
+  | "audit_started"
+  | "audit_completed"
+  | "growth_score_created"
+  | "dashboard_access_given"
+  | "audit_sent"
+  | "follow_up_due";
+
 export interface ContactRecord {
   id: string;
   accountName: string | null;
@@ -238,6 +248,10 @@ export interface ContactRecord {
   growthScoreRecommendedPackage: string | null;
   growthScoreGapSummary: string | null;
   growthScoreUpdatedAt: string | null;
+  auditStatus: AuditWorkflowStatus | null;
+  auditAssignedTo: string | null;
+  auditFollowUpDueAt: string | null;
+  auditStatusUpdatedAt: string | null;
   notes: string | null;
   externalId: string | null;
   importBatchId: string | null;
@@ -254,6 +268,8 @@ export interface ContactListParams {
   search?: string;
   status?: string;
   leadStatus?: string;
+  auditStatus?: AuditWorkflowStatus;
+  auditWorkflow?: "due" | "overdue" | "in_progress" | "completed";
   source?: string;
   tag?: string;
   sortBy?: ContactSortBy;
@@ -330,6 +346,10 @@ export interface ContactCreatePayload {
   growthScoreRecommendedPackage?: string | null;
   growthScoreGapSummary?: string | null;
   growthScoreUpdatedAt?: string | null;
+  auditStatus?: AuditWorkflowStatus | null;
+  auditAssignedTo?: string | null;
+  auditFollowUpDueAt?: string | null;
+  auditStatusUpdatedAt?: string | null;
   notes?: string | null;
 }
 

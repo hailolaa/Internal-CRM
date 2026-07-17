@@ -1,3 +1,5 @@
+import type { AuditWorkflowStatus } from "../crm";
+
 export type PipelineStageKind = "open" | "won" | "lost";
 export type PipelineDealStatus = "open" | "won" | "lost";
 
@@ -48,6 +50,10 @@ export interface PipelineDealRecord {
   soldAt: string | null;
   lostAt: string | null;
   lostReason: string | null;
+  auditStatus: AuditWorkflowStatus | null;
+  auditAssignedTo: string | null;
+  auditFollowUpDueAt: string | null;
+  auditStatusUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,6 +77,10 @@ export interface PipelineDealPayload {
   probability?: number | null;
   expectedCloseDate?: string | null;
   ownerId?: string | null;
+  auditStatus?: AuditWorkflowStatus | null;
+  auditAssignedTo?: string | null;
+  auditFollowUpDueAt?: string | null;
+  auditStatusUpdatedAt?: string | null;
 }
 
 export type PipelineDealUpdatePayload = Partial<

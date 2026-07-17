@@ -19,6 +19,7 @@ import { api } from "@/lib/api-client";
 import { mergeLeadRows } from "@/lib/lead-list";
 import { SALES_NAV } from "@/lib/section-nav";
 import type {
+  AuditWorkflowStatus,
   ContactRecord,
   InternalTaskRecord,
   PipelineDealRecord,
@@ -31,6 +32,17 @@ import { DashboardReturnLink } from "@/components/dashboard-return-link";
 const LEAD_RESPONSE_SLA_HOURS = 2;
 const SOURCE_LABELS: Record<string, string> = {
   website_lead_magnet: "Free guide downloads",
+};
+
+const AUDIT_STATUS_LABELS: Record<AuditWorkflowStatus, string> = {
+  audit_requested: "Audit requested",
+  audit_assigned: "Audit assigned",
+  audit_started: "Audit started",
+  audit_completed: "Audit completed",
+  growth_score_created: "Growth Score created",
+  dashboard_access_given: "Dashboard access given",
+  audit_sent: "Audit sent",
+  follow_up_due: "Follow-up due",
 };
 
 interface Lead {
@@ -47,6 +59,11 @@ interface Lead {
   followUpDate: string;
   followUpSort: number;
   followUpOverdue: boolean;
+  auditStatus: AuditWorkflowStatus | null;
+  auditLabel: string;
+  auditDueDate: string;
+  auditDueSort: number;
+  auditOverdue: boolean;
   lastContactDate: string;
   lastContactSort: number;
   attemptCount: number;
@@ -84,6 +101,7 @@ const searchFn = (lead: Lead, query: string) =>
   lead.owner.toLowerCase().includes(query) ||
   lead.stage.toLowerCase().includes(query) ||
   lead.status.toLowerCase().includes(query) ||
+  lead.auditLabel.toLowerCase().includes(query) ||
   lead.lastContactDate.toLowerCase().includes(query) ||
   slaLabel(lead.slaStatus).toLowerCase().includes(query) ||
   lead.followUpDate.toLowerCase().includes(query);
@@ -178,6 +196,10 @@ function formatSourceLabel(source: string) {
   return SOURCE_LABELS[source] || source;
 }
 
+function formatAuditStatus(status: AuditWorkflowStatus | null | undefined) {
+  return status ? AUDIT_STATUS_LABELS[status] : "No audit";
+}
+
 function toLead(contact: ContactRecord): Lead {
   const packageInterest =
     contact.packageInterest ||
@@ -209,6 +231,11 @@ function toLead(contact: ContactRecord): Lead {
     followUpDate: formatDate(contact.nextFollowUpAt, "No follow-up set"),
     followUpSort: toDateSort(contact.nextFollowUpAt),
     followUpOverdue: isPastDate(contact.nextFollowUpAt),
+    auditStatus: contact.auditStatus,
+    auditLabel: formatAuditStatus(contact.auditStatus),
+    auditDueDate: formatDate(contact.auditFollowUpDueAt, "No audit due"),
+    auditDueSort: toDateSort(contact.auditFollowUpDueAt),
+    auditOverdue: isPastDate(contact.auditFollowUpDueAt),
     lastContactDate: formatDate(contact.lastContactAt, "Not contacted"),
     lastContactSort: toDateSort(contact.lastContactAt),
     attemptCount: contact.contactAttemptCount || 0,
@@ -248,6 +275,11 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     followUpDate: formatDate(deal.expectedCloseDate, "No follow-up set"),
     followUpSort: toDateSort(deal.expectedCloseDate),
     followUpOverdue,
+    auditStatus: deal.auditStatus,
+    auditLabel: formatAuditStatus(deal.auditStatus),
+    auditDueDate: formatDate(deal.auditFollowUpDueAt, "No audit due"),
+    auditDueSort: toDateSort(deal.auditFollowUpDueAt),
+    auditOverdue: isPastDate(deal.auditFollowUpDueAt),
     lastContactDate: "Not contacted",
     lastContactSort: Number.MAX_SAFE_INTEGER,
     attemptCount: 0,
@@ -284,6 +316,13 @@ function enrichLeadWithContactAndTask(
       : lead.followUpDate,
     followUpSort: useTaskFollowUp ? taskFollowUpSort : lead.followUpSort,
     followUpOverdue: useTaskFollowUp ? isPastDate(task.dueDate) : lead.followUpOverdue,
+    auditStatus: contact?.auditStatus ?? lead.auditStatus,
+    auditLabel: formatAuditStatus(contact?.auditStatus ?? lead.auditStatus),
+    auditDueDate: contact?.auditFollowUpDueAt
+      ? formatDate(contact.auditFollowUpDueAt, "No audit due")
+      : lead.auditDueDate,
+    auditDueSort: contact?.auditFollowUpDueAt ? toDateSort(contact.auditFollowUpDueAt) : lead.auditDueSort,
+    auditOverdue: contact?.auditFollowUpDueAt ? isPastDate(contact.auditFollowUpDueAt) : lead.auditOverdue,
     lastContactDate: contact ? formatDate(lastContactAt, "Not contacted") : lead.lastContactDate,
     lastContactSort: contact ? toDateSort(lastContactAt) : lead.lastContactSort,
     recommendedPackage: contact?.recommendedPackage || lead.recommendedPackage,
@@ -314,6 +353,7 @@ export default function LeadsPage() {
   const [ownerFilter, setOwnerFilter] = useState("all");
   const [packageFilter, setPackageFilter] = useState("all");
   const [followUpFilter, setFollowUpFilter] = useState("all");
+  const [auditFilter, setAuditFilter] = useState(searchParams.get("audit") || "all");
 
   useEffect(() => {
     if (!session?.token) return;
@@ -405,12 +445,14 @@ export default function LeadsPage() {
     ).length;
     const revenue = leads.reduce((total, lead) => total + lead.revenue, 0);
     const slaOverdue = leads.filter((lead) => lead.slaStatus === "overdue").length;
+    const auditsDue = leads.filter((lead) => lead.auditOverdue || lead.auditStatus === "follow_up_due").length;
 
     return {
       total: leads.length,
       unassigned,
       revenue,
       slaOverdue,
+      auditsDue,
     };
   }, [leads]);
 
@@ -420,6 +462,7 @@ export default function LeadsPage() {
       sources: uniqueOptions([...leads.map((lead) => lead.source), "website_lead_magnet"]),
       owners: uniqueOptions(leads.map((lead) => lead.owner)),
       packages: uniqueOptions(leads.map((lead) => lead.packageInterest)),
+      audits: uniqueOptions(leads.map((lead) => lead.auditLabel)),
     }),
     [leads],
   );
@@ -438,6 +481,13 @@ export default function LeadsPage() {
         (followUpFilter === "overdue" && lead.followUpOverdue) ||
         (followUpFilter === "sla-overdue" && lead.slaStatus === "overdue") ||
         (followUpFilter === "uncontacted" && lead.slaStatus !== "ok");
+      const auditMatches =
+        auditFilter === "all" ||
+        (auditFilter === "due" && (lead.auditStatus === "follow_up_due" || lead.auditDueSort !== Number.MAX_SAFE_INTEGER)) ||
+        (auditFilter === "overdue" && lead.auditOverdue) ||
+        (auditFilter === "in_progress" && Boolean(lead.auditStatus) && !["audit_completed", "audit_sent"].includes(lead.auditStatus || "")) ||
+        (auditFilter === "completed" && ["audit_completed", "audit_sent"].includes(lead.auditStatus || "")) ||
+        lead.auditLabel === auditFilter;
 
       return (
         dashboardViewMatches &&
@@ -445,17 +495,19 @@ export default function LeadsPage() {
         sourceMatches &&
         ownerMatches &&
         packageMatches &&
-        followUpMatches
+        followUpMatches &&
+        auditMatches
       );
     });
-  }, [dashboardView, followUpFilter, leads, ownerFilter, packageFilter, sourceFilter, stageFilter]);
+  }, [auditFilter, dashboardView, followUpFilter, leads, ownerFilter, packageFilter, sourceFilter, stageFilter]);
 
   const hasActiveFilters =
     stageFilter !== "all" ||
     sourceFilter !== "all" ||
     ownerFilter !== "all" ||
     packageFilter !== "all" ||
-    followUpFilter !== "all";
+    followUpFilter !== "all" ||
+    auditFilter !== "all";
 
   const resetFilters = () => {
     setStageFilter("all");
@@ -463,6 +515,7 @@ export default function LeadsPage() {
     setOwnerFilter("all");
     setPackageFilter("all");
     setFollowUpFilter("all");
+    setAuditFilter("all");
   };
 
   const {
@@ -531,10 +584,10 @@ export default function LeadsPage() {
               icon={Target}
             />
             <StatCard
-              label="SLA Risk"
-              value={String(leadStats.slaOverdue)}
-              sub={`>${LEAD_RESPONSE_SLA_HOURS}h uncontacted`}
-              color={leadStats.slaOverdue ? "rose" : "teal"}
+              label="Audits Due"
+              value={String(leadStats.auditsDue)}
+              sub="Due, overdue, or follow-up"
+              color={leadStats.auditsDue ? "amber" : "teal"}
               icon={AlertTriangle}
             />
             <StatCard
@@ -564,7 +617,7 @@ export default function LeadsPage() {
         Response SLA flag is documented as {LEAD_RESPONSE_SLA_HOURS} hours from lead creation until the first recorded contact attempt.
       </p>
 
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
         <select
           value={stageFilter}
           onChange={(event) => setStageFilter(event.target.value)}
@@ -639,6 +692,23 @@ export default function LeadsPage() {
             </button>
           )}
         </div>
+        <select
+          value={auditFilter}
+          onChange={(event) => setAuditFilter(event.target.value)}
+          className="rounded-xl border border-[#E7E1DA] bg-[#FFFCF9] px-3 py-2.5 text-sm text-[#151f21] focus:outline-none focus:ring-2 focus:ring-[#6E6AE8]/20"
+          aria-label="Filter by audit workflow"
+        >
+          <option value="all">All audits</option>
+          <option value="due">Audit due</option>
+          <option value="overdue">Audit overdue</option>
+          <option value="in_progress">Audits in progress</option>
+          <option value="completed">Audits completed</option>
+          {filterOptions.audits.map((audit) => (
+            <option key={audit} value={audit}>
+              {audit}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div
@@ -662,6 +732,7 @@ export default function LeadsPage() {
                 <SortableHeader label="Source / Package" sortKey="source" direction={getSortDirection("source")} onSort={toggleSort} />
                 <SortableHeader label="Stage" sortKey="stage" direction={getSortDirection("stage")} onSort={toggleSort} />
                 <SortableHeader label="Owner" sortKey="owner" direction={getSortDirection("owner")} onSort={toggleSort} />
+                <SortableHeader label="Audit" sortKey="auditDueSort" direction={getSortDirection("auditDueSort")} onSort={toggleSort} />
                 <SortableHeader label="Follow-up" sortKey="followUpSort" direction={getSortDirection("followUpSort")} onSort={toggleSort} />
                 <SortableHeader label="Attempts / SLA" sortKey="slaSort" direction={getSortDirection("slaSort")} onSort={toggleSort} />
               </tr>
@@ -669,7 +740,7 @@ export default function LeadsPage() {
             <tbody>
               {isLoading &&
                 Array.from({ length: 6 }, (_, index) => (
-                  <TableRowSkeleton key={index} columns={6} />
+                  <TableRowSkeleton key={index} columns={7} />
                 ))}
               {!isLoading && paginatedItems.map((lead) => (
                 <tr
@@ -739,6 +810,24 @@ export default function LeadsPage() {
                   </td>
                   <td className="px-3 py-4 align-top md:px-4">
                     <div className="min-w-0">
+                      <span
+                        className={`block max-w-full truncate rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          lead.auditOverdue || lead.auditStatus === "follow_up_due"
+                            ? "border border-amber-200 bg-amber-50 text-amber-700"
+                            : lead.auditStatus
+                              ? "border border-violet-200 bg-violet-50 text-violet-700"
+                              : "border border-[#E7E1DA] bg-[#F6F3EF] text-[#6F6A66]"
+                        }`}
+                      >
+                        {lead.auditLabel}
+                      </span>
+                      <p className="mt-2 truncate text-xs text-[#9E9890]">
+                        {lead.auditDueDate}
+                      </p>
+                    </div>
+                  </td>
+                  <td className="px-3 py-4 align-top md:px-4">
+                    <div className="min-w-0">
                     <span
                       className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
                         lead.followUpOverdue
@@ -776,7 +865,7 @@ export default function LeadsPage() {
               {!isLoading && paginatedItems.length === 0 && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-5 py-12 text-center"
                     style={{ color: "#9E9890" }}
                   >

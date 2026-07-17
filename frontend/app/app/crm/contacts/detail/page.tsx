@@ -32,6 +32,7 @@ import type {
   ClientAccountContactAccountLinkRecord,
   ContactLinkedActivity,
   ContactRecord,
+  AuditWorkflowStatus,
   GrowthScoreSnapshotList,
 } from "@/lib/api-types";
 
@@ -138,6 +139,29 @@ const growthScoreCategoryLabels = [
   ["growthOpportunity", "Growth opportunity"],
 ] as const;
 
+const auditWorkflowOptions: { value: AuditWorkflowStatus; label: string }[] = [
+  { value: "audit_requested", label: "Audit requested" },
+  { value: "audit_assigned", label: "Audit assigned" },
+  { value: "audit_started", label: "Audit started" },
+  { value: "audit_completed", label: "Audit completed" },
+  { value: "growth_score_created", label: "Growth Score created" },
+  { value: "dashboard_access_given", label: "Dashboard access given" },
+  { value: "audit_sent", label: "Audit sent" },
+  { value: "follow_up_due", label: "Follow-up due" },
+];
+
+function auditStatusLabel(value: AuditWorkflowStatus | null | undefined) {
+  return auditWorkflowOptions.find((option) => option.value === value)?.label || "No audit status";
+}
+
+function toDateTimeLocal(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 16);
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
 function formatScore(value: number | null | undefined) {
   return value === null || value === undefined ? "Not scored" : `${Math.round(value)} / 100`;
 }
@@ -160,13 +184,27 @@ export default function ContactDetailPage() {
   const [loadError, setLoadError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
-  const [actionName, setActionName] = useState<"contacted" | "pipeline" | "convert" | "note" | "attempt" | "delete" | null>(null);
+  const [actionName, setActionName] = useState<"contacted" | "pipeline" | "convert" | "note" | "attempt" | "audit" | "delete" | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [auditDraft, setAuditDraft] = useState({
+    status: "" as AuditWorkflowStatus | "",
+    assignedTo: "",
+    followUpDueAt: "",
+  });
   const [attemptDraft, setAttemptDraft] = useState({
     channel: "call" as "call" | "email" | "sms" | "whatsapp" | "other",
     outcome: "",
     notes: "",
   });
+
+  useEffect(() => {
+    if (!contact) return;
+    setAuditDraft({
+      status: contact.auditStatus || "",
+      assignedTo: contact.auditAssignedTo || "",
+      followUpDueAt: toDateTimeLocal(contact.auditFollowUpDueAt),
+    });
+  }, [contact]);
 
   const loadContact = useCallback(async () => {
     if (!contactId) {
@@ -401,6 +439,33 @@ export default function ContactDetailPage() {
       setActionName(null);
     }
   }, [canWriteContacts, contact, noteDraft, token]);
+
+  const handleSaveAuditWorkflow = useCallback(async () => {
+    if (!token || !contact || !canWriteContacts) return;
+
+    setActionName("audit");
+    setActionError("");
+    setActionMessage("");
+    try {
+      const updatedContact = await api.contacts.update(token, contact.id, {
+        auditStatus: auditDraft.status || null,
+        auditAssignedTo: auditDraft.assignedTo.trim() || null,
+        auditFollowUpDueAt: auditDraft.followUpDueAt
+          ? new Date(auditDraft.followUpDueAt).toISOString()
+          : null,
+      });
+      setContact(updatedContact);
+      const nextActivity = await api.contacts.getActivity(token, contact.id);
+      setActivity(nextActivity);
+      setActionMessage("Audit workflow updated.");
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Could not update the audit workflow.",
+      );
+    } finally {
+      setActionName(null);
+    }
+  }, [auditDraft, canWriteContacts, contact, token]);
 
   const handleRecordContactAttempt = useCallback(async () => {
     if (!token || !contact || !canWriteContacts) return;
@@ -852,6 +917,84 @@ export default function ContactDetailPage() {
               <DetailValue label="Meta click ID" value={contact.fbclid} />
               <DetailValue label="Microsoft click ID" value={contact.msclkid} />
             </div>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-[#151f21]">Free audit workflow</h2>
+                <p className="mt-1 text-sm text-[#6F6A66]">
+                  Track the Clinic Growth Score audit journey for this prospect.
+                </p>
+              </div>
+              <span className="rounded-full border border-[#E7E1DA] bg-[#FAF8F5] px-3 py-1 text-xs font-semibold text-[#6F6A66]">
+                {auditStatusLabel(contact.auditStatus)}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              <label className="text-xs font-semibold text-[#6F6A66]">
+                Audit status
+                <select
+                  value={auditDraft.status}
+                  onChange={(event) => setAuditDraft((current) => ({
+                    ...current,
+                    status: event.target.value as AuditWorkflowStatus | "",
+                  }))}
+                  disabled={!canWriteContacts || actionName === "audit"}
+                  className="mt-1 w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-normal text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                >
+                  <option value="">No audit status</option>
+                  {auditWorkflowOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-semibold text-[#6F6A66]">
+                Assigned owner
+                <input
+                  value={auditDraft.assignedTo}
+                  onChange={(event) => setAuditDraft((current) => ({
+                    ...current,
+                    assignedTo: event.target.value,
+                  }))}
+                  disabled={!canWriteContacts || actionName === "audit"}
+                  placeholder="Team member responsible for the audit"
+                  className="mt-1 w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-normal text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                />
+              </label>
+              <label className="text-xs font-semibold text-[#6F6A66]">
+                Follow-up due
+                <input
+                  type="datetime-local"
+                  value={auditDraft.followUpDueAt}
+                  onChange={(event) => setAuditDraft((current) => ({
+                    ...current,
+                    followUpDueAt: event.target.value,
+                  }))}
+                  disabled={!canWriteContacts || actionName === "audit"}
+                  className="mt-1 w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-normal text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                />
+              </label>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <DetailValue label="Last audit update" value={contact.auditStatusUpdatedAt ? formatDateTime(contact.auditStatusUpdatedAt) : null} />
+              <DetailValue label="Audit follow-up due" value={contact.auditFollowUpDueAt ? formatDateTime(contact.auditFollowUpDueAt) : null} />
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveAuditWorkflow}
+              disabled={!canWriteContacts || actionName === "audit"}
+              className="btn-primary mt-5 text-sm disabled:opacity-60"
+            >
+              {actionName === "audit" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4" />
+              )}
+              Save Audit Workflow
+            </button>
           </Card>
 
           <Card padding="p-5 sm:p-6">

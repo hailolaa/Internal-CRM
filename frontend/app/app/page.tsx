@@ -31,6 +31,7 @@ import { DashboardKpiCardLink } from "@/components/dashboard-kpi-card-link";
 import type {
   ClientAccountServiceRecord,
   ClientAccountSummaryRecord,
+  ContactRecord,
   InternalTaskRecord,
   PipelineDealRecord,
   PipelineStageRecord,
@@ -124,12 +125,26 @@ function isUpcomingService(service: ClientAccountServiceRecord) {
   return days !== null && days >= 0 && days <= 30;
 }
 
+function isAuditInProgress(status?: string | null) {
+  return Boolean(status) && !["audit_completed", "audit_sent"].includes(status || "");
+}
+
+function isAuditCompleted(status?: string | null) {
+  return status === "audit_completed" || status === "audit_sent";
+}
+
+function isAuditDue(status?: string | null, dueAt?: string | null) {
+  const days = daysFromToday(dueAt);
+  return status === "follow_up_due" || (days !== null && days <= 0 && !isAuditCompleted(status));
+}
+
 export default function AppPage() {
   const { hasPermission, session } = useAuth();
   const token = session?.token;
   const dashboardCardRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const [activeDashboardCardIndex, setActiveDashboardCardIndex] = useState(0);
   const [deals, setDeals] = useState<PipelineDealRecord[]>([]);
+  const [contacts, setContacts] = useState<ContactRecord[]>([]);
   const [stages, setStages] = useState<PipelineStageRecord[]>([]);
   const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
@@ -144,15 +159,17 @@ export default function AppPage() {
 
     Promise.allSettled([
       api.pipelineDeals.list(token),
+      api.contacts.list(token, { page: 1, pageSize: 250 }),
       api.pipelineStages.list(token),
       api.clientAccounts.list(token),
       api.clientAccounts.listServices(token, { includeArchived: false }),
       api.internalTasks.list(token, { includeArchived: false }),
     ])
-      .then(([dealResult, stageResult, accountResult, serviceResult, taskResult]) => {
+      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult]) => {
         if (!isMounted) return;
 
         setDeals(dealResult.status === "fulfilled" ? dealResult.value.deals : []);
+        setContacts(contactResult.status === "fulfilled" ? contactResult.value.contacts : []);
         setStages(stageResult.status === "fulfilled" ? stageResult.value : []);
         setClientAccounts(
           accountResult.status === "fulfilled" ? accountResult.value : [],
@@ -162,6 +179,7 @@ export default function AppPage() {
 
         const failedSources = [
           dealResult.status === "rejected" ? "sales pipeline" : "",
+          contactResult.status === "rejected" ? "prospects" : "",
           stageResult.status === "rejected" ? "pipeline stages" : "",
           accountResult.status === "rejected" ? "client accounts" : "",
           serviceResult.status === "rejected" ? "active projects" : "",
@@ -207,6 +225,22 @@ export default function AppPage() {
       (deal) => deal.status === "lost" || deal.stageKind === "lost",
     );
 
+    const auditItemsByContact = new Map<string, { status: string | null; dueAt: string | null }>();
+    contacts.forEach((contact) => {
+      auditItemsByContact.set(contact.id, {
+        status: contact.auditStatus,
+        dueAt: contact.auditFollowUpDueAt,
+      });
+    });
+    deals.forEach((deal) => {
+      if (!deal.contactId || auditItemsByContact.has(deal.contactId)) return;
+      auditItemsByContact.set(deal.contactId, {
+        status: deal.auditStatus,
+        dueAt: deal.auditFollowUpDueAt,
+      });
+    });
+    const auditItems = [...auditItemsByContact.values()].filter((item) => item.status || item.dueAt);
+
     return {
       newLeads: deals.filter(isNewLead),
       wonDeals,
@@ -214,8 +248,11 @@ export default function AppPage() {
       openClients: clientAccounts.filter(isOpenClient),
       activeProjects: services.filter(isActiveProject),
       overdueTasks: tasks.filter(isTaskOverdue),
+      auditsDue: auditItems.filter((item) => isAuditDue(item.status, item.dueAt)),
+      auditsInProgress: auditItems.filter((item) => isAuditInProgress(item.status)),
+      auditsCompleted: auditItems.filter((item) => isAuditCompleted(item.status)),
     };
-  }, [clientAccounts, deals, services, tasks]);
+  }, [clientAccounts, contacts, deals, services, tasks]);
 
   const stageRows = useMemo(() => {
     const rows = stages
@@ -441,6 +478,54 @@ export default function AppPage() {
           </>
         )}
       </div>
+
+      <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-[#151f21]">Free Audit Workflow</h2>
+            <p className="text-sm text-[#5e8a8d]">
+              Clinic Growth Score audit status across active leads and opportunities
+            </p>
+          </div>
+          <Link
+            href="/app/leads?from=dashboard"
+            className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+          >
+            Lead Filters
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {[
+            {
+              label: "Due / follow-up",
+              value: metrics.auditsDue.length,
+              href: "/app/leads?audit=due&from=dashboard",
+              tone: metrics.auditsDue.length ? "text-amber-700 bg-amber-50 border-amber-200" : "text-[#5e8a8d] bg-[#FAF8F5] border-[#E7E1DA]",
+            },
+            {
+              label: "In progress",
+              value: metrics.auditsInProgress.length,
+              href: "/app/leads?audit=in_progress&from=dashboard",
+              tone: "text-violet-700 bg-violet-50 border-violet-200",
+            },
+            {
+              label: "Completed / sent",
+              value: metrics.auditsCompleted.length,
+              href: "/app/leads?audit=completed&from=dashboard",
+              tone: "text-emerald-700 bg-emerald-50 border-emerald-200",
+            },
+          ].map((item) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              className={`rounded-2xl border p-4 transition-transform hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9] ${item.tone}`}
+            >
+              <p className="text-sm font-medium">{item.label}</p>
+              <p className="mt-2 text-3xl font-bold">{item.value}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <section

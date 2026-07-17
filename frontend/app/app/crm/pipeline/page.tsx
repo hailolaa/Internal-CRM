@@ -121,6 +121,21 @@ const PRIORITY_STYLES = {
   high: "bg-red-100 text-red-700",
 } as const;
 
+const AUDIT_STATUS_LABELS: Record<string, string> = {
+  audit_requested: "Audit requested",
+  audit_assigned: "Audit assigned",
+  audit_started: "Audit started",
+  audit_completed: "Audit completed",
+  growth_score_created: "Growth Score created",
+  dashboard_access_given: "Dashboard access given",
+  audit_sent: "Audit sent",
+  follow_up_due: "Follow-up due",
+};
+
+function formatAuditStatus(value: string | null | undefined) {
+  return value ? AUDIT_STATUS_LABELS[value] || value.replace(/_/g, " ") : null;
+}
+
 function colorClass(color: string) {
   if (color.startsWith("bg-")) return color;
   const normalized = color.toLowerCase();
@@ -313,6 +328,17 @@ function DealCard({
           {deal.priority ? `${deal.priority} priority` : "No priority"}
         </span>
       </div>
+
+      {formatAuditStatus(deal.raw.auditStatus) && (
+        <div className="mt-2 rounded-lg border border-violet-100 bg-violet-50 px-2 py-1.5 text-xs text-violet-700">
+          <span className="font-semibold">{formatAuditStatus(deal.raw.auditStatus)}</span>
+          {deal.raw.auditFollowUpDueAt ? (
+            <span className="ml-1 text-violet-600">
+              due {new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(deal.raw.auditFollowUpDueAt))}
+            </span>
+          ) : null}
+        </div>
+      )}
 
       {isSelected && (
         <div className="pt-3 border-t border-[rgba(0,0,0,0.06)] space-y-2 animate-in fade-in duration-200">

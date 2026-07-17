@@ -1,4 +1,5 @@
 import type { pipelineDealStatuses, pipelineStageKinds } from "./pipeline.constants.js";
+import type { AuditWorkflowStatus } from "../audit-workflow/audit-workflow.constants.js";
 
 export type PipelineStageKind = typeof pipelineStageKinds[number];
 export type PipelineDealStatus = typeof pipelineDealStatuses[number];
@@ -54,6 +55,10 @@ export interface PipelineDealResponse {
   soldAt: string | null;
   lostAt: string | null;
   lostReason: string | null;
+  auditStatus: AuditWorkflowStatus | null;
+  auditAssignedTo: string | null;
+  auditFollowUpDueAt: string | null;
+  auditStatusUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -77,6 +82,10 @@ export interface CreatePipelineDealDTO {
   probability?: number | null;
   expectedCloseDate?: string | null;
   ownerId?: string | null;
+  auditStatus?: AuditWorkflowStatus | null;
+  auditAssignedTo?: string | null;
+  auditFollowUpDueAt?: string | null;
+  auditStatusUpdatedAt?: string | null;
 }
 
 export interface UpdatePipelineDealDTO extends Partial<Omit<CreatePipelineDealDTO, "contactId" | "stageId">> {

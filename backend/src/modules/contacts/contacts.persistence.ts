@@ -38,6 +38,7 @@ export async function insertContact(
     "growth_score_tracking", "growth_score_conversion", "growth_score_lead_handling", "growth_score_response_speed",
     "growth_score_enquiry_visibility", "growth_score_treatment_performance", "growth_score_revenue_leakage",
     "growth_score_growth_opportunity", "growth_score_recommended_package", "growth_score_gap_summary", "growth_score_updated_at",
+    "audit_status", "audit_assigned_to", "audit_follow_up_due_at", "audit_status_updated_at",
     "notes", "last_contact_at", "external_id",
   ];
   const values = [
@@ -112,6 +113,12 @@ export async function insertContact(
     contact.growthScoreRecommendedPackage,
     contact.growthScoreGapSummary,
     contact.growthScoreUpdatedAt,
+    contact.auditStatus,
+    contact.auditAssignedTo,
+    contact.auditFollowUpDueAt,
+    contact.auditStatus || contact.auditAssignedTo || contact.auditFollowUpDueAt
+      ? contact.auditStatusUpdatedAt || new Date().toISOString().slice(0, 19).replace("T", " ")
+      : contact.auditStatusUpdatedAt,
     contact.notes,
     contact.lastContactAt,
     contact.externalId,
@@ -259,6 +266,7 @@ export async function insertImportedContact(
     "growth_score_tracking", "growth_score_conversion", "growth_score_lead_handling", "growth_score_response_speed",
     "growth_score_enquiry_visibility", "growth_score_treatment_performance", "growth_score_revenue_leakage",
     "growth_score_growth_opportunity", "growth_score_recommended_package", "growth_score_gap_summary", "growth_score_updated_at",
+    "audit_status", "audit_assigned_to", "audit_follow_up_due_at", "audit_status_updated_at",
     "notes", "last_contact_at", "import_batch_id", "external_id",
   ];
   const values = [
@@ -333,6 +341,12 @@ export async function insertImportedContact(
     row.growthScoreRecommendedPackage,
     row.growthScoreGapSummary,
     row.growthScoreUpdatedAt,
+    row.auditStatus,
+    row.auditAssignedTo,
+    row.auditFollowUpDueAt,
+    row.auditStatus || row.auditAssignedTo || row.auditFollowUpDueAt
+      ? row.auditStatusUpdatedAt || new Date().toISOString().slice(0, 19).replace("T", " ")
+      : row.auditStatusUpdatedAt,
     row.notes,
     row.lastContactAt,
     batchId,
@@ -435,6 +449,13 @@ export async function mergeStrongDuplicateIntoContact(
          growth_score_recommended_package = COALESCE(?, growth_score_recommended_package),
          growth_score_gap_summary = COALESCE(?, growth_score_gap_summary),
          growth_score_updated_at = COALESCE(?, growth_score_updated_at),
+         audit_status = COALESCE(?, audit_status),
+         audit_assigned_to = COALESCE(?, audit_assigned_to),
+         audit_follow_up_due_at = COALESCE(?, audit_follow_up_due_at),
+         audit_status_updated_at = CASE
+           WHEN ? IS NULL AND ? IS NULL AND ? IS NULL THEN audit_status_updated_at
+           ELSE COALESCE(?, CURRENT_TIMESTAMP)
+         END,
          notes = CASE
            WHEN ? IS NULL THEN notes
            WHEN notes IS NULL OR notes = '' THEN ?
@@ -540,6 +561,13 @@ export async function mergeStrongDuplicateIntoContact(
       row.growthScoreRecommendedPackage,
       row.growthScoreGapSummary,
       row.growthScoreUpdatedAt,
+      row.auditStatus,
+      row.auditAssignedTo,
+      row.auditFollowUpDueAt,
+      row.auditStatus,
+      row.auditAssignedTo,
+      row.auditFollowUpDueAt,
+      row.auditStatusUpdatedAt,
       appendedNote,
       appendedNote,
       row.notes || "",
@@ -630,6 +658,13 @@ export async function updateImportedContact(
          growth_score_recommended_package = COALESCE(?, growth_score_recommended_package),
          growth_score_gap_summary = COALESCE(?, growth_score_gap_summary),
          growth_score_updated_at = COALESCE(?, growth_score_updated_at),
+         audit_status = COALESCE(?, audit_status),
+         audit_assigned_to = COALESCE(?, audit_assigned_to),
+         audit_follow_up_due_at = COALESCE(?, audit_follow_up_due_at),
+         audit_status_updated_at = CASE
+           WHEN ? IS NULL AND ? IS NULL AND ? IS NULL THEN audit_status_updated_at
+           ELSE COALESCE(?, CURRENT_TIMESTAMP)
+         END,
          notes = COALESCE(?, notes),
          last_contact_at = COALESCE(?, last_contact_at),
          import_batch_id = ?,
@@ -707,6 +742,13 @@ export async function updateImportedContact(
       row.growthScoreRecommendedPackage,
       row.growthScoreGapSummary,
       row.growthScoreUpdatedAt,
+      row.auditStatus,
+      row.auditAssignedTo,
+      row.auditFollowUpDueAt,
+      row.auditStatus,
+      row.auditAssignedTo,
+      row.auditFollowUpDueAt,
+      row.auditStatusUpdatedAt,
       row.notes,
       row.lastContactAt,
       batchId,

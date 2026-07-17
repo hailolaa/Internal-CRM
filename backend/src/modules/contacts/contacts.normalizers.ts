@@ -6,6 +6,7 @@ import type {
   NormalizedContactData,
   NormalizedImportContactData,
 } from "./contacts.types.js";
+import { isAuditWorkflowStatus } from "../audit-workflow/audit-workflow.constants.js";
 
 export function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
@@ -181,6 +182,11 @@ function normalizeGrowthScore(data: Partial<ContactMutationDTO>) {
   };
 }
 
+function normalizeAuditStatus(value: unknown) {
+  const cleaned = cleanString(value);
+  return isAuditWorkflowStatus(cleaned) ? cleaned : null;
+}
+
 // Normalize manual create/update payloads before database writes and duplicate checks
 export function normalizeContactData(data: Partial<ContactMutationDTO>): NormalizedContactData {
   const growthScore = normalizeGrowthScore(data);
@@ -248,6 +254,10 @@ export function normalizeContactData(data: Partial<ContactMutationDTO>): Normali
     growthScoreRecommendedPackage: growthScore.recommendedPackage,
     growthScoreGapSummary: growthScore.gapSummary,
     growthScoreUpdatedAt: growthScore.updatedAt,
+    auditStatus: normalizeAuditStatus(data.auditStatus),
+    auditAssignedTo: cleanString(data.auditAssignedTo),
+    auditFollowUpDueAt: normalizeDateTime(data.auditFollowUpDueAt),
+    auditStatusUpdatedAt: normalizeDateTime(data.auditStatusUpdatedAt),
     notes: cleanString(data.notes),
     lastContactAt: normalizeDateTime(data.lastContactAt),
   };

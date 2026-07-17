@@ -1,5 +1,9 @@
 import type { ContactListQuery } from "./contacts.types.js";
 import { cleanString, normalizePhone } from "./contacts.normalizers.js";
+import {
+  auditWorkflowCompletedStatuses,
+  auditWorkflowInProgressStatuses,
+} from "../audit-workflow/audit-workflow.constants.js";
 
 export const contactSelectFields = `c.id,
               c.account_name as accountName,
@@ -74,6 +78,10 @@ export const contactSelectFields = `c.id,
               c.growth_score_recommended_package as growthScoreRecommendedPackage,
               c.growth_score_gap_summary as growthScoreGapSummary,
               c.growth_score_updated_at as growthScoreUpdatedAt,
+              c.audit_status as auditStatus,
+              c.audit_assigned_to as auditAssignedTo,
+              c.audit_follow_up_due_at as auditFollowUpDueAt,
+              c.audit_status_updated_at as auditStatusUpdatedAt,
               c.notes,
               c.external_id as externalId,
               c.import_batch_id as importBatchId,
@@ -125,6 +133,8 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
   const search = cleanString(query.search)?.toLowerCase();
   const status = cleanString(query.status);
   const leadStatus = cleanString(query.leadStatus);
+  const auditStatus = cleanString(query.auditStatus);
+  const auditWorkflow = cleanString(query.auditWorkflow);
   const source = cleanString(query.source);
   const tag = cleanString(query.tag);
   const campaign = cleanString(query.campaign || query.utmCampaign)?.toLowerCase();
@@ -141,6 +151,25 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
   if (leadStatus) {
     clauses.push("c.lead_status = ?");
     values.push(leadStatus);
+  }
+
+  if (auditStatus) {
+    clauses.push("c.audit_status = ?");
+    values.push(auditStatus);
+  }
+
+  if (auditWorkflow === "due") {
+    clauses.push("c.audit_follow_up_due_at IS NOT NULL");
+  } else if (auditWorkflow === "overdue") {
+    clauses.push("c.audit_follow_up_due_at < CURRENT_TIMESTAMP");
+    clauses.push("(c.audit_status IS NULL OR c.audit_status NOT IN (?, ?))");
+    values.push(...auditWorkflowCompletedStatuses);
+  } else if (auditWorkflow === "in_progress") {
+    clauses.push(`c.audit_status IN (${auditWorkflowInProgressStatuses.map(() => "?").join(", ")})`);
+    values.push(...auditWorkflowInProgressStatuses);
+  } else if (auditWorkflow === "completed") {
+    clauses.push(`c.audit_status IN (${auditWorkflowCompletedStatuses.map(() => "?").join(", ")})`);
+    values.push(...auditWorkflowCompletedStatuses);
   }
 
   if (source) {
@@ -223,6 +252,7 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
         OR LOWER(COALESCE(c.msclkid, '')) LIKE ?
         OR LOWER(COALESCE(c.status, '')) LIKE ?
         OR LOWER(COALESCE(c.lead_status, '')) LIKE ?
+        OR LOWER(COALESCE(c.audit_status, '')) LIKE ?
         OR LOWER(COALESCE(c.package_interest, '')) LIKE ?
         OR LOWER(COALESCE(c.recommended_package, '')) LIKE ?
         OR LOWER(COALESCE(c.notes, '')) LIKE ?
@@ -230,6 +260,7 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
         OR CAST(COALESCE(c.treatment_interests, JSON_ARRAY()) AS CHAR) LIKE ?)`,
     );
     values.push(
+      like,
       like,
       like,
       like,

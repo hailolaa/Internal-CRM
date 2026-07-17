@@ -38,6 +38,7 @@ import {
   lastActivityJoin,
 } from "./contacts.queries.js";
 import { slaService } from "../sla/sla.service.js";
+import { isAuditWorkflowStatus } from "../audit-workflow/audit-workflow.constants.js";
 import type {
   ContactTimelineActivity,
   ContactDrawerActionContext,
@@ -136,6 +137,12 @@ const importHeaderAliases: Record<string, keyof ContactImportRow | "tags"> = {
   packageinterest: "packageInterest",
   recommendedpackage: "recommendedPackage",
   recommendedservice: "recommendedPackage",
+  auditstatus: "auditStatus",
+  auditstage: "auditStatus",
+  auditassignedto: "auditAssignedTo",
+  auditowner: "auditAssignedTo",
+  auditfollowupdue: "auditFollowUpDueAt",
+  auditfollowupdueat: "auditFollowUpDueAt",
 };
 
 function csvCell(value: unknown) {
@@ -311,6 +318,7 @@ function parseImportText(text: string): ContactImportRow[] {
       raw[header] = values[valueIndex] || "";
     });
 
+    const rawAuditStatus = raw.auditStatus || raw.auditstage || "";
     const row: ContactImportRow = {
       accountName: raw.accountName || raw.account || raw.clinic || raw.company || "",
       firstName: raw.firstName || raw.firstname || raw.first || "",
@@ -326,7 +334,10 @@ function parseImportText(text: string): ContactImportRow[] {
       treatmentInterests: splitListCell(raw.treatmentInterests || raw.treatment),
       packageInterest: raw.packageInterest || raw.package || "",
       recommendedPackage: raw.recommendedPackage || raw.recommendedservice || "",
+      auditAssignedTo: raw.auditAssignedTo || raw.auditowner || "",
+      auditFollowUpDueAt: raw.auditFollowUpDueAt || raw.auditfollowupdue || "",
     };
+    if (isAuditWorkflowStatus(rawAuditStatus)) row.auditStatus = rawAuditStatus;
     const emailPermission = parseImportBoolean(raw.emailPermission || raw.canEmail);
     const phonePermission = parseImportBoolean(raw.phonePermission || raw.canCall);
     const smsPermission = parseImportBoolean(raw.smsPermission);
@@ -837,6 +848,16 @@ export class ContactsService {
     addField("growthScoreRecommendedPackage", "growth_score_recommended_package", normalized.growthScoreRecommendedPackage);
     addField("growthScoreGapSummary", "growth_score_gap_summary", normalized.growthScoreGapSummary);
     addField("growthScoreUpdatedAt", "growth_score_updated_at", normalized.growthScoreUpdatedAt);
+    addField("auditStatus", "audit_status", normalized.auditStatus);
+    addField("auditAssignedTo", "audit_assigned_to", normalized.auditAssignedTo);
+    addField("auditFollowUpDueAt", "audit_follow_up_due_at", normalized.auditFollowUpDueAt);
+    addField("auditStatusUpdatedAt", "audit_status_updated_at", normalized.auditStatusUpdatedAt);
+    if (
+      (hasOwn(data, "auditStatus") || hasOwn(data, "auditAssignedTo") || hasOwn(data, "auditFollowUpDueAt"))
+      && !hasOwn(data, "auditStatusUpdatedAt")
+    ) {
+      fields.push("audit_status_updated_at = CURRENT_TIMESTAMP");
+    }
     addField("notes", "notes", normalized.notes);
     addField("lastContactAt", "last_contact_at", normalized.lastContactAt);
 
@@ -871,14 +892,17 @@ export class ContactsService {
 
     const statusChanged = hasOwn(data, "status") && data.status !== existingContact.status;
     const leadStatusChanged = hasOwn(data, "leadStatus") && data.leadStatus !== existingContact.leadStatus;
+    const auditStatusChanged = hasOwn(data, "auditStatus") && normalized.auditStatus !== existingContact.auditStatus;
 
     await logTimelineActivity({
       clinicId,
       contactId,
       userId,
-      type: statusChanged || leadStatusChanged ? "StatusChange" : "Note",
+      type: statusChanged || leadStatusChanged || auditStatusChanged ? "StatusChange" : "Note",
       metadata: buildTimelineMetadata({
-        action: statusChanged || leadStatusChanged
+        action: auditStatusChanged
+          ? "audit_status_changed"
+          : statusChanged || leadStatusChanged
           ? phase1TimelineActions.leadStageChanged
           : phase1TimelineActions.noteAdded,
         source: "contact",
@@ -889,6 +913,10 @@ export class ContactsService {
           changedFields: Object.keys(data),
           previousLeadStatus: existingContact.leadStatus,
           leadStatus: hasOwn(data, "leadStatus") ? normalized.leadStatus : existingContact.leadStatus,
+          previousAuditStatus: existingContact.auditStatus,
+          auditStatus: hasOwn(data, "auditStatus") ? normalized.auditStatus : existingContact.auditStatus,
+          auditAssignedTo: hasOwn(data, "auditAssignedTo") ? normalized.auditAssignedTo : existingContact.auditAssignedTo,
+          auditFollowUpDueAt: hasOwn(data, "auditFollowUpDueAt") ? normalized.auditFollowUpDueAt : existingContact.auditFollowUpDueAt,
         },
       }),
     });

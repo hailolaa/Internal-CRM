@@ -1,5 +1,6 @@
 import { body, param, query } from "express-validator";
 import { hasUsableLeadIdentity } from "./contacts.normalizers.js";
+import { auditWorkflowStatuses } from "../audit-workflow/audit-workflow.constants.js";
 
 const contactSortFields = ["name", "source", "status", "value", "lastContact", "createdAt", "updatedAt"];
 const attributionTextFields = [
@@ -114,6 +115,10 @@ const contactMutationValidator = [
   body("growthScoreRecommendedPackage").optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
   body("growthScoreGapSummary").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
   body("growthScoreUpdatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("auditStatus").optional({ nullable: true, checkFalsy: true }).isIn(auditWorkflowStatuses),
+  body("auditAssignedTo").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
+  body("auditFollowUpDueAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("auditStatusUpdatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("notes").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
   body("lastContactAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
 ];
@@ -125,6 +130,8 @@ export const listContactsValidator = [
   query("search").optional().isString().trim().isLength({ max: 255 }),
   query("status").optional().isString().trim().isLength({ max: 50 }),
   query("leadStatus").optional().isString().trim().isLength({ max: 50 }),
+  query("auditStatus").optional().isIn(auditWorkflowStatuses),
+  query("auditWorkflow").optional().isIn(["due", "overdue", "in_progress", "completed"]),
   query("source").optional().isString().trim().isLength({ max: 100 }),
   query("tag").optional().isString().trim().isLength({ max: 50 }),
   query("campaign").optional().isString().trim().isLength({ max: 100 }),
@@ -311,6 +318,10 @@ export const importContactsValidator = [
   body("rows.*.value").optional({ nullable: true }).isFloat({ min: 0 }),
   body("rows.*.treatmentInterests").optional().isArray({ max: 20 }),
   body("rows.*.treatmentInterests.*").optional().isString().trim().isLength({ max: 100 }),
+  body("rows.*.auditStatus").optional({ nullable: true, checkFalsy: true }).isIn(auditWorkflowStatuses),
+  body("rows.*.auditAssignedTo").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
+  body("rows.*.auditFollowUpDueAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("rows.*.auditStatusUpdatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("rows.*.notes").optional().isString().trim().isLength({ max: 5000 }),
   body("rows.*.lastContactAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
 ];
