@@ -220,19 +220,6 @@ export default function ContactDetailPage() {
     notes: "",
   });
 
-  useEffect(() => {
-    if (!contact) return;
-    setAuditDraft({
-      status: contact.auditStatus || "",
-      assignedTo: contact.auditAssignedTo || "",
-      followUpDueAt: toDateTimeLocal(contact.auditFollowUpDueAt),
-    });
-    setCallDemoDraft((current) => ({
-      ...current,
-      packageInterest: current.packageInterest || contact.packageInterest || contact.recommendedPackage || "",
-    }));
-  }, [contact]);
-
   const loadContact = useCallback(async () => {
     if (!contactId) {
       setContact(null);
@@ -256,7 +243,17 @@ export default function ContactDetailPage() {
         throw contactResult.reason;
       }
 
-      setContact(contactResult.value);
+      const loadedContact = contactResult.value;
+      setContact(loadedContact);
+      setAuditDraft({
+        status: loadedContact.auditStatus || "",
+        assignedTo: loadedContact.auditAssignedTo || "",
+        followUpDueAt: toDateTimeLocal(loadedContact.auditFollowUpDueAt),
+      });
+      setCallDemoDraft((current) => ({
+        ...current,
+        packageInterest: current.packageInterest || loadedContact.packageInterest || loadedContact.recommendedPackage || "",
+      }));
       setLoadError("");
       setActivity(
         activityResult.status === "fulfilled" ? activityResult.value : null,

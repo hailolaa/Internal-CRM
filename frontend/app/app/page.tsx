@@ -599,7 +599,7 @@ export default function AppPage() {
       <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-semibold text-[#151f21]">Today's Next Best Actions</h2>
+            <h2 className="font-semibold text-[#151f21]">Today&apos;s Next Best Actions</h2>
             <p className="text-sm text-[#5e8a8d]">
               Highest-priority sales and client actions based on current CRM signals
             </p>
