@@ -36,6 +36,10 @@ import type {
   GrowthScoreSnapshotList,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
+import {
+  getClientNextBestAction,
+  nextBestActionBadgeClass,
+} from "@/lib/next-best-action";
 
 function formatLabel(value: string) {
   return value.split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
@@ -221,6 +225,21 @@ export default function ClientAccountDetailPage() {
   }
 
   const canEditProfile = session?.clinicId === account.clinicId;
+  const nextBestAction = getClientNextBestAction({
+    churnRisk: account.churnRisk,
+    contractStatus: account.contractStatus,
+    currentPackage: account.currentPackage,
+    googleDriveFolderAccessStatus: account.googleDriveFolderAccessStatus,
+    googleDriveFolderId: account.googleDriveFolderId,
+    healthStatus: account.healthStatus,
+    href: `/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}`,
+    nextTaskTitle: openTasks.find((task) => task.isOverdue)?.title || openTasks[0]?.title,
+    onboardingStatus: account.onboardingStatus,
+    overdueTaskCount: openTasks.filter((task) => task.isOverdue).length || account.overdueTaskCount,
+    recommendedNextPackage: account.recommendedNextPackage,
+    renewalDate: account.renewalDate,
+    upsellOpportunity: account.upsellOpportunity,
+  });
 
   return (
     <div className="space-y-6">
@@ -239,6 +258,25 @@ export default function ClientAccountDetailPage() {
           <span className="rounded-full border border-[#d8ddda] px-4 py-2 text-sm font-medium text-[#7A746A]">Switch to this workspace to edit</span>
         )}
       </div>
+
+      <Card padding="p-5 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5e8a8d]">
+              Next Best Action
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-[#151f21]">
+              {nextBestAction.label}
+            </h2>
+            <p className="mt-1 text-sm text-[#7A746A]">
+              {nextBestAction.detail}
+            </p>
+          </div>
+          <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${nextBestActionBadgeClass(nextBestAction.urgency)}`}>
+            {formatLabel(nextBestAction.urgency)} priority
+          </span>
+        </div>
+      </Card>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">

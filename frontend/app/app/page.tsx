@@ -27,6 +27,12 @@ import {
   isDashboardActiveProjectStatus,
   isDashboardNewProspect,
 } from "@/lib/dashboard-cards";
+import {
+  getClientNextBestAction,
+  getLeadNextBestAction,
+  nextBestActionBadgeClass,
+  type NextBestActionResult,
+} from "@/lib/next-best-action";
 import { DashboardKpiCardLink } from "@/components/dashboard-kpi-card-link";
 import type {
   ClientAccountServiceRecord,
@@ -44,6 +50,15 @@ type DeadlineRow = {
   date: string | null;
   href: string;
   type: "Task" | "Service";
+};
+
+type DashboardActionRow = {
+  id: string;
+  title: string;
+  owner: string;
+  action: NextBestActionResult;
+  href: string;
+  sort: number;
 };
 
 function startOfDay(date: Date) {
@@ -136,6 +151,17 @@ function isAuditCompleted(status?: string | null) {
 function isAuditDue(status?: string | null, dueAt?: string | null) {
   const days = daysFromToday(dueAt);
   return status === "follow_up_due" || (days !== null && days <= 0 && !isAuditCompleted(status));
+}
+
+function isLeadContact(contact: ContactRecord) {
+  const status = `${contact.status || ""} ${contact.leadStatus || ""}`.toLowerCase();
+  return ["lead", "prospect", "new", "contacted", "proposal", "audit", "discovery"].some((term) => status.includes(term));
+}
+
+function actionUrgencySort(action: NextBestActionResult) {
+  if (action.urgency === "high") return 0;
+  if (action.urgency === "medium") return 1;
+  return 2;
 }
 
 export default function AppPage() {
@@ -334,6 +360,97 @@ export default function AppPage() {
       .slice(0, 8);
   }, [clientAccountByProfileId, clientNameByProfileId, services, tasks]);
 
+  const nextBestActions = useMemo<DashboardActionRow[]>(() => {
+    const contactRows = contacts
+      .filter(isLeadContact)
+      .map((contact) => {
+        const href = `/app/crm/contacts/detail?id=${encodeURIComponent(contact.id)}`;
+        const action = getLeadNextBestAction({
+          auditStatus: contact.auditStatus,
+          attemptCount: contact.contactAttemptCount,
+          contactId: contact.id,
+          followUpOverdue: daysFromToday(contact.nextFollowUpAt) !== null && daysFromToday(contact.nextFollowUpAt)! < 0,
+          guideSignal: `${contact.ctaClicked || ""} ${contact.formSubmitted || ""} ${contact.landingPage || ""}`,
+          packageInterest: contact.packageInterest || contact.recommendedPackage,
+          source: contact.source,
+          stage: contact.leadStatus || contact.status,
+          status: contact.lastContactAt || contact.contactAttemptCount > 0
+            ? "ok"
+            : daysFromToday(contact.createdAt) !== null && daysFromToday(contact.createdAt)! < 0
+              ? "overdue"
+              : "uncontacted",
+        });
+        return {
+          id: `lead-${contact.id}`,
+          title: contact.accountName || contact.name,
+          owner: contact.source || "Lead",
+          action,
+          href,
+          sort: actionUrgencySort(action),
+        };
+      });
+
+    const dealRows = deals
+      .filter((deal) => !contacts.some((contact) => contact.id === deal.contactId))
+      .map((deal) => {
+        const href = deal.contactId
+          ? `/app/crm/contacts/detail?id=${encodeURIComponent(deal.contactId)}`
+          : `/app/crm/pipeline?deal=${encodeURIComponent(deal.id)}`;
+        const action = getLeadNextBestAction({
+          auditStatus: deal.auditStatus,
+          contactId: deal.contactId,
+          followUpOverdue: daysFromToday(deal.expectedCloseDate) !== null && daysFromToday(deal.expectedCloseDate)! < 0,
+          packageInterest: deal.treatment,
+          source: deal.source,
+          stage: deal.stageName,
+          status: "uncontacted",
+        });
+        return {
+          id: `deal-${deal.id}`,
+          title: deal.contactName || deal.title,
+          owner: deal.ownerName || "Unassigned",
+          action,
+          href,
+          sort: actionUrgencySort(action),
+        };
+      });
+
+    const clientRows = clientAccounts
+      .filter(isOpenClient)
+      .map((account) => {
+        const href = `/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}`;
+        const action = getClientNextBestAction({
+          churnRisk: account.churnRisk,
+          contractStatus: account.contractStatus,
+          currentPackage: account.currentPackage,
+          googleDriveFolderAccessStatus: account.googleDriveFolderAccessStatus,
+          googleDriveFolderId: account.googleDriveFolderId,
+          healthStatus: account.healthStatus,
+          href,
+          onboardingStatus: account.onboardingStatus,
+          overdueTaskCount: account.overdueTaskCount,
+          recommendedNextPackage: account.recommendedNextPackage,
+          renewalDate: account.renewalDate,
+          upsellOpportunity: account.upsellOpportunity,
+        });
+        return {
+          id: `client-${account.clinicId}`,
+          title: account.clinicName,
+          owner: account.accountManager
+            ? [account.accountManager.firstName, account.accountManager.lastName].filter(Boolean).join(" ") || account.accountManager.email || "Unassigned"
+            : "Unassigned",
+          action,
+          href,
+          sort: actionUrgencySort(action),
+        };
+      });
+
+    return [...contactRows, ...dealRows, ...clientRows]
+      .filter((row) => row.action.urgency !== "low")
+      .sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title))
+      .slice(0, 8);
+  }, [clientAccounts, contacts, deals]);
+
   const maxStageCount = Math.max(1, ...stageRows.map((row) => row.count));
   const topActiveProjects = metrics.activeProjects.slice(0, 6);
   const overdueTasks = metrics.overdueTasks.slice(0, 6);
@@ -478,6 +595,50 @@ export default function AppPage() {
           </>
         )}
       </div>
+
+      <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-[#151f21]">Today's Next Best Actions</h2>
+            <p className="text-sm text-[#5e8a8d]">
+              Highest-priority sales and client actions based on current CRM signals
+            </p>
+          </div>
+          <Link
+            href="/app/leads?from=dashboard"
+            className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+          >
+            Open Leads
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {isLoading &&
+            Array.from({ length: 4 }, (_, index) => (
+              <SkeletonLine key={index} className="h-16 w-full" />
+            ))}
+          {!isLoading && nextBestActions.map((row) => (
+            <Link
+              key={row.id}
+              href={row.action.href || row.href}
+              className="rounded-2xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[#151f21]">{row.title}</p>
+                  <p className="mt-1 truncate text-xs text-[#7A746A]">{row.owner}</p>
+                </div>
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${nextBestActionBadgeClass(row.action.urgency)}`}>
+                  {row.action.label}
+                </span>
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs text-[#5e8a8d]">{row.action.detail}</p>
+            </Link>
+          ))}
+          {!isLoading && nextBestActions.length === 0 && (
+            <p className="text-sm text-[#5e8a8d]">No urgent next best actions found.</p>
+          )}
+        </div>
+      </section>
 
       <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
         <div className="mb-4 flex items-center justify-between gap-3">

@@ -31,6 +31,11 @@ import {
   leadPriorityBadgeClass,
   type LeadPriorityResult,
 } from "@/lib/lead-priority";
+import {
+  getLeadNextBestAction,
+  nextBestActionBadgeClass,
+  type NextBestActionResult,
+} from "@/lib/next-best-action";
 import { AlertTriangle, Plus, PoundSterling, Target, Users } from "lucide-react";
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
 
@@ -81,6 +86,7 @@ interface Lead {
   priorityTier: LeadPriorityResult["tier"];
   priorityLabel: string;
   priorityReasons: string[];
+  nextBestAction: NextBestActionResult;
   status: string;
   revenue: number;
   createdDate: string;
@@ -116,6 +122,8 @@ const searchFn = (lead: Lead, query: string) =>
   lead.priorityLabel.toLowerCase().includes(query) ||
   String(lead.priorityScore).includes(query) ||
   lead.priorityReasons.join(" ").toLowerCase().includes(query) ||
+  lead.nextBestAction.label.toLowerCase().includes(query) ||
+  lead.nextBestAction.detail.toLowerCase().includes(query) ||
   lead.auditLabel.toLowerCase().includes(query) ||
   lead.lastContactDate.toLowerCase().includes(query) ||
   slaLabel(lead.slaStatus).toLowerCase().includes(query) ||
@@ -215,7 +223,9 @@ function formatAuditStatus(status: AuditWorkflowStatus | null | undefined) {
   return status ? AUDIT_STATUS_LABELS[status] : "No audit";
 }
 
-function withLeadPriority(lead: Omit<Lead, "priorityScore" | "priorityTier" | "priorityLabel" | "priorityReasons">): Lead {
+function withLeadPriority(
+  lead: Omit<Lead, "priorityScore" | "priorityTier" | "priorityLabel" | "priorityReasons" | "nextBestAction">,
+): Omit<Lead, "nextBestAction"> {
   const priority = calculateLeadPriority({
     accountName: lead.clinic,
     auditOverdue: lead.auditOverdue,
@@ -241,6 +251,23 @@ function withLeadPriority(lead: Omit<Lead, "priorityScore" | "priorityTier" | "p
   };
 }
 
+function withNextBestAction(lead: Omit<Lead, "nextBestAction">): Lead {
+  return {
+    ...lead,
+    nextBestAction: getLeadNextBestAction({
+      auditStatus: lead.auditStatus,
+      attemptCount: lead.attemptCount,
+      contactId: lead.contactId,
+      followUpOverdue: lead.followUpOverdue,
+      guideSignal: `${lead.ctaClicked || ""} ${lead.formSubmitted || ""} ${lead.landingPage || ""} ${lead.attributionDetail}`,
+      packageInterest: lead.packageInterest,
+      source: lead.source,
+      stage: lead.stage,
+      status: lead.slaStatus,
+    }),
+  };
+}
+
 function toLead(contact: ContactRecord): Lead {
   const packageInterest =
     contact.packageInterest ||
@@ -251,7 +278,7 @@ function toLead(contact: ContactRecord): Lead {
   const status = contact.leadStatus || contact.status || "New";
   const slaStatus = slaStatusForLead(contact.createdAt || contact.updatedAt, contact.lastContactAt, contact.contactAttemptCount || 0);
 
-  return withLeadPriority({
+  return withNextBestAction(withLeadPriority({
     id: contact.id,
     clinic: contact.accountName || "Unassigned account",
     contact: contact.name,
@@ -292,7 +319,7 @@ function toLead(contact: ContactRecord): Lead {
     contactId: contact.id,
     recordKind: "contact",
     stageKind: null,
-  });
+  }));
 }
 
 function toLeadFromDeal(deal: PipelineDealRecord): Lead {
@@ -302,7 +329,7 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     deal.stageKind === "open" &&
     isPastDate(deal.expectedCloseDate);
 
-  return withLeadPriority({
+  return withNextBestAction(withLeadPriority({
     id: deal.contactId || deal.id,
     clinic:
       deal.title && deal.title !== deal.contactName
@@ -339,7 +366,7 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     contactId: deal.contactId || null,
     recordKind: "deal",
     stageKind: deal.stageKind,
-  });
+  }));
 }
 
 function enrichLeadWithContactAndTask(
@@ -356,7 +383,7 @@ function enrichLeadWithContactAndTask(
     ? slaStatusForLead(contact.createdAt || contact.updatedAt, lastContactAt, attemptCount)
     : lead.slaStatus;
 
-  return withLeadPriority({
+  return withNextBestAction(withLeadPriority({
     ...lead,
     followUpDate: useTaskFollowUp
       ? formatDate(task.dueDate, "No follow-up set")
@@ -387,7 +414,7 @@ function enrichLeadWithContactAndTask(
     attemptCount,
     slaStatus,
     slaSort: slaStatus === "overdue" ? 0 : slaStatus === "uncontacted" ? 1 : 2,
-  });
+  }));
 }
 
 export default function LeadsPage() {
@@ -782,7 +809,7 @@ export default function LeadsPage() {
               >
                 <SortableHeader label="Prospect" sortKey="clinic" direction={getSortDirection("clinic")} onSort={toggleSort} />
                 <SortableHeader label="Source / Package" sortKey="source" direction={getSortDirection("source")} onSort={toggleSort} />
-                <SortableHeader label="Stage" sortKey="stage" direction={getSortDirection("stage")} onSort={toggleSort} />
+                <SortableHeader label="Stage / Action" sortKey="stage" direction={getSortDirection("stage")} onSort={toggleSort} />
                 <SortableHeader label="Priority / Owner" sortKey="priorityScore" direction={getSortDirection("priorityScore")} onSort={toggleSort} />
                 <SortableHeader label="Audit" sortKey="auditDueSort" direction={getSortDirection("auditDueSort")} onSort={toggleSort} />
                 <SortableHeader label="Follow-up" sortKey="followUpSort" direction={getSortDirection("followUpSort")} onSort={toggleSort} />
@@ -854,6 +881,12 @@ export default function LeadsPage() {
                     </span>
                     <p className="mt-2 truncate text-xs text-[#9E9890]">
                       Status: {lead.status}
+                    </p>
+                    <p
+                      title={lead.nextBestAction.detail}
+                      className={`mt-2 truncate rounded-full border px-2 py-1 text-xs font-semibold ${nextBestActionBadgeClass(lead.nextBestAction.urgency)}`}
+                    >
+                      {lead.nextBestAction.label}
                     </p>
                     </div>
                   </td>

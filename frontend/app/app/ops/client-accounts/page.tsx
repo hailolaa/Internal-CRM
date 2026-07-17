@@ -30,6 +30,10 @@ import {
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
+import {
+  getClientNextBestAction,
+  nextBestActionBadgeClass,
+} from "@/lib/next-best-action";
 import type {
   ClientAccountContractStatus,
   ClientAccountProfileRecord,
@@ -344,6 +348,7 @@ export default function ClientAccountsPage() {
             { label: "Client" },
             { label: "Manager" },
             { label: "Package" },
+            { label: "Next Action" },
             { label: "Contract" },
             { label: "Renewal" },
             { label: "Next Task" },
@@ -352,11 +357,11 @@ export default function ClientAccountsPage() {
         >
           {isLoading &&
             Array.from({ length: 3 }, (_, index) => (
-              <TableRowSkeleton key={`account-loading-${index}`} columns={7} />
+              <TableRowSkeleton key={`account-loading-${index}`} columns={8} />
             ))}
           {!isLoading && filteredAccounts.length === 0 && (
             <tr>
-              <td colSpan={7} className="px-6 py-10 text-center text-sm text-[#5e8a8d]">
+              <td colSpan={8} className="px-6 py-10 text-center text-sm text-[#5e8a8d]">
                 {accountQuery
                   ? "No client accounts match that search."
                   : "No client accounts are available for this user."}
@@ -365,12 +370,28 @@ export default function ClientAccountsPage() {
           )}
           {!isLoading && filteredAccounts.map((account) => {
             const nextTask = account.id ? nextOpenTaskByClient.get(account.id) : null;
+            const accountHref = `/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}`;
+            const nextBestAction = getClientNextBestAction({
+              churnRisk: account.churnRisk,
+              contractStatus: account.contractStatus,
+              currentPackage: account.currentPackage,
+              googleDriveFolderAccessStatus: account.googleDriveFolderAccessStatus,
+              googleDriveFolderId: account.googleDriveFolderId,
+              healthStatus: account.healthStatus,
+              href: accountHref,
+              nextTaskTitle: nextTask?.title,
+              onboardingStatus: account.onboardingStatus,
+              overdueTaskCount: account.overdueTaskCount,
+              recommendedNextPackage: account.recommendedNextPackage,
+              renewalDate: account.renewalDate,
+              upsellOpportunity: account.upsellOpportunity,
+            });
             return (
             <TableRow key={account.clinicId}>
               <TableCell>
                 <div>
                   <p className="font-semibold text-[#151f21]">
-                    <Link href={`/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}`} className="transition-colors hover:text-[#315f62] hover:underline">
+                    <Link href={accountHref} className="transition-colors hover:text-[#315f62] hover:underline">
                       {account.clinicName}
                     </Link>
                   </p>
@@ -397,6 +418,20 @@ export default function ClientAccountsPage() {
                       {account.upsellOpportunity}
                     </p>
                   ) : null}
+                </div>
+              </TableCell>
+              <TableCell>
+                <div className="max-w-[220px] space-y-1">
+                  <Link
+                    href={nextBestAction.href || accountHref}
+                    title={nextBestAction.detail}
+                    className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-1 text-xs font-semibold hover:underline ${nextBestActionBadgeClass(nextBestAction.urgency)}`}
+                  >
+                    {nextBestAction.label}
+                  </Link>
+                  <p className="truncate text-xs text-[#7A746A]">
+                    {nextBestAction.detail}
+                  </p>
                 </div>
               </TableCell>
               <TableCell>{contractBadge(account.contractStatus)}</TableCell>
