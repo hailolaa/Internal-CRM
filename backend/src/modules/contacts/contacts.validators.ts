@@ -257,6 +257,29 @@ export const leadContactAttemptActionValidator = [
   body("attemptedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
 ];
 
+export const leadSalesCallDemoActionValidator = [
+  contactIdParam(),
+  body("booked").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("scheduledAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("type")
+    .optional({ nullable: true, checkFalsy: true })
+    .isIn(["discovery_call", "demo", "audit_review", "proposal_call", "follow_up", "other"])
+    .withMessage("Call/demo type is not supported"),
+  body("packageInterest").optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
+  body("attended").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("noShow").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("rescheduled").optional({ nullable: true }).isBoolean().toBoolean(),
+  body("outcome").optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
+  body("nextStep").optional({ nullable: true }).isString().trim().isLength({ max: 500 }),
+  body("notes").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
+  body().custom((value) => {
+    if (value.booked || value.scheduledAt || value.outcome || value.nextStep || value.notes || value.noShow || value.attended || value.rescheduled) {
+      return true;
+    }
+    throw new Error("Add a booking date, outcome, next step, status, or note for this call/demo");
+  }),
+];
+
 export const importContactsValidator = [
   body("filename").optional().isString().trim().isLength({ max: 255 }),
   body("mode").optional().isIn(["create_only", "upsert"]),

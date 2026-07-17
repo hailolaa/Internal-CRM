@@ -59,6 +59,7 @@ import type {
   DuplicateCandidateResponse,
   AddContactNoteDTO,
   RecordContactAttemptDTO,
+  RecordSalesCallDemoDTO,
   SendContactMessageTemplateDTO,
   UpdateContactDTO,
 } from "./contacts.types.js";
@@ -160,6 +161,39 @@ function contactAttemptActivityType(channel: RecordContactAttemptDTO["channel"])
 
 function formatInternalNoteLine(note: string) {
   return `[${new Date().toISOString()}] ${note}`;
+}
+
+function cleanOptionalString(value: unknown) {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  return trimmed || null;
+}
+
+function normalizeBoolean(value: unknown, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (value === "true" || value === "1" || value === 1) return true;
+  if (value === "false" || value === "0" || value === 0) return false;
+  return fallback;
+}
+
+function normalizeCallDemoDate(value: unknown) {
+  if (!value) return null;
+  const parsed = new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function salesCallDemoTitle(data: {
+  type: string;
+  booked: boolean;
+  attended: boolean;
+  noShow: boolean;
+  rescheduled: boolean;
+}) {
+  if (data.noShow) return "Call/demo no-show recorded";
+  if (data.rescheduled) return "Call/demo rescheduled";
+  if (data.attended) return "Call/demo attended";
+  if (data.booked) return `${data.type === "demo" ? "Demo" : "Call"} booked`;
+  return "Call/demo activity recorded";
 }
 
 function toContactsCsv(contacts: ContactResponse[]) {
@@ -507,8 +541,9 @@ export class ContactsService {
   ): Promise<ContactLinkedActivityResponse> {
     const contact = await this.getContact(clinicId, contactId);
     const timeline = await this.getContactTimeline(clinicId, contactId);
-    const [calls, appointments, forms, messages, deposits, tasks] = await Promise.all([
+    const [calls, salesCallDemos, appointments, forms, messages, deposits, tasks] = await Promise.all([
       this.listLinkedCalls(clinicId, contactId),
+      this.listLinkedSalesCallDemos(clinicId, contactId),
       this.listLinkedAppointments(clinicId, contactId),
       this.listLinkedForms(clinicId, contact),
       this.listLinkedMessages(clinicId, contactId),
@@ -519,6 +554,7 @@ export class ContactsService {
     return {
       timeline,
       calls,
+      salesCallDemos,
       appointments,
       forms,
       messages,
@@ -527,6 +563,7 @@ export class ContactsService {
       counts: {
         timeline: timeline.length,
         calls: calls.length,
+        salesCallDemos: salesCallDemos.length,
         appointments: appointments.length,
         forms: forms.length,
         messages: messages.length,
@@ -594,6 +631,14 @@ export class ContactsService {
         recordType: "contact_attempt" as const,
         method: "POST" as const,
         path: `/api/contacts/${contactId}/actions/contact-attempt`,
+        requiredPermission: "contacts:write",
+      },
+      {
+        key: "record_sales_call_demo",
+        label: "Record call/demo",
+        recordType: "call" as const,
+        method: "POST" as const,
+        path: `/api/contacts/${contactId}/actions/sales-call-demo`,
         requiredPermission: "contacts:write",
       },
     ];
@@ -1602,6 +1647,182 @@ export class ContactsService {
       },
       activity: await this.getContactLinkedActivity(clinicId, contactId, context),
     };
+  }
+
+  async recordSalesCallDemo(
+    clinicId: string,
+    userId: string,
+    contactId: string,
+    data: RecordSalesCallDemoDTO,
+    context: ContactDrawerActionContext,
+    meta: RequestMeta = {},
+  ): Promise<ContactDrawerActionResult> {
+    await this.getContact(clinicId, contactId);
+
+    const id = uuidv4();
+    const booked = normalizeBoolean(data.booked, true);
+    const scheduledAt = normalizeCallDemoDate(data.scheduledAt);
+    const type = cleanOptionalString(data.type) || "discovery_call";
+    const packageInterest = cleanOptionalString(data.packageInterest);
+    const noShow = normalizeBoolean(data.noShow);
+    const attended = noShow ? false : normalizeBoolean(data.attended);
+    const rescheduled = normalizeBoolean(data.rescheduled);
+    const outcome = cleanOptionalString(data.outcome);
+    const nextStep = cleanOptionalString(data.nextStep);
+    const notes = cleanOptionalString(data.notes);
+
+    await pool.execute(
+      `INSERT INTO sales_call_demo
+        (id, clinic_id, contact_id, booked, scheduled_at, type, package_interest,
+         attended, no_show, rescheduled, outcome, next_step, notes, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        clinicId,
+        contactId,
+        booked,
+        scheduledAt,
+        type,
+        packageInterest,
+        attended,
+        noShow,
+        rescheduled,
+        outcome,
+        nextStep,
+        notes,
+        userId,
+        userId,
+      ],
+    );
+
+    const timelineTimestamp = scheduledAt || new Date();
+    const title = salesCallDemoTitle({ type, booked, attended, noShow, rescheduled });
+    const shouldMarkContacted = attended || noShow || Boolean(outcome) || Boolean(notes);
+    if (shouldMarkContacted) {
+      const contactedAt = new Date();
+      await pool.execute(
+        `UPDATE contact
+         SET last_contact_at = GREATEST(COALESCE(last_contact_at, ?), ?),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+        [contactedAt, contactedAt, contactId, clinicId],
+      );
+    }
+
+    await logTimelineActivity({
+      clinicId,
+      contactId,
+      userId,
+      type: "Call",
+      timestamp: timelineTimestamp,
+      metadata: buildTimelineMetadata({
+        action: "sales_call_demo_recorded",
+        source: "call",
+        recordId: id,
+        title,
+        status: noShow ? "no_show" : outcome,
+        changes: {
+          booked,
+          scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
+          type,
+          packageInterest,
+          attended,
+          noShow,
+          rescheduled,
+          outcome,
+          nextStep,
+          notes,
+          internal: true,
+          visibility: "internal",
+        },
+      }),
+    });
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "SALES_CALL_DEMO_RECORDED",
+      entityType: "sales_call_demo",
+      entityId: id,
+      changes: {
+        contactId,
+        booked,
+        scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
+        type,
+        packageInterest,
+        attended,
+        noShow,
+        rescheduled,
+        outcome,
+        hasNextStep: Boolean(nextStep),
+      },
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    return {
+      action: "record_sales_call_demo",
+      record: {
+        id,
+        contactId,
+        booked,
+        scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
+        type,
+        packageInterest,
+        attended,
+        noShow,
+        rescheduled,
+        outcome,
+        nextStep,
+        notes,
+      },
+      activity: await this.getContactLinkedActivity(clinicId, contactId, context),
+    };
+  }
+
+  private async listLinkedSalesCallDemos(clinicId: string, contactId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              booked,
+              scheduled_at as scheduledAt,
+              type,
+              package_interest as packageInterest,
+              attended,
+              no_show as noShow,
+              rescheduled,
+              outcome,
+              next_step as nextStep,
+              notes,
+              created_by as createdBy,
+              created_at as createdAt,
+              updated_at as updatedAt
+       FROM sales_call_demo
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND deleted_at IS NULL
+       ORDER BY COALESCE(scheduled_at, created_at) DESC, created_at DESC
+       LIMIT 20`,
+      [clinicId, contactId],
+    );
+
+    return rows.map((row: any) => ({
+      id: row.id,
+      booked: Boolean(row.booked),
+      scheduledAt: row.scheduledAt ? new Date(row.scheduledAt).toISOString() : null,
+      type: row.type || "discovery_call",
+      packageInterest: row.packageInterest || null,
+      attended: Boolean(row.attended),
+      noShow: Boolean(row.noShow),
+      rescheduled: Boolean(row.rescheduled),
+      outcome: row.outcome || null,
+      nextStep: row.nextStep || null,
+      notes: row.notes || null,
+      createdBy: row.createdBy || null,
+      createdAt: new Date(row.createdAt).toISOString(),
+      updatedAt: new Date(row.updatedAt).toISOString(),
+      href: `/app/crm/contacts/detail?id=${encodeURIComponent(contactId)}#call-demo-${encodeURIComponent(row.id)}`,
+      actions: ["record_sales_call_demo"],
+    }));
   }
 
   private async listLinkedCalls(clinicId: string, contactId: string) {

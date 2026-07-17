@@ -14,6 +14,7 @@ import {
   leadDepositActionValidator,
   leadMessageTemplateActionValidator,
   leadNoteActionValidator,
+  leadSalesCallDemoActionValidator,
   leadTaskActionValidator,
   listContactsValidator,
   resolveDuplicateValidator,
@@ -227,6 +228,17 @@ router.post(
   leadContactAttemptActionValidator,
   validate,
   contactsController.recordContactAttempt,
+);
+
+// @route   POST /api/contacts/:id/actions/sales-call-demo
+// @desc    Record booked calls, demos, no-shows, outcomes and next steps
+// @access  Private
+router.post(
+  "/:id/actions/sales-call-demo",
+  authorizePermission("contacts:write"),
+  leadSalesCallDemoActionValidator,
+  validate,
+  contactsController.recordSalesCallDemo,
 );
 
 // @route   PATCH /api/contacts/:id/mark-contacted

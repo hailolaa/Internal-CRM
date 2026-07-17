@@ -276,6 +276,24 @@ export class ContactsController {
     }
   };
 
+  recordSalesCallDemo = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const result = await contactsService.recordSalesCallDemo(
+        user.clinicId,
+        user.userId,
+        String(req.params.id),
+        req.body,
+        await this.getDrawerActionContext(user),
+        getRequestMeta(req),
+      );
+
+      res.status(201).json({ status: "success", data: result });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   updateContact = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;

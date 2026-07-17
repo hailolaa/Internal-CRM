@@ -390,6 +390,46 @@ export interface ContactLinkedCall {
   createdAt: string;
 }
 
+export type SalesCallDemoType =
+  | "discovery_call"
+  | "demo"
+  | "audit_review"
+  | "proposal_call"
+  | "follow_up"
+  | "other";
+
+export interface ContactLinkedSalesCallDemo {
+  id: string;
+  booked: boolean;
+  scheduledAt: string | null;
+  type: SalesCallDemoType | string;
+  packageInterest: string | null;
+  attended: boolean;
+  noShow: boolean;
+  rescheduled: boolean;
+  outcome: string | null;
+  nextStep: string | null;
+  notes: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  href: string;
+  actions: string[];
+}
+
+export interface SalesCallDemoPayload {
+  booked?: boolean | null;
+  scheduledAt?: string | null;
+  type?: SalesCallDemoType | string | null;
+  packageInterest?: string | null;
+  attended?: boolean | null;
+  noShow?: boolean | null;
+  rescheduled?: boolean | null;
+  outcome?: string | null;
+  nextStep?: string | null;
+  notes?: string | null;
+}
+
 export interface ContactLinkedAppointment {
   id: string;
   dateTime: string;
@@ -467,6 +507,7 @@ export interface ContactDrawerActionState {
 export interface ContactLinkedActivity {
   timeline: ContactTimelineActivity[];
   calls: ContactLinkedCall[];
+  salesCallDemos: ContactLinkedSalesCallDemo[];
   appointments: ContactLinkedAppointment[];
   forms: ContactLinkedFormSubmission[];
   messages: ContactLinkedMessage[];
@@ -475,6 +516,7 @@ export interface ContactLinkedActivity {
   counts: {
     timeline: number;
     calls: number;
+    salesCallDemos: number;
     appointments: number;
     forms: number;
     messages: number;

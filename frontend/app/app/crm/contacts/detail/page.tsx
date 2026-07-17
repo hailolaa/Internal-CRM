@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   BriefcaseBusiness,
+  CalendarClock,
   CheckCircle,
   Clock,
   Edit3,
@@ -34,6 +35,7 @@ import type {
   ContactRecord,
   AuditWorkflowStatus,
   GrowthScoreSnapshotList,
+  SalesCallDemoPayload,
 } from "@/lib/api-types";
 
 function formatMoney(value: number) {
@@ -150,6 +152,15 @@ const auditWorkflowOptions: { value: AuditWorkflowStatus; label: string }[] = [
   { value: "follow_up_due", label: "Follow-up due" },
 ];
 
+const salesCallDemoTypeOptions = [
+  { value: "discovery_call", label: "Discovery call" },
+  { value: "demo", label: "Demo" },
+  { value: "audit_review", label: "Audit review" },
+  { value: "proposal_call", label: "Proposal call" },
+  { value: "follow_up", label: "Follow-up" },
+  { value: "other", label: "Other" },
+];
+
 function auditStatusLabel(value: AuditWorkflowStatus | null | undefined) {
   return auditWorkflowOptions.find((option) => option.value === value)?.label || "No audit status";
 }
@@ -184,7 +195,7 @@ export default function ContactDetailPage() {
   const [loadError, setLoadError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
-  const [actionName, setActionName] = useState<"contacted" | "pipeline" | "convert" | "note" | "attempt" | "audit" | "delete" | null>(null);
+  const [actionName, setActionName] = useState<"contacted" | "pipeline" | "convert" | "note" | "attempt" | "call-demo" | "audit" | "delete" | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [auditDraft, setAuditDraft] = useState({
     status: "" as AuditWorkflowStatus | "",
@@ -196,6 +207,18 @@ export default function ContactDetailPage() {
     outcome: "",
     notes: "",
   });
+  const [callDemoDraft, setCallDemoDraft] = useState({
+    booked: true,
+    scheduledAt: "",
+    type: "discovery_call",
+    packageInterest: "",
+    attended: false,
+    noShow: false,
+    rescheduled: false,
+    outcome: "",
+    nextStep: "",
+    notes: "",
+  });
 
   useEffect(() => {
     if (!contact) return;
@@ -204,6 +227,10 @@ export default function ContactDetailPage() {
       assignedTo: contact.auditAssignedTo || "",
       followUpDueAt: toDateTimeLocal(contact.auditFollowUpDueAt),
     });
+    setCallDemoDraft((current) => ({
+      ...current,
+      packageInterest: current.packageInterest || contact.packageInterest || contact.recommendedPackage || "",
+    }));
   }, [contact]);
 
   const loadContact = useCallback(async () => {
@@ -502,6 +529,72 @@ export default function ContactDetailPage() {
     }
   }, [attemptDraft, canWriteContacts, contact, token]);
 
+  const handleRecordSalesCallDemo = useCallback(async () => {
+    if (!token || !contact || !canWriteContacts) return;
+
+    const hasStatus = callDemoDraft.attended || callDemoDraft.noShow || callDemoDraft.rescheduled;
+    const hasDetails = [
+      callDemoDraft.scheduledAt,
+      callDemoDraft.outcome,
+      callDemoDraft.nextStep,
+      callDemoDraft.notes,
+    ].some((value) => value.trim().length > 0);
+    if (!callDemoDraft.booked && !hasStatus && !hasDetails) {
+      setActionError("Add a booking date, status, outcome, next step, or note.");
+      return;
+    }
+
+    const payload: SalesCallDemoPayload = {
+      booked: callDemoDraft.booked,
+      scheduledAt: callDemoDraft.scheduledAt
+        ? new Date(callDemoDraft.scheduledAt).toISOString()
+        : null,
+      type: callDemoDraft.type,
+      packageInterest: callDemoDraft.packageInterest.trim() || null,
+      attended: callDemoDraft.noShow ? false : callDemoDraft.attended,
+      noShow: callDemoDraft.noShow,
+      rescheduled: callDemoDraft.rescheduled,
+      outcome: callDemoDraft.outcome.trim() || null,
+      nextStep: callDemoDraft.nextStep.trim() || (
+        callDemoDraft.noShow ? "Follow up and reschedule the call/demo" : null
+      ),
+      notes: callDemoDraft.notes.trim() || null,
+    };
+
+    setActionName("call-demo");
+    setActionError("");
+    setActionMessage("");
+    try {
+      const result = await api.contacts.recordSalesCallDemo(token, contact.id, payload);
+      setActivity(result.activity);
+      if (payload.attended || payload.noShow || payload.outcome || payload.notes) {
+        setContact((current) => current ? {
+          ...current,
+          lastContactAt: new Date().toISOString(),
+        } : current);
+      }
+      setCallDemoDraft({
+        booked: true,
+        scheduledAt: "",
+        type: "discovery_call",
+        packageInterest: contact.packageInterest || contact.recommendedPackage || "",
+        attended: false,
+        noShow: false,
+        rescheduled: false,
+        outcome: "",
+        nextStep: "",
+        notes: "",
+      });
+      setActionMessage("Call/demo details recorded.");
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Could not record this call/demo.",
+      );
+    } finally {
+      setActionName(null);
+    }
+  }, [callDemoDraft, canWriteContacts, contact, token]);
+
   const handleDelete = useCallback(async () => {
     if (!token || !contact || !canDeleteContacts) return;
     const confirmed = window.confirm(
@@ -714,9 +807,10 @@ export default function ContactDetailPage() {
               </span>
             </div>
 
-            <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="mt-5 grid grid-cols-2 md:grid-cols-5 gap-3">
               {[
                 ["Calls", activity?.counts.calls || 0],
+                ["Demos", activity?.counts.salesCallDemos || 0],
                 ["Linked events", activity?.counts.appointments || 0],
                 ["Messages", activity?.counts.messages || 0],
                 ["Tasks", activity?.counts.tasks || 0],
@@ -805,6 +899,60 @@ export default function ContactDetailPage() {
                 ))}
                 {(!activity || activity.calls.length === 0) && (
                   <EmptyState label="No linked calls found." />
+                )}
+              </div>
+            </Card>
+
+            <Card padding="p-5 sm:p-6">
+              <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-[#151f21]">
+                <CalendarClock className="h-4 w-4 text-[#6E6AE8]" />
+                Demos & booked calls
+              </h2>
+              <div className="space-y-3">
+                {(activity?.salesCallDemos || []).slice(0, 5).map((item) => (
+                  <div
+                    key={item.id}
+                    id={`call-demo-${item.id}`}
+                    className="rounded-xl bg-[#FAF8F5] p-4"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-[#151f21]">
+                        {formatLabel(item.type)}
+                      </p>
+                      <StatusBadge
+                        status={
+                          item.noShow
+                            ? "No-show"
+                            : item.rescheduled
+                              ? "Rescheduled"
+                              : item.attended
+                                ? "Attended"
+                                : item.booked
+                                  ? "Booked"
+                                  : "Logged"
+                        }
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-[#6F6A66]">
+                      {formatDateTime(item.scheduledAt || item.createdAt)}
+                      {item.packageInterest ? ` - ${item.packageInterest}` : ""}
+                    </p>
+                    {item.outcome ? (
+                      <p className="mt-2 text-sm text-[#6F6A66]">{item.outcome}</p>
+                    ) : null}
+                    {item.nextStep ? (
+                      <p className="mt-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#315f62]">
+                        Next step: {item.nextStep}
+                      </p>
+                    ) : item.noShow ? (
+                      <p className="mt-2 rounded-lg bg-[#fff7f0] px-3 py-2 text-xs font-semibold text-[#8a3f16]">
+                        Suggested next step: follow up and reschedule.
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+                {(!activity || activity.salesCallDemos.length === 0) && (
+                  <EmptyState label="No demos or booked calls recorded." />
                 )}
               </div>
             </Card>
@@ -1053,6 +1201,131 @@ export default function ContactDetailPage() {
                 .filter(Boolean)
                 .join(", ") || "No address recorded."}
             </p>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="flex items-center gap-2 text-base font-semibold text-[#151f21]">
+                <CalendarClock className="h-4 w-4 text-[#6E6AE8]" />
+                Demo / call tracking
+              </h2>
+              <span className="text-xs text-[#6F6A66]">Manual sales activity</span>
+            </div>
+            <div className="mt-5 space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="text-xs font-semibold text-[#6F6A66]">
+                  Type
+                  <select
+                    value={callDemoDraft.type}
+                    onChange={(event) => setCallDemoDraft((current) => ({
+                      ...current,
+                      type: event.target.value,
+                    }))}
+                    disabled={!canWriteContacts || actionName === "call-demo"}
+                    className="mt-1 w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-normal text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                  >
+                    {salesCallDemoTypeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold text-[#6F6A66]">
+                  Date / time
+                  <input
+                    type="datetime-local"
+                    value={callDemoDraft.scheduledAt}
+                    onChange={(event) => setCallDemoDraft((current) => ({
+                      ...current,
+                      scheduledAt: event.target.value,
+                    }))}
+                    disabled={!canWriteContacts || actionName === "call-demo"}
+                    className="mt-1 w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-normal text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                  />
+                </label>
+              </div>
+              <input
+                value={callDemoDraft.packageInterest}
+                onChange={(event) => setCallDemoDraft((current) => ({
+                  ...current,
+                  packageInterest: event.target.value,
+                }))}
+                disabled={!canWriteContacts || actionName === "call-demo"}
+                className="w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                placeholder="Package interest"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  ["booked", "Booked"],
+                  ["attended", "Attended"],
+                  ["noShow", "No-show"],
+                  ["rescheduled", "Rescheduled"],
+                ] as const).map(([key, label]) => (
+                  <label
+                    key={key}
+                    className="flex items-center gap-2 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-3 py-2.5 text-sm font-medium text-[#151f21]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(callDemoDraft[key as keyof typeof callDemoDraft])}
+                      onChange={(event) => setCallDemoDraft((current) => {
+                        const next = {
+                          ...current,
+                          [key]: event.target.checked,
+                        };
+                        if (key === "noShow" && event.target.checked) {
+                          next.attended = false;
+                          next.nextStep = next.nextStep || "Follow up and reschedule the call/demo";
+                        }
+                        if (key === "attended" && event.target.checked) {
+                          next.noShow = false;
+                        }
+                        return next;
+                      })}
+                      disabled={!canWriteContacts || actionName === "call-demo"}
+                      className="h-4 w-4 rounded border-[#D8D1C8]"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <input
+                value={callDemoDraft.outcome}
+                onChange={(event) => setCallDemoDraft((current) => ({ ...current, outcome: event.target.value }))}
+                disabled={!canWriteContacts || actionName === "call-demo"}
+                className="w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                placeholder="Outcome, e.g. showed up, no-show, wants proposal"
+              />
+              <input
+                value={callDemoDraft.nextStep}
+                onChange={(event) => setCallDemoDraft((current) => ({ ...current, nextStep: event.target.value }))}
+                disabled={!canWriteContacts || actionName === "call-demo"}
+                className="w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                placeholder="Next step"
+              />
+              <textarea
+                value={callDemoDraft.notes}
+                onChange={(event) => setCallDemoDraft((current) => ({ ...current, notes: event.target.value }))}
+                disabled={!canWriteContacts || actionName === "call-demo"}
+                rows={3}
+                className="w-full resize-none rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                placeholder="Internal notes from the call/demo..."
+              />
+              <button
+                type="button"
+                onClick={handleRecordSalesCallDemo}
+                disabled={!canWriteContacts || actionName === "call-demo"}
+                className="btn-primary text-sm disabled:opacity-60"
+              >
+                {actionName === "call-demo" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CalendarClock className="h-4 w-4" />
+                )}
+                Save Call/Demo
+              </button>
+            </div>
           </Card>
 
           <Card padding="p-5 sm:p-6">

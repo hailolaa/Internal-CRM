@@ -13,6 +13,7 @@ import type {
   ContactRecord,
   ContactTimelineActivity,
   ContactUpdatePayload,
+  SalesCallDemoPayload,
   TaskRecord,
 } from "@/lib/api-types";
 import type { ApiRequest } from "./core";
@@ -183,6 +184,21 @@ export function createContactsApi(apiRequest: ApiRequest) {
       ) {
         const response = await apiRequest<ContactActionResult>(
           `/api/contacts/${contactId}/actions/contact-attempt`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async recordSalesCallDemo(
+        token: string,
+        contactId: string,
+        payload: SalesCallDemoPayload,
+      ) {
+        const response = await apiRequest<ContactActionResult>(
+          `/api/contacts/${contactId}/actions/sales-call-demo`,
           {
             method: "POST",
             token,
