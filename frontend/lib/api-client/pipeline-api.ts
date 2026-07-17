@@ -101,6 +101,12 @@ export function createPipelineApi(apiRequest: ApiRequest) {
         );
         return response.data!;
       },
+      async remove(token: string, dealId: string) {
+        return apiRequest<never>(`/api/pipeline/deals/${dealId}`, {
+          method: "DELETE",
+          token,
+        });
+      },
     },
   };
 }

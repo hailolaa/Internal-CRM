@@ -311,6 +311,18 @@ export async function updatePipelineDealFields(
   );
 }
 
+export async function softDeletePipelineDeal(clinicId: string, dealId: string) {
+  await pool.execute(
+    `UPDATE deal
+     SET deleted_at = CURRENT_TIMESTAMP,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?
+       AND clinic_id = ?
+       AND deleted_at IS NULL`,
+    [dealId, clinicId],
+  );
+}
+
 export async function movePipelineDealStage(
   clinicId: string,
   dealId: string,

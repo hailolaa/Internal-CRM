@@ -191,7 +191,7 @@ DEALLOCATE PREPARE stmt;
 
 SET @add_click_index = IF(
   (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = @schema_name AND TABLE_NAME = 'contact' AND INDEX_NAME = 'idx_contact_attribution_click_ids') = 0,
-  'ALTER TABLE `contact` ADD INDEX `idx_contact_attribution_click_ids` (`clinic_id`, `gclid`, `fbclid`, `msclkid`)',
+  'ALTER TABLE `contact` ADD INDEX `idx_contact_attribution_click_ids` (`clinic_id`, `gclid`(100), `fbclid`(100), `msclkid`(100))',
   'SELECT ''idx_contact_attribution_click_ids already exists'' AS message'
 );
 PREPARE stmt FROM @add_click_index;

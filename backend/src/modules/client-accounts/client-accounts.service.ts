@@ -242,7 +242,7 @@ export class ClientAccountsService {
     options: { includeAllClinics: boolean; query?: ClientAccountListQuery },
   ): Promise<ClientAccountSummaryResponse[]> {
     const query = options.query || {};
-    const conditions = ["c.deleted_at IS NULL"];
+    const conditions = ["c.deleted_at IS NULL", "cap.id IS NOT NULL"];
     const values: any[] = [];
 
     if (!options.includeAllClinics) {
@@ -1698,10 +1698,11 @@ export class ClientAccountsService {
     access: { canManageAllClientAccounts: boolean },
   ) {
     const [rows]: any = await pool.execute(
-      `SELECT id
-       FROM clinic
-       WHERE id = ?
-         AND deleted_at IS NULL
+      `SELECT c.id
+       FROM clinic c
+       JOIN client_account_profile cap ON cap.clinic_id = c.id
+       WHERE c.id = ?
+         AND c.deleted_at IS NULL
        LIMIT 1`,
       [clientClinicId],
     );

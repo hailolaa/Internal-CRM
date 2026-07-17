@@ -319,7 +319,9 @@ export default function ContactDetailPage() {
       {
         icon: BriefcaseBusiness,
         label: "Account",
-        value: contact?.accountName || "Not linked",
+        value: visibleLinkedAccountLinks.length > 1
+          ? `${visibleLinkedAccountLinks.length} linked companies`
+          : visibleLinkedAccountLinks[0]?.clientName || contact?.accountName || "Not linked",
       },
       {
         icon: UserRound,
@@ -336,23 +338,19 @@ export default function ContactDetailPage() {
         value: formatDateTime(contact?.lastContactAt),
       },
     ],
-    [contact],
+    [contact, visibleLinkedAccountLinks],
   );
 
   const relatedRecordLinks = useMemo(
     () => [
       { label: "Lead list", href: "/app/leads" },
-      ...visibleLinkedAccountLinks.map((link) => ({
-        label: "Client account",
-        href: `/app/ops/client-accounts/detail?id=${link.clientClinicId}`,
-      })),
       { label: "Pipeline", href: "/app/crm/pipeline" },
       { label: "Tasks", href: `/app/crm/tasks?contactId=${encodeURIComponent(contact?.id || "")}` },
       { label: "Audits", href: "/app/ops/growth-scores" },
       { label: "Proposals", href: "/app/proposals" },
       { label: "Notes", href: `/app/crm/contacts/detail?id=${encodeURIComponent(contact?.id || "")}#contact-notes` },
     ],
-    [contact?.id, visibleLinkedAccountLinks],
+    [contact?.id],
   );
 
   const handleMarkContacted = useCallback(async () => {
@@ -774,6 +772,36 @@ export default function ContactDetailPage() {
                 );
               })}
             </div>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-[#151f21]">Companies</h2>
+                <p className="mt-1 text-sm text-[#6F6A66]">Client companies linked to this person.</p>
+              </div>
+              <span className="rounded-full bg-[#edf5f3] px-2.5 py-1 text-xs font-semibold text-[#315f62]">
+                {visibleLinkedAccountLinks.length}
+              </span>
+            </div>
+            {visibleLinkedAccountLinks.length > 0 ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {visibleLinkedAccountLinks.map((accountLink) => (
+                  <Link
+                    key={accountLink.relationId}
+                    href={`/app/ops/client-accounts/detail?id=${encodeURIComponent(accountLink.clientClinicId)}`}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-semibold text-[#315f62] transition hover:border-[#a9c7c4] hover:bg-[#edf5f3] focus:outline-none focus:ring-2 focus:ring-[#75aaa7]"
+                  >
+                    <span className="min-w-0 break-words">{accountLink.clientName}</span>
+                    <ExternalLink className="h-4 w-4 shrink-0" />
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4">
+                <EmptyState label="No client companies are linked to this person." />
+              </div>
+            )}
           </Card>
 
           <Card padding="p-5 sm:p-6">

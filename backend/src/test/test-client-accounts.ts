@@ -670,23 +670,10 @@ test("client account profile API is permission protected, updateable, audited, a
 
     const initialList = await fetchJson(baseUrl, "/api/client-accounts", admin.token);
     assert.equal(initialList.response.status, 200);
-    const accountSummary = initialList.body.data.find(
+    const absentAccountSummary = initialList.body.data.find(
       (account: any) => account.clinicId === admin.clinicId,
     );
-    assert.ok(accountSummary, "Client account list should include the current clinic");
-    assert.equal(accountSummary.activeServiceCount, 0);
-    assert.equal(accountSummary.pendingTaskCount, 0);
-    assert.equal(accountSummary.overdueTaskCount, 0);
-    assert.equal(accountSummary.missedTaskCount, 0);
-    assert.equal(accountSummary.actionPlanId, null);
-    assert.equal(accountSummary.actionPlanMonth, null);
-    assert.equal(accountSummary.actionPlanStatus, null);
-    assert.equal(accountSummary.actionPlanTotalItems, 0);
-    assert.equal(accountSummary.actionPlanCompletedItems, 0);
-    assert.equal(accountSummary.actionPlanOpenItems, 0);
-    assert.equal(accountSummary.actionPlanHighPriorityOpenItems, 0);
-    assert.equal(accountSummary.actionPlanProgressPercent, 0);
-    assert.equal(accountSummary.actionPlanLastUpdatedAt, null);
+    assert.equal(absentAccountSummary, undefined, "A workspace without a client profile is not a client account");
 
     const updatePayload = {
       accountManagerId: admin.userId,
@@ -705,6 +692,27 @@ test("client account profile API is permission protected, updateable, audited, a
     });
     assert.equal(updated.response.status, 200);
     assert.equal(updated.body.status, "success");
+
+    const populatedList = await fetchJson(baseUrl, "/api/client-accounts", admin.token);
+    const populatedAccountSummary = populatedList.body.data.find(
+      (account: any) => account.clinicId === admin.clinicId,
+    );
+    assert.ok(populatedAccountSummary, "A workspace with a client profile is a client account");
+    const accountSummary = populatedAccountSummary;
+    assert.equal(accountSummary.activeServiceCount, 0);
+    assert.equal(accountSummary.pendingTaskCount, 0);
+    assert.equal(accountSummary.overdueTaskCount, 0);
+    assert.equal(accountSummary.missedTaskCount, 0);
+    assert.equal(accountSummary.actionPlanId, null);
+    assert.equal(accountSummary.actionPlanMonth, null);
+    assert.equal(accountSummary.actionPlanStatus, null);
+    assert.equal(accountSummary.actionPlanTotalItems, 0);
+    assert.equal(accountSummary.actionPlanCompletedItems, 0);
+    assert.equal(accountSummary.actionPlanOpenItems, 0);
+    assert.equal(accountSummary.actionPlanHighPriorityOpenItems, 0);
+    assert.equal(accountSummary.actionPlanProgressPercent, 0);
+    assert.equal(accountSummary.actionPlanLastUpdatedAt, null);
+
     assert.equal(updated.body.data.accountManager.id, admin.userId);
     assert.deepEqual(updated.body.data.activeServices, ["ppc", "seo", "strategy"]);
     assert.equal(updated.body.data.onboardingStatus, "in_progress");

@@ -154,6 +154,10 @@ export default function ClientAccountDetailPage() {
 
   const activeServices = useMemo(() => services.filter((service) => service.status === "active"), [services]);
   const linkedContacts = useMemo(() => linkedRecords?.contacts || [], [linkedRecords?.contacts]);
+  const linkedEmailContacts = useMemo(
+    () => linkedContacts.filter((contact) => contact.email),
+    [linkedContacts],
+  );
   const openTasks = useMemo(() => linkedRecords?.openTasks || [], [linkedRecords?.openTasks]);
   const completedTasks = useMemo(() => linkedRecords?.completedTasks || [], [linkedRecords?.completedTasks]);
   const availableContactSearchResults = useMemo(
@@ -291,12 +295,32 @@ export default function ClientAccountDetailPage() {
                 [ShieldCheck, "Recommended next", account.recommendedNextPackage || "Not set"],
                 [BriefcaseBusiness, "Upsell opportunity", account.upsellOpportunity || "Not set"],
                 [Users, "Owner", personName(account)],
-                [Mail, "Email", account.email || "Not provided"],
                 [Phone, "Phone", account.phone || "Not provided"],
               ].map(([Icon, label, value]) => {
                 const DetailIcon = Icon as typeof BriefcaseBusiness;
-                return <div key={String(label)} className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4"><p className="flex items-center gap-2 text-xs font-medium text-[#6F6A66]"><DetailIcon className="h-4 w-4" />{String(label)}</p><p className="mt-2 text-sm font-semibold text-[#151f21]">{String(value)}</p></div>;
+                return <div key={String(label)} className="min-w-0 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4"><p className="flex items-center gap-2 text-xs font-medium text-[#6F6A66]"><DetailIcon className="h-4 w-4" />{String(label)}</p><p className="mt-2 break-words text-sm font-semibold text-[#151f21]">{String(value)}</p></div>;
               })}
+              <div className="min-w-0 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                <p className="flex items-center gap-2 text-xs font-medium text-[#6F6A66]"><Mail className="h-4 w-4" />Email</p>
+                {linkedEmailContacts.length > 0 ? (
+                  <ul className="mt-2 space-y-2">
+                    {linkedEmailContacts.map((contact) => (
+                      <li key={contact.id} className="min-w-0">
+                        <Link
+                          href={`/app/crm/contacts/detail?id=${contact.id}`}
+                          className="block min-w-0 rounded-lg py-1 transition hover:bg-white hover:text-[#315f62] focus:outline-none focus:ring-2 focus:ring-[#75aaa7]"
+                          aria-label={`Open ${contact.name || contact.email}`}
+                        >
+                          <span className="block break-all text-sm font-semibold text-[#151f21]">{contact.email}</span>
+                          <span className="block truncate text-xs text-[#7A746A]">{contact.name}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 break-all text-sm font-semibold text-[#151f21]">{account.email || "Not provided"}</p>
+                )}
+              </div>
             </div>
           </Card>
 

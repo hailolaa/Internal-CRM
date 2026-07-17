@@ -17,6 +17,7 @@ import {
   insertPipelineDealMovement,
   listPipelineDealRows,
   movePipelineDealStage,
+  softDeletePipelineDeal,
   updatePipelineDealFields,
   type PipelineDealContactRow,
   type PipelineDealMoveValues,
@@ -328,6 +329,32 @@ export class PipelineDealsService {
     });
 
     return this.getDeal(clinicId, dealId);
+  }
+
+  async deleteDeal(clinicId: string, userId: string, dealId: string): Promise<void> {
+    const existing = await this.getDeal(clinicId, dealId);
+
+    await softDeletePipelineDeal(clinicId, dealId);
+    await logTimelineActivity({
+      clinicId,
+      contactId: existing.contactId,
+      type: "StatusChange",
+      userId,
+      metadata: buildTimelineMetadata({
+        action: "pipeline_deal_removed",
+        source: "pipeline",
+        recordId: dealId,
+        changes: { stage: existing.stageName },
+      }),
+    });
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "PIPELINE_DEAL_REMOVED",
+      entityType: "deal",
+      entityId: dealId,
+      changes: { contactId: existing.contactId, stage: existing.stageName },
+    });
   }
 
   private async getDeal(clinicId: string, dealId: string): Promise<PipelineDealResponse> {

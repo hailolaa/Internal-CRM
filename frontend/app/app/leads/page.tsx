@@ -94,6 +94,7 @@ interface Lead {
   contactId: string | null;
   recordKind: "deal" | "contact";
   stageKind: string | null;
+  lostReason: string | null;
 }
 
 const STAGE_COLORS_WARM: Record<string, string> = {
@@ -125,6 +126,7 @@ const searchFn = (lead: Lead, query: string) =>
   lead.nextBestAction.label.toLowerCase().includes(query) ||
   lead.nextBestAction.detail.toLowerCase().includes(query) ||
   lead.auditLabel.toLowerCase().includes(query) ||
+  lead.lostReason?.toLowerCase().includes(query) ||
   lead.lastContactDate.toLowerCase().includes(query) ||
   slaLabel(lead.slaStatus).toLowerCase().includes(query) ||
   lead.followUpDate.toLowerCase().includes(query);
@@ -319,6 +321,7 @@ function toLead(contact: ContactRecord): Lead {
     contactId: contact.id,
     recordKind: "contact",
     stageKind: null,
+    lostReason: null,
   }));
 }
 
@@ -366,6 +369,7 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     contactId: deal.contactId || null,
     recordKind: "deal",
     stageKind: deal.stageKind,
+    lostReason: deal.lostReason,
   }));
 }
 
@@ -888,6 +892,12 @@ export default function LeadsPage() {
                     >
                       {lead.nextBestAction.label}
                     </p>
+                    {lead.lostReason && (
+                      <p className="mt-1 break-words text-xs leading-5 text-red-600">
+                        <span className="font-semibold">Lost reason:</span>{" "}
+                        {lead.lostReason}
+                      </p>
+                    )}
                     </div>
                   </td>
                   <td className="px-3 py-4 align-top text-sm text-[#6F6A66] md:px-4">

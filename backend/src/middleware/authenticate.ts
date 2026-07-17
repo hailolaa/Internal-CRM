@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
 import pool from "../config/database.js";
 import { ApiError } from "../utils/ApiError.js";
 import { verifyToken } from "../utils/helpers.js";
@@ -60,6 +61,16 @@ export const authenticate = async (
 
     next();
   } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      next(ApiError.unauthorized("Session expired"));
+      return;
+    }
+
+    if (error instanceof jwt.JsonWebTokenError) {
+      next(ApiError.unauthorized("Invalid authentication token"));
+      return;
+    }
+
     next(error);
   }
 };

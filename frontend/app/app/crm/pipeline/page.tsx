@@ -19,6 +19,7 @@ import {
   GripVertical,
   Info,
   Target,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -214,7 +215,7 @@ function toPipelineStages(
 // ============================================================
 // DealCard
 // ============================================================
-// The card itself is an interactive element (click to expand).
+// The card itself is an interactive element (click to open the contact).
 // It also contains nested <button> elements (Call, Email, Move).
 //
 // WHY NOT <button> AS OUTER WRAPPER:
@@ -226,7 +227,6 @@ function toPipelineStages(
 // Outer element is a <div> with:
 //   - role="button"       → announces as button to screen readers
 //   - tabIndex={0}        → keyboard focusable
-//   - aria-expanded       → communicates expanded/collapsed state
 //   - aria-label          → describes the card content
 //   - onKeyDown           → handles Enter and Space activation
 //   - focus-visible ring  → visible keyboard focus indicator
@@ -240,6 +240,7 @@ function DealCard({
   deal,
   isSelected,
   isMoving,
+  isRemoving,
   canMovePrevious,
   canMoveNext,
   onClick,
@@ -247,10 +248,12 @@ function DealCard({
   onDragStart,
   onMovePrevious,
   onMoveNext,
+  onRemove,
 }: {
   deal: PipelineDealData;
   isSelected: boolean;
   isMoving: boolean;
+  isRemoving: boolean;
   canMovePrevious: boolean;
   canMoveNext: boolean;
   onClick: () => void;
@@ -258,6 +261,7 @@ function DealCard({
   onDragStart: (event: React.DragEvent<HTMLDivElement>) => void;
   onMovePrevious: (deal: PipelineDealData) => void;
   onMoveNext: (deal: PipelineDealData) => void;
+  onRemove: (deal: PipelineDealData) => void;
 }) {
   const followUpOverdue = isFollowUpOverdue(deal.nextFollowUpDate);
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -271,8 +275,7 @@ function DealCard({
     <div
       role="button"
       tabIndex={0}
-      aria-expanded={isSelected}
-      aria-label={`Opportunity: ${deal.name} - ${deal.treatment}, ${deal.value}. ${isSelected ? "Expanded. Press Enter to collapse." : "Press Enter to expand."}`}
+      aria-label={`Open contact ${deal.name}. Opportunity: ${deal.treatment}, ${deal.value}.`}
       draggable={!isMoving}
       onClick={onClick}
       onDragEnd={onDragEnd}
@@ -421,6 +424,23 @@ function DealCard({
           className="py-2 text-xs bg-[rgba(110,106,232,0.08)] text-[#6E6AE8] rounded-xl hover:bg-[rgba(110,106,232,0.15)] flex items-center justify-center gap-1 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ArrowRight className="w-3 h-3" /> {isMoving ? "Moving" : "Next"}
+        </button>
+        <button
+          aria-label={`Remove ${deal.name} from pipeline`}
+          disabled={isMoving || isRemoving}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(deal);
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+          className="col-span-2 flex items-center justify-center gap-1 rounded-xl bg-red-50 py-2 text-xs text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isRemoving ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Trash2 className="h-3 w-3" />
+          )}
+          {isRemoving ? "Removing" : "Remove from pipeline"}
         </button>
       </div>
     </div>
@@ -756,6 +776,7 @@ export default function PipelinePage() {
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [movingDealId, setMovingDealId] = useState<string | null>(null);
+  const [removingDealId, setRemovingDealId] = useState<string | null>(null);
   const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
   const [dragOverStageId, setDragOverStageId] = useState<string | null>(null);
   const [addDealOpen, setAddDealOpen] = useState(false);
@@ -993,6 +1014,35 @@ export default function PipelinePage() {
       if (previousStage) void handleMoveToStage(deal, previousStage);
     },
     [findDealStageIndex, handleMoveToStage, orderedStages],
+  );
+
+  const handleRemoveDeal = useCallback(
+    async (deal: PipelineDealData) => {
+      if (!token || !canWriteContacts || removingDealId) return;
+      if (!window.confirm(`Remove ${deal.name} from the sales pipeline?`)) return;
+
+      setRemovingDealId(deal.id);
+      setActionError("");
+      setActionMessage("");
+      try {
+        await api.pipelineDeals.remove(token, deal.id);
+        setStages((current) =>
+          current.map((stage) => ({
+            ...stage,
+            deals: stage.deals.filter((item) => item.id !== deal.id),
+          })),
+        );
+        setSelectedDeal(null);
+        setActionMessage(`${deal.name} removed from the sales pipeline.`);
+      } catch (error) {
+        setActionError(
+          error instanceof Error ? error.message : "Could not remove sales opportunity.",
+        );
+      } finally {
+        setRemovingDealId(null);
+      }
+    },
+    [canWriteContacts, removingDealId, token],
   );
 
   const handleMoveNext = useCallback(
@@ -1233,7 +1283,7 @@ export default function PipelinePage() {
       <p className="text-sm text-[#6B7280]">
         Drag opportunities between stages, or use Back and Next on each card.
       </p>
-      <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 md:mx-0 md:px-0">
+      <div className="grid gap-4 pb-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {filteredStages.map((stage) => (
           <div
             key={stage.id}
@@ -1252,7 +1302,7 @@ export default function PipelinePage() {
               event.preventDefault();
               handleDrop(stage);
             }}
-            className={`flex-shrink-0 w-72 rounded-2xl p-2 transition-colors md:w-80 ${
+            className={`min-w-0 rounded-2xl p-2 transition-colors ${
               dragOverStageId === stage.id
                 ? "bg-[rgba(110,106,232,0.10)] ring-2 ring-[#6E6AE8]/35"
                 : "bg-transparent"
@@ -1283,10 +1333,13 @@ export default function PipelinePage() {
                   deal={deal}
                   isSelected={selectedDeal === deal.id}
                   isMoving={movingDealId === deal.id}
+                  isRemoving={removingDealId === deal.id}
                   canMovePrevious={findDealStageIndex(deal) > 0}
                   canMoveNext={findDealStageIndex(deal) < orderedStages.length - 1}
                   onClick={() =>
-                    setSelectedDeal(selectedDeal === deal.id ? null : deal.id)
+                    router.push(
+                      `/app/crm/contacts/detail?id=${encodeURIComponent(deal.raw.contactId)}`,
+                    )
                   }
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = "move";
@@ -1300,6 +1353,7 @@ export default function PipelinePage() {
                   }}
                   onMovePrevious={handleMovePrevious}
                   onMoveNext={handleMoveNext}
+                  onRemove={handleRemoveDeal}
                 />
               ))}
               <button

@@ -113,6 +113,21 @@ export class PipelineController {
       next(error);
     }
   };
+
+  // DELETE /api/pipeline/deals/:id
+  // Soft-delete an opportunity without deleting its linked contact
+  deleteDeal = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      await pipelineDealsService.deleteDeal(clinicId, userId, req.params.id as string);
+      res.status(200).json({
+        status: "success",
+        message: "Pipeline opportunity removed successfully",
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const pipelineController = new PipelineController();

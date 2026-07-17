@@ -7,6 +7,7 @@ import {
   createPipelineDealValidator,
   createPipelineStageValidator,
   movePipelineDealValidator,
+  pipelineDealIdParamValidator,
   pipelineStageIdParamValidator,
   updatePipelineDealValidator,
   updatePipelineStageValidator,
@@ -87,6 +88,17 @@ router.patch(
   movePipelineDealValidator,
   validate,
   pipelineController.moveDeal,
+);
+
+// @route   DELETE /api/pipeline/deals/:id
+// @desc    Soft-delete an opportunity without deleting its linked contact
+// @access  Private
+router.delete(
+  "/deals/:id",
+  authorizePermission("contacts:write"),
+  pipelineDealIdParamValidator,
+  validate,
+  pipelineController.deleteDeal,
 );
 
 // @route   DELETE /api/pipeline/stages/:id

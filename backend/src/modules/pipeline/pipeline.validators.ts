@@ -39,6 +39,8 @@ export const pipelineStageIdParamValidator = [
   param("id").isUUID().withMessage("Invalid pipeline stage ID format"),
 ];
 
+export const pipelineDealIdParamValidator = [idValidator];
+
 export const createPipelineDealValidator = [
   body("contactId").isString().trim().notEmpty().isLength({ max: 100 }),
   body("stageId").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
