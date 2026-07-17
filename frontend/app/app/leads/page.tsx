@@ -26,6 +26,11 @@ import type {
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { isDashboardNewProspect } from "@/lib/dashboard-cards";
+import {
+  calculateLeadPriority,
+  leadPriorityBadgeClass,
+  type LeadPriorityResult,
+} from "@/lib/lead-priority";
 import { AlertTriangle, Plus, PoundSterling, Target, Users } from "lucide-react";
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
 
@@ -52,6 +57,9 @@ interface Lead {
   email: string;
   source: string;
   attributionDetail: string;
+  ctaClicked: string | null;
+  formSubmitted: string | null;
+  landingPage: string | null;
   stage: string;
   packageInterest: string;
   recommendedPackage: string;
@@ -69,6 +77,10 @@ interface Lead {
   attemptCount: number;
   slaStatus: "ok" | "uncontacted" | "overdue";
   slaSort: number;
+  priorityScore: number;
+  priorityTier: LeadPriorityResult["tier"];
+  priorityLabel: string;
+  priorityReasons: string[];
   status: string;
   revenue: number;
   createdDate: string;
@@ -101,6 +113,9 @@ const searchFn = (lead: Lead, query: string) =>
   lead.owner.toLowerCase().includes(query) ||
   lead.stage.toLowerCase().includes(query) ||
   lead.status.toLowerCase().includes(query) ||
+  lead.priorityLabel.toLowerCase().includes(query) ||
+  String(lead.priorityScore).includes(query) ||
+  lead.priorityReasons.join(" ").toLowerCase().includes(query) ||
   lead.auditLabel.toLowerCase().includes(query) ||
   lead.lastContactDate.toLowerCase().includes(query) ||
   slaLabel(lead.slaStatus).toLowerCase().includes(query) ||
@@ -200,6 +215,32 @@ function formatAuditStatus(status: AuditWorkflowStatus | null | undefined) {
   return status ? AUDIT_STATUS_LABELS[status] : "No audit";
 }
 
+function withLeadPriority(lead: Omit<Lead, "priorityScore" | "priorityTier" | "priorityLabel" | "priorityReasons">): Lead {
+  const priority = calculateLeadPriority({
+    accountName: lead.clinic,
+    auditOverdue: lead.auditOverdue,
+    auditStatus: lead.auditStatus,
+    attemptCount: lead.attemptCount,
+    ctaClicked: lead.ctaClicked,
+    followUpOverdue: lead.followUpOverdue,
+    formSubmitted: lead.formSubmitted,
+    landingPage: lead.landingPage,
+    packageInterest: lead.packageInterest,
+    recommendedPackage: lead.recommendedPackage,
+    source: lead.source,
+    stage: lead.stage,
+    status: lead.slaStatus,
+  });
+
+  return {
+    ...lead,
+    priorityScore: priority.score,
+    priorityTier: priority.tier,
+    priorityLabel: priority.label,
+    priorityReasons: priority.reasons,
+  };
+}
+
 function toLead(contact: ContactRecord): Lead {
   const packageInterest =
     contact.packageInterest ||
@@ -210,7 +251,7 @@ function toLead(contact: ContactRecord): Lead {
   const status = contact.leadStatus || contact.status || "New";
   const slaStatus = slaStatusForLead(contact.createdAt || contact.updatedAt, contact.lastContactAt, contact.contactAttemptCount || 0);
 
-  return {
+  return withLeadPriority({
     id: contact.id,
     clinic: contact.accountName || "Unassigned account",
     contact: contact.name,
@@ -224,6 +265,9 @@ function toLead(contact: ContactRecord): Lead {
       contact.latestSource ||
       contact.firstSource ||
       "-",
+    ctaClicked: contact.ctaClicked,
+    formSubmitted: contact.formSubmitted,
+    landingPage: contact.landingPage,
     stage: contact.status || "New",
     packageInterest,
     recommendedPackage: contact.recommendedPackage || "-",
@@ -248,7 +292,7 @@ function toLead(contact: ContactRecord): Lead {
     contactId: contact.id,
     recordKind: "contact",
     stageKind: null,
-  };
+  });
 }
 
 function toLeadFromDeal(deal: PipelineDealRecord): Lead {
@@ -258,7 +302,7 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     deal.stageKind === "open" &&
     isPastDate(deal.expectedCloseDate);
 
-  return {
+  return withLeadPriority({
     id: deal.contactId || deal.id,
     clinic:
       deal.title && deal.title !== deal.contactName
@@ -268,6 +312,9 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     email: deal.contactEmail || "-",
     source: deal.source || "Unknown",
     attributionDetail: "-",
+    ctaClicked: null,
+    formSubmitted: null,
+    landingPage: null,
     stage: deal.stageName || deal.status || "New",
     packageInterest: deal.treatment || "-",
     recommendedPackage: "-",
@@ -292,7 +339,7 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     contactId: deal.contactId || null,
     recordKind: "deal",
     stageKind: deal.stageKind,
-  };
+  });
 }
 
 function enrichLeadWithContactAndTask(
@@ -309,7 +356,7 @@ function enrichLeadWithContactAndTask(
     ? slaStatusForLead(contact.createdAt || contact.updatedAt, lastContactAt, attemptCount)
     : lead.slaStatus;
 
-  return {
+  return withLeadPriority({
     ...lead,
     followUpDate: useTaskFollowUp
       ? formatDate(task.dueDate, "No follow-up set")
@@ -326,6 +373,9 @@ function enrichLeadWithContactAndTask(
     lastContactDate: contact ? formatDate(lastContactAt, "Not contacted") : lead.lastContactDate,
     lastContactSort: contact ? toDateSort(lastContactAt) : lead.lastContactSort,
     recommendedPackage: contact?.recommendedPackage || lead.recommendedPackage,
+    ctaClicked: contact?.ctaClicked || lead.ctaClicked,
+    formSubmitted: contact?.formSubmitted || lead.formSubmitted,
+    landingPage: contact?.landingPage || lead.landingPage,
     attributionDetail:
       contact?.utmCampaign ||
       contact?.ctaClicked ||
@@ -337,7 +387,7 @@ function enrichLeadWithContactAndTask(
     attemptCount,
     slaStatus,
     slaSort: slaStatus === "overdue" ? 0 : slaStatus === "uncontacted" ? 1 : 2,
-  };
+  });
 }
 
 export default function LeadsPage() {
@@ -446,6 +496,7 @@ export default function LeadsPage() {
     const revenue = leads.reduce((total, lead) => total + lead.revenue, 0);
     const slaOverdue = leads.filter((lead) => lead.slaStatus === "overdue").length;
     const auditsDue = leads.filter((lead) => lead.auditOverdue || lead.auditStatus === "follow_up_due").length;
+    const highPriority = leads.filter((lead) => lead.priorityScore >= 70).length;
 
     return {
       total: leads.length,
@@ -453,6 +504,7 @@ export default function LeadsPage() {
       revenue,
       slaOverdue,
       auditsDue,
+      highPriority,
     };
   }, [leads]);
 
@@ -577,10 +629,10 @@ export default function LeadsPage() {
               icon={Users}
             />
             <StatCard
-              label="Unassigned"
-              value={String(leadStats.unassigned)}
-              sub="Needs attention"
-              color="amber"
+              label="High Priority"
+              value={String(leadStats.highPriority)}
+              sub="Score 70+"
+              color={leadStats.highPriority ? "rose" : "teal"}
               icon={Target}
             />
             <StatCard
@@ -731,7 +783,7 @@ export default function LeadsPage() {
                 <SortableHeader label="Prospect" sortKey="clinic" direction={getSortDirection("clinic")} onSort={toggleSort} />
                 <SortableHeader label="Source / Package" sortKey="source" direction={getSortDirection("source")} onSort={toggleSort} />
                 <SortableHeader label="Stage" sortKey="stage" direction={getSortDirection("stage")} onSort={toggleSort} />
-                <SortableHeader label="Owner" sortKey="owner" direction={getSortDirection("owner")} onSort={toggleSort} />
+                <SortableHeader label="Priority / Owner" sortKey="priorityScore" direction={getSortDirection("priorityScore")} onSort={toggleSort} />
                 <SortableHeader label="Audit" sortKey="auditDueSort" direction={getSortDirection("auditDueSort")} onSort={toggleSort} />
                 <SortableHeader label="Follow-up" sortKey="followUpSort" direction={getSortDirection("followUpSort")} onSort={toggleSort} />
                 <SortableHeader label="Attempts / SLA" sortKey="slaSort" direction={getSortDirection("slaSort")} onSort={toggleSort} />
@@ -806,7 +858,18 @@ export default function LeadsPage() {
                     </div>
                   </td>
                   <td className="px-3 py-4 align-top text-sm text-[#6F6A66] md:px-4">
-                    <span className="block truncate">{lead.owner}</span>
+                    <div className="min-w-0">
+                      <span
+                        title={lead.priorityReasons.join("; ")}
+                        className={`inline-flex max-w-full items-center gap-1 truncate rounded-full border px-2.5 py-1 text-xs font-semibold ${leadPriorityBadgeClass(lead.priorityTier)}`}
+                      >
+                        {lead.priorityScore}
+                        <span className="hidden lg:inline"> {lead.priorityLabel}</span>
+                      </span>
+                      <p className="mt-2 truncate text-xs text-[#9E9890]">
+                        {lead.owner}
+                      </p>
+                    </div>
                   </td>
                   <td className="px-3 py-4 align-top md:px-4">
                     <div className="min-w-0">

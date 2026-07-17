@@ -31,6 +31,11 @@ import type {
   PipelineStageRecord,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
+import {
+  calculateLeadPriority,
+  leadPriorityBadgeClass,
+  type LeadPriorityResult,
+} from "@/lib/lead-priority";
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
 import {
   dedupePipelineStages,
@@ -52,6 +57,7 @@ type PipelineDealData = {
   owner: string;
   nextFollowUpDate: string | null;
   priority: "low" | "medium" | "high" | null;
+  leadPriority: LeadPriorityResult;
   raw: PipelineDealRecord;
 };
 
@@ -150,6 +156,17 @@ function colorClass(color: string) {
 }
 
 function toPipelineDeal(deal: PipelineDealRecord): PipelineDealData {
+  const leadPriority = calculateLeadPriority({
+    accountName: deal.title,
+    auditOverdue: isFollowUpOverdue(deal.auditFollowUpDueAt ? deal.auditFollowUpDueAt.slice(0, 10) : null),
+    auditStatus: deal.auditStatus,
+    followUpOverdue: isFollowUpOverdue(deal.expectedCloseDate),
+    packageInterest: deal.treatment,
+    source: deal.source,
+    stage: deal.stageName,
+    status: deal.status,
+  });
+
   return {
     id: deal.id,
     name: deal.contactName || deal.title,
@@ -163,6 +180,7 @@ function toPipelineDeal(deal: PipelineDealRecord): PipelineDealData {
     owner: deal.ownerName || "Unassigned",
     nextFollowUpDate: deal.nextFollowUpDate,
     priority: deal.priority,
+    leadPriority,
     raw: deal,
   };
 }
@@ -326,6 +344,15 @@ function DealCard({
           }`}
         >
           {deal.priority ? `${deal.priority} priority` : "No priority"}
+        </span>
+      </div>
+
+      <div className="mt-2 flex justify-end">
+        <span
+          title={deal.leadPriority.reasons.join("; ")}
+          className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${leadPriorityBadgeClass(deal.leadPriority.tier)}`}
+        >
+          {deal.leadPriority.score} {deal.leadPriority.label}
         </span>
       </div>
 
