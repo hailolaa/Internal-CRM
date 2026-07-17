@@ -481,6 +481,7 @@ export default function ClientAccountDetailPage() {
             <div className="mt-5 flex flex-wrap gap-2">{activeServices.map((service) => <Badge key={service.id} variant="success">{service.name}</Badge>)}{activeServices.length === 0 && <Badge variant="warning">No active services</Badge>}</div>
           </Card>
 
+          <div id="account-tasks" className="scroll-mt-24">
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -488,7 +489,7 @@ export default function ClientAccountDetailPage() {
                 <p className="mt-1 text-sm text-[#7A746A]">Open and completed internal delivery work linked to this account.</p>
               </div>
               {account.id ? (
-                <Link href={`/app/crm/tasks/new?clientAccountProfileId=${account.id}`} className="inline-flex items-center gap-2 rounded-xl bg-[#315f62] px-4 py-2 text-sm font-semibold text-white hover:bg-[#264f51]">
+                <Link href={`/app/crm/tasks/new?mode=delivery&clientAccountProfileId=${account.id}`} className="inline-flex items-center gap-2 rounded-xl bg-[#315f62] px-4 py-2 text-sm font-semibold text-white hover:bg-[#264f51]">
                   <Plus className="h-4 w-4" />New task
                 </Link>
               ) : null}
@@ -501,7 +502,7 @@ export default function ClientAccountDetailPage() {
                 </div>
                 <div className="space-y-2">
                   {openTasks.slice(0, 8).map((task) => (
-                    <Link key={task.id} href={`/app/crm/tasks?taskId=${task.id}`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition hover:border-[#a9c7c4]">
+                    <Link key={task.id} href={`/app/crm/tasks/detail?id=${task.id}&from=delivery`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition hover:border-[#a9c7c4]">
                       <p className="font-semibold text-[#151f21]">{task.title}</p>
                       <p className="mt-1 text-sm text-[#7A746A]">{task.category || "Delivery"} - {task.assignedTo || "Unassigned"} - {taskDueLabel(task)}</p>
                     </Link>
@@ -516,7 +517,7 @@ export default function ClientAccountDetailPage() {
                 </div>
                 <div className="space-y-2">
                   {completedTasks.slice(0, 8).map((task) => (
-                    <Link key={task.id} href={`/app/crm/tasks?taskId=${task.id}`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 opacity-80 transition hover:border-[#a9c7c4]">
+                    <Link key={task.id} href={`/app/crm/tasks/detail?id=${task.id}&from=delivery`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 opacity-80 transition hover:border-[#a9c7c4]">
                       <p className="font-semibold text-[#151f21]">{task.title}</p>
                       <p className="mt-1 text-sm text-[#7A746A]">{task.category || "Delivery"} - {task.assignedTo || "Unassigned"}</p>
                     </Link>
@@ -526,6 +527,7 @@ export default function ClientAccountDetailPage() {
               </div>
             </div>
           </Card>
+          </div>
         </div>
 
         <aside className="space-y-6 xl:sticky xl:top-20 xl:self-start">
@@ -569,7 +571,7 @@ export default function ClientAccountDetailPage() {
                 [Users, "Contacts and leads", `/app/leads?account=${encodeURIComponent(account.clinicName)}`],
                 [BriefcaseBusiness, "Deals", `/app/crm/pipeline?account=${encodeURIComponent(account.clinicName)}`],
                 [NotebookText, "Notes", "#account-notes"],
-                [CheckSquare2, "Tasks", `/app/crm/tasks?clientAccountProfileId=${account.id || ""}`],
+                [CheckSquare2, "Tasks", "#account-tasks"],
                 [ShieldCheck, "Audits", `/app/admin?clinicId=${account.clinicId}`],
                 [FileCheck2, "Proposals", `/app/crm/pipeline?account=${encodeURIComponent(account.clinicName)}&view=proposals`],
               ].map(([Icon, label, href]) => {

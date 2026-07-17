@@ -354,7 +354,7 @@ export default function DeliveryWorkPage() {
         icon={FolderKanban}
         right={
           <Link
-            href="/app/crm/tasks/new"
+            href="/app/crm/tasks/new?mode=delivery"
             className="flex items-center gap-2 rounded-[14px] bg-[#6E6AE8] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#5A56D4]"
           >
             <Plus className="h-4 w-4" />
@@ -543,7 +543,7 @@ export default function DeliveryWorkPage() {
                 return (
                   <Link
                     key={task.id}
-                    href={`/app/crm/tasks?taskId=${task.id}`}
+                    href={`/app/crm/tasks/detail?id=${task.id}&from=delivery`}
                     className="block p-5 hover:bg-[rgba(96,180,175,0.03)]"
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -589,7 +589,7 @@ export default function DeliveryWorkPage() {
             {completedTasks.slice(0, 6).map((task) => (
               <Link
                 key={task.id}
-                href={`/app/crm/tasks?taskId=${task.id}`}
+                href={`/app/crm/tasks/detail?id=${task.id}&from=delivery`}
                 className="rounded-[16px] border border-[rgba(21,31,33,0.06)] bg-[#FAF8F5] p-4 hover:border-[rgba(96,180,175,0.25)]"
               >
                 <p className="font-medium text-[#151f21]">{task.title}</p>

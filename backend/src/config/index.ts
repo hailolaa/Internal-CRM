@@ -114,6 +114,11 @@ export const config = {
         retentionDays: parseInt(process.env.BACKUP_RETENTION_DAYS || "14", 10),
     },
 
+    taskUploads: {
+        directory: process.env.TASK_UPLOAD_DIR || "/var/lib/internal-crm/task-uploads",
+        maxFileSizeBytes: parseInt(process.env.TASK_UPLOAD_MAX_BYTES || String(20 * 1024 * 1024), 10),
+    },
+
     backgroundJobs: {
         enabled: parseBoolean(process.env.BACKGROUND_JOBS_ENABLED, process.env.NODE_ENV === "production"),
         pollIntervalMs: parseInt(process.env.BACKGROUND_JOBS_POLL_INTERVAL_MS || "60000", 10),
