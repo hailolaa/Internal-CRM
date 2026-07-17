@@ -27,7 +27,6 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertBanner, Badge, Card, SkeletonLine, StatusBadge } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import type {
-  ClientAccountLinkedContactRecord,
   ClientAccountLinkedRecords,
   ClientAccountLinkedTaskRecord,
   ClientAccountServiceRecord,
@@ -77,13 +76,6 @@ function taskDueLabel(task: ClientAccountLinkedTaskRecord) {
     day: "2-digit",
     month: "short",
   }).format(new Date(task.dueDate));
-}
-
-function linkedContactSubtitle(contact: ClientAccountLinkedContactRecord) {
-  return [
-    contact.roleTitle || contact.role || "Role not set",
-    contact.email || contact.phone || "No contact method",
-  ].filter(Boolean).join(" - ");
 }
 
 const growthScoreCategoryLabels = [
@@ -456,12 +448,20 @@ export default function ClientAccountDetailPage() {
             {linkStatusMessage ? <p className="mt-3 text-sm text-[#315f62]">{linkStatusMessage}</p> : null}
             <div className="mt-5 space-y-3">
               {linkedContacts.map((contact) => (
-                <div key={contact.id} className="flex flex-col gap-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <Link href={`/app/crm/contacts/detail?id=${contact.id}`} className="min-w-0 transition hover:text-[#315f62]">
-                    <p className="font-semibold text-[#151f21]">{contact.name}</p>
-                    <p className="text-sm text-[#7A746A]">{linkedContactSubtitle(contact)}</p>
+                <div key={contact.id} className="group relative rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition hover:border-[#a9c7c4] hover:bg-[#f5f8f6] focus-within:border-[#75aaa7] focus-within:ring-4 focus-within:ring-[rgba(96,180,175,0.1)]">
+                  <Link href={`/app/crm/contacts/detail?id=${contact.id}`} aria-label={`Open contact ${contact.name}`} className="absolute inset-0 z-0 rounded-xl focus:outline-none">
+                    <span className="sr-only">Open {contact.name}</span>
                   </Link>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="pointer-events-none relative z-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-[#151f21] transition group-hover:text-[#315f62]">{contact.name}</p>
+                      <p className="mt-0.5 text-sm text-[#7A746A]">{contact.roleTitle || contact.role || "Role not set"}</p>
+                      {(contact.email || contact.phone) && <div className="pointer-events-auto mt-3 flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                        {contact.email && <a href={`mailto:${contact.email}`} className="inline-flex max-w-full items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-[#315f62] shadow-sm ring-1 ring-[#d8ddda] transition hover:bg-[#edf5f3] focus:outline-none focus:ring-2 focus:ring-[#60B4AF]"><Mail className="h-4 w-4 shrink-0" /><span className="break-all text-left">{contact.email}</span></a>}
+                        {contact.phone && <a href={`tel:${contact.phone.replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-[#315f62] shadow-sm ring-1 ring-[#d8ddda] transition hover:bg-[#edf5f3] focus:outline-none focus:ring-2 focus:ring-[#60B4AF]"><Phone className="h-4 w-4 shrink-0" />{contact.phone}</a>}
+                      </div>}
+                    </div>
+                  <div className="pointer-events-auto flex shrink-0 gap-2">
                     <Link href={`/app/crm/contacts/detail?id=${contact.id}`} className="inline-flex items-center gap-2 rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3]">
                       Open<ExternalLink className="h-4 w-4" />
                     </Link>
@@ -469,6 +469,7 @@ export default function ClientAccountDetailPage() {
                       {linkActionContactId === contact.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
                       Unlink
                     </button>
+                  </div>
                   </div>
                 </div>
               ))}

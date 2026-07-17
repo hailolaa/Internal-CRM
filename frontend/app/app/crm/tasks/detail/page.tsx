@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft, CalendarDays, CheckCircle2, Circle, Download, File, MessageSquare,
-  Paperclip, Send, Tag, Trash2, Upload, UserRound, Activity as ActivityIcon,
+  ArrowLeft, CalendarDays, CheckCircle2, ChevronRight, Circle, Download, File, Folder,
+  FolderPlus, HardDrive, MessageSquare, Paperclip, Send, Tag, Trash2, Upload,
+  UserRound, Activity as ActivityIcon, X,
 } from "lucide-react";
 import { api } from "@/lib/api-client";
-import type { InternalTaskRecord, TaskActivityRecord, TaskAttachmentRecord, TaskCommentRecord, TeamMember } from "@/lib/api-types";
+import type { ClientAccountSummaryRecord, GoogleDriveFolderBrowserRecord, GoogleDriveFolderRecord, InternalTaskRecord, TaskActivityRecord, TaskAttachmentRecord, TaskCommentRecord, TeamMember } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { AlertBanner, SkeletonLine } from "@/components/ui";
 
@@ -54,23 +55,32 @@ export default function TaskDetailPage() {
   const [attachments, setAttachments] = useState<TaskAttachmentRecord[]>([]);
   const [activity, setActivity] = useState<TaskActivityRecord[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
   const [comment, setComment] = useState("");
   const [mentionedIds, setMentionedIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [syncToDrive, setSyncToDrive] = useState(false);
+  const [driveBrowser, setDriveBrowser] = useState<GoogleDriveFolderBrowserRecord | null>(null);
+  const [drivePath, setDrivePath] = useState<Array<Pick<GoogleDriveFolderRecord, "id" | "name">>>([]);
+  const [newDriveFolder, setNewDriveFolder] = useState("");
+  const [loadingDrive, setLoadingDrive] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !taskId) return;
     setLoading(true);
     setError("");
     try {
-      const [taskRecord, commentRecords, attachmentRecords, activityRecords, teamRecords] = await Promise.all([
+      const [taskRecord, commentRecords, attachmentRecords, activityRecords, teamRecords, accountRecords] = await Promise.all([
         api.internalTasks.get(token, taskId), api.internalTasks.listComments(token, taskId),
-        api.internalTasks.listAttachments(token, taskId), api.internalTasks.listActivity(token, taskId), api.team.getMembers(token),
+        api.internalTasks.listAttachments(token, taskId), api.internalTasks.listActivity(token, taskId), api.team.getMembers(token), api.clientAccounts.list(token).catch(() => []),
       ]);
       setTask(taskRecord); setComments(commentRecords); setAttachments(attachmentRecords); setActivity(activityRecords);
       setMembers(teamRecords.filter((member) => !member.isInvitation && member.status === "active"));
+      setClientAccounts(accountRecords);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "The task could not be loaded."); }
     finally { setLoading(false); }
   }, [taskId, token]);
@@ -78,6 +88,10 @@ export default function TaskDetailPage() {
   useEffect(() => { void load(); }, [load]);
 
   const selectedMembers = useMemo(() => members.filter((member) => mentionedIds.includes(member.id)), [members, mentionedIds]);
+  const linkedClient = useMemo(
+    () => clientAccounts.find((account) => account.id === task?.clientAccountProfileId) || null,
+    [clientAccounts, task?.clientAccountProfileId],
+  );
   const isDeliveryTask = searchParams.get("from") === "delivery" || Boolean(task?.clientAccountProfileId || task?.clientAccountServiceId);
   const backHref = isDeliveryTask ? "/app/ops/delivery" : "/app/crm/tasks";
   const backLabel = isDeliveryTask ? "Back to delivery work" : "Back to internal tasks";
@@ -106,14 +120,60 @@ export default function TaskDetailPage() {
     finally { setBusy(false); }
   }
 
-  async function uploadFile(file?: File) {
-    if (!token || !task || !file) return;
+  const loadDriveFolder = useCallback(async (folderId: string, nextPath: Array<Pick<GoogleDriveFolderRecord, "id" | "name">>) => {
+    if (!token || !linkedClient) return;
+    setLoadingDrive(true); setError("");
+    try {
+      setDriveBrowser(await api.clientAccounts.listDriveFolders(token, linkedClient.clinicId, folderId));
+      setDrivePath(nextPath);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "The client Drive folders could not be loaded."); }
+    finally { setLoadingDrive(false); }
+  }, [linkedClient, token]);
+
+  useEffect(() => {
+    if (!syncToDrive || !linkedClient?.googleDriveFolderId || driveBrowser) return;
+    void loadDriveFolder(linkedClient.googleDriveFolderId, [{ id: linkedClient.googleDriveFolderId, name: linkedClient.googleDriveFolderName || "Client Drive" }]);
+  }, [driveBrowser, linkedClient, loadDriveFolder, syncToDrive]);
+
+  function resetUpload() {
+    setPendingFile(null); setSyncToDrive(false); setDriveBrowser(null); setDrivePath([]); setNewDriveFolder("");
+    if (fileInput.current) fileInput.current.value = "";
+  }
+
+  async function createDriveFolder() {
+    const name = newDriveFolder.trim();
+    if (!token || !linkedClient || !driveBrowser || !name) return;
+    setLoadingDrive(true); setError("");
+    try {
+      const folder = await api.clientAccounts.createDriveFolder(token, linkedClient.clinicId, { name, parentId: driveBrowser.currentFolder.id });
+      setNewDriveFolder("");
+      await loadDriveFolder(folder.id, [...drivePath, { id: folder.id, name: folder.name }]);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "The Drive folder could not be created."); }
+    finally { setLoadingDrive(false); }
+  }
+
+  async function uploadFile() {
+    if (!token || !task || !pendingFile) return;
+    const file = pendingFile;
     setBusy(true);
+    setError(""); setStatusMessage("");
     try {
       await api.internalTasks.uploadAttachment(token, task.id, file);
+      let driveMessage = "";
+      let driveFailed = false;
+      if (syncToDrive && linkedClient && driveBrowser) {
+        try {
+          await api.clientAccounts.uploadDriveFile(token, linkedClient.clinicId, driveBrowser.currentFolder.id, file);
+          driveMessage = ` and synced to ${driveBrowser.currentFolder.name} in Google Drive`;
+        } catch (driveError) {
+          driveFailed = true;
+          setError(`${file.name} was attached to the task, but Google Drive sync failed: ${driveError instanceof Error ? driveError.message : "Unknown Drive error"}`);
+        }
+      }
       const [nextFiles, nextActivity] = await Promise.all([api.internalTasks.listAttachments(token, task.id), api.internalTasks.listActivity(token, task.id)]);
       setAttachments(nextFiles); setActivity(nextActivity);
-      if (fileInput.current) fileInput.current.value = "";
+      if (!driveFailed) setStatusMessage(`${file.name} was attached${driveMessage}.`);
+      resetUpload();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "The file could not be uploaded."); }
     finally { setBusy(false); }
   }
@@ -143,6 +203,7 @@ export default function TaskDetailPage() {
         <ArrowLeft className="h-4 w-4" /> {backLabel}
       </Link>
       {error && <AlertBanner variant="error" title="Task workspace issue" description={error} />}
+      {statusMessage && <AlertBanner variant="success" title={statusMessage} />}
       {loading ? <div className="rounded-[28px] border border-black/[0.06] bg-[#FFFCF9] p-7"><SkeletonLine className="mb-4 h-8 w-1/2" /><SkeletonLine className="h-5 w-4/5" /></div> : task && <>
         <header className="relative overflow-hidden rounded-[30px] border border-black/[0.06] bg-[#FFFCF9] p-6 shadow-[0_14px_50px_rgba(49,45,90,0.08)] sm:p-8">
           <div className="absolute inset-y-0 left-0 w-1.5 bg-[#6E6AE8]" />
@@ -198,8 +259,23 @@ export default function TaskDetailPage() {
           <aside className="space-y-5">
             <section className="rounded-[26px] border border-black/[0.06] bg-[#FFFCF9] p-5">
               <div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 font-semibold text-[#1E1C1A]"><Paperclip className="h-5 w-5 text-[#6E6AE8]" /> Files</h2><span className="text-xs text-[#8A837C]">{attachments.length}</span></div>
-              <input ref={fileInput} type="file" className="hidden" onChange={(event) => void uploadFile(event.target.files?.[0])} />
-              <button onClick={() => fileInput.current?.click()} disabled={busy} className="mb-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#A9A4E9] bg-[#F5F4FF] text-sm font-semibold text-[#5A56D4] hover:bg-[#EDEBFF] disabled:opacity-50"><Upload className="h-4 w-4" /> Upload a file <span className="font-normal text-[#817DCB]">(max 20 MB)</span></button>
+              <input ref={fileInput} type="file" className="hidden" onChange={(event) => setPendingFile(event.target.files?.[0] || null)} />
+              {!pendingFile && <button onClick={() => fileInput.current?.click()} disabled={busy} className="mb-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#A9A4E9] bg-[#F5F4FF] text-sm font-semibold text-[#5A56D4] hover:bg-[#EDEBFF] disabled:opacity-50"><Upload className="h-4 w-4" /> Upload a file <span className="font-normal text-[#817DCB]">(max 20 MB)</span></button>}
+              {pendingFile && <div className="mb-4 rounded-2xl border border-[#CFCBEF] bg-[#F8F7FF] p-4">
+                <div className="flex items-start gap-3"><File className="mt-0.5 h-5 w-5 shrink-0 text-[#6E6AE8]" /><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#302D2A]">{pendingFile.name}</p><p className="mt-0.5 text-xs text-[#817B75]">{fileSize(pendingFile.size)}</p></div><button onClick={resetUpload} aria-label="Cancel upload" className="rounded-lg p-1.5 text-[#817B75] hover:bg-white"><X className="h-4 w-4" /></button></div>
+                {linkedClient && <div className="mt-4 border-t border-[#DDD9F3] pt-4">
+                  {linkedClient.googleDriveFolderId ? <>
+                    <label className="flex cursor-pointer items-start gap-3 text-sm font-semibold text-[#393633]"><input type="checkbox" checked={syncToDrive} onChange={(event) => setSyncToDrive(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-[#AAA5D8] text-[#6E6AE8]" /><span><span className="flex items-center gap-1.5"><HardDrive className="h-4 w-4 text-[#4F8B78]" /> Also sync to Google Drive</span><span className="mt-1 block text-xs font-normal text-[#817B75]">Choose a folder inside {linkedClient.googleDriveFolderName || linkedClient.clinicName}&apos;s designated workspace.</span></span></label>
+                    {syncToDrive && <div className="mt-4 rounded-xl border border-black/[0.07] bg-white p-3">
+                      <div className="flex flex-wrap items-center gap-1 text-xs font-semibold text-[#5A56D4]">{drivePath.map((folder, index) => <span key={folder.id} className="flex items-center"><button onClick={() => void loadDriveFolder(folder.id, drivePath.slice(0, index + 1))} disabled={loadingDrive} className="rounded-md px-1.5 py-1 hover:bg-[#EDEBFF]">{folder.name}</button>{index < drivePath.length - 1 && <ChevronRight className="h-3 w-3 text-[#AAA5A0]" />}</span>)}</div>
+                      {loadingDrive ? <p className="py-4 text-center text-xs text-[#817B75]">Loading folders…</p> : driveBrowser && <div className="mt-3 space-y-1.5">{driveBrowser.folders.map((folder) => <button key={folder.id} onClick={() => void loadDriveFolder(folder.id, [...drivePath, { id: folder.id, name: folder.name }])} className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm font-medium text-[#3E3A36] hover:bg-[#F3F1ED]"><Folder className="h-4 w-4 text-[#6E6AE8]" />{folder.name}<ChevronRight className="ml-auto h-3.5 w-3.5 text-[#AAA5A0]" /></button>)}{driveBrowser.folders.length === 0 && <p className="py-2 text-center text-xs text-[#8A837C]">No subfolders here. This folder is selected.</p>}</div>}
+                      <div className="mt-3 flex gap-2 border-t border-black/[0.06] pt-3"><input value={newDriveFolder} onChange={(event) => setNewDriveFolder(event.target.value)} placeholder="New folder name" maxLength={150} className="min-w-0 flex-1 rounded-lg border border-black/[0.1] px-3 py-2 text-xs outline-none focus:border-[#6E6AE8]" /><button onClick={() => void createDriveFolder()} disabled={loadingDrive || !newDriveFolder.trim()} className="inline-flex items-center gap-1 rounded-lg bg-[#EDEBFF] px-3 text-xs font-semibold text-[#5A56D4] disabled:opacity-50"><FolderPlus className="h-3.5 w-3.5" /> Create</button></div>
+                      {driveBrowser && <p className="mt-3 rounded-lg bg-[#E7F5F0] px-3 py-2 text-xs font-medium text-[#31735F]">Sync destination: {driveBrowser.currentFolder.name}</p>}
+                    </div>}
+                  </> : <p className="flex items-start gap-2 rounded-xl bg-[#FFF5E7] px-3 py-2 text-xs leading-5 text-[#8A6428]"><HardDrive className="mt-0.5 h-4 w-4 shrink-0" /> This client does not have a designated Google Drive folder yet. Set one from their Drive workspace before syncing files.</p>}
+                </div>}
+                <button onClick={() => void uploadFile()} disabled={busy || (syncToDrive && !driveBrowser)} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#6E6AE8] px-4 text-sm font-semibold text-white hover:bg-[#5A56D4] disabled:opacity-50"><Upload className="h-4 w-4" />{busy ? "Uploading…" : syncToDrive ? "Attach and sync to Drive" : "Attach to task"}</button>
+              </div>}
               <div className="space-y-2">{attachments.map((item) => <div key={item.id} className="group flex items-center gap-3 rounded-2xl border border-black/[0.06] bg-white p-3"><div className="rounded-xl bg-[#F3F0EB] p-2"><File className="h-4 w-4 text-[#706A63]" /></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-[#302D2A]">{item.fileName}</p><p className="text-[11px] text-[#8A837C]">{item.uploadedByName} · {fileSize(item.sizeBytes)}</p></div><button onClick={() => void downloadFile(item)} aria-label={`Download ${item.fileName}`} className="rounded-lg p-2 text-[#6E6AE8] hover:bg-[#EDEBFF]"><Download className="h-4 w-4" /></button><button onClick={() => void removeFile(item)} aria-label={`Remove ${item.fileName}`} className="rounded-lg p-2 text-[#A45A54] hover:bg-[#FDECEA]"><Trash2 className="h-4 w-4" /></button></div>)}</div>
             </section>
             <section className="rounded-[26px] border border-black/[0.06] bg-[#FFFCF9] p-5">
