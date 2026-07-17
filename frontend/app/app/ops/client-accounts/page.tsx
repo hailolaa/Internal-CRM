@@ -448,7 +448,7 @@ export default function ClientAccountsPage() {
                   {taskDueBadge(nextTask)}
                   {nextTask ? (
                     <Link
-                      href={`/app/crm/tasks?taskId=${nextTask.id}`}
+                      href={`/app/crm/tasks/detail?id=${nextTask.id}&from=delivery`}
                       className="block max-w-[180px] truncate text-xs font-medium text-[#315f62] hover:underline"
                     >
                       {nextTask.title}

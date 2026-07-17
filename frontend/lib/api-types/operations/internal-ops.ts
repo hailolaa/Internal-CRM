@@ -381,6 +381,40 @@ export interface InternalTaskRecord {
   updatedAt: string;
 }
 
+export interface TaskCommentMention {
+  userId: string;
+  name: string;
+}
+
+export interface TaskCommentRecord {
+  id: string;
+  body: string | null;
+  authorUserId: string | null;
+  authorName: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  mentions: TaskCommentMention[];
+}
+
+export interface TaskAttachmentRecord {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedByUserId: string | null;
+  uploadedByName: string;
+  createdAt: string;
+}
+
+export interface TaskActivityRecord {
+  id: string;
+  action: string;
+  actorName: string;
+  changes: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface InternalTaskListParams {
   boardKey?: string;
   serviceType?: ClientAccountServiceType | "all";

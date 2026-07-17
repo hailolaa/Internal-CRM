@@ -27,7 +27,6 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertBanner, Badge, Card, SkeletonLine, StatusBadge } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import type {
-  ClientAccountLinkedContactRecord,
   ClientAccountLinkedRecords,
   ClientAccountLinkedTaskRecord,
   ClientAccountServiceRecord,
@@ -77,13 +76,6 @@ function taskDueLabel(task: ClientAccountLinkedTaskRecord) {
     day: "2-digit",
     month: "short",
   }).format(new Date(task.dueDate));
-}
-
-function linkedContactSubtitle(contact: ClientAccountLinkedContactRecord) {
-  return [
-    contact.roleTitle || contact.role || "Role not set",
-    contact.email || contact.phone || "No contact method",
-  ].filter(Boolean).join(" - ");
 }
 
 const growthScoreCategoryLabels = [
@@ -456,12 +448,20 @@ export default function ClientAccountDetailPage() {
             {linkStatusMessage ? <p className="mt-3 text-sm text-[#315f62]">{linkStatusMessage}</p> : null}
             <div className="mt-5 space-y-3">
               {linkedContacts.map((contact) => (
-                <div key={contact.id} className="flex flex-col gap-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <Link href={`/app/crm/contacts/detail?id=${contact.id}`} className="min-w-0 transition hover:text-[#315f62]">
-                    <p className="font-semibold text-[#151f21]">{contact.name}</p>
-                    <p className="text-sm text-[#7A746A]">{linkedContactSubtitle(contact)}</p>
+                <div key={contact.id} className="group relative rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition hover:border-[#a9c7c4] hover:bg-[#f5f8f6] focus-within:border-[#75aaa7] focus-within:ring-4 focus-within:ring-[rgba(96,180,175,0.1)]">
+                  <Link href={`/app/crm/contacts/detail?id=${contact.id}`} aria-label={`Open contact ${contact.name}`} className="absolute inset-0 z-0 rounded-xl focus:outline-none">
+                    <span className="sr-only">Open {contact.name}</span>
                   </Link>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="pointer-events-none relative z-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-[#151f21] transition group-hover:text-[#315f62]">{contact.name}</p>
+                      <p className="mt-0.5 text-sm text-[#7A746A]">{contact.roleTitle || contact.role || "Role not set"}</p>
+                      {(contact.email || contact.phone) && <div className="pointer-events-auto mt-3 flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                        {contact.email && <a href={`mailto:${contact.email}`} className="inline-flex max-w-full items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-[#315f62] shadow-sm ring-1 ring-[#d8ddda] transition hover:bg-[#edf5f3] focus:outline-none focus:ring-2 focus:ring-[#60B4AF]"><Mail className="h-4 w-4 shrink-0" /><span className="break-all text-left">{contact.email}</span></a>}
+                        {contact.phone && <a href={`tel:${contact.phone.replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-[#315f62] shadow-sm ring-1 ring-[#d8ddda] transition hover:bg-[#edf5f3] focus:outline-none focus:ring-2 focus:ring-[#60B4AF]"><Phone className="h-4 w-4 shrink-0" />{contact.phone}</a>}
+                      </div>}
+                    </div>
+                  <div className="pointer-events-auto flex shrink-0 gap-2">
                     <Link href={`/app/crm/contacts/detail?id=${contact.id}`} className="inline-flex items-center gap-2 rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3]">
                       Open<ExternalLink className="h-4 w-4" />
                     </Link>
@@ -469,6 +469,7 @@ export default function ClientAccountDetailPage() {
                       {linkActionContactId === contact.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
                       Unlink
                     </button>
+                  </div>
                   </div>
                 </div>
               ))}
@@ -481,6 +482,7 @@ export default function ClientAccountDetailPage() {
             <div className="mt-5 flex flex-wrap gap-2">{activeServices.map((service) => <Badge key={service.id} variant="success">{service.name}</Badge>)}{activeServices.length === 0 && <Badge variant="warning">No active services</Badge>}</div>
           </Card>
 
+          <div id="account-tasks" className="scroll-mt-24">
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -488,7 +490,7 @@ export default function ClientAccountDetailPage() {
                 <p className="mt-1 text-sm text-[#7A746A]">Open and completed internal delivery work linked to this account.</p>
               </div>
               {account.id ? (
-                <Link href={`/app/crm/tasks/new?clientAccountProfileId=${account.id}`} className="inline-flex items-center gap-2 rounded-xl bg-[#315f62] px-4 py-2 text-sm font-semibold text-white hover:bg-[#264f51]">
+                <Link href={`/app/crm/tasks/new?mode=delivery&clientAccountProfileId=${account.id}`} className="inline-flex items-center gap-2 rounded-xl bg-[#315f62] px-4 py-2 text-sm font-semibold text-white hover:bg-[#264f51]">
                   <Plus className="h-4 w-4" />New task
                 </Link>
               ) : null}
@@ -501,7 +503,7 @@ export default function ClientAccountDetailPage() {
                 </div>
                 <div className="space-y-2">
                   {openTasks.slice(0, 8).map((task) => (
-                    <Link key={task.id} href={`/app/crm/tasks?taskId=${task.id}`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition hover:border-[#a9c7c4]">
+                    <Link key={task.id} href={`/app/crm/tasks/detail?id=${task.id}&from=delivery`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition hover:border-[#a9c7c4]">
                       <p className="font-semibold text-[#151f21]">{task.title}</p>
                       <p className="mt-1 text-sm text-[#7A746A]">{task.category || "Delivery"} - {task.assignedTo || "Unassigned"} - {taskDueLabel(task)}</p>
                     </Link>
@@ -516,7 +518,7 @@ export default function ClientAccountDetailPage() {
                 </div>
                 <div className="space-y-2">
                   {completedTasks.slice(0, 8).map((task) => (
-                    <Link key={task.id} href={`/app/crm/tasks?taskId=${task.id}`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 opacity-80 transition hover:border-[#a9c7c4]">
+                    <Link key={task.id} href={`/app/crm/tasks/detail?id=${task.id}&from=delivery`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 opacity-80 transition hover:border-[#a9c7c4]">
                       <p className="font-semibold text-[#151f21]">{task.title}</p>
                       <p className="mt-1 text-sm text-[#7A746A]">{task.category || "Delivery"} - {task.assignedTo || "Unassigned"}</p>
                     </Link>
@@ -526,6 +528,7 @@ export default function ClientAccountDetailPage() {
               </div>
             </div>
           </Card>
+          </div>
         </div>
 
         <aside className="space-y-6 xl:sticky xl:top-20 xl:self-start">
@@ -569,7 +572,7 @@ export default function ClientAccountDetailPage() {
                 [Users, "Contacts and leads", `/app/leads?account=${encodeURIComponent(account.clinicName)}`],
                 [BriefcaseBusiness, "Deals", `/app/crm/pipeline?account=${encodeURIComponent(account.clinicName)}`],
                 [NotebookText, "Notes", "#account-notes"],
-                [CheckSquare2, "Tasks", `/app/crm/tasks?clientAccountProfileId=${account.id || ""}`],
+                [CheckSquare2, "Tasks", "#account-tasks"],
                 [ShieldCheck, "Audits", `/app/admin?clinicId=${account.clinicId}`],
                 [FileCheck2, "Proposals", `/app/crm/pipeline?account=${encodeURIComponent(account.clinicName)}&view=proposals`],
               ].map(([Icon, label, href]) => {

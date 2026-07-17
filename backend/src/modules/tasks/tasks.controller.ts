@@ -1,8 +1,79 @@
 import { Request, Response, NextFunction } from "express";
 import { tasksService } from "./tasks.service.js";
 import { userCanManageAllClientAccounts } from "../../middleware/authorize.js";
+import { taskWorkspaceService } from "./task-workspace.service.js";
 
 export class TasksController {
+  getInternalTask = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      res.status(200).json({ status: "success", data: await taskWorkspaceService.getTask(clinicId, String(req.params.id)) });
+    } catch (error) { next(error); }
+  };
+
+  listTaskComments = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      res.status(200).json({ status: "success", data: await taskWorkspaceService.listComments(clinicId, String(req.params.id)) });
+    } catch (error) { next(error); }
+  };
+
+  createTaskComment = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const id = await taskWorkspaceService.createComment(clinicId, userId, String(req.params.id), req.body.body, req.body.mentionedUserIds || []);
+      res.status(201).json({ status: "success", data: { id } });
+    } catch (error) { next(error); }
+  };
+
+  deleteTaskComment = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      await taskWorkspaceService.deleteComment(clinicId, userId, String(req.params.id), String(req.params.commentId));
+      res.status(200).json({ status: "success" });
+    } catch (error) { next(error); }
+  };
+
+  listTaskAttachments = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      res.status(200).json({ status: "success", data: await taskWorkspaceService.listAttachments(clinicId, String(req.params.id)) });
+    } catch (error) { next(error); }
+  };
+
+  uploadTaskAttachment = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const id = await taskWorkspaceService.uploadAttachment(clinicId, userId, String(req.params.id), req.file);
+      res.status(201).json({ status: "success", data: { id } });
+    } catch (error) { next(error); }
+  };
+
+  downloadTaskAttachment = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const file = await taskWorkspaceService.getAttachment(clinicId, String(req.params.id), String(req.params.attachmentId));
+      res.setHeader("Content-Type", file.mimeType);
+      res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      file.stream.on("error", next).pipe(res);
+    } catch (error) { next(error); }
+  };
+
+  deleteTaskAttachment = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      await taskWorkspaceService.deleteAttachment(clinicId, userId, String(req.params.id), String(req.params.attachmentId));
+      res.status(200).json({ status: "success" });
+    } catch (error) { next(error); }
+  };
+
+  listTaskActivity = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      res.status(200).json({ status: "success", data: await taskWorkspaceService.listActivity(clinicId, String(req.params.id)) });
+    } catch (error) { next(error); }
+  };
   // GET /api/tasks
   // List clinic tasks
   listTasks = async (req: Request, res: Response, next: NextFunction) => {

@@ -15,6 +15,7 @@ import {
   Link2,
   MessageSquare,
   UserRound,
+  ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -100,6 +101,31 @@ function formatLabel(value: string | null | undefined) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function splitTaskNotes(description: string) {
+  const notes: Array<{ date: string; text: string }> = [];
+  const brief: string[] = [];
+
+  description.split(/\n\n+/).forEach((section) => {
+    const match = section.match(/^\[([^\]]+)]\s*([\s\S]*)$/);
+    if (!match) {
+      if (section.trim()) brief.push(section.trim());
+      return;
+    }
+    const parsedDate = new Date(match[1]);
+    notes.push({
+      date: Number.isNaN(parsedDate.getTime())
+        ? match[1]
+        : new Intl.DateTimeFormat("en-GB", {
+            dateStyle: "medium",
+            timeStyle: "short",
+          }).format(parsedDate),
+      text: match[2].trim(),
+    });
+  });
+
+  return { brief: brief.join("\n\n"), notes };
 }
 
 function formatDue(record: InternalTaskRecord) {
@@ -201,7 +227,7 @@ export default function TasksPage() {
   }, [services]);
   const pendingCount = tasks.filter((t) => t.status === "pending").length;
   const overdueCount = tasks.filter(isOverdue).length;
-  const clientLinkedCount = tasks.filter((task) => task.clientAccountProfileId).length;
+  const unassignedCount = tasks.filter((task) => !task.assignedTo || task.assignedTo === "Unassigned").length;
   const qaCount = tasks.filter(
     (task) => task.needsQa || task.approvalStatus === "pending",
   ).length;
@@ -222,7 +248,11 @@ export default function TasksPage() {
         if (!isMounted) return;
         if (taskResult.status === "rejected") throw taskResult.reason;
 
-        setTasks(taskResult.value.map(toTaskRow));
+        setTasks(
+          taskResult.value
+            .map(toTaskRow)
+            .filter((task) => !task.clientAccountProfileId && !task.clientAccountServiceId),
+        );
         setClientAccounts(
           accountResult.status === "fulfilled" ? accountResult.value : [],
         );
@@ -428,7 +458,7 @@ export default function TasksPage() {
     <div className="space-y-6">
       <PageHeader
         title="Internal Tasks"
-        subtitle="Track sales hand-offs, delivery work, QA, fixes, and client deadlines."
+        subtitle="Plan and track work for The Growth Group team. Client work belongs in Delivery Work."
         icon={CheckSquare}
         right={
           <Link
@@ -462,9 +492,9 @@ export default function TasksPage() {
           style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.03)" }}
         >
           <p className="text-2xl font-bold text-[#6E6AE8]">
-            {clientLinkedCount}
+            {unassignedCount}
           </p>
-          <p className="text-sm text-[#6B7280]">Client Linked</p>
+          <p className="text-sm text-[#6B7280]">Unassigned</p>
         </div>
         <div
           className="bg-[#FFFCF9] border border-[rgba(0,0,0,0.06)] rounded-[24px] p-4"
@@ -570,6 +600,7 @@ export default function TasksPage() {
           ))}
         {!isLoading &&
           filteredTasks.map((task) => {
+            const descriptionSections = splitTaskNotes(task.description);
             const clientAccount = task.clientAccountProfileId
               ? clientAccountByProfileId.get(task.clientAccountProfileId)
               : null;
@@ -584,11 +615,11 @@ export default function TasksPage() {
                 ref={(element) => {
                   taskRefs.current[task.id] = element;
                 }}
-                className={`p-4 hover:bg-[rgba(110,106,232,0.03)] transition-colors ${
+                className={`p-4 transition-colors hover:bg-[rgba(110,106,232,0.03)] sm:p-5 ${
                   task.status === "completed" ? "opacity-60" : ""
                 } ${
                   requestedTaskId === task.id
-                    ? "bg-[rgba(110,106,232,0.08)] ring-1 ring-inset ring-[rgba(110,106,232,0.35)]"
+                    ? "bg-[rgba(110,106,232,0.08)] ring-2 ring-inset ring-[rgba(110,106,232,0.38)]"
                     : ""
                 }`}
               >
@@ -611,11 +642,12 @@ export default function TasksPage() {
                   </button>
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <h3
-                        className={`font-medium text-[#111111] ${task.status === "completed" ? "line-through text-[#6B7280]" : ""}`}
+                      <Link
+                        href={`/app/crm/tasks/detail?id=${task.id}`}
+                        className={`font-medium text-[#111111] underline-offset-4 hover:text-[#5A56D4] hover:underline focus:outline-none focus:ring-2 focus:ring-[#6E6AE8] ${task.status === "completed" ? "line-through text-[#6B7280]" : ""}`}
                       >
                         {task.title}
-                      </h3>
+                      </Link>
                       <span
                         className={`text-xs px-2 py-0.5 rounded-full border ${priorityColors[task.priority]}`}
                       >
@@ -636,9 +668,31 @@ export default function TasksPage() {
                       )}
                     </div>
                     {task.description && (
-                      <p className="text-sm text-[#6B7280] mb-2">
-                        {task.description}
-                      </p>
+                      <div className="mb-4 mt-3 space-y-3">
+                        {descriptionSections.brief && (
+                          <div className="rounded-xl border border-black/[0.06] bg-[#FAF8F5] px-4 py-3">
+                            <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8B8580]">
+                              Task brief
+                            </p>
+                            <p className="whitespace-pre-wrap text-[15px] leading-6 text-[#3F3A36]">
+                              {descriptionSections.brief}
+                            </p>
+                          </div>
+                        )}
+                        {descriptionSections.notes.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="flex items-center gap-1.5 text-xs font-semibold text-[#6E6AE8]">
+                              <MessageSquare className="h-3.5 w-3.5" /> Notes ({descriptionSections.notes.length})
+                            </p>
+                            {descriptionSections.notes.map((note, index) => (
+                              <div key={`${note.date}-${index}`} className="border-l-2 border-[#B9B5F5] bg-white/70 py-2 pl-3 pr-2">
+                                <p className="text-[11px] font-medium text-[#8B8580]">{note.date}</p>
+                                <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[#4D4843]">{note.text}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     )}
                     <div className="flex flex-wrap items-center gap-3 text-xs text-[#6B7280]">
                       {task.contact &&
@@ -685,6 +739,13 @@ export default function TasksPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-1">
+                    <Link
+                      href={`/app/crm/tasks/detail?id=${task.id}`}
+                      aria-label={`Open ${task.title}`}
+                      className="rounded-lg p-2 text-[#6E6AE8] hover:bg-[rgba(110,106,232,0.09)] hover:text-[#5A56D4] focus:outline-none focus:ring-2 focus:ring-[#6E6AE8]"
+                    >
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
                     <button
                       onClick={() => setNoteTaskId((current) => current === task.id ? null : task.id)}
                       disabled={savingNoteTaskId === task.id}

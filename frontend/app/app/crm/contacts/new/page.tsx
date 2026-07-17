@@ -10,7 +10,6 @@ import { useAuth } from "@/lib/auth-context";
 
 type FieldKey =
   | "clinicName"
-  | "role"
   | "firstName"
   | "lastName"
   | "email"
@@ -179,7 +178,6 @@ export default function NewContactPage() {
 
   const [fields, setFields] = useState<Record<FieldKey, string>>({
     clinicName: "",
-    role: "",
     firstName: "",
     lastName: "",
     email: "",
@@ -340,8 +338,10 @@ export default function NewContactPage() {
       setSaveStatus("saving");
       setStatusMessage(null);
       const result = await api.contacts.create(session.token, {
-        accountName: selectedClientAccount?.clinicName || emptyToNull(fields.clinicName),
-        role: emptyToNull(fields.role),
+        accountName:
+          selectedClientAccount?.clinicName ||
+          (isContactMode ? null : emptyToNull(fields.clinicName)),
+        role: null,
         communicationPermissions,
         firstName: emptyToNull(fields.firstName),
         lastName: emptyToNull(fields.lastName),
@@ -505,7 +505,7 @@ export default function NewContactPage() {
                   )}
                 </div>
               )}
-              <div className="sm:col-span-2">
+              {!isContactMode && <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
                   Account Name
                 </label>
@@ -516,7 +516,7 @@ export default function NewContactPage() {
                   placeholder={isContactMode ? "Account this person belongs to" : "Growth-focused account"}
                   className={inputBase}
                 />
-              </div>
+              </div>}
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
                   Contact Role
@@ -526,18 +526,6 @@ export default function NewContactPage() {
                   value={fields.roleTitle}
                   onChange={handleInputChange("roleTitle")}
                   placeholder="Owner, manager, marketing lead..."
-                  className={inputBase}
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Contact Role
-                </label>
-                <input
-                  type="text"
-                  value={fields.role}
-                  onChange={handleInputChange("role")}
-                  placeholder="Account owner, marketing manager, finance contact..."
                   className={inputBase}
                 />
               </div>

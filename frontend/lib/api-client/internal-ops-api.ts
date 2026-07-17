@@ -23,6 +23,9 @@ import type {
   InternalTaskQaPayload,
   InternalTaskRecord,
   InternalTaskUpdatePayload,
+  TaskActivityRecord,
+  TaskAttachmentRecord,
+  TaskCommentRecord,
   StrategyLogListParams,
   StrategyLogPayload,
   StrategyLogRecord,
@@ -282,6 +285,45 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
           token,
           body: JSON.stringify(payload),
         });
+        return response.data!;
+      },
+      async get(token: string, taskId: string) {
+        const response = await apiRequest<InternalTaskRecord>(`/api/tasks/internal/${encodeURIComponent(taskId)}`, { token });
+        return response.data!;
+      },
+      async listComments(token: string, taskId: string) {
+        const response = await apiRequest<TaskCommentRecord[]>(`/api/tasks/internal/${encodeURIComponent(taskId)}/comments`, { token });
+        return response.data!;
+      },
+      async addComment(token: string, taskId: string, body: string, mentionedUserIds: string[]) {
+        return apiRequest<{ id: string }>(`/api/tasks/internal/${encodeURIComponent(taskId)}/comments`, {
+          method: "POST", token, body: JSON.stringify({ body, mentionedUserIds }),
+        });
+      },
+      async deleteComment(token: string, taskId: string, commentId: string) {
+        return apiRequest<never>(`/api/tasks/internal/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`, { method: "DELETE", token });
+      },
+      async listAttachments(token: string, taskId: string) {
+        const response = await apiRequest<TaskAttachmentRecord[]>(`/api/tasks/internal/${encodeURIComponent(taskId)}/attachments`, { token });
+        return response.data!;
+      },
+      async uploadAttachment(token: string, taskId: string, file: File) {
+        const body = new FormData();
+        body.set("file", file);
+        return apiRequest<{ id: string }>(`/api/tasks/internal/${encodeURIComponent(taskId)}/attachments`, { method: "POST", token, body });
+      },
+      async deleteAttachment(token: string, taskId: string, attachmentId: string) {
+        return apiRequest<never>(`/api/tasks/internal/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE", token });
+      },
+      async downloadAttachment(token: string, taskId: string, attachmentId: string) {
+        const response = await fetch(`${publicEnv.apiBaseUrl}/tasks/internal/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}/file`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!response.ok) throw new Error("The attachment could not be downloaded.");
+        const disposition = response.headers.get("content-disposition") || "";
+        const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+        return { blob: await response.blob(), fileName: encodedName ? decodeURIComponent(encodedName) : "download" };
+      },
+      async listActivity(token: string, taskId: string) {
+        const response = await apiRequest<TaskActivityRecord[]>(`/api/tasks/internal/${encodeURIComponent(taskId)}/activity`, { token });
         return response.data!;
       },
       async update(

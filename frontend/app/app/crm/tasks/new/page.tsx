@@ -91,13 +91,14 @@ export default function NewTaskPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedClientAccountProfileId = searchParams.get("clientAccountProfileId");
+  const isDeliveryMode = searchParams.get("mode") === "delivery" || Boolean(requestedClientAccountProfileId);
   const { session } = useAuth();
   const [contacts, setContacts] = useState<ContactRecord[]>([]);
   const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [priority, setPriority] = useState<InternalTaskPriority>("medium");
   const [category, setCategory] = useState("Sales Handoff");
-  const [boardKey, setBoardKey] = useState("delivery");
+  const [boardKey, setBoardKey] = useState(isDeliveryMode ? "delivery" : "operations");
   const [serviceType, setServiceType] = useState<ClientAccountServiceType>("website");
   const [selectedContact, setSelectedContact] = useState<string | null>(null);
   const [selectedClientAccount, setSelectedClientAccount] = useState<string | null>(
@@ -115,11 +116,11 @@ export default function NewTaskPage() {
   });
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isLoadingLinks, setIsLoadingLinks] = useState(true);
+  const [isLoadingLinks, setIsLoadingLinks] = useState(isDeliveryMode);
   const [linkLoadWarning, setLinkLoadWarning] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session?.token) return;
+    if (!session?.token || !isDeliveryMode) return;
 
     let cancelled = false;
 
@@ -152,7 +153,7 @@ export default function NewTaskPage() {
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [isDeliveryMode, session]);
 
   const selectedAccountRecord = selectedClientAccount
     ? clientAccounts.find((account) => account.id === selectedClientAccount)
@@ -171,12 +172,17 @@ export default function NewTaskPage() {
       setStatusMessage("Add a clear task title before saving.");
       return;
     }
+    if (isDeliveryMode && !selectedClientAccount && !selectedServiceRecord) {
+      setStatusMessage("Choose the client account this delivery task belongs to.");
+      return;
+    }
 
     setIsSaving(true);
     setStatusMessage(null);
 
-    const resolvedClientAccountId =
-      selectedServiceRecord?.clientAccountProfileId || selectedClientAccount;
+    const resolvedClientAccountId = isDeliveryMode
+      ? selectedServiceRecord?.clientAccountProfileId || selectedClientAccount
+      : null;
     const resolvedServiceType = selectedServiceRecord?.serviceType || serviceType;
     const due = [form.dueDate, form.dueTime].filter(Boolean).join(" ");
 
@@ -188,21 +194,21 @@ export default function NewTaskPage() {
         boardKey,
         serviceType: resolvedServiceType,
         category,
-        contactId: selectedContact,
-        contact: selectedContactRecord?.name || null,
+        contactId: isDeliveryMode ? selectedContact : null,
+        contact: isDeliveryMode ? selectedContactRecord?.name || null : null,
         due: due || null,
         dueDate: form.dueDate || null,
         assignedTo: form.assignedTo,
         clientAccountProfileId: resolvedClientAccountId || null,
-        clientAccountServiceId: selectedService || null,
+        clientAccountServiceId: isDeliveryMode ? selectedService || null : null,
         proofReference: form.proofReference.trim() || null,
         workflowMonth: form.workflowMonth ? `${form.workflowMonth}-01` : null,
       });
-      router.push(resolvedClientAccountId ? `/app/crm/tasks?clientAccountProfileId=${resolvedClientAccountId}` : "/app/crm/tasks");
+      router.push(isDeliveryMode ? "/app/ops/delivery" : "/app/crm/tasks");
     } catch (error) {
       console.error("Failed to create internal task", error);
       setStatusMessage(
-        error instanceof Error ? error.message : "Could not save this delivery task.",
+        error instanceof Error ? error.message : `Could not save this ${isDeliveryMode ? "delivery" : "internal"} task.`,
       );
     } finally {
       setIsSaving(false);
@@ -223,13 +229,15 @@ export default function NewTaskPage() {
           </button>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5e8a8d]">
-              Internal delivery
+              {isDeliveryMode ? "Client delivery" : "Internal operations"}
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-[-0.025em] text-[#172123] sm:text-[30px]">
-              Create a delivery task
+              Create {isDeliveryMode ? "a delivery" : "an internal"} task
             </h1>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-[#607073]">
-              Capture the outcome first, then add only the client context your team needs.
+              {isDeliveryMode
+                ? "Create work for a client account and link it to the relevant service."
+                : "Create work for The Growth Group team, with no client record attached."}
             </p>
           </div>
         </div>
@@ -387,7 +395,7 @@ export default function NewTaskPage() {
             </div>
           </section>
 
-          <section className={`${cardClass} p-5 sm:p-7`}>
+          {isDeliveryMode && <section className={`${cardClass} p-5 sm:p-7`}>
             <div className="mb-6 flex items-start gap-3">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#5e8a8d] text-sm font-semibold text-white">
                 2
@@ -422,7 +430,7 @@ export default function NewTaskPage() {
                     }}
                     className={fieldClass}
                   >
-                    <option value="">No client account — general internal task</option>
+                    <option value="">Choose a client account</option>
                     {[...clientAccounts]
                       .filter((account) => account.id)
                       .sort((left, right) => left.clinicName.localeCompare(right.clinicName))
@@ -491,7 +499,7 @@ export default function NewTaskPage() {
                 </label>
               </div>
             )}
-          </section>
+          </section>}
 
           <section className={`${cardClass} p-5 sm:p-7`}>
             <div className="mb-6 flex items-start gap-3">
@@ -644,7 +652,7 @@ export default function NewTaskPage() {
                 className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#315f62] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(49,95,98,0.18)] transition hover:bg-[#284f52] focus:outline-none focus:ring-4 focus:ring-[rgba(49,95,98,0.16)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                {isSaving ? "Creating task…" : "Create delivery task"}
+                {isSaving ? "Creating task…" : `Create ${isDeliveryMode ? "delivery" : "internal"} task`}
               </button>
               <p className="mt-3 text-center text-xs leading-5 text-[#748184]">
                 The task will be added to the {boardOptions.find((option) => option.value === boardKey)?.label} board.

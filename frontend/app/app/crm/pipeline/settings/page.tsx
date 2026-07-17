@@ -8,6 +8,8 @@ import {
   Trash2,
   GripVertical,
   Settings,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api-client";
@@ -59,6 +61,29 @@ export default function PipelineSettingsPage() {
     "Other",
   ]);
   const [newReason, setNewReason] = useState("");
+  const [draggingStageId, setDraggingStageId] = useState<string | null>(null);
+  const [dropStageId, setDropStageId] = useState<string | null>(null);
+
+  const moveStage = (stageId: string, targetIndex: number) => {
+    setStages((current) => {
+      const sourceIndex = current.findIndex((stage) => stage.id === stageId);
+      if (sourceIndex < 0 || targetIndex < 0 || targetIndex >= current.length || sourceIndex === targetIndex) {
+        return current;
+      }
+      const next = [...current];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+    setStatusMessage("Stage order changed. Save changes to apply it to the pipeline.");
+  };
+
+  const dropStage = (draggedId: string, targetId: string) => {
+    const targetIndex = stages.findIndex((stage) => stage.id === targetId);
+    if (targetIndex >= 0) moveStage(draggedId, targetIndex);
+    setDraggingStageId(null);
+    setDropStageId(null);
+  };
 
   useEffect(() => {
     if (!session?.token) return;
@@ -192,7 +217,11 @@ export default function PipelineSettingsPage() {
       </div>
 
       {statusMessage && (
-        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-xl border border-[#60B4AF] bg-[#172F31] px-4 py-3 text-sm font-medium text-white shadow-[0_8px_24px_rgba(23,47,49,0.2)]"
+        >
           {statusMessage}
         </div>
       )}
@@ -219,10 +248,42 @@ export default function PipelineSettingsPage() {
               {stages.map((stage, index) => (
                 <div
                   key={stage.id}
-                  className="p-4 bg-white/5 border border-white/10 rounded-lg group hover:border-teal-500/30 transition-all"
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setDropStageId(stage.id);
+                  }}
+                  onDragLeave={() => setDropStageId((current) => current === stage.id ? null : current)}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const draggedId = event.dataTransfer.getData("text/plain") || draggingStageId;
+                    if (draggedId) dropStage(draggedId, stage.id);
+                  }}
+                  className={`p-4 bg-white/5 border rounded-lg group transition-all ${
+                    dropStageId === stage.id && draggingStageId !== stage.id
+                      ? "border-teal-400 bg-teal-400/10 ring-2 ring-teal-400/20"
+                      : "border-white/10 hover:border-teal-500/30"
+                  } ${draggingStageId === stage.id ? "opacity-50" : ""}`}
                 >
                   <div className="flex items-center gap-4">
-                    <GripVertical className="w-4 h-4 text-gray-500 cursor-grab" />
+                    <button
+                      type="button"
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", stage.id);
+                        setDraggingStageId(stage.id);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingStageId(null);
+                        setDropStageId(null);
+                      }}
+                      aria-label={`Drag ${stage.name} to reorder`}
+                      title="Drag to reorder"
+                      className="cursor-grab rounded p-1 text-gray-500 hover:bg-white/10 hover:text-teal-300 active:cursor-grabbing focus:outline-none focus:ring-2 focus:ring-teal-400"
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </button>
                     <div className={`w-4 h-4 rounded-full ${stage.color}`} />
                     <input
                       type="text"
@@ -249,6 +310,26 @@ export default function PipelineSettingsPage() {
                         </option>
                       ))}
                     </select>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveStage(stage.id, index - 1)}
+                        disabled={index === 0}
+                        aria-label={`Move ${stage.name} up`}
+                        className="rounded p-1.5 text-gray-400 hover:bg-white/10 hover:text-teal-300 disabled:cursor-not-allowed disabled:opacity-25"
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveStage(stage.id, index + 1)}
+                        disabled={index === stages.length - 1}
+                        aria-label={`Move ${stage.name} down`}
+                        className="rounded p-1.5 text-gray-400 hover:bg-white/10 hover:text-teal-300 disabled:cursor-not-allowed disabled:opacity-25"
+                      >
+                        <ArrowDown className="h-4 w-4" />
+                      </button>
+                    </div>
                     <button
                       type="button"
                       onClick={() =>

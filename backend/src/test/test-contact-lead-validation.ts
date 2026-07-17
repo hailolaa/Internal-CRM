@@ -29,6 +29,8 @@ test("contact role and communication permissions are normalized", () => {
     whatsapp: true,
     phone: false,
   });
+  assert.equal(contact.unsubscribed, false);
+  assert.equal(contact.doNotContact, false);
 });
 
 test("duplicate matching normalizes website domains and account names", () => {
