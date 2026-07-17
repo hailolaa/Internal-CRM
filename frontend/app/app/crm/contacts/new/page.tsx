@@ -275,6 +275,7 @@ export default function NewContactPage() {
 
   const updateField = useCallback((name: FieldKey, value: string) => {
     setFields((prev) => ({ ...prev, [name]: value }));
+    setStatusMessage(null);
   }, []);
 
   const handleSelectChange =
@@ -295,7 +296,7 @@ export default function NewContactPage() {
     };
 
   const handleSave = async () => {
-    if (!session?.token) return;
+    if (!session?.token || saveStatus !== "idle") return;
 
     if (pendingCreatedContactId && selectedClientClinicId) {
       try {
@@ -542,10 +543,12 @@ export default function NewContactPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Contact First Name
+                  Contact First Name <span className="font-normal text-[#6B7280]">(first or last name required)</span>
                 </label>
                 <input
                   type="text"
+                  aria-required="true"
+                  maxLength={100}
                   value={fields.firstName}
                   onChange={handleInputChange("firstName")}
                   placeholder="Sarah"
@@ -554,10 +557,12 @@ export default function NewContactPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Contact Last Name
+                  Contact Last Name <span className="font-normal text-[#6B7280]">(first or last name required)</span>
                 </label>
                 <input
                   type="text"
+                  aria-required="true"
+                  maxLength={100}
                   value={fields.lastName}
                   onChange={handleInputChange("lastName")}
                   placeholder="Johnson"
@@ -566,10 +571,12 @@ export default function NewContactPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Email
+                  Email <span className="font-normal text-[#6B7280]">(email or phone required)</span>
                 </label>
                 <input
                   type="email"
+                  aria-required="true"
+                  maxLength={255}
                   value={fields.email}
                   onChange={handleInputChange("email")}
                   placeholder="sarah@example.com"
@@ -578,10 +585,13 @@ export default function NewContactPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                  Phone / WhatsApp
+                  Phone / WhatsApp <span className="font-normal text-[#6B7280]">(email or phone required)</span>
                 </label>
                 <input
                   type="tel"
+                  aria-required="true"
+                  maxLength={30}
+                  pattern="[0-9 +()\-]{7,30}"
                   value={fields.phone}
                   onChange={handleInputChange("phone")}
                   placeholder="07700 900123"

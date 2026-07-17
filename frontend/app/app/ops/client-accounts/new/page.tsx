@@ -52,6 +52,16 @@ const emptyAccountForm: ClientAccountCreatePayload = {
 const fieldClass =
   "w-full rounded-xl border border-[#d8ddda] bg-white px-3.5 py-2.5 text-sm text-[#151f21] outline-none transition focus:border-[#75aaa7] focus:ring-4 focus:ring-[rgba(96,180,175,0.1)]";
 
+function validateAccount(form: ClientAccountCreatePayload) {
+  if (!form.name.trim()) return "Client account name is required.";
+  if (form.name.trim().length > 255) return "Client account name must be 255 characters or fewer.";
+  if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return "Enter a valid main email address.";
+  if (form.phone && form.phone.trim().length > 20) return "Phone must be 20 characters or fewer.";
+  if (form.phone && !/^[\d\s+()-]+$/.test(form.phone.trim())) return "Enter a valid phone number.";
+  if (form.website && form.website.trim().length > 255) return "Website must be 255 characters or fewer.";
+  return "";
+}
+
 function personName(person: TeamMember) {
   return [person.firstName, person.lastName].filter(Boolean).join(" ") || person.email;
 }
@@ -66,6 +76,7 @@ export default function NewClientAccountPage() {
   const [isBespokePackage, setIsBespokePackage] = useState(false);
   const [form, setForm] = useState<ClientAccountCreatePayload>(emptyAccountForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
 
   useEffect(() => {
     if (!token) return;
@@ -106,16 +117,22 @@ export default function NewClientAccountPage() {
 
   const createAccount = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!token || !form.name.trim()) return;
+    if (!token || isSubmitting) return;
+    const validationError = validateAccount(form);
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
 
     setIsSubmitting(true);
+    setFormError("");
     try {
       await api.clientAccounts.create(token, {
         ...form,
         name: form.name.trim(),
-        email: form.email || null,
-        phone: form.phone || null,
-        website: form.website || null,
+        email: form.email?.trim() || null,
+        phone: form.phone?.trim() || null,
+        website: form.website?.trim() || null,
         currentPackage: form.currentPackage || null,
         recommendedNextPackage: form.recommendedNextPackage || null,
         upsellOpportunity: form.upsellOpportunity || null,
@@ -157,6 +174,11 @@ export default function NewClientAccountPage() {
 
       <form onSubmit={createAccount} className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-6">
+          {formError && (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {formError}
+            </div>
+          )}
           <Card padding="p-5 sm:p-6">
             <div className="mb-6">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5e8a8d]">Client details</p>
@@ -169,6 +191,8 @@ export default function NewClientAccountPage() {
                 <span className="text-sm font-semibold text-[#344446]">Client account name *</span>
                 <input
                   required
+                  maxLength={255}
+                  aria-invalid={Boolean(formError && !form.name.trim())}
                   autoFocus
                   value={form.name}
                   onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
@@ -180,6 +204,7 @@ export default function NewClientAccountPage() {
                 <span className="text-sm font-semibold text-[#344446]">Main email</span>
                 <input
                   type="email"
+                  maxLength={255}
                   value={form.email || ""}
                   onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
                   className={fieldClass}
@@ -190,6 +215,8 @@ export default function NewClientAccountPage() {
                 <span className="text-sm font-semibold text-[#344446]">Phone</span>
                 <input
                   type="tel"
+                  maxLength={20}
+                  pattern="[0-9 +()\-]+"
                   value={form.phone || ""}
                   onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
                   className={fieldClass}
@@ -200,6 +227,7 @@ export default function NewClientAccountPage() {
                 <span className="text-sm font-semibold text-[#344446]">Website</span>
                 <input
                   type="url"
+                  maxLength={255}
                   value={form.website || ""}
                   onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))}
                   className={fieldClass}
@@ -353,7 +381,7 @@ export default function NewClientAccountPage() {
               </div>
               <button
                 type="submit"
-                disabled={isSubmitting || !form.name.trim() || !token}
+                disabled={isSubmitting || !token}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#5e8a8d] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#507b7e] disabled:opacity-60"
               >
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
