@@ -347,68 +347,64 @@ export class CommandPaletteService {
 
   private async searchProposals(clinicId: string, like: string, limit: number): Promise<CommandPaletteRecord[]> {
     const [rows]: any = await pool.execute(
-      `SELECT d.id,
-              d.title,
-              d.contact_id as contactId,
-              d.source,
-              d.treatment,
-              d.status,
-              d.value,
-              d.expected_close_date as expectedCloseDate,
-              d.updated_at as updatedAt,
-              COALESCE(ps.name, d.stage) as stageName,
-              ps.kind as stageKind,
+      `SELECT p.id,
+              p.proposal_name as title,
+              p.contact_id as contactId,
+              p.deal_id as dealId,
+              p.package_name as packageName,
+              p.status,
+              p.value,
+              p.follow_up_at as followUpAt,
+              p.updated_at as updatedAt,
               TRIM(CONCAT_WS(' ', c.first_name, c.last_name)) as contactName,
               c.account_name as accountName,
-              c.email as contactEmail
-       FROM deal d
+              c.email as contactEmail,
+              d.title as dealTitle
+       FROM proposal p
        JOIN contact c
-         ON c.id = d.contact_id
-        AND c.clinic_id = d.clinic_id
+         ON c.id = p.contact_id
+        AND c.clinic_id = p.clinic_id
         AND c.deleted_at IS NULL
-       LEFT JOIN pipeline_stage ps
-         ON ps.id = d.pipeline_stage_id
-        AND ps.clinic_id = d.clinic_id
-        AND ps.deleted_at IS NULL
-       WHERE d.clinic_id = ?
-         AND d.deleted_at IS NULL
-         AND (
-           LOWER(COALESCE(ps.name, d.stage, '')) LIKE '%proposal%'
-           OR LOWER(d.title) LIKE '%proposal%'
-         )
+       LEFT JOIN deal d
+         ON d.id = p.deal_id
+        AND d.clinic_id = p.clinic_id
+        AND d.deleted_at IS NULL
+       WHERE p.clinic_id = ?
+         AND p.deleted_at IS NULL
+         AND p.status <> 'archived'
          AND (
            ? = '%'
-           OR d.title LIKE ?
-           OR d.treatment LIKE ?
-           OR d.source LIKE ?
-           OR d.status LIKE ?
-           OR COALESCE(ps.name, d.stage) LIKE ?
+           OR p.proposal_name LIKE ?
+           OR p.package_name LIKE ?
+           OR p.status LIKE ?
            OR c.first_name LIKE ?
            OR c.last_name LIKE ?
            OR c.account_name LIKE ?
            OR c.email LIKE ?
+           OR d.title LIKE ?
          )
-       ORDER BY d.updated_at DESC
+       ORDER BY p.updated_at DESC
        LIMIT ${limit}`,
-      [clinicId, like, like, like, like, like, like, like, like, like, like],
+      [clinicId, like, like, like, like, like, like, like, like, like],
     );
 
     return rows.map((row: any) => ({
       id: row.id,
       type: "proposal",
       label: row.title || `${row.contactName || "Prospect"} proposal`,
-      description: [row.accountName, row.contactName, row.stageName, row.treatment].filter(Boolean).join(" - ") || null,
-      route: `/app/crm/pipeline?deal=${encodeURIComponent(row.id)}&contactId=${encodeURIComponent(row.contactId)}&view=proposals`,
+      description: [row.accountName, row.contactName, row.packageName, row.status].filter(Boolean).join(" - ") || null,
+      route: row.dealId
+        ? `/app/crm/pipeline?deal=${encodeURIComponent(row.dealId)}&contactId=${encodeURIComponent(row.contactId)}&view=proposals&proposal=${encodeURIComponent(row.id)}`
+        : `/app/crm/contacts/detail?id=${encodeURIComponent(row.contactId)}&view=proposals&proposal=${encodeURIComponent(row.id)}`,
       updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
       metadata: {
         contactId: row.contactId,
+        dealId: row.dealId || null,
         contactName: row.contactName || null,
         accountName: row.accountName || null,
-        stageName: row.stageName || null,
-        stageKind: row.stageKind || null,
-        source: row.source || null,
+        packageName: row.packageName || null,
         status: row.status || null,
-        expectedCloseDate: row.expectedCloseDate || null,
+        followUpAt: row.followUpAt || null,
         value: row.value || null,
       },
     }));

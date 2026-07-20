@@ -4,7 +4,7 @@ import logger from "./logger.js";
 
 export type ActivityType = "Call" | "Email" | "SMS" | "Appointment" | "Note" | "StatusChange";
 
-export type TimelineSource = "contact" | "call" | "appointment" | "consult" | "sla" | "pipeline";
+export type TimelineSource = "contact" | "call" | "appointment" | "consult" | "sla" | "pipeline" | "proposal";
 
 export interface TimelineMetadata {
   action: string;
