@@ -1,0 +1,52 @@
+import type { ProposalListParams, ProposalPayload, ProposalRecord } from "@/lib/api-types";
+import type { ApiRequest } from "./core";
+
+function toQuery(params: ProposalListParams = {}) {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    searchParams.set(key, String(value));
+  });
+  return searchParams.toString();
+}
+
+export function createProposalsApi(apiRequest: ApiRequest) {
+  return {
+    proposals: {
+      async list(token: string, params: ProposalListParams = {}) {
+        const query = toQuery(params);
+        const response = await apiRequest<ProposalRecord[]>(
+          `/api/proposals${query ? `?${query}` : ""}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async get(token: string, proposalId: string) {
+        const response = await apiRequest<ProposalRecord>(`/api/proposals/${proposalId}`, { token });
+        return response.data!;
+      },
+      async create(token: string, payload: ProposalPayload) {
+        const response = await apiRequest<ProposalRecord>("/api/proposals", {
+          method: "POST",
+          token,
+          body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async update(token: string, proposalId: string, payload: ProposalPayload) {
+        const response = await apiRequest<ProposalRecord>(`/api/proposals/${proposalId}`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async remove(token: string, proposalId: string) {
+        return apiRequest<never>(`/api/proposals/${proposalId}`, {
+          method: "DELETE",
+          token,
+        });
+      },
+    },
+  };
+}

@@ -15,5 +15,6 @@ export * from "@/lib/api-types/monthly-action-plans";
 export * from "@/lib/api-types/operations";
 export * from "@/lib/api-types/packages";
 export * from "@/lib/api-types/platform";
+export * from "@/lib/api-types/proposals";
 export * from "@/lib/api-types/reports";
 export * from "@/lib/api-types/revenue";

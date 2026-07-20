@@ -24,6 +24,7 @@ import { createGrowthScoresApi } from "@/lib/api-client/growth-scores-api";
 import { createLocationsIntegrationsApi } from "@/lib/api-client/locations-integrations-api";
 import { createOperationsApi } from "@/lib/api-client/operations-api";
 import { createPackagesApi } from "@/lib/api-client/packages-api";
+import { createProposalsApi } from "@/lib/api-client/proposals-api";
 import { createSequencesApi } from "@/lib/api-client/sequences-api";
 import { createSopsApi } from "@/lib/api-client/sops-api";
 
@@ -145,6 +146,10 @@ export type {
   InternalTaskUpdatePayload,
   GrowthPackagePayload,
   GrowthPackageRecord,
+  ProposalListParams,
+  ProposalPayload,
+  ProposalRecord,
+  ProposalStatus,
   GrowthScoreSnapshotList,
   GrowthScoreSnapshotPayload,
   GrowthScoreSnapshotRecord,
@@ -220,6 +225,7 @@ export const api = {
   ...createDeveloperSettingsApi(apiRequest),
   ...createOperationsApi(apiRequest),
   ...createPackagesApi(apiRequest),
+  ...createProposalsApi(apiRequest),
   ...createLocationsIntegrationsApi(apiRequest),
   ...createFormsApi(apiRequest),
   ...createGrowthScoresApi(apiRequest),
