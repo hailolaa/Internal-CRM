@@ -9,6 +9,7 @@ function read(path: string) {
 }
 
 const migration = read("scripts/migrations/20260720_add_internal_proposal_statuses.sql");
+const draftWorkflowMigration = read("scripts/migrations/20260720_add_proposal_draft_workflow.sql");
 const routes = read("src/modules/proposals/proposals.routes.ts");
 const service = read("src/modules/proposals/proposals.service.ts");
 const types = read("src/modules/proposals/proposals.types.ts");
@@ -30,6 +31,12 @@ assert.match(migration, /`follow_up_at`/);
 assert.match(migration, /proposals:read/);
 assert.match(migration, /proposals:write/);
 
+assert.match(draftWorkflowMigration, /`template_key`/);
+assert.match(draftWorkflowMigration, /`recommended_package_id`/);
+assert.match(draftWorkflowMigration, /`section_content`/);
+assert.match(draftWorkflowMigration, /`draft_saved_at`/);
+assert.match(draftWorkflowMigration, /fk_proposal_recommended_package/);
+
 assert.match(routes, /router\.get\(/);
 assert.match(routes, /router\.post\(/);
 assert.match(routes, /router\.patch\(/);
@@ -46,8 +53,13 @@ assert.match(service, /logTimelineActivity/);
 assert.match(service, /source: "proposal"/);
 assert.match(service, /Client account is not available to this workspace/);
 assert.match(service, /followUpAt is required when proposal status is follow_up_due/);
+assert.match(service, /resolveRecommendedPackage/);
+assert.match(service, /Recommended package must be available to this workspace/);
+assert.match(service, /draft_saved_at/);
+assert.match(service, /section_content/);
+assert.match(types, /ProposalSectionContent/);
 
 assert.match(activity, /"proposal"/);
 assert.match(commandPalette, /FROM proposal p/);
 
-console.log("[proposals] MC-031 proposal schema, routes, permissions, timeline and search contract passed");
+console.log("[proposals] MC-031/MC-033 proposal schema, draft workflow, permissions, timeline and search contract passed");

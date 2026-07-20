@@ -347,7 +347,7 @@ export default function ContactDetailPage() {
       { label: "Pipeline", href: "/app/crm/pipeline" },
       { label: "Tasks", href: `/app/crm/tasks?contactId=${encodeURIComponent(contact?.id || "")}` },
       { label: "Audits", href: "/app/ops/growth-scores" },
-      { label: "Proposals", href: "/app/proposals" },
+      { label: "Proposals", href: `/app/crm/proposals/edit?contactId=${encodeURIComponent(contact?.id || "")}&accountName=${encodeURIComponent(contact?.accountName || contact?.name || "")}&packageName=${encodeURIComponent(contact?.recommendedPackage || contact?.packageInterest || contact?.treatmentInterests?.[0] || "")}` },
       { label: "Notes", href: `/app/crm/contacts/detail?id=${encodeURIComponent(contact?.id || "")}#contact-notes` },
     ],
     [contact?.id],
@@ -895,7 +895,7 @@ export default function ContactDetailPage() {
                 ["Notes", "#contact-notes"],
                 ["Tasks", `/app/crm/tasks?contactId=${contact.id}`],
                 ["Audits", `/app/admin?entityId=${contact.id}`],
-                ["Proposals", `/app/crm/pipeline?contactId=${contact.id}&view=proposals`],
+                ["Proposals", `/app/crm/proposals/edit?contactId=${contact.id}&accountName=${encodeURIComponent(contact.accountName || contact.name)}&packageName=${encodeURIComponent(contact.recommendedPackage || contact.packageInterest || contact.treatmentInterests[0] || "")}`],
               ].map(([label, href]) => (
                 <Link key={label} href={href} className="flex items-center justify-between rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-semibold text-[#315f62] transition hover:border-[#a9c7c4] hover:bg-[#edf5f3]">
                   {label}

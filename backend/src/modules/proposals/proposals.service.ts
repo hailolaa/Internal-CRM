@@ -8,6 +8,7 @@ import type {
   ProposalListQuery,
   ProposalMutationDTO,
   ProposalResponse,
+  ProposalSectionContent,
   ProposalStatus,
 } from "./proposals.types.js";
 
@@ -47,6 +48,23 @@ function contactName(row: any) {
   return name || row.contactEmail || row.contactPhone || null;
 }
 
+function parseSectionContent(value: unknown): ProposalSectionContent | null {
+  if (!value) return null;
+  if (typeof value === "object") return value as ProposalSectionContent;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function serializeSectionContent(value: ProposalSectionContent | null | undefined) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return JSON.stringify(value);
+}
+
 function mapProposal(row: any): ProposalResponse {
   const ownerName = [row.ownerFirstName, row.ownerLastName].filter(Boolean).join(" ").trim();
   return {
@@ -55,7 +73,9 @@ function mapProposal(row: any): ProposalResponse {
     dealId: row.dealId || null,
     clientAccountProfileId: row.clientAccountProfileId || null,
     proposalName: row.proposalName,
+    templateKey: row.templateKey || "clinicgrower_standard",
     packageName: row.packageName || null,
+    recommendedPackageId: row.recommendedPackageId || null,
     ownerId: row.ownerId || null,
     ownerName: ownerName || row.ownerEmail || null,
     status: row.status,
@@ -71,6 +91,8 @@ function mapProposal(row: any): ProposalResponse {
     expiresAt: toIso(row.expiresAt),
     proposalUrl: row.proposalUrl || null,
     notes: row.notes || null,
+    sectionContent: parseSectionContent(row.sectionContent),
+    draftSavedAt: toIso(row.draftSavedAt),
     contactName: contactName(row),
     contactEmail: row.contactEmail || null,
     accountName: row.accountName || null,
@@ -89,7 +111,9 @@ function proposalSelectSql() {
                  p.deal_id as dealId,
                  p.client_account_profile_id as clientAccountProfileId,
                  p.proposal_name as proposalName,
+                 p.template_key as templateKey,
                  p.package_name as packageName,
+                 p.recommended_package_id as recommendedPackageId,
                  p.owner_id as ownerId,
                  p.status,
                  p.value,
@@ -104,6 +128,8 @@ function proposalSelectSql() {
                  p.expires_at as expiresAt,
                  p.proposal_url as proposalUrl,
                  p.notes,
+                 p.section_content as sectionContent,
+                 p.draft_saved_at as draftSavedAt,
                  p.created_by as createdBy,
                  p.updated_by as updatedBy,
                  p.created_at as createdAt,
@@ -227,8 +253,12 @@ export class ProposalsService {
 
     const status = data.status || "draft";
     this.validateStatusRequirements(status, data.followUpAt);
+    const recommendedPackage = await this.resolveRecommendedPackage(clinicId, data.recommendedPackageId);
+    const packageName = cleanString(data.packageName) || recommendedPackage?.name || null;
+    const valueCents = data.valueCents ?? recommendedPackage?.priceCents ?? null;
     const id = uuidv4();
     const timestamps = this.getStatusTimestamps(status, data);
+    const draftSavedAt = status === "draft" ? new Date().toISOString().slice(0, 19).replace("T", " ") : null;
 
     const values: any[] = [
       id,
@@ -237,10 +267,12 @@ export class ProposalsService {
       links.dealId,
       links.clientAccountProfileId,
       proposalName,
-      cleanString(data.packageName),
+      cleanString(data.templateKey) || "clinicgrower_standard",
+      packageName,
+      recommendedPackage?.id || null,
       cleanString(data.ownerId) || userId,
       status,
-      centsToValue(data.valueCents),
+      centsToValue(valueCents),
       (cleanString(data.currency) || "GBP").toUpperCase(),
       toMysqlDateTime(data.followUpAt),
       timestamps.readyAt ?? null,
@@ -252,6 +284,8 @@ export class ProposalsService {
       toMysqlDateTime(data.expiresAt),
       cleanString(data.proposalUrl),
       cleanString(data.notes),
+      serializeSectionContent(data.sectionContent),
+      draftSavedAt,
       userId,
       userId,
     ];
@@ -259,10 +293,10 @@ export class ProposalsService {
     await pool.execute(
       `INSERT INTO proposal
         (id, clinic_id, contact_id, deal_id, client_account_profile_id, proposal_name,
-         package_name, owner_id, status, value, currency, follow_up_at, ready_at,
+         template_key, package_name, recommended_package_id, owner_id, status, value, currency, follow_up_at, ready_at,
          sent_at, viewed_at, accepted_at, won_at, lost_at, expires_at, proposal_url,
-         notes, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         notes, section_content, draft_saved_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       values,
     );
 
@@ -278,7 +312,9 @@ export class ProposalsService {
         contactId: links.contactId,
         dealId: links.dealId,
         clientAccountProfileId: links.clientAccountProfileId,
-        packageName: cleanString(data.packageName),
+        templateKey: cleanString(data.templateKey) || "clinicgrower_standard",
+        packageName,
+        recommendedPackageId: recommendedPackage?.id || null,
         ownerId: cleanString(data.ownerId) || userId,
         followUpAt: toMysqlDateTime(data.followUpAt),
       },
@@ -312,6 +348,9 @@ export class ProposalsService {
     const status = data.status || existing.status;
     const followUpAt = data.followUpAt === undefined ? existing.followUpAt : data.followUpAt;
     this.validateStatusRequirements(status, followUpAt);
+    const recommendedPackage = Object.prototype.hasOwnProperty.call(data, "recommendedPackageId")
+      ? await this.resolveRecommendedPackage(clinicId, data.recommendedPackageId)
+      : null;
 
     const fields: string[] = [];
     const values: any[] = [];
@@ -324,14 +363,26 @@ export class ProposalsService {
     add("deal_id", links.dealId);
     add("client_account_profile_id", links.clientAccountProfileId);
     if (Object.prototype.hasOwnProperty.call(data, "proposalName")) add("proposal_name", cleanString(data.proposalName));
-    if (Object.prototype.hasOwnProperty.call(data, "packageName")) add("package_name", cleanString(data.packageName));
+    if (Object.prototype.hasOwnProperty.call(data, "templateKey")) add("template_key", cleanString(data.templateKey) || "clinicgrower_standard");
+    if (Object.prototype.hasOwnProperty.call(data, "recommendedPackageId")) add("recommended_package_id", recommendedPackage?.id || null);
+    if (Object.prototype.hasOwnProperty.call(data, "packageName")) {
+      add("package_name", cleanString(data.packageName) || recommendedPackage?.name || null);
+    } else if (recommendedPackage) {
+      add("package_name", recommendedPackage.name);
+    }
     if (Object.prototype.hasOwnProperty.call(data, "ownerId")) add("owner_id", cleanString(data.ownerId));
     if (Object.prototype.hasOwnProperty.call(data, "status")) add("status", status);
-    if (Object.prototype.hasOwnProperty.call(data, "valueCents")) add("value", centsToValue(data.valueCents));
+    if (Object.prototype.hasOwnProperty.call(data, "valueCents")) {
+      add("value", centsToValue(data.valueCents));
+    } else if (recommendedPackage?.priceCents !== null && recommendedPackage?.priceCents !== undefined) {
+      add("value", centsToValue(recommendedPackage.priceCents));
+    }
     if (Object.prototype.hasOwnProperty.call(data, "currency")) add("currency", (cleanString(data.currency) || "GBP").toUpperCase());
     if (Object.prototype.hasOwnProperty.call(data, "followUpAt")) add("follow_up_at", toMysqlDateTime(data.followUpAt));
     if (Object.prototype.hasOwnProperty.call(data, "proposalUrl")) add("proposal_url", cleanString(data.proposalUrl));
     if (Object.prototype.hasOwnProperty.call(data, "notes")) add("notes", cleanString(data.notes));
+    if (Object.prototype.hasOwnProperty.call(data, "sectionContent")) add("section_content", serializeSectionContent(data.sectionContent));
+    if (status === "draft") add("draft_saved_at", new Date().toISOString().slice(0, 19).replace("T", " "));
 
     const statusTimestamps = this.getStatusTimestamps(status, data, existing);
     for (const [column, value] of Object.entries(statusTimestamps)) {
@@ -485,6 +536,26 @@ export class ProposalsService {
       [userId],
     );
     if (rows.length === 0) throw ApiError.badRequest("Proposal owner must be an active internal user");
+  }
+
+  private async resolveRecommendedPackage(clinicId: string, packageId: unknown) {
+    const cleanPackageId = cleanString(packageId);
+    if (!cleanPackageId) return null;
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              name,
+              price_cents as priceCents,
+              currency
+       FROM growth_package
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+         AND status <> 'archived'
+       LIMIT 1`,
+      [cleanPackageId, clinicId],
+    );
+    if (rows.length === 0) throw ApiError.badRequest("Recommended package must be available to this workspace");
+    return rows[0] as { id: string; name: string; priceCents: number | null; currency: string };
   }
 
   private validateStatusRequirements(status: ProposalStatus, followUpAt: unknown) {

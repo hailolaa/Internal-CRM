@@ -55,6 +55,13 @@ const defaultFeatures = [
   "Internal action plan for the next 30 days",
 ];
 
+function linesFromText(value: string | null | undefined) {
+  return (value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function formatMoney(valueCents: number | null | undefined, currency = "GBP") {
   if (valueCents === null || valueCents === undefined) return "Bespoke";
   return new Intl.NumberFormat("en-GB", {
@@ -92,10 +99,24 @@ export function ClinicGrowerProposalTemplate({
   const packageName = packageRecord?.name || proposal.packageName || "Clinic Growth Plan";
   const currency = packageRecord?.currency || proposal.currency || "GBP";
   const mainPrice = proposal.valueCents ?? packageRecord?.priceCents ?? null;
-  const features = packageRecord?.includedFeatures?.length ? packageRecord.includedFeatures : defaultFeatures;
+  const sectionContent = proposal.sectionContent || {};
+  const features = sectionContent.includedFeatures?.length
+    ? sectionContent.includedFeatures
+    : packageRecord?.includedFeatures?.length
+      ? packageRecord.includedFeatures
+      : defaultFeatures;
   const proposalWording =
+    sectionContent.recommendedPlan ||
     packageRecord?.proposalWording ||
     "This proposal sets out the recommended ClinicGrower plan to improve visibility, conversion, lead handling and measurable growth.";
+  const executiveSummary =
+    sectionContent.executiveSummary ||
+    "This proposal is managed inside Mission Control so ownership, follow-up and sales activity stay attached to the CRM record.";
+  const diagnosisLines = linesFromText(sectionContent.diagnosis);
+  const timelineLines = linesFromText(sectionContent.timeline);
+  const nextStep =
+    sectionContent.nextSteps ||
+    "Review the proposal, confirm fit, then move to acceptance or follow-up.";
 
   return (
     <article className="mx-auto max-w-5xl overflow-hidden rounded-[8px] border border-[#d8e4df] bg-white text-[#1f332f] shadow-sm">
@@ -110,8 +131,7 @@ export function ClinicGrowerProposalTemplate({
               {proposal.proposalName}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-[#4e635d]">
-              Prepared for {accountName}. This proposal is managed inside Mission Control so ownership,
-              follow-up and sales activity stay attached to the CRM record.
+              Prepared for {accountName}. {executiveSummary}
             </p>
           </div>
 
@@ -173,6 +193,19 @@ export function ClinicGrowerProposalTemplate({
             );
           })}
         </div>
+        {diagnosisLines.length ? (
+          <div className="mt-5 rounded-[8px] border border-[#d8e4df] bg-white p-5">
+            <h3 className="text-lg font-semibold text-[#14231f]">Current diagnosis</h3>
+            <ul className="mt-3 space-y-2 text-sm leading-6 text-[#5b7069]">
+              {diagnosisLines.map((line) => (
+                <li key={line} className="flex gap-2">
+                  <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2f7665]" />
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
 
       <section className="grid gap-8 px-6 py-8 sm:px-10 lg:grid-cols-[0.85fr_1.15fr]">
@@ -180,8 +213,8 @@ export function ClinicGrowerProposalTemplate({
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">What is included</p>
           <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">A controlled path from insight to action.</h2>
           <p className="mt-4 text-sm leading-6 text-[#5b7069]">
-            The proposal keeps the commercial plan, owner, follow-up date and CRM activity together so the team
-            is not relying on Better Proposals, email threads or memory.
+            {sectionContent.investmentNotes ||
+              "The proposal keeps the commercial plan, owner, follow-up date and CRM activity together so the team is not relying on Better Proposals, email threads or memory."}
           </p>
         </div>
         <div className="grid gap-3">
@@ -193,6 +226,22 @@ export function ClinicGrowerProposalTemplate({
           ))}
         </div>
       </section>
+
+      {timelineLines.length ? (
+        <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
+          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Delivery timeline</p>
+          <div className="mt-4 grid gap-3">
+            {timelineLines.map((line, index) => (
+              <div key={line} className="flex gap-3 rounded-[8px] border border-[#e2ebe7] p-4">
+                <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full bg-[#315f51] text-sm font-semibold text-white">
+                  {index + 1}
+                </span>
+                <span className="text-sm leading-6 text-[#354943]">{line}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
         <div className="grid gap-4 md:grid-cols-3">
@@ -217,7 +266,7 @@ export function ClinicGrowerProposalTemplate({
       <footer className="flex flex-col gap-4 border-t border-[#d8e4df] bg-[#14231f] px-6 py-6 text-white sm:px-10 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm font-semibold">Next step</p>
-          <p className="mt-1 text-sm text-white/75">Review the proposal, confirm fit, then move to acceptance or follow-up.</p>
+          <p className="mt-1 text-sm text-white/75">{nextStep}</p>
         </div>
         <div className="inline-flex items-center gap-2 text-sm font-semibold">
           Continue in Mission Control

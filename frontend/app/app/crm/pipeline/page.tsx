@@ -23,6 +23,7 @@ import {
   LayoutGrid,
   List,
   ExternalLink,
+  FileText,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -252,6 +253,7 @@ function DealCard({
   onMovePrevious,
   onMoveNext,
   onRemove,
+  onCreateProposal,
 }: {
   deal: PipelineDealData;
   isSelected: boolean;
@@ -266,6 +268,7 @@ function DealCard({
   onMovePrevious: (deal: PipelineDealData) => void;
   onMoveNext: (deal: PipelineDealData) => void;
   onRemove: (deal: PipelineDealData) => void;
+  onCreateProposal: (deal: PipelineDealData) => void;
 }) {
   const followUpOverdue = isFollowUpOverdue(deal.nextFollowUpDate);
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -428,6 +431,18 @@ function DealCard({
           className="py-2 text-xs bg-[rgba(110,106,232,0.08)] text-[#6E6AE8] rounded-xl hover:bg-[rgba(110,106,232,0.15)] flex items-center justify-center gap-1 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ArrowRight className="w-3 h-3" /> {isMoving ? "Moving" : "Next"}
+        </button>
+        <button
+          aria-label={`Create proposal for ${deal.name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onCreateProposal(deal);
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+          className="col-span-2 flex items-center justify-center gap-1 rounded-xl bg-[#315f51] py-2 text-xs font-semibold text-white transition-colors hover:bg-[#24483d]"
+        >
+          <FileText className="h-3 w-3" />
+          Create proposal
         </button>
         <button
           aria-label={`Remove ${deal.name} from pipeline`}
@@ -1070,6 +1085,17 @@ export default function PipelinePage() {
     [findDealStageIndex, handleMoveToStage, orderedStages],
   );
 
+  const openProposalBuilder = useCallback((deal: PipelineDealData) => {
+    const params = new URLSearchParams({
+      dealId: deal.raw.id,
+      contactId: deal.raw.contactId,
+      accountName: deal.name,
+      packageName: deal.treatment || "",
+      proposalName: `${deal.raw.title || deal.name} proposal`,
+    });
+    router.push(`/app/crm/proposals/edit?${params.toString()}`);
+  }, [router]);
+
   const handleRemoveDeal = useCallback(
     async (deal: PipelineDealData) => {
       if (!token || !canWriteContacts || removingDealId) return;
@@ -1471,6 +1497,7 @@ export default function PipelinePage() {
                   onMovePrevious={handleMovePrevious}
                   onMoveNext={handleMoveNext}
                   onRemove={handleRemoveDeal}
+                  onCreateProposal={openProposalBuilder}
                 />
               ))}
               {stage.deals.length === 0 && <button onClick={() => openAddDeal(stage.id)} className="flex min-h-28 w-full items-center justify-center gap-1 rounded-xl border border-dashed border-black/10 text-sm text-[#8B8580]"><Plus className="h-4 w-4" /> No opportunities · Add</button>}
@@ -1503,6 +1530,7 @@ export default function PipelinePage() {
             <div className="mt-6 grid grid-cols-2 gap-2">
               <a href={selectedOpportunity.raw.contactPhone ? `tel:${selectedOpportunity.raw.contactPhone}` : undefined} className="flex items-center justify-center gap-2 rounded-xl border border-black/[0.07] py-3 text-sm font-medium"><Phone className="h-4 w-4" /> Call</a>
               <a href={selectedOpportunity.raw.contactEmail ? `mailto:${selectedOpportunity.raw.contactEmail}` : undefined} className="flex items-center justify-center gap-2 rounded-xl border border-black/[0.07] py-3 text-sm font-medium"><Mail className="h-4 w-4" /> Email</a>
+              <button onClick={() => openProposalBuilder(selectedOpportunity)} className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-[#315f51]/20 bg-[#edf5f3] py-3 text-sm font-semibold text-[#315f51]"><FileText className="h-4 w-4" /> Create proposal</button>
               <button onClick={() => router.push(`/app/crm/contacts/detail?id=${encodeURIComponent(selectedOpportunity.raw.contactId)}`)} className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-[#6E6AE8] py-3 text-sm font-semibold text-white"><ExternalLink className="h-4 w-4" /> Open complete contact record</button>
             </div>
           </aside>

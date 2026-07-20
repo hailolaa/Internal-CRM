@@ -16,7 +16,9 @@ export interface ProposalRecord {
   dealId: string | null;
   clientAccountProfileId: string | null;
   proposalName: string;
+  templateKey: string;
   packageName: string | null;
+  recommendedPackageId: string | null;
   ownerId: string | null;
   ownerName: string | null;
   status: ProposalStatus;
@@ -32,6 +34,8 @@ export interface ProposalRecord {
   expiresAt: string | null;
   proposalUrl: string | null;
   notes: string | null;
+  sectionContent: ProposalSectionContent | null;
+  draftSavedAt: string | null;
   contactName: string | null;
   contactEmail: string | null;
   accountName: string | null;
@@ -41,6 +45,16 @@ export interface ProposalRecord {
   updatedBy: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProposalSectionContent {
+  executiveSummary?: string | null;
+  diagnosis?: string | null;
+  recommendedPlan?: string | null;
+  includedFeatures?: string[];
+  timeline?: string | null;
+  investmentNotes?: string | null;
+  nextSteps?: string | null;
 }
 
 export interface ProposalListParams {
@@ -60,7 +74,9 @@ export interface ProposalPayload {
   dealId?: string | null;
   clientAccountProfileId?: string | null;
   proposalName?: string | null;
+  templateKey?: string | null;
   packageName?: string | null;
+  recommendedPackageId?: string | null;
   ownerId?: string | null;
   status?: ProposalStatus;
   valueCents?: number | null;
@@ -75,4 +91,5 @@ export interface ProposalPayload {
   expiresAt?: string | null;
   proposalUrl?: string | null;
   notes?: string | null;
+  sectionContent?: ProposalSectionContent | null;
 }

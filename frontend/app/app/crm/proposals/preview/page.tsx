@@ -18,7 +18,9 @@ const sampleProposal: ProposalRecord = {
   dealId: null,
   clientAccountProfileId: null,
   proposalName: "Growth Engine Proposal",
+  templateKey: "clinicgrower_standard",
   packageName: "Growth Engine",
+  recommendedPackageId: null,
   ownerId: null,
   ownerName: "ClinicGrower Sales",
   status: "draft",
@@ -34,6 +36,8 @@ const sampleProposal: ProposalRecord = {
   expiresAt: null,
   proposalUrl: null,
   notes: "Internal preview generated from Mission Control.",
+  sectionContent: null,
+  draftSavedAt: null,
   contactName: "Practice Owner",
   contactEmail: "owner@exampleclinic.co.uk",
   accountName: "Example Growth Clinic",
@@ -71,6 +75,10 @@ const samplePackage: GrowthPackageRecord = {
 };
 
 function findMatchingPackage(proposal: ProposalRecord, packages: GrowthPackageRecord[]) {
+  if (proposal.recommendedPackageId) {
+    const selected = packages.find((item) => item.id === proposal.recommendedPackageId);
+    if (selected) return selected;
+  }
   const target = (proposal.packageName || proposal.proposalName || "").toLowerCase();
   return packages.find((item) => target.includes(item.name.toLowerCase()) || item.name.toLowerCase().includes(target)) || null;
 }
@@ -127,11 +135,11 @@ export default function ProposalPreviewPage() {
         right={
           <div className="flex flex-wrap gap-2">
             <Link
-              href="/app/crm/pipeline"
+              href={proposalId ? `/app/crm/proposals/edit?id=${encodeURIComponent(proposalId)}` : "/app/crm/proposals/edit"}
               className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]"
             >
               <ArrowLeft className="h-4 w-4" />
-              Pipeline
+              Edit
             </Link>
             <button
               type="button"
