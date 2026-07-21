@@ -1,65 +1,140 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import test from "node:test";
+import type { AddressInfo } from "node:net";
+import { v4 as uuidv4 } from "uuid";
+import pool, { testConnection } from "../config/database.js";
+import proposalsRoutes from "../modules/proposals/proposals.routes.js";
+import errorHandler from "../middleware/errorHandler.js";
+import { generateToken, hashPassword } from "../utils/helpers.js";
 
-const root = process.cwd();
+type TestUser = { id: string; roleId: string; token: string };
 
-function read(path: string) {
-  return readFileSync(join(root, path), "utf8");
+async function createUser(clinicId: string, roleName: string, permissions: string[]): Promise<TestUser> {
+  const id = uuidv4();
+  const roleId = uuidv4();
+  const email = `${id}@proposal.test`;
+  await pool.execute(
+    "INSERT INTO role (id, clinic_id, name, display_name, is_system) VALUES (?, ?, ?, ?, 0)",
+    [roleId, clinicId, roleName, roleName],
+  );
+  if (permissions.length) {
+    await pool.execute(
+      `INSERT INTO role_permission (role_id, permission_id)
+       SELECT ?, id FROM permission WHERE key_name IN (${permissions.map(() => "?").join(", ")})`,
+      [roleId, ...permissions],
+    );
+  }
+  await pool.execute(
+    `INSERT INTO user
+       (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at, status, is_active)
+     VALUES (?, ?, ?, ?, 'Proposal', 'Tester', ?, CURRENT_TIMESTAMP, 'active', 1)`,
+    [id, clinicId, email, await hashPassword("password123"), roleName],
+  );
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
+    [id, clinicId, roleName],
+  );
+  return { id, roleId, token: generateToken({ userId: id, clinicId, role: roleName, email }) };
 }
 
-const migration = read("scripts/migrations/20260720_add_internal_proposal_statuses.sql");
-const draftWorkflowMigration = read("scripts/migrations/20260720_add_proposal_draft_workflow.sql");
-const routes = read("src/modules/proposals/proposals.routes.ts");
-const service = read("src/modules/proposals/proposals.service.ts");
-const types = read("src/modules/proposals/proposals.types.ts");
-const app = read("src/app.ts");
-const activity = read("src/utils/activity.ts");
-const commandPalette = read("src/modules/command-palette/command-palette.service.ts");
-
-for (const status of ["draft", "ready", "sent", "viewed", "follow_up_due", "accepted", "won", "lost", "expired"]) {
-  assert.match(types, new RegExp(`"${status}"`), `Proposal status ${status} must be in the TypeScript contract`);
-  assert.match(migration, new RegExp(`'${status}'`), `Proposal status ${status} must be in the migration enum`);
+async function request(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+    },
+  });
+  return { response, body: await response.json() as any };
 }
 
-assert.match(migration, /CREATE TABLE `proposal`/);
-assert.match(migration, /`contact_id`/);
-assert.match(migration, /`deal_id`/);
-assert.match(migration, /`client_account_profile_id`/);
-assert.match(migration, /`owner_id`/);
-assert.match(migration, /`follow_up_at`/);
-assert.match(migration, /proposals:read/);
-assert.match(migration, /proposals:write/);
+test("proposal API enforces permissions, persists statuses, and isolates tenants", async () => {
+  await testConnection();
+  await pool.execute(
+    `INSERT IGNORE INTO permission (id, key_name, description) VALUES
+       ('perm-proposals-read', 'proposals:read', 'Read internal proposals'),
+       ('perm-proposals-write', 'proposals:write', 'Create and update internal proposals')`,
+  );
+  const primaryClinicId = uuidv4();
+  const otherClinicId = uuidv4();
+  const contactId = uuidv4();
+  const users: TestUser[] = [];
 
-assert.match(draftWorkflowMigration, /`template_key`/);
-assert.match(draftWorkflowMigration, /`recommended_package_id`/);
-assert.match(draftWorkflowMigration, /`section_content`/);
-assert.match(draftWorkflowMigration, /`draft_saved_at`/);
-assert.match(draftWorkflowMigration, /fk_proposal_recommended_package/);
+  await pool.execute(
+    `INSERT INTO clinic (id, name, email, timezone, subscription_plan, subscription_status, max_users)
+     VALUES (?, 'Proposal Test', ?, 'Europe/London', 'professional', 'active', 10),
+            (?, 'Other Proposal Test', ?, 'Europe/London', 'professional', 'active', 10)`,
+    [primaryClinicId, `${primaryClinicId}@test.local`, otherClinicId, `${otherClinicId}@test.local`],
+  );
 
-assert.match(routes, /router\.get\(/);
-assert.match(routes, /router\.post\(/);
-assert.match(routes, /router\.patch\(/);
-assert.match(routes, /authorizeAnyPermission\("proposals:read"/);
-assert.match(routes, /authorizeAnyPermission\("proposals:write"/);
+  const writer = await createUser(primaryClinicId, `PROPOSAL_WRITER_${Date.now()}`, ["proposals:read", "proposals:write"]);
+  const contactsOnly = await createUser(primaryClinicId, `CONTACT_WRITER_${Date.now()}`, ["contacts:read", "contacts:write"]);
+  const otherWriter = await createUser(otherClinicId, `OTHER_PROPOSAL_WRITER_${Date.now()}`, ["proposals:read", "proposals:write"]);
+  users.push(writer, contactsOnly, otherWriter);
 
-assert.match(app, /proposalsRoutes/);
-assert.match(app, /app\.use\("\/api\/proposals", proposalsRoutes\)/);
+  await pool.execute(
+    `INSERT INTO contact (id, clinic_id, first_name, last_name, email, status, lead_status, source)
+     VALUES (?, ?, 'Week', 'Two', ?, 'lead', 'qualified', 'referral')`,
+    [contactId, primaryClinicId, `${contactId}@test.local`],
+  );
 
-assert.match(service, /resolveProposalLinks/);
-assert.match(service, /proposal_created/);
-assert.match(service, /proposal_status_changed/);
-assert.match(service, /logTimelineActivity/);
-assert.match(service, /source: "proposal"/);
-assert.match(service, /Client account is not available to this workspace/);
-assert.match(service, /followUpAt is required when proposal status is follow_up_due/);
-assert.match(service, /resolveRecommendedPackage/);
-assert.match(service, /Recommended package must be available to this workspace/);
-assert.match(service, /draft_saved_at/);
-assert.match(service, /section_content/);
-assert.match(types, /ProposalSectionContent/);
+  const expressModule = await import("express") as any;
+  const app = expressModule.default();
+  app.use(expressModule.default.json());
+  app.use("/api/proposals", proposalsRoutes);
+  app.use(errorHandler);
+  const server = app.listen(0);
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Could not start proposal test server");
+  const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
 
-assert.match(activity, /"proposal"/);
-assert.match(commandPalette, /FROM proposal p/);
+  try {
+    const forbidden = await request(baseUrl, "/api/proposals", contactsOnly.token);
+    assert.equal(forbidden.response.status, 403, "contact permissions must not grant proposal access");
 
-console.log("[proposals] MC-031/MC-033 proposal schema, draft workflow, permissions, timeline and search contract passed");
+    const created = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        contactId,
+        proposalName: "Week 2 API proposal",
+        status: "ready",
+        valueCents: 125000,
+        currency: "GBP",
+      }),
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.data.status, "ready");
+    assert.equal(created.body.data.valueCents, 125000);
+    assert.ok(created.body.data.readyAt);
+    const updated = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "follow_up_due", followUpAt: "2026-07-24T09:00:00.000Z" }),
+    });
+    assert.equal(updated.response.status, 200);
+    assert.equal(updated.body.data.status, "follow_up_due");
+    assert.equal(updated.body.data.contactId, contactId);
+
+    const crossTenant = await request(baseUrl, `/api/proposals/${created.body.data.id}`, otherWriter.token);
+    assert.equal(crossTenant.response.status, 404);
+
+    const archived = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token, { method: "DELETE" });
+    assert.equal(archived.response.status, 200);
+    const missing = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token);
+    assert.equal(missing.response.status, 404);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await pool.execute("DELETE FROM audit_log WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+    await pool.execute("DELETE FROM activity WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+    await pool.execute("DELETE FROM proposal WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+    await pool.execute("DELETE FROM contact WHERE id = ?", [contactId]);
+    for (const user of users) {
+      await pool.execute("DELETE FROM clinic_membership WHERE user_id = ?", [user.id]);
+      await pool.execute("DELETE FROM user WHERE id = ?", [user.id]);
+      await pool.execute("DELETE FROM role_permission WHERE role_id = ?", [user.roleId]);
+      await pool.execute("DELETE FROM role WHERE id = ?", [user.roleId]);
+    }
+    await pool.execute("DELETE FROM clinic WHERE id IN (?, ?)", [primaryClinicId, otherClinicId]);
+    await pool.end();
+  }
+});
