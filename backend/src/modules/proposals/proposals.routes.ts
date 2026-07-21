@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
-import { authorizePermission } from "../../middleware/authorize.js";
+import { authorizeAnyPermission, authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
 import { proposalsController } from "./proposals.controller.js";
 import {

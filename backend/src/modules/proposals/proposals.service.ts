@@ -4,6 +4,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
 import type {
+  ProposalCommercialItem,
   ProposalLinkAccess,
   ProposalListQuery,
   ProposalMutationDTO,
@@ -31,6 +32,20 @@ function toMysqlDateTime(value: unknown) {
 function toIso(value: unknown) {
   if (!value) return null;
   return new Date(value as string).toISOString();
+}
+
+function toDateOnly(value: unknown) {
+  if (!value) return null;
+  const parsed = new Date(value as string);
+  if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function toMysqlDateOnly(value: unknown) {
+  if (!value) return null;
+  const parsed = new Date(value as string);
+  if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
 }
 
 function centsToValue(value: unknown) {
@@ -65,6 +80,40 @@ function serializeSectionContent(value: ProposalSectionContent | null | undefine
   if (value === undefined) return undefined;
   if (value === null) return null;
   return JSON.stringify(value);
+}
+
+function parseCommercialItems(value: unknown): ProposalCommercialItem[] {
+  if (!value) return [];
+  try {
+    const raw = typeof value === "object" ? value : JSON.parse(String(value));
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item) => {
+        if (typeof item === "string") return { name: item, amountCents: null, note: null };
+        return {
+          name: cleanString(item?.name) || "",
+          amountCents: item?.amountCents === null || item?.amountCents === undefined ? null : Number(item.amountCents),
+          note: cleanString(item?.note),
+        };
+      })
+      .filter((item) => item.name);
+  } catch {
+    return [];
+  }
+}
+
+function serializeCommercialItems(value: ProposalCommercialItem[] | null | undefined) {
+  if (value === undefined) return undefined;
+  if (!value) return null;
+  return JSON.stringify(
+    value
+      .map((item) => ({
+        name: cleanString(item.name) || "",
+        amountCents: item.amountCents === null || item.amountCents === undefined ? null : Number(item.amountCents),
+        note: cleanString(item.note),
+      }))
+      .filter((item) => item.name),
+  );
 }
 
 function parseJsonObject(value: unknown) {
@@ -167,7 +216,14 @@ function mapProposal(row: any): ProposalResponse {
     ownerName: ownerName || row.ownerEmail || null,
     status: row.status,
     valueCents: valueToCents(row.value),
+    monthlyFeeCents: numberOrNull(row.monthlyFeeCents),
+    setupFeeCents: numberOrNull(row.setupFeeCents),
     currency: row.currency || "GBP",
+    adSpendNote: row.adSpendNote || null,
+    vatStatus: row.vatStatus || null,
+    minimumTermMonths: numberOrNull(row.minimumTermMonths),
+    noticePeriodDays: numberOrNull(row.noticePeriodDays),
+    startDate: toDateOnly(row.startDate),
     followUpAt: toIso(row.followUpAt),
     readyAt: toIso(row.readyAt),
     sentAt: toIso(row.sentAt),
@@ -178,6 +234,9 @@ function mapProposal(row: any): ProposalResponse {
     expiresAt: toIso(row.expiresAt),
     proposalUrl: row.proposalUrl || null,
     notes: row.notes || null,
+    addOns: parseCommercialItems(row.addOns),
+    discounts: parseCommercialItems(row.discounts),
+    internalMarginNote: row.internalMarginNote || null,
     sectionContent: parseSectionContent(row.sectionContent),
     draftSavedAt: toIso(row.draftSavedAt),
     contactName: contactName(row),
@@ -204,7 +263,14 @@ function proposalSelectSql() {
                  p.owner_id as ownerId,
                  p.status,
                  p.value,
+                 p.monthly_fee_cents as monthlyFeeCents,
+                 p.setup_fee_cents as setupFeeCents,
                  p.currency,
+                 p.ad_spend_note as adSpendNote,
+                 p.vat_status as vatStatus,
+                 p.minimum_term_months as minimumTermMonths,
+                 p.notice_period_days as noticePeriodDays,
+                 p.start_date as startDate,
                  p.follow_up_at as followUpAt,
                  p.ready_at as readyAt,
                  p.sent_at as sentAt,
@@ -215,6 +281,9 @@ function proposalSelectSql() {
                  p.expires_at as expiresAt,
                  p.proposal_url as proposalUrl,
                  p.notes,
+                 p.add_ons as addOns,
+                 p.discounts,
+                 p.internal_margin_note as internalMarginNote,
                  p.section_content as sectionContent,
                  p.draft_saved_at as draftSavedAt,
                  p.created_by as createdBy,
@@ -415,7 +484,12 @@ export class ProposalsService {
       packageName,
       recommendedPackageId: packageRecord?.id || null,
       valueCents: packageValueCents ?? dealValueCents,
+      monthlyFeeCents: packageRecord?.billingFrequency === "monthly" ? packageValueCents : null,
+      setupFeeCents: packageRecord?.setupFeeCents ?? null,
       currency: packageRecord?.currency || "GBP",
+      adSpendNote: packageName && /growth engine|market leader/i.test(packageName)
+        ? "Ad spend is managed separately and agreed before campaign launch."
+        : null,
       sectionContent: {
         executiveSummary: `Prepared for ${accountName}${contactName ? ` (${contactName})` : ""}. This proposal uses the CRM record, audit status and Growth Score data already held in Mission Control.`,
         diagnosis: diagnosisLines || null,
@@ -479,7 +553,9 @@ export class ProposalsService {
         id: packageRecord?.id || null,
         name: packageRecord?.name || null,
         priceCents: packageValueCents,
+        setupFeeCents: packageRecord?.setupFeeCents ?? null,
         currency: packageRecord?.currency || null,
+        billingFrequency: packageRecord?.billingFrequency || null,
         includedFeatures: packageRecord?.includedFeatures || [],
         proposalWording: packageRecord?.proposalWording || null,
       },
@@ -502,6 +578,8 @@ export class ProposalsService {
     const recommendedPackage = await this.resolveRecommendedPackage(clinicId, data.recommendedPackageId);
     const packageName = cleanString(data.packageName) || recommendedPackage?.name || null;
     const valueCents = data.valueCents ?? recommendedPackage?.priceCents ?? null;
+    const monthlyFeeCents = data.monthlyFeeCents ?? (recommendedPackage?.billingFrequency === "monthly" ? recommendedPackage?.priceCents : null);
+    const setupFeeCents = data.setupFeeCents ?? recommendedPackage?.setupFeeCents ?? null;
     const id = uuidv4();
     const timestamps = this.getStatusTimestamps(status, data);
     const draftSavedAt = status === "draft" ? new Date().toISOString().slice(0, 19).replace("T", " ") : null;
@@ -519,7 +597,14 @@ export class ProposalsService {
       cleanString(data.ownerId) || userId,
       status,
       centsToValue(valueCents),
+      monthlyFeeCents,
+      setupFeeCents,
       (cleanString(data.currency) || "GBP").toUpperCase(),
+      cleanString(data.adSpendNote),
+      cleanString(data.vatStatus),
+      data.minimumTermMonths ?? null,
+      data.noticePeriodDays ?? null,
+      toMysqlDateOnly(data.startDate),
       toMysqlDateTime(data.followUpAt),
       timestamps.readyAt ?? null,
       timestamps.sentAt ?? null,
@@ -530,6 +615,9 @@ export class ProposalsService {
       toMysqlDateTime(data.expiresAt),
       cleanString(data.proposalUrl),
       cleanString(data.notes),
+      serializeCommercialItems(data.addOns) ?? null,
+      serializeCommercialItems(data.discounts) ?? null,
+      cleanString(data.internalMarginNote),
       serializeSectionContent(data.sectionContent) ?? null,
       draftSavedAt,
       userId,
@@ -539,10 +627,12 @@ export class ProposalsService {
     await pool.execute(
       `INSERT INTO proposal
         (id, clinic_id, contact_id, deal_id, client_account_profile_id, proposal_name,
-         template_key, package_name, recommended_package_id, owner_id, status, value, currency, follow_up_at, ready_at,
+         template_key, package_name, recommended_package_id, owner_id, status, value,
+         monthly_fee_cents, setup_fee_cents, currency, ad_spend_note, vat_status,
+         minimum_term_months, notice_period_days, start_date, follow_up_at, ready_at,
          sent_at, viewed_at, accepted_at, won_at, lost_at, expires_at, proposal_url,
-         notes, section_content, draft_saved_at, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         notes, add_ons, discounts, internal_margin_note, section_content, draft_saved_at, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       values,
     );
 
@@ -561,6 +651,15 @@ export class ProposalsService {
         templateKey: cleanString(data.templateKey) || "clinicgrower_standard",
         packageName,
         recommendedPackageId: recommendedPackage?.id || null,
+        monthlyFeeCents,
+        setupFeeCents,
+        adSpendNote: cleanString(data.adSpendNote),
+        vatStatus: cleanString(data.vatStatus),
+        minimumTermMonths: data.minimumTermMonths ?? null,
+        noticePeriodDays: data.noticePeriodDays ?? null,
+        startDate: toMysqlDateOnly(data.startDate),
+        addOns: data.addOns || [],
+        discounts: data.discounts || [],
         ownerId: cleanString(data.ownerId) || userId,
         followUpAt: toMysqlDateTime(data.followUpAt),
       },
@@ -623,11 +722,29 @@ export class ProposalsService {
     } else if (recommendedPackage?.priceCents !== null && recommendedPackage?.priceCents !== undefined) {
       add("value", centsToValue(recommendedPackage.priceCents));
     }
+    if (Object.prototype.hasOwnProperty.call(data, "monthlyFeeCents")) {
+      add("monthly_fee_cents", data.monthlyFeeCents ?? null);
+    } else if (recommendedPackage?.billingFrequency === "monthly" && recommendedPackage?.priceCents !== null && recommendedPackage?.priceCents !== undefined) {
+      add("monthly_fee_cents", recommendedPackage.priceCents);
+    }
+    if (Object.prototype.hasOwnProperty.call(data, "setupFeeCents")) {
+      add("setup_fee_cents", data.setupFeeCents ?? null);
+    } else if (recommendedPackage?.setupFeeCents !== null && recommendedPackage?.setupFeeCents !== undefined) {
+      add("setup_fee_cents", recommendedPackage.setupFeeCents);
+    }
     if (Object.prototype.hasOwnProperty.call(data, "currency")) add("currency", (cleanString(data.currency) || "GBP").toUpperCase());
+    if (Object.prototype.hasOwnProperty.call(data, "adSpendNote")) add("ad_spend_note", cleanString(data.adSpendNote));
+    if (Object.prototype.hasOwnProperty.call(data, "vatStatus")) add("vat_status", cleanString(data.vatStatus));
+    if (Object.prototype.hasOwnProperty.call(data, "minimumTermMonths")) add("minimum_term_months", data.minimumTermMonths ?? null);
+    if (Object.prototype.hasOwnProperty.call(data, "noticePeriodDays")) add("notice_period_days", data.noticePeriodDays ?? null);
+    if (Object.prototype.hasOwnProperty.call(data, "startDate")) add("start_date", toMysqlDateOnly(data.startDate));
     if (Object.prototype.hasOwnProperty.call(data, "followUpAt")) add("follow_up_at", toMysqlDateTime(data.followUpAt));
     if (Object.prototype.hasOwnProperty.call(data, "proposalUrl")) add("proposal_url", cleanString(data.proposalUrl));
     if (Object.prototype.hasOwnProperty.call(data, "notes")) add("notes", cleanString(data.notes));
-    if (Object.prototype.hasOwnProperty.call(data, "sectionContent")) add("section_content", serializeSectionContent(data.sectionContent));
+    if (Object.prototype.hasOwnProperty.call(data, "addOns")) add("add_ons", serializeCommercialItems(data.addOns) ?? null);
+    if (Object.prototype.hasOwnProperty.call(data, "discounts")) add("discounts", serializeCommercialItems(data.discounts) ?? null);
+    if (Object.prototype.hasOwnProperty.call(data, "internalMarginNote")) add("internal_margin_note", cleanString(data.internalMarginNote));
+    if (Object.prototype.hasOwnProperty.call(data, "sectionContent")) add("section_content", serializeSectionContent(data.sectionContent) ?? null);
     if (status === "draft") add("draft_saved_at", new Date().toISOString().slice(0, 19).replace("T", " "));
 
     const statusTimestamps = this.getStatusTimestamps(status, data, existing);
@@ -872,7 +989,9 @@ export class ProposalsService {
       `SELECT id,
               name,
               price_cents as priceCents,
+              setup_fee_cents as setupFeeCents,
               currency,
+              billing_frequency as billingFrequency,
               included_features as includedFeatures,
               proposal_wording as proposalWording
        FROM growth_package
@@ -892,7 +1011,9 @@ export class ProposalsService {
       id: rows[0].id,
       name: rows[0].name,
       priceCents: rows[0].priceCents === null || rows[0].priceCents === undefined ? null : Number(rows[0].priceCents),
+      setupFeeCents: rows[0].setupFeeCents === null || rows[0].setupFeeCents === undefined ? null : Number(rows[0].setupFeeCents),
       currency: rows[0].currency || "GBP",
+      billingFrequency: rows[0].billingFrequency || null,
       includedFeatures: parseJsonArray(rows[0].includedFeatures),
       proposalWording: rows[0].proposalWording || null,
     };
@@ -919,6 +1040,8 @@ export class ProposalsService {
       `SELECT id,
               name,
               price_cents as priceCents,
+              setup_fee_cents as setupFeeCents,
+              billing_frequency as billingFrequency,
               currency
        FROM growth_package
        WHERE id = ?
@@ -929,7 +1052,7 @@ export class ProposalsService {
       [cleanPackageId, clinicId],
     );
     if (rows.length === 0) throw ApiError.badRequest("Recommended package must be available to this workspace");
-    return rows[0] as { id: string; name: string; priceCents: number | null; currency: string };
+    return rows[0] as { id: string; name: string; priceCents: number | null; setupFeeCents: number | null; billingFrequency: string | null; currency: string };
   }
 
   private validateStatusRequirements(status: ProposalStatus, followUpAt: unknown) {

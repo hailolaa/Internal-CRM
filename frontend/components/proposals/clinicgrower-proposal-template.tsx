@@ -99,6 +99,8 @@ export function ClinicGrowerProposalTemplate({
   const packageName = packageRecord?.name || proposal.packageName || "Clinic Growth Plan";
   const currency = packageRecord?.currency || proposal.currency || "GBP";
   const mainPrice = proposal.valueCents ?? packageRecord?.priceCents ?? null;
+  const monthlyFee = proposal.monthlyFeeCents ?? (packageRecord?.billingFrequency === "monthly" ? packageRecord?.priceCents : null);
+  const setupFee = proposal.setupFeeCents ?? packageRecord?.setupFeeCents ?? null;
   const sectionContent = proposal.sectionContent || {};
   const features = sectionContent.includedFeatures?.length
     ? sectionContent.includedFeatures
@@ -171,12 +173,63 @@ export function ClinicGrowerProposalTemplate({
         </div>
         <div className="rounded-[8px] border border-[#d8e4df] bg-[#f8fbf9] p-5">
           <p className="text-sm font-semibold text-[#5b7069]">Investment</p>
-          <p className="mt-3 text-3xl font-semibold text-[#14231f]">{formatMoney(mainPrice, currency)}</p>
+          <p className="mt-3 text-3xl font-semibold text-[#14231f]">{formatMoney(monthlyFee ?? mainPrice, currency)}</p>
           <p className="mt-1 text-sm capitalize text-[#5b7069]">{formatBilling(packageRecord?.billingFrequency)}</p>
-          {packageRecord?.setupFeeCents ? (
-            <p className="mt-3 text-sm text-[#5b7069]">Setup: {formatMoney(packageRecord.setupFeeCents, currency)}</p>
+          {setupFee ? (
+            <p className="mt-3 text-sm text-[#5b7069]">Setup: {formatMoney(setupFee, currency)}</p>
+          ) : null}
+          {proposal.adSpendNote ? (
+            <p className="mt-3 text-sm leading-6 text-[#5b7069]">{proposal.adSpendNote}</p>
           ) : null}
         </div>
+      </section>
+
+      <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
+        <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Commercial terms</p>
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {[
+            ["Monthly fee", formatMoney(monthlyFee, currency)],
+            ["Setup fee", formatMoney(setupFee, currency)],
+            ["VAT", proposal.vatStatus ? proposal.vatStatus.replace(/_/g, " ") : "To be confirmed"],
+            ["Minimum term", proposal.minimumTermMonths ? `${proposal.minimumTermMonths} months` : "To be agreed"],
+            ["Notice period", proposal.noticePeriodDays ? `${proposal.noticePeriodDays} days` : "To be agreed"],
+            ["Start date", proposal.startDate ? formatDate(proposal.startDate) : "To be agreed"],
+            ["Expiry date", proposal.expiresAt ? formatDate(proposal.expiresAt) : "To be agreed"],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-[8px] border border-[#e2ebe7] bg-[#f8fbf9] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">{label}</p>
+              <p className="mt-2 text-sm font-semibold capitalize text-[#14231f]">{value}</p>
+            </div>
+          ))}
+        </div>
+        {proposal.addOns.length || proposal.discounts.length ? (
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {proposal.addOns.length ? (
+              <div className="rounded-[8px] border border-[#e2ebe7] p-4">
+                <h3 className="text-sm font-semibold text-[#14231f]">Optional add-ons</h3>
+                <ul className="mt-3 space-y-2 text-sm text-[#5b7069]">
+                  {proposal.addOns.map((item) => (
+                    <li key={`${item.name}-${item.amountCents || ""}`}>
+                      {item.name}{item.amountCents ? ` - ${formatMoney(item.amountCents, currency)}` : ""}{item.note ? ` (${item.note})` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {proposal.discounts.length ? (
+              <div className="rounded-[8px] border border-[#e2ebe7] p-4">
+                <h3 className="text-sm font-semibold text-[#14231f]">Discounts</h3>
+                <ul className="mt-3 space-y-2 text-sm text-[#5b7069]">
+                  {proposal.discounts.map((item) => (
+                    <li key={`${item.name}-${item.amountCents || ""}`}>
+                      {item.name}{item.amountCents ? ` - ${formatMoney(item.amountCents, currency)}` : ""}{item.note ? ` (${item.note})` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="border-y border-[#d8e4df] bg-[#f8fbf9] px-6 py-8 sm:px-10">

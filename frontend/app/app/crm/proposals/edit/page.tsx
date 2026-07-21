@@ -9,7 +9,7 @@ import { SubNav } from "@/components/sub-nav";
 import { SALES_NAV } from "@/lib/section-nav";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { GrowthPackageRecord, ProposalPayload, ProposalRecord, ProposalSectionContent, ProposalSourceDataRecord } from "@/lib/api-types";
+import type { GrowthPackageRecord, ProposalCommercialItem, ProposalPayload, ProposalRecord, ProposalSectionContent, ProposalSourceDataRecord } from "@/lib/api-types";
 
 const proposalTemplates = [
   {
@@ -50,12 +50,22 @@ type ProposalForm = {
   recommendedPackageId: string;
   packageName: string;
   value: string;
+  monthlyFee: string;
+  setupFee: string;
   currency: string;
+  adSpendNote: string;
+  vatStatus: string;
+  minimumTermMonths: string;
+  noticePeriodDays: string;
+  startDate: string;
   status: ProposalPayload["status"];
   followUpAt: string;
   expiresAt: string;
   proposalUrl: string;
   notes: string;
+  addOns: string;
+  discounts: string;
+  internalMarginNote: string;
   executiveSummary: string;
   diagnosis: string;
   recommendedPlan: string;
@@ -89,6 +99,34 @@ function centsFromMoney(value: string) {
   return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric * 100) : null;
 }
 
+function intOrNull(value: string) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
+}
+
+function commercialItemsFromText(value: string): ProposalCommercialItem[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [namePart, amountPart, notePart] = line.split("|").map((part) => part.trim());
+      return {
+        name: namePart,
+        amountCents: amountPart ? centsFromMoney(amountPart) : null,
+        note: notePart || null,
+      };
+    });
+}
+
+function commercialItemsToText(items: ProposalCommercialItem[] | null | undefined) {
+  return (items || [])
+    .map((item) => [item.name, item.amountCents === null || item.amountCents === undefined ? "" : String(item.amountCents / 100), item.note || ""]
+      .filter((part, index) => index === 0 || part)
+      .join(" | "))
+    .join("\n");
+}
+
 function sectionContentFromForm(form: ProposalForm): ProposalSectionContent {
   return {
     executiveSummary: form.executiveSummary.trim() || null,
@@ -115,12 +153,22 @@ function formFromProposal(proposal: ProposalRecord): ProposalForm {
     recommendedPackageId: proposal.recommendedPackageId || "",
     packageName: proposal.packageName || "",
     value: moneyFromCents(proposal.valueCents),
+    monthlyFee: moneyFromCents(proposal.monthlyFeeCents),
+    setupFee: moneyFromCents(proposal.setupFeeCents),
     currency: proposal.currency || "GBP",
+    adSpendNote: proposal.adSpendNote || "",
+    vatStatus: proposal.vatStatus || "",
+    minimumTermMonths: proposal.minimumTermMonths === null || proposal.minimumTermMonths === undefined ? "" : String(proposal.minimumTermMonths),
+    noticePeriodDays: proposal.noticePeriodDays === null || proposal.noticePeriodDays === undefined ? "" : String(proposal.noticePeriodDays),
+    startDate: proposal.startDate || "",
     status: proposal.status,
     followUpAt: toDateTimeLocal(proposal.followUpAt),
     expiresAt: toDateTimeLocal(proposal.expiresAt),
     proposalUrl: proposal.proposalUrl || "",
     notes: proposal.notes || "",
+    addOns: commercialItemsToText(proposal.addOns),
+    discounts: commercialItemsToText(proposal.discounts),
+    internalMarginNote: proposal.internalMarginNote || "",
     executiveSummary: sections.executiveSummary || "",
     diagnosis: sections.diagnosis || "",
     recommendedPlan: sections.recommendedPlan || "",
@@ -143,12 +191,22 @@ function createInitialForm(searchParams: URLSearchParams): ProposalForm {
     recommendedPackageId: searchParams.get("recommendedPackageId") || "",
     packageName,
     value: "",
+    monthlyFee: "",
+    setupFee: "",
     currency: "GBP",
+    adSpendNote: "",
+    vatStatus: "",
+    minimumTermMonths: "",
+    noticePeriodDays: "",
+    startDate: "",
     status: "draft",
     followUpAt: "",
     expiresAt: "",
     proposalUrl: "",
     notes: "",
+    addOns: "",
+    discounts: "",
+    internalMarginNote: "",
     executiveSummary: "",
     diagnosis: "",
     recommendedPlan: "",
@@ -186,7 +244,10 @@ function formWithSourceData(current: ProposalForm, sourceData: ProposalSourceDat
     recommendedPackageId: mergeIfBlank(current.recommendedPackageId, suggested.recommendedPackageId),
     packageName: mergeIfBlank(current.packageName, suggested.packageName),
     value: mergeIfBlank(current.value, moneyFromCents(suggested.valueCents)),
+    monthlyFee: mergeIfBlank(current.monthlyFee, moneyFromCents(suggested.monthlyFeeCents)),
+    setupFee: mergeIfBlank(current.setupFee, moneyFromCents(suggested.setupFeeCents)),
     currency: current.currency || suggested.currency || "GBP",
+    adSpendNote: mergeIfBlank(current.adSpendNote, suggested.adSpendNote),
     executiveSummary: mergeIfBlank(current.executiveSummary, sections.executiveSummary),
     diagnosis: mergeIfBlank(current.diagnosis, sections.diagnosis),
     recommendedPlan: mergeIfBlank(current.recommendedPlan, sections.recommendedPlan),
@@ -264,6 +325,12 @@ export default function ProposalEditPage() {
       value: packageRecord?.priceCents === null || packageRecord?.priceCents === undefined
         ? form.value
         : moneyFromCents(packageRecord.priceCents),
+      monthlyFee: packageRecord?.billingFrequency === "monthly" && packageRecord.priceCents !== null && packageRecord.priceCents !== undefined
+        ? moneyFromCents(packageRecord.priceCents)
+        : form.monthlyFee,
+      setupFee: packageRecord?.setupFeeCents === null || packageRecord?.setupFeeCents === undefined
+        ? form.setupFee
+        : moneyFromCents(packageRecord.setupFeeCents),
       currency: packageRecord?.currency || form.currency || "GBP",
       recommendedPlan: form.recommendedPlan || packageRecord?.proposalWording || "",
       includedFeatures: form.includedFeatures || (packageRecord?.includedFeatures || []).join("\n"),
@@ -307,11 +374,21 @@ export default function ProposalEditPage() {
     packageName: form.packageName.trim() || selectedPackage?.name || null,
     status: statusOverride || form.status || "draft",
     valueCents: centsFromMoney(form.value),
+    monthlyFeeCents: centsFromMoney(form.monthlyFee),
+    setupFeeCents: centsFromMoney(form.setupFee),
     currency: form.currency.trim() || "GBP",
+    adSpendNote: form.adSpendNote.trim() || null,
+    vatStatus: form.vatStatus.trim() || null,
+    minimumTermMonths: intOrNull(form.minimumTermMonths),
+    noticePeriodDays: intOrNull(form.noticePeriodDays),
+    startDate: form.startDate || null,
     followUpAt: fromDateTimeLocal(form.followUpAt),
     expiresAt: fromDateTimeLocal(form.expiresAt),
     proposalUrl: form.proposalUrl.trim() || null,
     notes: form.notes.trim() || null,
+    addOns: commercialItemsFromText(form.addOns),
+    discounts: commercialItemsFromText(form.discounts),
+    internalMarginNote: form.internalMarginNote.trim() || null,
     sectionContent: sectionContentFromForm(form),
   });
 
@@ -516,6 +593,128 @@ export default function ProposalEditPage() {
                         />
                       </label>
                     </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
+                  <h2 className="text-base font-semibold text-[#14231f]">Commercial terms</h2>
+                  <p className="mt-1 text-sm text-[#5b7069]">Structured pricing fields for reporting and finance review.</p>
+                  <div className="mt-5 space-y-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Monthly fee
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={form.monthlyFee}
+                          onChange={(event) => updateForm({ monthlyFee: event.target.value })}
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Setup fee
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={form.setupFee}
+                          onChange={(event) => updateForm({ setupFee: event.target.value })}
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                    </div>
+
+                    <label className="block text-sm font-medium text-[#354943]">
+                      Ad spend note
+                      <textarea
+                        rows={3}
+                        value={form.adSpendNote}
+                        onChange={(event) => updateForm({ adSpendNote: event.target.value })}
+                        className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
+                    </label>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="block text-sm font-medium text-[#354943]">
+                        VAT status
+                        <select
+                          value={form.vatStatus}
+                          onChange={(event) => updateForm({ vatStatus: event.target.value })}
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        >
+                          <option value="">Not set</option>
+                          <option value="plus_vat">Plus VAT</option>
+                          <option value="vat_included">VAT included</option>
+                          <option value="vat_exempt">VAT exempt</option>
+                          <option value="not_vat_registered">Not VAT registered</option>
+                        </select>
+                      </label>
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Start date
+                        <input
+                          type="date"
+                          value={form.startDate}
+                          onChange={(event) => updateForm({ startDate: event.target.value })}
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Minimum term months
+                        <input
+                          type="number"
+                          min="0"
+                          value={form.minimumTermMonths}
+                          onChange={(event) => updateForm({ minimumTermMonths: event.target.value })}
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Notice period days
+                        <input
+                          type="number"
+                          min="0"
+                          value={form.noticePeriodDays}
+                          onChange={(event) => updateForm({ noticePeriodDays: event.target.value })}
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                    </div>
+
+                    <label className="block text-sm font-medium text-[#354943]">
+                      Add-ons
+                      <textarea
+                        rows={3}
+                        value={form.addOns}
+                        onChange={(event) => updateForm({ addOns: event.target.value })}
+                        placeholder="One per line, e.g. Landing page | 750 | Optional launch asset"
+                        className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
+                    </label>
+
+                    <label className="block text-sm font-medium text-[#354943]">
+                      Discounts
+                      <textarea
+                        rows={3}
+                        value={form.discounts}
+                        onChange={(event) => updateForm({ discounts: event.target.value })}
+                        placeholder="One per line, e.g. Founder discount | 500 | First 3 months"
+                        className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
+                    </label>
+
+                    <label className="block text-sm font-medium text-[#354943]">
+                      Internal margin note
+                      <textarea
+                        rows={3}
+                        value={form.internalMarginNote}
+                        onChange={(event) => updateForm({ internalMarginNote: event.target.value })}
+                        className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-[#fff8ed] px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
+                    </label>
                   </div>
                 </div>
 

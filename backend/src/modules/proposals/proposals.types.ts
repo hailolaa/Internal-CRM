@@ -28,7 +28,14 @@ export interface ProposalMutationDTO {
   ownerId?: string | null;
   status?: ProposalStatus;
   valueCents?: number | null;
+  monthlyFeeCents?: number | null;
+  setupFeeCents?: number | null;
   currency?: string | null;
+  adSpendNote?: string | null;
+  vatStatus?: string | null;
+  minimumTermMonths?: number | null;
+  noticePeriodDays?: number | null;
+  startDate?: string | Date | null;
   followUpAt?: string | Date | null;
   readyAt?: string | Date | null;
   sentAt?: string | Date | null;
@@ -39,6 +46,9 @@ export interface ProposalMutationDTO {
   expiresAt?: string | Date | null;
   proposalUrl?: string | null;
   notes?: string | null;
+  addOns?: ProposalCommercialItem[] | null;
+  discounts?: ProposalCommercialItem[] | null;
+  internalMarginNote?: string | null;
   sectionContent?: ProposalSectionContent | null;
 }
 
@@ -73,7 +83,14 @@ export interface ProposalResponse {
   ownerName: string | null;
   status: ProposalStatus;
   valueCents: number | null;
+  monthlyFeeCents: number | null;
+  setupFeeCents: number | null;
   currency: string;
+  adSpendNote: string | null;
+  vatStatus: string | null;
+  minimumTermMonths: number | null;
+  noticePeriodDays: number | null;
+  startDate: string | null;
   followUpAt: string | null;
   readyAt: string | null;
   sentAt: string | null;
@@ -84,6 +101,9 @@ export interface ProposalResponse {
   expiresAt: string | null;
   proposalUrl: string | null;
   notes: string | null;
+  addOns: ProposalCommercialItem[];
+  discounts: ProposalCommercialItem[];
+  internalMarginNote: string | null;
   sectionContent: ProposalSectionContent | null;
   draftSavedAt: string | null;
   contactName: string | null;
@@ -105,6 +125,12 @@ export interface ProposalSectionContent {
   timeline?: string | null;
   investmentNotes?: string | null;
   nextSteps?: string | null;
+}
+
+export interface ProposalCommercialItem {
+  name: string;
+  amountCents?: number | null;
+  note?: string | null;
 }
 
 export interface ProposalSourceDataResponse {
@@ -155,7 +181,9 @@ export interface ProposalSourceDataResponse {
     id: string | null;
     name: string | null;
     priceCents: number | null;
+    setupFeeCents: number | null;
     currency: string | null;
+    billingFrequency: string | null;
     includedFeatures: string[];
     proposalWording: string | null;
   };
@@ -165,7 +193,10 @@ export interface ProposalSourceDataResponse {
     packageName: string | null;
     recommendedPackageId: string | null;
     valueCents: number | null;
+    monthlyFeeCents: number | null;
+    setupFeeCents: number | null;
     currency: string;
+    adSpendNote: string | null;
     sectionContent: ProposalSectionContent;
   };
 }

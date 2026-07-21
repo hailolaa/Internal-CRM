@@ -14,6 +14,28 @@ const optionalDate = (field: string) =>
     .isISO8601()
     .withMessage(`${field} must be a valid date/time`);
 
+const commercialItemsValidator = (field: string) =>
+  body(field)
+    .optional({ nullable: true })
+    .isArray({ max: 30 })
+    .withMessage(`${field} must be a list of up to 30 items`)
+    .custom((items) => {
+      for (const item of items || []) {
+        if (!item || typeof item !== "object") throw new Error(`${field} items must be objects`);
+        if (typeof item.name !== "string" || item.name.trim().length === 0 || item.name.length > 150) {
+          throw new Error(`${field} items require a name up to 150 characters`);
+        }
+        if (item.amountCents !== null && item.amountCents !== undefined) {
+          const amount = Number(item.amountCents);
+          if (!Number.isInteger(amount) || amount < 0) throw new Error(`${field} amountCents must be a positive integer`);
+        }
+        if (item.note !== null && item.note !== undefined && String(item.note).length > 500) {
+          throw new Error(`${field} item notes can be up to 500 characters`);
+        }
+      }
+      return true;
+    });
+
 const sectionContentValidator = body("sectionContent")
   .optional({ nullable: true })
   .isObject()
@@ -96,7 +118,14 @@ export const createProposalValidator = [
   idValidator("ownerId"),
   body("status").optional().isIn(proposalStatuses),
   body("valueCents").optional({ nullable: true }).isInt({ min: 0 }),
+  body("monthlyFeeCents").optional({ nullable: true }).isInt({ min: 0 }),
+  body("setupFeeCents").optional({ nullable: true }).isInt({ min: 0 }),
   body("currency").optional({ nullable: true }).trim().isLength({ min: 3, max: 3 }),
+  body("adSpendNote").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("vatStatus").optional({ nullable: true }).trim().isLength({ max: 50 }),
+  body("minimumTermMonths").optional({ nullable: true }).isInt({ min: 0, max: 120 }),
+  body("noticePeriodDays").optional({ nullable: true }).isInt({ min: 0, max: 365 }),
+  optionalDate("startDate"),
   optionalDate("followUpAt"),
   optionalDate("readyAt"),
   optionalDate("sentAt"),
@@ -107,6 +136,9 @@ export const createProposalValidator = [
   optionalDate("expiresAt"),
   body("proposalUrl").optional({ nullable: true }).trim().isLength({ max: 500 }),
   body("notes").optional({ nullable: true }).trim().isLength({ max: 10000 }),
+  commercialItemsValidator("addOns"),
+  commercialItemsValidator("discounts"),
+  body("internalMarginNote").optional({ nullable: true }).trim().isLength({ max: 5000 }),
   sectionContentValidator,
 ];
 
@@ -122,7 +154,14 @@ export const updateProposalValidator = [
   idValidator("ownerId"),
   body("status").optional().isIn(proposalStatuses),
   body("valueCents").optional({ nullable: true }).isInt({ min: 0 }),
+  body("monthlyFeeCents").optional({ nullable: true }).isInt({ min: 0 }),
+  body("setupFeeCents").optional({ nullable: true }).isInt({ min: 0 }),
   body("currency").optional({ nullable: true }).trim().isLength({ min: 3, max: 3 }),
+  body("adSpendNote").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("vatStatus").optional({ nullable: true }).trim().isLength({ max: 50 }),
+  body("minimumTermMonths").optional({ nullable: true }).isInt({ min: 0, max: 120 }),
+  body("noticePeriodDays").optional({ nullable: true }).isInt({ min: 0, max: 365 }),
+  optionalDate("startDate"),
   optionalDate("followUpAt"),
   optionalDate("readyAt"),
   optionalDate("sentAt"),
@@ -133,5 +172,8 @@ export const updateProposalValidator = [
   optionalDate("expiresAt"),
   body("proposalUrl").optional({ nullable: true }).trim().isLength({ max: 500 }),
   body("notes").optional({ nullable: true }).trim().isLength({ max: 10000 }),
+  commercialItemsValidator("addOns"),
+  commercialItemsValidator("discounts"),
+  body("internalMarginNote").optional({ nullable: true }).trim().isLength({ max: 5000 }),
   sectionContentValidator,
 ];
