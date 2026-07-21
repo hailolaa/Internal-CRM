@@ -530,7 +530,7 @@ export class ProposalsService {
       toMysqlDateTime(data.expiresAt),
       cleanString(data.proposalUrl),
       cleanString(data.notes),
-      serializeSectionContent(data.sectionContent),
+      serializeSectionContent(data.sectionContent) ?? null,
       draftSavedAt,
       userId,
       userId,

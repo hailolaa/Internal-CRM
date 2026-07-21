@@ -4,26 +4,40 @@ import type { AddressInfo } from "node:net";
 import { v4 as uuidv4 } from "uuid";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { generateToken, hashPassword } from "../utils/helpers.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
+  const clinicId = uuidv4();
+  const userId = uuidv4();
+  const email = uniqueEmail(`${prefix}_admin`);
+
+  await pool.execute(
+    `INSERT INTO clinic
+      (id, name, email, timezone, subscription_plan, subscription_status, max_users)
+     VALUES (?, ?, ?, 'Europe/London', 'professional', 'active', 20)`,
+    [clinicId, `${prefix} Workspace`, email],
+  );
+  await pool.execute(
+    `INSERT INTO user
+      (id, clinic_id, email, password_hash, first_name, last_name, role,
+       email_verified_at, status, is_active)
+     VALUES (?, ?, ?, ?, ?, 'Admin', 'SUPER_ADMIN', CURRENT_TIMESTAMP, 'active', 1)`,
+    [userId, clinicId, email, await hashPassword("password123"), prefix],
+  );
+  await pool.execute(
+    `INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary)
+     VALUES (?, ?, 'SUPER_ADMIN', 'active', 1)`,
+    [userId, clinicId],
+  );
 
   return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
+    clinicId,
+    userId,
+    token: generateToken({ userId, clinicId, role: "SUPER_ADMIN", email }),
   };
 }
 
@@ -55,10 +69,10 @@ test("command palette returns real permission-aware actions, tenant-scoped searc
   }
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
 
-  let primaryContactId = "";
-  let secondaryContactId = "";
-  const primaryReportId = uuidv4();
-  const secondaryReportId = uuidv4();
+  const primaryContactId = uuidv4();
+  const secondaryContactId = uuidv4();
+  const primaryProposalId = uuidv4();
+  const secondaryProposalId = uuidv4();
 
   try {
     await pool.execute(
@@ -67,64 +81,57 @@ test("command palette returns real permission-aware actions, tenant-scoped searc
       [primary.userId, secondary.clinicId],
     );
 
-    const primaryLead = await fetchJson(baseUrl, "/api/contacts", primary.token, {
-      method: "POST",
-      body: JSON.stringify({
-        firstName: "Palette",
-        lastName: "Primary",
-        email: uniqueEmail("palette_primary"),
-        status: "New",
-        source: "meta_ads",
-      }),
-    });
-    assert.equal(primaryLead.response.status, 201);
-    primaryContactId = primaryLead.body.data.contact.id;
-
-    const secondaryLead = await fetchJson(baseUrl, "/api/contacts", secondary.token, {
-      method: "POST",
-      body: JSON.stringify({
-        firstName: "Palette",
-        lastName: "Secondary",
-        email: uniqueEmail("palette_secondary"),
-        status: "New",
-        source: "google_ads",
-      }),
-    });
-    assert.equal(secondaryLead.response.status, 201);
-    secondaryContactId = secondaryLead.body.data.contact.id;
-
     await pool.execute(
-      `INSERT INTO report (id, clinic_id, name, type, description, created_by)
-       VALUES (?, ?, ?, 'performance', ?, ?)`,
-      [primaryReportId, primary.clinicId, "Palette Primary Revenue", "Primary command palette report", primary.userId],
+      `INSERT INTO contact
+        (id, clinic_id, account_name, first_name, last_name, email, status, lead_status, source)
+       VALUES (?, ?, 'Palette Primary Account', 'Palette', 'Primary', ?, 'lead', 'new', 'meta_ads'),
+              (?, ?, 'Palette Secondary Account', 'Palette', 'Secondary', ?, 'contact', 'converted', 'google_ads')`,
+      [
+        primaryContactId,
+        primary.clinicId,
+        uniqueEmail("palette_primary"),
+        secondaryContactId,
+        secondary.clinicId,
+        uniqueEmail("palette_secondary"),
+      ],
     );
     await pool.execute(
-      `INSERT INTO report (id, clinic_id, name, type, description, created_by)
-       VALUES (?, ?, ?, 'performance', ?, ?)`,
-      [secondaryReportId, secondary.clinicId, "Palette Secondary Revenue", "Secondary command palette report", secondary.userId],
+      `INSERT INTO proposal
+        (id, clinic_id, contact_id, proposal_name, package_name, status, value, currency, created_by)
+       VALUES (?, ?, ?, 'Palette Primary Proposal', 'Growth Engine', 'draft', 1995, 'GBP', ?),
+              (?, ?, ?, 'Palette Secondary Proposal', 'Market Leader', 'draft', 3495, 'GBP', ?)`,
+      [
+        primaryProposalId,
+        primary.clinicId,
+        primaryContactId,
+        primary.userId,
+        secondaryProposalId,
+        secondary.clinicId,
+        secondaryContactId,
+        secondary.userId,
+      ],
     );
 
     const actionPalette = await fetchJson(baseUrl, "/api/command-palette?limit=10", primary.token);
     assert.equal(actionPalette.response.status, 200);
-    assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "create_lead" && action.enabled && action.route === "/app/crm/contacts/new"), true);
-    assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "log_call" && action.route === "/app/comms/calls?log=1"), true);
-    assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "create_booking" && action.route === "/app/crm/calendar/new"), true);
+    assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "create_lead" && action.enabled && action.route === "/app/crm/contacts/new?mode=lead"), true);
+    assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "create_contact" && action.enabled && action.route === "/app/crm/contacts/new?mode=contact"), true);
+    assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "create_client_account" && action.enabled && action.route === "/app/ops/client-accounts/new"), true);
     assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "create_task" && action.route === "/app/crm/tasks/new"), true);
     assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "search_contacts" && action.route === "/app/crm/contacts"), true);
-    assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "open_reports" && action.route === "/app/reports/overview"), true);
-    assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "create_booking" && action.api?.path === "/api/appointments"), true);
-    assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "open_reports" && action.api?.path === "/api/reports/dashboard/summary"), true);
+    assert.equal(actionPalette.body.data.actions.some((action: any) => action.id === "open_reports" && action.route === "/app"), true);
     assert.equal(actionPalette.body.data.commonActions.length > 0, true);
 
     const palette = await fetchJson(baseUrl, "/api/command-palette?query=Palette&limit=10", primary.token);
     assert.equal(palette.response.status, 200);
     const data = palette.body.data;
-    assert.equal(data.records.some((record: any) => record.id === primaryContactId && record.type === "contact"), true);
-    assert.equal(data.records.some((record: any) => record.id === primaryReportId && record.type === "report"), true);
+    assert.equal(data.records.some((record: any) => record.id === primaryContactId && record.type === "lead"), true);
+    assert.equal(data.records.some((record: any) => record.id === primaryProposalId && record.type === "proposal"), true);
+    assert.equal(data.records.some((record: any) => record.type === "client_account" && record.metadata.clinicId === primary.clinicId), true);
     assert.equal(data.records.some((record: any) => record.id === primaryContactId && record.route === `/app/crm/contacts/detail?id=${primaryContactId}`), true);
-    assert.equal(data.records.some((record: any) => record.id === primaryReportId && record.route === "/app/reports/overview"), true);
+    assert.equal(data.records.some((record: any) => record.id === primaryProposalId && record.route.includes(`/app/crm/contacts/detail?id=${primaryContactId}`)), true);
     assert.equal(data.records.some((record: any) => record.id === secondaryContactId), false);
-    assert.equal(data.records.some((record: any) => record.id === secondaryReportId), false);
+    assert.equal(data.records.some((record: any) => record.id === secondaryProposalId), false);
     assert.equal(data.clinics.some((clinic: any) => clinic.id === secondary.clinicId && clinic.api.path === "/api/auth/switch-clinic"), true);
     console.log("[command-palette] primary action/search payload passed");
 
@@ -150,17 +157,17 @@ test("command palette returns real permission-aware actions, tenant-scoped searc
     assert.equal(Array.isArray(recent.body.data.commonActions), true);
     console.log("[command-palette] recent/common sections passed");
   } finally {
-    await pool.execute(`UPDATE report SET deleted_at = CURRENT_TIMESTAMP WHERE id IN (?, ?)`, [primaryReportId, secondaryReportId]);
-    if (primaryContactId) {
-      await pool.execute(`UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id = ?`, [primary.clinicId, primaryContactId]);
-    }
-    if (secondaryContactId) {
-      await pool.execute(`UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id = ?`, [secondary.clinicId, secondaryContactId]);
-    }
+    await pool.execute("DELETE FROM proposal WHERE id IN (?, ?)", [primaryProposalId, secondaryProposalId]);
+    await pool.execute("DELETE FROM contact WHERE id IN (?, ?)", [primaryContactId, secondaryContactId]);
     await pool.execute(
       `DELETE FROM clinic_membership WHERE user_id = ? AND clinic_id = ? AND is_primary = 0`,
       [primary.userId, secondary.clinicId],
     );
+    await pool.execute("DELETE FROM audit_log WHERE clinic_id IN (?, ?)", [primary.clinicId, secondary.clinicId]);
+    await pool.execute("DELETE FROM tokens WHERE user_id IN (?, ?)", [primary.userId, secondary.userId]);
+    await pool.execute("DELETE FROM clinic_membership WHERE user_id IN (?, ?)", [primary.userId, secondary.userId]);
+    await pool.execute("DELETE FROM user WHERE id IN (?, ?)", [primary.userId, secondary.userId]);
+    await pool.execute("DELETE FROM clinic WHERE id IN (?, ?)", [primary.clinicId, secondary.clinicId]);
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => {
       server.close((error?: Error) => (error ? reject(error) : resolve()));

@@ -768,7 +768,7 @@ export class TasksService {
         (id, clinic_id, is_internal, title, description, priority, status, category, board_key, service_type,
          client_account_profile_id, client_account_service_id, contact_id, contact_name, due_label, due_date, assigned_to,
          assigned_user_id, template_key, recurrence_rule, workflow_month, needs_qa, qa_checklist, created_by)
-       VALUES (?, ?, 1, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, 1, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         nextId,
         task.clinic_id,

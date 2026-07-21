@@ -69,6 +69,20 @@ cp .env.example .env
 
 Fill `.env` with local or deployed service values.
 
+## Database migrations
+
+`db.sql` is the fresh-database bootstrap. Existing databases must be upgraded with
+the ordered, checksum-tracked migration runner:
+
+```bash
+npm run db:migrate
+```
+
+The runner applies `scripts/migrations/*.sql` in filename order and records each
+checksum in `schema_migration`. Never edit an applied migration; add a newer,
+idempotent migration instead. Deployments should back up the database, run the
+migration command, build the application, and only then restart the API.
+
 Minimum local values:
 
 ```bash

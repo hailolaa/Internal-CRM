@@ -1,0 +1,45 @@
+name: Backend CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: growth_group_internal_crm
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: growth_group_internal_crm
+      JWT_SECRET: ci-only-secret-at-least-32-characters
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: mysql -h 127.0.0.1 -uroot -proot growth_group_internal_crm < db.sql
+      - run: npm run db:migrate
+      - run: npm test

@@ -7,26 +7,14 @@ import { hashPassword } from "../utils/helpers.js";
 import sopsRoutes from "../modules/sops/sops.routes.js";
 import { sopsService } from "../modules/sops/sops.service.js";
 import errorHandler from "../middleware/errorHandler.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
+  return createTestClinicAndAdmin(prefix);
 }
 
 async function createInternalViewerUser(clinicId: string, prefix: string) {
@@ -34,16 +22,17 @@ async function createInternalViewerUser(clinicId: string, prefix: string) {
   const email = uniqueEmail(`${prefix}_viewer`);
   const password = "password123";
   const userId = uuidv4();
+  const role = `NO_SOP_ACCESS_${Math.floor(Math.random() * 100000)}`;
   const passwordHash = await hashPassword(password);
 
   await pool.execute(
-    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, 'READ_ONLY', CURRENT_TIMESTAMP)",
-    [userId, clinicId, email, passwordHash, prefix, "Viewer"],
+    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+    [userId, clinicId, email, passwordHash, prefix, "Viewer", role],
   );
 
   await pool.execute(
-    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, 'READ_ONLY', 'active', 1)",
-    [userId, clinicId],
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
+    [userId, clinicId, role],
   );
 
   const result = await authService.login({ email, password });

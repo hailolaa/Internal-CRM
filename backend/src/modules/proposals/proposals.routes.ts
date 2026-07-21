@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
-import { authorizeAnyPermission } from "../../middleware/authorize.js";
+import { authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
 import { proposalsController } from "./proposals.controller.js";
 import {
@@ -17,7 +17,7 @@ router.use(authenticate);
 
 router.get(
   "/",
-  authorizeAnyPermission("proposals:read", "contacts:read", "client_accounts:read"),
+  authorizePermission("proposals:read"),
   listProposalsValidator,
   validate,
   proposalsController.listProposals,
@@ -25,7 +25,7 @@ router.get(
 
 router.post(
   "/",
-  authorizeAnyPermission("proposals:write", "contacts:write", "client_accounts:write"),
+  authorizePermission("proposals:write"),
   createProposalValidator,
   validate,
   proposalsController.createProposal,
@@ -41,7 +41,7 @@ router.get(
 
 router.get(
   "/:id",
-  authorizeAnyPermission("proposals:read", "contacts:read", "client_accounts:read"),
+  authorizePermission("proposals:read"),
   proposalIdParamValidator,
   validate,
   proposalsController.getProposal,
@@ -49,7 +49,7 @@ router.get(
 
 router.patch(
   "/:id",
-  authorizeAnyPermission("proposals:write", "contacts:write", "client_accounts:write"),
+  authorizePermission("proposals:write"),
   updateProposalValidator,
   validate,
   proposalsController.updateProposal,
@@ -57,7 +57,7 @@ router.patch(
 
 router.delete(
   "/:id",
-  authorizeAnyPermission("proposals:write", "contacts:write", "client_accounts:write"),
+  authorizePermission("proposals:write"),
   proposalIdParamValidator,
   validate,
   proposalsController.archiveProposal,
