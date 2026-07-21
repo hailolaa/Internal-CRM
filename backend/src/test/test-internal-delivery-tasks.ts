@@ -9,26 +9,14 @@ import { clientAccountsService } from "../modules/client-accounts/client-account
 import pool from "../config/database.js";
 import tasksRoutes from "../modules/tasks/tasks.routes.js";
 import errorHandler from "../middleware/errorHandler.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
+  return createTestClinicAndAdmin(prefix);
 }
 
 async function createInternalViewerUser(clinicId: string, prefix: string) {
@@ -85,7 +73,7 @@ async function ensureProfileRow(clinicId: string, userId: string): Promise<strin
   return id;
 }
 
-test("internal tasks can link a client account from another workspace", async () => {
+test("internal tasks reject a client account service from another workspace", async () => {
   await testConnection();
 
   const sourceClinicId = "clinic-001";
@@ -112,25 +100,16 @@ test("internal tasks can link a client account from another workspace", async ()
   let taskId: string | null = null;
 
   try {
-    const visibleServices = await clientAccountsService.listServices(sourceClinicId, {
-      includeAllClinics: true,
-    });
-    assert.ok(visibleServices.some((item) => item.id === service.id));
-
-    const createdTaskId = await tasksService.createInternalTask(sourceClinicId, sourceUserId, {
-      title: "Cross-workspace delivery task",
-      boardKey: "delivery",
-      serviceType: "seo",
-      clientAccountProfileId: profileId,
-      clientAccountServiceId: service.id,
-    });
-    taskId = createdTaskId;
-
-    const tasks = await tasksService.listInternalTasks(sourceClinicId, {});
-    const created = tasks.find((task) => task.id === createdTaskId);
-    assert.ok(created);
-    assert.equal(created.clientAccountProfileId, profileId);
-    assert.equal(created.clientAccountServiceId, service.id);
+    await assert.rejects(
+      tasksService.createInternalTask(sourceClinicId, sourceUserId, {
+        title: "Cross-workspace delivery task",
+        boardKey: "delivery",
+        serviceType: "seo",
+        clientAccountProfileId: profileId,
+        clientAccountServiceId: service.id,
+      }),
+      /not available to this workspace/,
+    );
   } finally {
     if (taskId) {
       await pool.execute("DELETE FROM audit_log WHERE clinic_id = ? AND entity_type = 'task' AND entity_id = ?", [sourceClinicId, taskId]);

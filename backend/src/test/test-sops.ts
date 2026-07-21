@@ -7,26 +7,14 @@ import { hashPassword } from "../utils/helpers.js";
 import sopsRoutes from "../modules/sops/sops.routes.js";
 import { sopsService } from "../modules/sops/sops.service.js";
 import errorHandler from "../middleware/errorHandler.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
+  return createTestClinicAndAdmin(prefix);
 }
 
 async function createInternalViewerUser(clinicId: string, prefix: string) {
