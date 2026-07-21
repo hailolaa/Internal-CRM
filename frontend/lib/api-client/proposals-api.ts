@@ -1,4 +1,4 @@
-import type { ProposalListParams, ProposalPayload, ProposalRecord } from "@/lib/api-types";
+import type { ProposalListParams, ProposalPayload, ProposalRecord, ProposalSourceDataParams, ProposalSourceDataRecord } from "@/lib/api-types";
 import type { ApiRequest } from "./core";
 
 function toQuery(params: ProposalListParams = {}) {
@@ -23,6 +23,14 @@ export function createProposalsApi(apiRequest: ApiRequest) {
       },
       async get(token: string, proposalId: string) {
         const response = await apiRequest<ProposalRecord>(`/api/proposals/${proposalId}`, { token });
+        return response.data!;
+      },
+      async sourceData(token: string, params: ProposalSourceDataParams) {
+        const query = toQuery(params);
+        const response = await apiRequest<ProposalSourceDataRecord>(
+          `/api/proposals/source-data${query ? `?${query}` : ""}`,
+          { token },
+        );
         return response.data!;
       },
       async create(token: string, payload: ProposalPayload) {

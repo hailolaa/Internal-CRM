@@ -40,6 +40,7 @@ assert.match(draftWorkflowMigration, /fk_proposal_recommended_package/);
 assert.match(routes, /router\.get\(/);
 assert.match(routes, /router\.post\(/);
 assert.match(routes, /router\.patch\(/);
+assert.match(routes, /\/source-data/);
 assert.match(routes, /authorizeAnyPermission\("proposals:read"/);
 assert.match(routes, /authorizeAnyPermission\("proposals:write"/);
 
@@ -57,9 +58,15 @@ assert.match(service, /resolveRecommendedPackage/);
 assert.match(service, /Recommended package must be available to this workspace/);
 assert.match(service, /draft_saved_at/);
 assert.match(service, /section_content/);
+assert.match(service, /getProposalSourceData/);
+assert.match(service, /growth_score_overall/);
+assert.match(service, /audit_status/);
+assert.match(service, /scoreGaps/);
+assert.match(service, /findRecommendedPackageByName/);
 assert.match(types, /ProposalSectionContent/);
+assert.match(types, /ProposalSourceDataResponse/);
 
 assert.match(activity, /"proposal"/);
 assert.match(commandPalette, /FROM proposal p/);
 
-console.log("[proposals] MC-031/MC-033 proposal schema, draft workflow, permissions, timeline and search contract passed");
+console.log("[proposals] MC-031/MC-033/MC-034 proposal schema, draft workflow, source data, permissions, timeline and search contract passed");

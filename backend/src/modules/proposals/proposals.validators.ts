@@ -72,6 +72,18 @@ export const listProposalsValidator = [
   query("limit").optional().isInt({ min: 1, max: 250 }),
 ];
 
+export const proposalSourceDataValidator = [
+  query("contactId").optional().trim().isLength({ min: 1, max: 36 }),
+  query("dealId").optional().trim().isLength({ min: 1, max: 36 }),
+  query("clientAccountProfileId").optional().trim().isLength({ min: 1, max: 36 }),
+  query().custom((value) => {
+    if (!value.contactId && !value.dealId && !value.clientAccountProfileId) {
+      throw new Error("Provide a contact, deal or client account to pull proposal data");
+    }
+    return true;
+  }),
+];
+
 export const createProposalValidator = [
   body().custom(hasTimelineRecord).withMessage("Proposal must link to a lead/contact or deal so activity can appear on the record timeline"),
   idValidator("contactId"),

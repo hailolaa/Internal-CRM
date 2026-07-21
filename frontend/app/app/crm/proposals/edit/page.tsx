@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Eye, FileText, Loader2, Save } from "lucide-react";
+import { ArrowLeft, Eye, FileText, Loader2, RefreshCw, Save } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -9,7 +9,7 @@ import { SubNav } from "@/components/sub-nav";
 import { SALES_NAV } from "@/lib/section-nav";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { GrowthPackageRecord, ProposalPayload, ProposalRecord, ProposalSectionContent } from "@/lib/api-types";
+import type { GrowthPackageRecord, ProposalPayload, ProposalRecord, ProposalSectionContent, ProposalSourceDataRecord } from "@/lib/api-types";
 
 const proposalTemplates = [
   {
@@ -169,6 +169,38 @@ function formatPackagePrice(item: GrowthPackageRecord) {
   return item.billingFrequency === "one_off" ? `${price} one-off` : `${price}/${item.billingFrequency.replace(/_/g, " ")}`;
 }
 
+function mergeIfBlank(currentValue: string, suggestedValue: string | null | undefined) {
+  return currentValue.trim() ? currentValue : suggestedValue || "";
+}
+
+function formWithSourceData(current: ProposalForm, sourceData: ProposalSourceDataRecord): ProposalForm {
+  const suggested = sourceData.suggested;
+  const sections = suggested.sectionContent || {};
+  return {
+    ...current,
+    contactId: mergeIfBlank(current.contactId, sourceData.links.contactId),
+    dealId: mergeIfBlank(current.dealId, sourceData.links.dealId),
+    clientAccountProfileId: mergeIfBlank(current.clientAccountProfileId, sourceData.links.clientAccountProfileId),
+    proposalName: mergeIfBlank(current.proposalName, suggested.proposalName),
+    templateKey: current.templateKey === "clinicgrower_standard" ? suggested.templateKey || current.templateKey : current.templateKey,
+    recommendedPackageId: mergeIfBlank(current.recommendedPackageId, suggested.recommendedPackageId),
+    packageName: mergeIfBlank(current.packageName, suggested.packageName),
+    value: mergeIfBlank(current.value, moneyFromCents(suggested.valueCents)),
+    currency: current.currency || suggested.currency || "GBP",
+    executiveSummary: mergeIfBlank(current.executiveSummary, sections.executiveSummary),
+    diagnosis: mergeIfBlank(current.diagnosis, sections.diagnosis),
+    recommendedPlan: mergeIfBlank(current.recommendedPlan, sections.recommendedPlan),
+    includedFeatures: mergeIfBlank(current.includedFeatures, (sections.includedFeatures || []).join("\n")),
+    timeline: mergeIfBlank(current.timeline, sections.timeline),
+    investmentNotes: mergeIfBlank(current.investmentNotes, sections.investmentNotes),
+    nextSteps: mergeIfBlank(current.nextSteps, sections.nextSteps),
+  };
+}
+
+function formatScore(value: number | null | undefined) {
+  return value === null || value === undefined ? "Not scored" : `${Math.round(value)} / 100`;
+}
+
 export default function ProposalEditPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -179,7 +211,9 @@ export default function ProposalEditPage() {
   const [packages, setPackages] = useState<GrowthPackageRecord[]>([]);
   const [isLoading, setIsLoading] = useState(Boolean(proposalId));
   const [isSaving, setIsSaving] = useState(false);
+  const [isPullingSourceData, setIsPullingSourceData] = useState(false);
   const [savedProposalId, setSavedProposalId] = useState(proposalId);
+  const [sourceData, setSourceData] = useState<ProposalSourceDataRecord | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -235,6 +269,33 @@ export default function ProposalEditPage() {
       includedFeatures: form.includedFeatures || (packageRecord?.includedFeatures || []).join("\n"),
     });
   };
+
+  const pullProposalSourceData = useCallback(async () => {
+    if (!token) return;
+    const params = {
+      contactId: form.contactId.trim() || undefined,
+      dealId: form.dealId.trim() || undefined,
+      clientAccountProfileId: form.clientAccountProfileId.trim() || undefined,
+    };
+    if (!params.contactId && !params.dealId && !params.clientAccountProfileId) {
+      setError("Link a contact, deal or client account before pulling CRM data.");
+      return;
+    }
+
+    setIsPullingSourceData(true);
+    setError("");
+    setMessage("");
+    try {
+      const pulled = await api.proposals.sourceData(token, params);
+      setSourceData(pulled);
+      setForm((current) => formWithSourceData(current, pulled));
+      setMessage("CRM, audit and Growth Score data pulled into empty proposal fields.");
+    } catch (pullError) {
+      setError(pullError instanceof Error ? pullError.message : "Could not pull proposal source data.");
+    } finally {
+      setIsPullingSourceData(false);
+    }
+  }, [form.clientAccountProfileId, form.contactId, form.dealId, token]);
 
   const buildPayload = (statusOverride?: ProposalPayload["status"]): ProposalPayload => ({
     contactId: form.contactId.trim() || null,
@@ -294,6 +355,15 @@ export default function ProposalEditPage() {
               <ArrowLeft className="h-4 w-4" />
               Pipeline
             </Link>
+            <button
+              type="button"
+              disabled={isSaving || isLoading}
+              onClick={() => void pullProposalSourceData()}
+              className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isPullingSourceData ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Pull CRM data
+            </button>
             <button
               type="button"
               disabled={isSaving || isLoading}
@@ -478,7 +548,52 @@ export default function ProposalEditPage() {
                       />
                     </label>
                   </div>
+                  <button
+                    type="button"
+                    disabled={isPullingSourceData}
+                    onClick={() => void pullProposalSourceData()}
+                    className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isPullingSourceData ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    Pull CRM, audit and Growth Score data
+                  </button>
                 </div>
+
+                {sourceData ? (
+                  <div className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
+                    <h2 className="text-base font-semibold text-[#14231f]">Pulled source data</h2>
+                    <div className="mt-4 space-y-3 text-sm text-[#354943]">
+                      <div className="flex justify-between gap-4 border-b border-[#edf2ef] pb-2">
+                        <span className="text-[#6b817a]">Contact</span>
+                        <span className="text-right font-semibold">{sourceData.contact.name || "Not linked"}</span>
+                      </div>
+                      <div className="flex justify-between gap-4 border-b border-[#edf2ef] pb-2">
+                        <span className="text-[#6b817a]">Account</span>
+                        <span className="text-right font-semibold">{sourceData.clientAccount.name || sourceData.contact.accountName || "Not linked"}</span>
+                      </div>
+                      <div className="flex justify-between gap-4 border-b border-[#edf2ef] pb-2">
+                        <span className="text-[#6b817a]">Growth Score</span>
+                        <span className="text-right font-semibold">{formatScore(sourceData.growthScore.overall)}</span>
+                      </div>
+                      <div className="flex justify-between gap-4 border-b border-[#edf2ef] pb-2">
+                        <span className="text-[#6b817a]">Recommended package</span>
+                        <span className="text-right font-semibold">{sourceData.recommendedPackage.name || sourceData.suggested.packageName || "Not set"}</span>
+                      </div>
+                      <div>
+                        <p className="text-[#6b817a]">Score gaps</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {sourceData.growthScore.gaps.length ? sourceData.growthScore.gaps.map((gap) => (
+                            <span key={gap.key} className="rounded-full bg-[#fff8ed] px-2 py-1 text-xs font-semibold text-[#775a22]">
+                              {gap.label}: {formatScore(gap.score)}
+                            </span>
+                          )) : (
+                            <span className="text-sm text-[#6b817a]">No scored gaps found.</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </section>
 
               <section className="rounded-[8px] border border-[#d8e4df] bg-white p-5">

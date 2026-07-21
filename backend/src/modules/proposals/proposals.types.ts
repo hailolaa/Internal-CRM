@@ -54,6 +54,12 @@ export interface ProposalListQuery {
   limit?: number | string;
 }
 
+export interface ProposalSourceDataQuery {
+  contactId?: string;
+  dealId?: string;
+  clientAccountProfileId?: string;
+}
+
 export interface ProposalResponse {
   id: string;
   contactId: string | null;
@@ -99,4 +105,67 @@ export interface ProposalSectionContent {
   timeline?: string | null;
   investmentNotes?: string | null;
   nextSteps?: string | null;
+}
+
+export interface ProposalSourceDataResponse {
+  links: {
+    contactId: string | null;
+    dealId: string | null;
+    clientAccountProfileId: string | null;
+  };
+  contact: {
+    id: string | null;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    roleTitle: string | null;
+    accountName: string | null;
+    website: string | null;
+    location: string | null;
+    source: string | null;
+  };
+  deal: {
+    id: string | null;
+    title: string | null;
+    stageName: string | null;
+    packageName: string | null;
+    valueCents: number | null;
+  };
+  clientAccount: {
+    id: string | null;
+    name: string | null;
+    currentPackage: string | null;
+    recommendedNextPackage: string | null;
+    upsellOpportunity: string | null;
+  };
+  growthScore: {
+    overall: number | null;
+    categories: Record<string, number | null>;
+    gaps: Array<{ key: string; label: string; score: number | null }>;
+    recommendedPackage: string | null;
+    gapSummary: string | null;
+    updatedAt: string | null;
+  };
+  audit: {
+    status: string | null;
+    followUpDueAt: string | null;
+    updatedAt: string | null;
+  };
+  recommendedPackage: {
+    id: string | null;
+    name: string | null;
+    priceCents: number | null;
+    currency: string | null;
+    includedFeatures: string[];
+    proposalWording: string | null;
+  };
+  suggested: {
+    proposalName: string;
+    templateKey: string;
+    packageName: string | null;
+    recommendedPackageId: string | null;
+    valueCents: number | null;
+    currency: string;
+    sectionContent: ProposalSectionContent;
+  };
 }

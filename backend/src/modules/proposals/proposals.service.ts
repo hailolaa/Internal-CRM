@@ -9,6 +9,8 @@ import type {
   ProposalMutationDTO,
   ProposalResponse,
   ProposalSectionContent,
+  ProposalSourceDataQuery,
+  ProposalSourceDataResponse,
   ProposalStatus,
 } from "./proposals.types.js";
 
@@ -63,6 +65,91 @@ function serializeSectionContent(value: ProposalSectionContent | null | undefine
   if (value === undefined) return undefined;
   if (value === null) return null;
   return JSON.stringify(value);
+}
+
+function parseJsonObject(value: unknown) {
+  if (!value) return null;
+  if (typeof value === "object") return value as Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonArray(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed.map((item) => String(item)).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function contactFullName(row: any) {
+  return [row.firstName, row.lastName].filter(Boolean).join(" ").trim() || row.email || row.phone || null;
+}
+
+function formatLocation(row: any) {
+  return [row.city, row.state, row.country].filter(Boolean).join(", ") || null;
+}
+
+function formatAuditStatus(value: string | null | undefined) {
+  if (!value) return "Not started";
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+const growthScoreCategoryLabels: Record<string, string> = {
+  websiteVisibility: "Website visibility",
+  seo: "SEO",
+  gbp: "Google Business Profile",
+  tracking: "Tracking",
+  conversion: "Conversion",
+  leadHandling: "Lead handling",
+  responseSpeed: "Response speed",
+  enquiryVisibility: "Enquiry visibility",
+  treatmentPerformance: "Service/package performance",
+  revenueLeakage: "Revenue leakage",
+  growthOpportunity: "Growth opportunity",
+};
+
+function mapScoreCategories(row: any) {
+  const parsed = parseJsonObject(row?.growthScoreCategories) || {};
+  const score = (columnValue: unknown, key: string) => numberOrNull(columnValue ?? parsed[key]);
+  return {
+    websiteVisibility: score(row?.growthScoreWebsiteVisibility, "websiteVisibility"),
+    seo: score(row?.growthScoreSeo, "seo"),
+    gbp: score(row?.growthScoreGbp, "gbp"),
+    tracking: score(row?.growthScoreTracking, "tracking"),
+    conversion: score(row?.growthScoreConversion, "conversion"),
+    leadHandling: score(row?.growthScoreLeadHandling, "leadHandling"),
+    responseSpeed: score(row?.growthScoreResponseSpeed, "responseSpeed"),
+    enquiryVisibility: score(row?.growthScoreEnquiryVisibility, "enquiryVisibility"),
+    treatmentPerformance: score(row?.growthScoreTreatmentPerformance, "treatmentPerformance"),
+    revenueLeakage: score(row?.growthScoreRevenueLeakage, "revenueLeakage"),
+    growthOpportunity: score(row?.growthScoreGrowthOpportunity, "growthOpportunity"),
+  };
+}
+
+function scoreGaps(categories: Record<string, number | null>) {
+  return Object.entries(categories)
+    .filter(([, score]) => score !== null && score < 70)
+    .sort(([, a], [, b]) => Number(a) - Number(b))
+    .slice(0, 5)
+    .map(([key, score]) => ({
+      key,
+      label: growthScoreCategoryLabels[key] || key,
+      score,
+    }));
 }
 
 function mapProposal(row: any): ProposalResponse {
@@ -239,6 +326,165 @@ export class ProposalsService {
     );
     if (rows.length === 0) throw ApiError.notFound("Proposal not found");
     return mapProposal(rows[0]);
+  }
+
+  async getProposalSourceData(
+    clinicId: string,
+    query: ProposalSourceDataQuery,
+    access: ProposalLinkAccess,
+  ): Promise<ProposalSourceDataResponse> {
+    let contactId = cleanString(query.contactId);
+    const dealId = cleanString(query.dealId);
+    const clientAccountProfileId = cleanString(query.clientAccountProfileId);
+    let deal: any = null;
+
+    if (dealId) {
+      const [dealRows]: any = await pool.execute(
+        `SELECT d.id,
+                d.contact_id as contactId,
+                d.title,
+                d.value as value,
+                d.treatment,
+                ps.name as stageName
+         FROM deal d
+         LEFT JOIN pipeline_stage ps
+           ON ps.id = d.pipeline_stage_id
+          AND ps.clinic_id = d.clinic_id
+          AND ps.deleted_at IS NULL
+         WHERE d.id = ?
+           AND d.clinic_id = ?
+           AND d.deleted_at IS NULL
+         LIMIT 1`,
+        [dealId, clinicId],
+      );
+      if (dealRows.length === 0) throw ApiError.notFound("Deal not found");
+      deal = dealRows[0];
+      if (contactId && contactId !== deal.contactId) {
+        throw ApiError.badRequest("Proposal source contact must match the linked deal contact");
+      }
+      contactId = deal.contactId;
+    }
+
+    const contact = contactId ? await this.getProposalContactSource(clinicId, contactId) : null;
+    const clientAccount = clientAccountProfileId
+      ? await this.getProposalClientAccountSource(clinicId, clientAccountProfileId, access)
+      : null;
+
+    if (!contact && !deal && !clientAccount) {
+      throw ApiError.badRequest("Provide a contact, deal or client account to pull proposal data");
+    }
+
+    const accountName = clientAccount?.clientName || contact?.accountName || contactFullName(contact) || deal?.title || "Prospect";
+    const contactName = contactFullName(contact) || "Decision maker";
+    const location = contact ? formatLocation(contact) : null;
+    const categories = mapScoreCategories(contact || clientAccount || {});
+    const gaps = scoreGaps(categories);
+    const overall = numberOrNull((contact || clientAccount)?.growthScoreOverall);
+    const growthScoreRecommendation = cleanString((contact || clientAccount)?.growthScoreRecommendedPackage);
+    const explicitRecommendation =
+      growthScoreRecommendation ||
+      cleanString(clientAccount?.recommendedNextPackage) ||
+      cleanString(contact?.recommendedPackage) ||
+      cleanString(contact?.packageInterest) ||
+      cleanString(deal?.treatment);
+    const packageRecord = await this.findRecommendedPackageByName(clinicId, explicitRecommendation);
+    const packageName = packageRecord?.name || explicitRecommendation || null;
+    const gapSummary = cleanString((contact || clientAccount)?.growthScoreGapSummary);
+    const auditStatus = cleanString(contact?.auditStatus);
+    const auditFollowUpDueAt = toIso(contact?.auditFollowUpDueAt);
+    const currentPackage = cleanString(clientAccount?.currentPackage);
+    const dealValueCents = valueToCents(deal?.value);
+    const packageValueCents = packageRecord?.priceCents ?? null;
+
+    const diagnosisLines = [
+      overall !== null ? `Overall Growth Score: ${Math.round(overall)} / 100.` : null,
+      gapSummary ? `Growth Score summary: ${gapSummary}` : null,
+      gaps.length
+        ? `Priority gaps: ${gaps.map((gap) => `${gap.label} (${Math.round(Number(gap.score))}/100)`).join(", ")}.`
+        : null,
+      auditStatus ? `Audit status: ${formatAuditStatus(auditStatus)}.` : null,
+      auditFollowUpDueAt ? `Audit follow-up due: ${auditFollowUpDueAt.slice(0, 10)}.` : null,
+      currentPackage ? `Current package: ${currentPackage}.` : null,
+      location ? `Location: ${location}.` : null,
+      contact?.website ? `Website: ${contact.website}.` : null,
+    ].filter(Boolean).join("\n");
+
+    const suggested: ProposalSourceDataResponse["suggested"] = {
+      proposalName: `${accountName} - ${packageName || "Growth Plan"} proposal`,
+      templateKey: overall !== null || auditStatus ? "growth_score_follow_up" : "clinicgrower_standard",
+      packageName,
+      recommendedPackageId: packageRecord?.id || null,
+      valueCents: packageValueCents ?? dealValueCents,
+      currency: packageRecord?.currency || "GBP",
+      sectionContent: {
+        executiveSummary: `Prepared for ${accountName}${contactName ? ` (${contactName})` : ""}. This proposal uses the CRM record, audit status and Growth Score data already held in Mission Control.`,
+        diagnosis: diagnosisLines || null,
+        recommendedPlan: packageRecord?.proposalWording || (packageName ? `Recommended next package: ${packageName}.` : null),
+        includedFeatures: packageRecord?.includedFeatures || [],
+        timeline: "Confirm proposal fit and decision owner.\nAgree package, start date and commercial terms.\nMove accepted work into delivery onboarding and internal tasks.",
+        investmentNotes: packageName
+          ? `Recommended package: ${packageName}${packageValueCents !== null ? ` at ${packageValueCents / 100} ${packageRecord?.currency || "GBP"}` : ""}.`
+          : null,
+        nextSteps: auditStatus === "audit_completed"
+          ? "Send proposal follow-up and confirm the implementation start date."
+          : "Review the recommendation, confirm fit and agree the next sales follow-up.",
+      },
+    };
+
+    return {
+      links: {
+        contactId: contact?.id || contactId || null,
+        dealId: deal?.id || dealId || null,
+        clientAccountProfileId: clientAccount?.id || clientAccountProfileId || null,
+      },
+      contact: {
+        id: contact?.id || null,
+        name: contactName,
+        email: contact?.email || null,
+        phone: contact?.phone || null,
+        roleTitle: contact?.roleTitle || null,
+        accountName: contact?.accountName || null,
+        website: contact?.website || null,
+        location,
+        source: contact?.source || null,
+      },
+      deal: {
+        id: deal?.id || null,
+        title: deal?.title || null,
+        stageName: deal?.stageName || null,
+        packageName: deal?.treatment || null,
+        valueCents: dealValueCents,
+      },
+      clientAccount: {
+        id: clientAccount?.id || null,
+        name: clientAccount?.clientName || null,
+        currentPackage: currentPackage || null,
+        recommendedNextPackage: cleanString(clientAccount?.recommendedNextPackage),
+        upsellOpportunity: cleanString(clientAccount?.upsellOpportunity),
+      },
+      growthScore: {
+        overall,
+        categories,
+        gaps,
+        recommendedPackage: growthScoreRecommendation,
+        gapSummary,
+        updatedAt: toIso((contact || clientAccount)?.growthScoreUpdatedAt),
+      },
+      audit: {
+        status: auditStatus,
+        followUpDueAt: auditFollowUpDueAt,
+        updatedAt: toIso(contact?.auditStatusUpdatedAt),
+      },
+      recommendedPackage: {
+        id: packageRecord?.id || null,
+        name: packageRecord?.name || null,
+        priceCents: packageValueCents,
+        currency: packageRecord?.currency || null,
+        includedFeatures: packageRecord?.includedFeatures || [],
+        proposalWording: packageRecord?.proposalWording || null,
+      },
+      suggested,
+    };
   }
 
   async createProposal(
@@ -522,6 +768,134 @@ export class ProposalsService {
     if (data.ownerId) await this.ensureActiveOwner(String(data.ownerId));
 
     return { contactId, dealId, clientAccountProfileId };
+  }
+
+  private async getProposalContactSource(clinicId: string, contactId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              first_name as firstName,
+              last_name as lastName,
+              email,
+              phone,
+              role_title as roleTitle,
+              account_name as accountName,
+              website,
+              city,
+              state,
+              country,
+              source,
+              package_interest as packageInterest,
+              recommended_package as recommendedPackage,
+              treatment_interests as treatmentInterests,
+              growth_score_overall as growthScoreOverall,
+              growth_score_categories as growthScoreCategories,
+              growth_score_website_visibility as growthScoreWebsiteVisibility,
+              growth_score_seo as growthScoreSeo,
+              growth_score_gbp as growthScoreGbp,
+              growth_score_tracking as growthScoreTracking,
+              growth_score_conversion as growthScoreConversion,
+              growth_score_lead_handling as growthScoreLeadHandling,
+              growth_score_response_speed as growthScoreResponseSpeed,
+              growth_score_enquiry_visibility as growthScoreEnquiryVisibility,
+              growth_score_treatment_performance as growthScoreTreatmentPerformance,
+              growth_score_revenue_leakage as growthScoreRevenueLeakage,
+              growth_score_growth_opportunity as growthScoreGrowthOpportunity,
+              growth_score_recommended_package as growthScoreRecommendedPackage,
+              growth_score_gap_summary as growthScoreGapSummary,
+              growth_score_updated_at as growthScoreUpdatedAt,
+              audit_status as auditStatus,
+              audit_follow_up_due_at as auditFollowUpDueAt,
+              audit_status_updated_at as auditStatusUpdatedAt
+       FROM contact
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [contactId, clinicId],
+    );
+    if (rows.length === 0) throw ApiError.notFound("Contact not found");
+    return rows[0];
+  }
+
+  private async getProposalClientAccountSource(
+    clinicId: string,
+    clientAccountProfileId: string,
+    access: ProposalLinkAccess,
+  ) {
+    const [rows]: any = await pool.execute(
+      `SELECT cap.id,
+              cap.clinic_id as clientClinicId,
+              c.name as clientName,
+              c.email as clientEmail,
+              c.phone as clientPhone,
+              c.city,
+              c.state,
+              c.country,
+              cap.current_package as currentPackage,
+              cap.recommended_next_package as recommendedNextPackage,
+              cap.upsell_opportunity as upsellOpportunity,
+              cap.growth_score_overall as growthScoreOverall,
+              cap.growth_score_categories as growthScoreCategories,
+              cap.growth_score_website_visibility as growthScoreWebsiteVisibility,
+              cap.growth_score_seo as growthScoreSeo,
+              cap.growth_score_gbp as growthScoreGbp,
+              cap.growth_score_tracking as growthScoreTracking,
+              cap.growth_score_conversion as growthScoreConversion,
+              cap.growth_score_lead_handling as growthScoreLeadHandling,
+              cap.growth_score_response_speed as growthScoreResponseSpeed,
+              cap.growth_score_enquiry_visibility as growthScoreEnquiryVisibility,
+              cap.growth_score_treatment_performance as growthScoreTreatmentPerformance,
+              cap.growth_score_revenue_leakage as growthScoreRevenueLeakage,
+              cap.growth_score_growth_opportunity as growthScoreGrowthOpportunity,
+              cap.growth_score_recommended_package as growthScoreRecommendedPackage,
+              cap.growth_score_gap_summary as growthScoreGapSummary,
+              cap.growth_score_updated_at as growthScoreUpdatedAt
+       FROM client_account_profile cap
+       JOIN clinic c
+         ON c.id = cap.clinic_id
+        AND c.deleted_at IS NULL
+       WHERE cap.id = ?
+       LIMIT 1`,
+      [clientAccountProfileId],
+    );
+    if (rows.length === 0) throw ApiError.notFound("Client account not found");
+    if (rows[0].clientClinicId !== clinicId && !access.canManageAllClientAccounts) {
+      throw ApiError.forbidden("Client account is not available to this workspace");
+    }
+    return rows[0];
+  }
+
+  private async findRecommendedPackageByName(clinicId: string, packageName: string | null) {
+    const cleanPackageName = cleanString(packageName);
+    if (!cleanPackageName) return null;
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              name,
+              price_cents as priceCents,
+              currency,
+              included_features as includedFeatures,
+              proposal_wording as proposalWording
+       FROM growth_package
+       WHERE clinic_id = ?
+         AND deleted_at IS NULL
+         AND status <> 'archived'
+         AND (LOWER(name) = LOWER(?) OR LOWER(?) LIKE CONCAT('%', LOWER(name), '%'))
+       ORDER BY
+         CASE WHEN LOWER(name) = LOWER(?) THEN 0 ELSE 1 END,
+         sort_order ASC,
+         name ASC
+       LIMIT 1`,
+      [clinicId, cleanPackageName, cleanPackageName, cleanPackageName],
+    );
+    if (rows.length === 0) return null;
+    return {
+      id: rows[0].id,
+      name: rows[0].name,
+      priceCents: rows[0].priceCents === null || rows[0].priceCents === undefined ? null : Number(rows[0].priceCents),
+      currency: rows[0].currency || "GBP",
+      includedFeatures: parseJsonArray(rows[0].includedFeatures),
+      proposalWording: rows[0].proposalWording || null,
+    };
   }
 
   private async ensureActiveOwner(userId: string) {

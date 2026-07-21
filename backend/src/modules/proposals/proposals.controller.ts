@@ -23,6 +23,17 @@ export class ProposalsController {
     }
   };
 
+  getProposalSourceData = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const access = { canManageAllClientAccounts: await userCanManageAllClientAccounts(userId, clinicId) };
+      const sourceData = await proposalsService.getProposalSourceData(clinicId, req.query as any, access);
+      res.status(200).json({ status: "success", data: sourceData });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   createProposal = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;

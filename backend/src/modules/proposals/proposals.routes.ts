@@ -7,6 +7,7 @@ import {
   createProposalValidator,
   listProposalsValidator,
   proposalIdParamValidator,
+  proposalSourceDataValidator,
   updateProposalValidator,
 } from "./proposals.validators.js";
 
@@ -28,6 +29,14 @@ router.post(
   createProposalValidator,
   validate,
   proposalsController.createProposal,
+);
+
+router.get(
+  "/source-data",
+  authorizeAnyPermission("proposals:read", "contacts:read", "client_accounts:read"),
+  proposalSourceDataValidator,
+  validate,
+  proposalsController.getProposalSourceData,
 );
 
 router.get(
