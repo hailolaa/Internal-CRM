@@ -211,6 +211,35 @@ function scoreGaps(categories: Record<string, number | null>) {
     }));
 }
 
+function mapAcceptanceRecord(row: any) {
+  if (!row.acceptanceRecordId) return null;
+  return {
+    id: row.acceptanceRecordId,
+    proposalId: row.acceptanceProposalId,
+    contactId: row.acceptanceContactId || null,
+    dealId: row.acceptanceDealId || null,
+    clientAccountProfileId: row.acceptanceClientAccountProfileId || null,
+    acceptedByName: row.acceptedByName || null,
+    acceptedByEmail: row.acceptedByEmail || null,
+    acceptedAt: new Date(row.acceptanceAcceptedAt).toISOString(),
+    acceptanceStatus: row.acceptanceStatus || "accepted",
+    packageName: row.acceptancePackageName || null,
+    recommendedPackageId: row.acceptanceRecommendedPackageId || null,
+    monthlyFeeCents: numberOrNull(row.acceptanceMonthlyFeeCents),
+    setupFeeCents: numberOrNull(row.acceptanceSetupFeeCents),
+    currency: row.acceptanceCurrency || "GBP",
+    paymentTerms: row.acceptancePaymentTerms || null,
+    startDate: toDateOnly(row.acceptanceStartDate),
+    minimumTermMonths: numberOrNull(row.acceptanceMinimumTermMonths),
+    noticePeriodDays: numberOrNull(row.acceptanceNoticePeriodDays),
+    scope: parseJsonObject(row.acceptanceScope),
+    commercialSnapshot: parseJsonObject(row.acceptanceCommercialSnapshot),
+    proposalSnapshot: parseJsonObject(row.acceptanceProposalSnapshot),
+    createdAt: new Date(row.acceptanceCreatedAt).toISOString(),
+    updatedAt: new Date(row.acceptanceUpdatedAt).toISOString(),
+  };
+}
+
 function mapProposal(row: any, options: { publicView?: boolean } = {}): ProposalResponse {
   const ownerName = [row.ownerFirstName, row.ownerLastName].filter(Boolean).join(" ").trim();
   return {
@@ -267,6 +296,7 @@ function mapProposal(row: any, options: { publicView?: boolean } = {}): Proposal
     updatedBy: row.updatedBy || null,
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
+    acceptanceRecord: options.publicView ? null : mapAcceptanceRecord(row),
   };
 }
 
@@ -332,7 +362,30 @@ function proposalSelectSql() {
                  owner.email as ownerEmail,
                  sent_by.first_name as sentByFirstName,
                  sent_by.last_name as sentByLastName,
-                 sent_by.email as sentByEmail
+                 sent_by.email as sentByEmail,
+                 ar.id as acceptanceRecordId,
+                 ar.proposal_id as acceptanceProposalId,
+                 ar.contact_id as acceptanceContactId,
+                 ar.deal_id as acceptanceDealId,
+                 ar.client_account_profile_id as acceptanceClientAccountProfileId,
+                 ar.accepted_by_name as acceptedByName,
+                 ar.accepted_by_email as acceptedByEmail,
+                 ar.accepted_at as acceptanceAcceptedAt,
+                 ar.acceptance_status as acceptanceStatus,
+                 ar.package_name as acceptancePackageName,
+                 ar.recommended_package_id as acceptanceRecommendedPackageId,
+                 ar.monthly_fee_cents as acceptanceMonthlyFeeCents,
+                 ar.setup_fee_cents as acceptanceSetupFeeCents,
+                 ar.currency as acceptanceCurrency,
+                 ar.payment_terms as acceptancePaymentTerms,
+                 ar.start_date as acceptanceStartDate,
+                 ar.minimum_term_months as acceptanceMinimumTermMonths,
+                 ar.notice_period_days as acceptanceNoticePeriodDays,
+                 ar.scope as acceptanceScope,
+                 ar.commercial_snapshot as acceptanceCommercialSnapshot,
+                 ar.proposal_snapshot as acceptanceProposalSnapshot,
+                 ar.created_at as acceptanceCreatedAt,
+                 ar.updated_at as acceptanceUpdatedAt
           FROM proposal p
           LEFT JOIN contact c
             ON c.id = p.contact_id
@@ -352,7 +405,11 @@ function proposalSelectSql() {
            AND owner.deleted_at IS NULL
           LEFT JOIN user sent_by
             ON sent_by.id = p.sent_by
-           AND sent_by.deleted_at IS NULL`;
+           AND sent_by.deleted_at IS NULL
+          LEFT JOIN proposal_acceptance_record ar
+            ON ar.proposal_id = p.id
+           AND ar.clinic_id = p.clinic_id
+           AND ar.deleted_at IS NULL`;
 }
 
 function isTruthy(value: unknown) {
@@ -884,8 +941,9 @@ export class ProposalsService {
     const created = await this.getProposal(clinicId, id);
     await this.syncProposalFollowUpTask(clinicId, userId, created);
     await this.syncRelatedDealStage(clinicId, userId, created);
+    await this.ensureAcceptedProposalSnapshot(clinicId, userId, created, data);
 
-    return created;
+    return ["accepted", "won"].includes(created.status) ? this.getProposal(clinicId, id) : created;
   }
 
   async updateProposal(
@@ -1018,8 +1076,9 @@ export class ProposalsService {
     });
     await this.syncProposalFollowUpTask(clinicId, userId, updated);
     await this.syncRelatedDealStage(clinicId, userId, updated, existing);
+    await this.ensureAcceptedProposalSnapshot(clinicId, userId, updated, data);
 
-    return updated;
+    return ["accepted", "won"].includes(updated.status) ? this.getProposal(clinicId, proposalId) : updated;
   }
 
   async updateProposalStatus(
@@ -1039,10 +1098,18 @@ export class ProposalsService {
 
     if (status === "accepted") {
       payload.acceptedReason = reason;
+      if (data.acceptedByName !== undefined) payload.acceptedByName = data.acceptedByName;
+      if (data.acceptedByEmail !== undefined) payload.acceptedByEmail = data.acceptedByEmail;
+      if (data.acceptedAt !== undefined) payload.acceptedAt = data.acceptedAt;
+      if (data.paymentTerms !== undefined) payload.paymentTerms = data.paymentTerms;
     }
 
     if (status === "won") {
       payload.wonReason = reason;
+      if (data.acceptedByName !== undefined) payload.acceptedByName = data.acceptedByName;
+      if (data.acceptedByEmail !== undefined) payload.acceptedByEmail = data.acceptedByEmail;
+      if (data.acceptedAt !== undefined) payload.acceptedAt = data.acceptedAt;
+      if (data.paymentTerms !== undefined) payload.paymentTerms = data.paymentTerms;
     }
 
     if (status === "lost") {
@@ -1583,6 +1650,164 @@ export class ProposalsService {
         reason: outcomeReason,
       },
     });
+  }
+
+  private async ensureAcceptedProposalSnapshot(
+    clinicId: string,
+    userId: string,
+    proposal: ProposalResponse,
+    data: ProposalMutationDTO = {},
+  ) {
+    if (!["accepted", "won"].includes(proposal.status)) return;
+
+    const clientAccountProfileId = await this.resolveAcceptanceClientAccountProfileId(clinicId, proposal);
+    const acceptedByName = cleanString(data.acceptedByName) || proposal.contactName || proposal.sentToName || proposal.accountName || proposal.clientAccountName;
+    const acceptedByEmail = cleanString(data.acceptedByEmail) || proposal.contactEmail || proposal.sentToEmail;
+    const acceptedAt =
+      toMysqlDateTime(data.acceptedAt) ||
+      toMysqlDateTime(proposal.acceptedAt) ||
+      toMysqlDateTime(proposal.wonAt) ||
+      new Date().toISOString().slice(0, 19).replace("T", " ");
+    const paymentTerms =
+      cleanString(data.paymentTerms) ||
+      "Monthly fees payable monthly in advance. Setup fee due before project kickoff unless otherwise agreed.";
+    const sectionContent = proposal.sectionContent || {};
+    const scope = {
+      packageName: proposal.packageName,
+      includedFeatures: Array.isArray(sectionContent.includedFeatures) ? sectionContent.includedFeatures : [],
+      recommendedPlan: sectionContent.recommendedPlan || null,
+      timeline: sectionContent.timeline || null,
+      nextSteps: sectionContent.nextSteps || null,
+      addOns: proposal.addOns,
+      discounts: proposal.discounts,
+    };
+    const commercialSnapshot = {
+      packageName: proposal.packageName,
+      recommendedPackageId: proposal.recommendedPackageId,
+      monthlyFeeCents: proposal.monthlyFeeCents,
+      setupFeeCents: proposal.setupFeeCents,
+      adSpendNote: proposal.adSpendNote,
+      vatStatus: proposal.vatStatus,
+      currency: proposal.currency,
+      paymentTerms,
+      startDate: proposal.startDate,
+      minimumTermMonths: proposal.minimumTermMonths,
+      noticePeriodDays: proposal.noticePeriodDays,
+      valueCents: proposal.valueCents,
+    };
+    const proposalSnapshot = {
+      id: proposal.id,
+      proposalName: proposal.proposalName,
+      templateKey: proposal.templateKey,
+      status: proposal.status,
+      proposalUrl: proposal.proposalUrl,
+      contactId: proposal.contactId,
+      dealId: proposal.dealId,
+      clientAccountProfileId,
+      contactName: proposal.contactName,
+      contactEmail: proposal.contactEmail,
+      accountName: proposal.accountName,
+      clientAccountName: proposal.clientAccountName,
+      sectionContent,
+      notes: proposal.notes,
+      acceptedReason: proposal.acceptedReason,
+      wonReason: proposal.wonReason,
+      capturedAt: new Date().toISOString(),
+    };
+
+    const id = uuidv4();
+    await pool.execute(
+      `INSERT INTO proposal_acceptance_record
+        (id, clinic_id, proposal_id, contact_id, deal_id, client_account_profile_id,
+         accepted_by_name, accepted_by_email, accepted_at, acceptance_status,
+         package_name, recommended_package_id, monthly_fee_cents, setup_fee_cents,
+         currency, payment_terms, start_date, minimum_term_months, notice_period_days,
+         scope, commercial_snapshot, proposal_snapshot, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         accepted_by_name = COALESCE(accepted_by_name, VALUES(accepted_by_name)),
+         accepted_by_email = COALESCE(accepted_by_email, VALUES(accepted_by_email)),
+         client_account_profile_id = COALESCE(client_account_profile_id, VALUES(client_account_profile_id)),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        id,
+        clinicId,
+        proposal.id,
+        proposal.contactId,
+        proposal.dealId,
+        clientAccountProfileId,
+        acceptedByName,
+        acceptedByEmail,
+        acceptedAt,
+        proposal.status === "won" ? "won" : "accepted",
+        proposal.packageName,
+        proposal.recommendedPackageId,
+        proposal.monthlyFeeCents,
+        proposal.setupFeeCents,
+        proposal.currency || "GBP",
+        paymentTerms,
+        toMysqlDateOnly(proposal.startDate),
+        proposal.minimumTermMonths,
+        proposal.noticePeriodDays,
+        JSON.stringify(scope),
+        JSON.stringify(commercialSnapshot),
+        JSON.stringify(proposalSnapshot),
+        userId,
+      ],
+    );
+
+    await this.logProposalActivity({
+      clinicId,
+      userId,
+      contactId: proposal.contactId,
+      proposalId: proposal.id,
+      action: "proposal_acceptance_record_saved",
+      title: proposal.proposalName,
+      status: proposal.status,
+      changes: {
+        acceptedByName,
+        acceptedByEmail,
+        acceptedAt,
+        clientAccountProfileId,
+        packageName: proposal.packageName,
+        monthlyFeeCents: proposal.monthlyFeeCents,
+        setupFeeCents: proposal.setupFeeCents,
+      },
+    });
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "PROPOSAL_ACCEPTANCE_RECORD_SAVED",
+      entityType: "proposal_acceptance_record",
+      entityId: id,
+      changes: {
+        proposalId: proposal.id,
+        acceptedByName,
+        acceptedByEmail,
+        acceptedAt,
+        clientAccountProfileId,
+        packageName: proposal.packageName,
+        monthlyFeeCents: proposal.monthlyFeeCents,
+        setupFeeCents: proposal.setupFeeCents,
+      },
+    });
+  }
+
+  private async resolveAcceptanceClientAccountProfileId(clinicId: string, proposal: ProposalResponse) {
+    if (proposal.clientAccountProfileId) return proposal.clientAccountProfileId;
+    if (!proposal.contactId) return null;
+
+    const [rows]: any = await pool.execute(
+      `SELECT client_account_profile_id as clientAccountProfileId
+       FROM client_account_contact
+       WHERE clinic_id = ?
+         AND contact_id = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [clinicId, proposal.contactId],
+    );
+
+    return rows[0]?.clientAccountProfileId || null;
   }
 
   private validateStatusRequirements(status: ProposalStatus, followUpAt: unknown) {

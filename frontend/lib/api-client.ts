@@ -147,6 +147,7 @@ export type {
   GrowthPackagePayload,
   GrowthPackageRecord,
   ProposalListParams,
+  ProposalAcceptanceRecord,
   ProposalPayload,
   ProposalPublicPreviewRecord,
   ProposalRecord,

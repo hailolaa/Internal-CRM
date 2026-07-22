@@ -66,6 +66,7 @@ const sampleProposal: ProposalRecord = {
   updatedBy: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
+  acceptanceRecord: null,
 };
 
 const samplePackage: GrowthPackageRecord = {
@@ -136,6 +137,12 @@ export default function ProposalPreviewPage() {
   const [acceptedReason, setAcceptedReason] = useState(acceptedReasons[0]);
   const [wonReason, setWonReason] = useState(wonReasons[0]);
   const [lostReason, setLostReason] = useState(lostReasons[0]);
+  const [acceptedByName, setAcceptedByName] = useState("");
+  const [acceptedByEmail, setAcceptedByEmail] = useState("");
+  const [acceptedAt, setAcceptedAt] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState(
+    "Monthly fees payable monthly in advance. Setup fee due before project kickoff unless otherwise agreed.",
+  );
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -163,6 +170,13 @@ export default function ProposalPreviewPage() {
       setAcceptedReason(proposalRecord.acceptedReason || acceptedReasons[0]);
       setWonReason(proposalRecord.wonReason || wonReasons[0]);
       setLostReason(proposalRecord.lostReason || lostReasons[0]);
+      setAcceptedByName(proposalRecord.acceptanceRecord?.acceptedByName || proposalRecord.sentToName || proposalRecord.contactName || proposalRecord.accountName || "");
+      setAcceptedByEmail(proposalRecord.acceptanceRecord?.acceptedByEmail || proposalRecord.sentToEmail || proposalRecord.contactEmail || "");
+      setAcceptedAt(toDatetimeLocalValue(proposalRecord.acceptanceRecord?.acceptedAt || proposalRecord.acceptedAt || proposalRecord.wonAt));
+      setPaymentTerms(
+        proposalRecord.acceptanceRecord?.paymentTerms ||
+          "Monthly fees payable monthly in advance. Setup fee due before project kickoff unless otherwise agreed.",
+      );
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load proposal preview.");
       setProposal(null);
@@ -237,23 +251,34 @@ export default function ProposalPreviewPage() {
         status,
         followUpAt: status === "follow_up_due" ? followUpAt || null : undefined,
         reason: status === "follow_up_due" ? undefined : reason || null,
+        acceptedByName: status === "accepted" || status === "won" ? acceptedByName.trim() || null : undefined,
+        acceptedByEmail: status === "accepted" || status === "won" ? acceptedByEmail.trim() || null : undefined,
+        acceptedAt: status === "accepted" || status === "won" ? acceptedAt || null : undefined,
+        paymentTerms: status === "accepted" || status === "won" ? paymentTerms.trim() || null : undefined,
       });
       setProposal(updated);
       setFollowUpAt(toDatetimeLocalValue(updated.followUpAt));
       setAcceptedReason(updated.acceptedReason || acceptedReasons[0]);
       setWonReason(updated.wonReason || wonReasons[0]);
       setLostReason(updated.lostReason || lostReasons[0]);
+      setAcceptedByName(updated.acceptanceRecord?.acceptedByName || updated.sentToName || updated.contactName || updated.accountName || "");
+      setAcceptedByEmail(updated.acceptanceRecord?.acceptedByEmail || updated.sentToEmail || updated.contactEmail || "");
+      setAcceptedAt(toDatetimeLocalValue(updated.acceptanceRecord?.acceptedAt || updated.acceptedAt || updated.wonAt));
+      setPaymentTerms(
+        updated.acceptanceRecord?.paymentTerms ||
+          "Monthly fees payable monthly in advance. Setup fee due before project kickoff unless otherwise agreed.",
+      );
       setMessage(
         status === "follow_up_due"
           ? "Proposal follow-up saved and linked to internal tasks/dashboard."
-          : `Proposal marked ${statusLabel(status)} and linked opportunity updated.`,
+          : `Proposal marked ${statusLabel(status)} and SOW snapshot saved.`,
       );
     } catch (statusError) {
       setError(statusError instanceof Error ? statusError.message : "Could not update proposal status.");
     } finally {
       setIsUpdatingStatus(false);
     }
-  }, [followUpAt, proposalId, token]);
+  }, [acceptedAt, acceptedByEmail, acceptedByName, followUpAt, paymentTerms, proposalId, token]);
 
   return (
     <div className="min-h-screen bg-[#f5f6f1]">
@@ -448,6 +473,45 @@ export default function ProposalPreviewPage() {
                         {wonReasons.map((reason) => <option key={reason}>{reason}</option>)}
                       </select>
                     </label>
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Accepted by
+                        <input
+                          value={acceptedByName}
+                          onChange={(event) => setAcceptedByName(event.target.value)}
+                          placeholder="Decision maker name"
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Email
+                        <input
+                          type="email"
+                          value={acceptedByEmail}
+                          onChange={(event) => setAcceptedByEmail(event.target.value)}
+                          placeholder="name@example.com"
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                    </div>
+                    <label className="mt-3 block text-sm font-medium text-[#354943]">
+                      Accepted date
+                      <input
+                        type="datetime-local"
+                        value={acceptedAt}
+                        onChange={(event) => setAcceptedAt(event.target.value)}
+                        className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
+                    </label>
+                    <label className="mt-3 block text-sm font-medium text-[#354943]">
+                      Payment terms
+                      <textarea
+                        value={paymentTerms}
+                        onChange={(event) => setPaymentTerms(event.target.value)}
+                        rows={3}
+                        className="mt-1 w-full resize-none rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
+                    </label>
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <button
                         type="button"
@@ -503,6 +567,29 @@ export default function ProposalPreviewPage() {
                   Current status: <span className="font-semibold text-[#14231f]">{statusLabel(proposal.status)}</span>
                   {proposal.followUpAt ? ` - follow-up ${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(proposal.followUpAt))}` : ""}
                 </p>
+                {proposal.acceptanceRecord ? (
+                  <div className="mt-3 rounded-[8px] border border-[#cfe3dc] bg-[#f4faf7] p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-[#14231f]">Accepted SOW snapshot saved</p>
+                        <p className="mt-1 text-xs text-[#5b7069]">
+                          Accepted {new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(proposal.acceptanceRecord.acceptedAt))}
+                          {proposal.acceptanceRecord.acceptedByName ? ` by ${proposal.acceptanceRecord.acceptedByName}` : ""}
+                          {proposal.acceptanceRecord.acceptedByEmail ? ` (${proposal.acceptanceRecord.acceptedByEmail})` : ""}.
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-[#315f51]/10 px-2.5 py-1 text-xs font-semibold text-[#315f51]">
+                        {statusLabel(proposal.acceptanceRecord.acceptanceStatus)}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid gap-2 text-xs text-[#354943] sm:grid-cols-2 lg:grid-cols-4">
+                      <span>Package: <strong>{proposal.acceptanceRecord.packageName || "Not set"}</strong></span>
+                      <span>Monthly: <strong>{proposal.acceptanceRecord.monthlyFeeCents === null ? "Not set" : new Intl.NumberFormat("en-GB", { style: "currency", currency: proposal.acceptanceRecord.currency, maximumFractionDigits: 0 }).format(proposal.acceptanceRecord.monthlyFeeCents / 100)}</strong></span>
+                      <span>Setup: <strong>{proposal.acceptanceRecord.setupFeeCents === null ? "Not set" : new Intl.NumberFormat("en-GB", { style: "currency", currency: proposal.acceptanceRecord.currency, maximumFractionDigits: 0 }).format(proposal.acceptanceRecord.setupFeeCents / 100)}</strong></span>
+                      <span>Account link: <strong>{proposal.acceptanceRecord.clientAccountProfileId ? "Linked" : "Not linked"}</strong></span>
+                    </div>
+                  </div>
+                ) : null}
               </section>
             ) : null}
             <div className="mx-auto mb-4 flex max-w-5xl justify-end">

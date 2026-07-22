@@ -124,6 +124,25 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(updated.body.data.status, "follow_up_due");
     assert.equal(updated.body.data.contactId, contactId);
 
+    const accepted = await request(baseUrl, `/api/proposals/${created.body.data.id}/status`, writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        status: "accepted",
+        reason: "Email acceptance",
+        acceptedByName: "Week Two Owner",
+        acceptedByEmail: "owner@example.com",
+        acceptedAt: "2026-07-25T10:00:00.000Z",
+        paymentTerms: "Monthly in advance, setup due before kickoff.",
+      }),
+    });
+    assert.equal(accepted.response.status, 200);
+    assert.equal(accepted.body.data.status, "accepted");
+    assert.equal(accepted.body.data.acceptanceRecord.acceptedByName, "Week Two Owner");
+    assert.equal(accepted.body.data.acceptanceRecord.acceptedByEmail, "owner@example.com");
+    assert.equal(accepted.body.data.acceptanceRecord.packageName, null);
+    assert.equal(accepted.body.data.acceptanceRecord.monthlyFeeCents, null);
+    assert.equal(accepted.body.data.acceptanceRecord.paymentTerms, "Monthly in advance, setup due before kickoff.");
+
     const crossTenant = await request(baseUrl, `/api/proposals/${created.body.data.id}`, otherWriter.token);
     assert.equal(crossTenant.response.status, 404);
 
@@ -140,6 +159,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
         "DELETE FROM task WHERE clinic_id IN (?, ?) AND (template_key LIKE 'proposal_follow_up:%' OR category = 'proposal_follow_up')",
         [primaryClinicId, otherClinicId],
       );
+      await pool.execute("DELETE FROM proposal_acceptance_record WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM contact WHERE id = ?", [contactId]);
       for (const user of users) {

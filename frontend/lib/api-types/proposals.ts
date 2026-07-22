@@ -66,6 +66,33 @@ export interface ProposalRecord {
   updatedBy: string | null;
   createdAt: string;
   updatedAt: string;
+  acceptanceRecord: ProposalAcceptanceRecord | null;
+}
+
+export interface ProposalAcceptanceRecord {
+  id: string;
+  proposalId: string;
+  contactId: string | null;
+  dealId: string | null;
+  clientAccountProfileId: string | null;
+  acceptedByName: string | null;
+  acceptedByEmail: string | null;
+  acceptedAt: string;
+  acceptanceStatus: "accepted" | "won";
+  packageName: string | null;
+  recommendedPackageId: string | null;
+  monthlyFeeCents: number | null;
+  setupFeeCents: number | null;
+  currency: string;
+  paymentTerms: string | null;
+  startDate: string | null;
+  minimumTermMonths: number | null;
+  noticePeriodDays: number | null;
+  scope: Record<string, unknown> | null;
+  commercialSnapshot: Record<string, unknown> | null;
+  proposalSnapshot: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProposalSectionContent {
@@ -101,6 +128,10 @@ export interface ProposalStatusUpdatePayload {
   status: Extract<ProposalStatus, "follow_up_due" | "accepted" | "won" | "lost">;
   followUpAt?: string | null;
   reason?: string | null;
+  acceptedByName?: string | null;
+  acceptedByEmail?: string | null;
+  acceptedAt?: string | null;
+  paymentTerms?: string | null;
 }
 
 export interface ProposalPublicPreviewRecord {
@@ -148,6 +179,9 @@ export interface ProposalPayload {
   viewedAt?: string | null;
   acceptedAt?: string | null;
   acceptedReason?: string | null;
+  acceptedByName?: string | null;
+  acceptedByEmail?: string | null;
+  paymentTerms?: string | null;
   wonAt?: string | null;
   wonReason?: string | null;
   lostAt?: string | null;
