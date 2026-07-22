@@ -47,6 +47,11 @@ import {
 } from "@/lib/pipeline-stage-normalization";
 import { useReportCsvExport } from "@/hooks/use-report-csv-export";
 import { AlertBanner, PageHeader, PipelineSkeleton } from "@/components/ui";
+import {
+  SALES_LOSS_REASON_OPTIONS,
+  SALES_OBJECTION_TYPE_OPTIONS,
+  salesOutcomeLabel,
+} from "@/lib/sales-outcomes";
 
 type PipelineDealData = {
   id: string;
@@ -86,6 +91,11 @@ type AddDealForm = {
   value: string;
 };
 
+type PendingLostMove = {
+  deal: PipelineDealData;
+  targetStage: PipelineStageData;
+};
+
 const EMPTY_ADD_DEAL_FORM: AddDealForm = {
   contactId: "",
   expectedCloseDate: "",
@@ -97,6 +107,9 @@ const EMPTY_ADD_DEAL_FORM: AddDealForm = {
   treatment: "",
   value: "",
 };
+
+const DEFAULT_LOST_REASON = SALES_LOSS_REASON_OPTIONS[0].value;
+const DEFAULT_OBJECTION_TYPE = SALES_OBJECTION_TYPE_OPTIONS[0].value;
 
 function formatMoneyFromCents(valueCents: number) {
   return new Intl.NumberFormat("en-GB", {
@@ -804,6 +817,9 @@ export default function PipelinePage() {
   const [removingDealId, setRemovingDealId] = useState<string | null>(null);
   const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
   const [dragOverStageId, setDragOverStageId] = useState<string | null>(null);
+  const [pendingLostMove, setPendingLostMove] = useState<PendingLostMove | null>(null);
+  const [lostReason, setLostReason] = useState<string>(DEFAULT_LOST_REASON);
+  const [objectionType, setObjectionType] = useState<string>(DEFAULT_OBJECTION_TYPE);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
   const autoScrollSpeedRef = useRef(0);
@@ -993,21 +1009,24 @@ export default function PipelinePage() {
   );
 
   const handleMoveToStage = useCallback(
-    async (deal: PipelineDealData, targetStage: PipelineStageData) => {
+    async (
+      deal: PipelineDealData,
+      targetStage: PipelineStageData,
+      outcome?: { lostReason: string; objectionType: string },
+    ) => {
       if (!token || !canWriteContacts || movingDealId) return;
       const currentIndex = findDealStageIndex(deal);
       const targetIndex = orderedStages.findIndex((stage) => stage.id === targetStage.id);
 
       if (currentIndex === -1 || targetIndex === -1 || currentIndex === targetIndex) return;
 
-      let lostReason = deal.raw.lostReason || null;
-      if (targetStage.raw.kind === "lost" && !lostReason) {
-        lostReason = window.prompt(`Why was ${deal.name} lost?`)?.trim() || null;
-        if (!lostReason) {
-          setActionMessage("");
-          setActionError("A lost reason is required before moving an opportunity to Lost.");
-          return;
-        }
+      if (targetStage.raw.kind === "lost" && !outcome) {
+        setLostReason(deal.raw.lostReason || DEFAULT_LOST_REASON);
+        setObjectionType(deal.raw.objectionType || DEFAULT_OBJECTION_TYPE);
+        setPendingLostMove({ deal, targetStage });
+        setActionMessage("");
+        setActionError("");
+        return;
       }
 
       let wonValueCents = deal.raw.valueCents;
@@ -1039,7 +1058,13 @@ export default function PipelinePage() {
 
       const movePayload = {
         stageId: targetStage.id,
-        ...(targetStage.raw.kind === "lost" ? { lostReason } : {}),
+        ...(targetStage.raw.kind === "lost"
+          ? {
+              lostAt: new Date().toISOString(),
+              lostReason: outcome?.lostReason || deal.raw.lostReason || DEFAULT_LOST_REASON,
+              objectionType: outcome?.objectionType || deal.raw.objectionType || DEFAULT_OBJECTION_TYPE,
+            }
+          : {}),
         ...(targetStage.raw.kind === "won"
           ? { valueCents: wonValueCents, soldAt: new Date().toISOString() }
           : {}),
@@ -1063,6 +1088,7 @@ export default function PipelinePage() {
         const rows = await fetchPipeline();
         setStages(rows);
         setSelectedDeal(null);
+        setPendingLostMove(null);
         setActionMessage(`${deal.name} moved to ${targetStage.name}.`);
       } catch (error) {
         setStages(previousStages);
@@ -1084,6 +1110,14 @@ export default function PipelinePage() {
     },
     [findDealStageIndex, handleMoveToStage, orderedStages],
   );
+
+  const submitLostMove = useCallback(() => {
+    if (!pendingLostMove) return;
+    void handleMoveToStage(pendingLostMove.deal, pendingLostMove.targetStage, {
+      lostReason,
+      objectionType,
+    });
+  }, [handleMoveToStage, lostReason, objectionType, pendingLostMove]);
 
   const openProposalBuilder = useCallback((deal: PipelineDealData) => {
     const params = new URLSearchParams({
@@ -1362,6 +1396,73 @@ export default function PipelinePage() {
         />
       )}
 
+      {pendingLostMove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-6">
+          <div className="w-full max-w-md rounded-2xl border border-black/[0.08] bg-[#FFFCF9] p-5 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-[#1B1D22]">Mark opportunity lost</h2>
+                <p className="mt-1 text-sm text-[#6B7280]">
+                  {pendingLostMove.deal.name} will move to {pendingLostMove.targetStage.name}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingLostMove(null)}
+                className="rounded-lg p-1 text-[#6B7280] hover:bg-[#F0EEF8] hover:text-[#1B1D22]"
+                aria-label="Close lost outcome modal"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-[#354943]">
+                Lost reason
+                <select
+                  value={lostReason}
+                  onChange={(event) => setLostReason(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-sm text-[#1B1D22] outline-none focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/15"
+                >
+                  {SALES_LOSS_REASON_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm font-medium text-[#354943]">
+                Objection type
+                <select
+                  value={objectionType}
+                  onChange={(event) => setObjectionType(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-sm text-[#1B1D22] outline-none focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/15"
+                >
+                  {SALES_OBJECTION_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingLostMove(null)}
+                className="rounded-xl border border-black/[0.08] px-4 py-2 text-sm font-semibold text-[#1B1D22] hover:bg-[#F0EEF8]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={movingDealId === pendingLostMove.deal.id}
+                onClick={submitLostMove}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#1B1D22] px-4 py-2 text-sm font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {movingDealId === pendingLostMove.deal.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Move to Lost
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-black/[0.06] bg-[#FFFCF9] shadow-sm md:grid-cols-5">
         {[
           ["Open pipeline", `£${openValue.toLocaleString()}`],
@@ -1525,7 +1626,7 @@ export default function PipelinePage() {
               <div className="rounded-xl bg-[#F4F1ED] p-3"><p className="text-xs text-[#8B8580]">Probability</p><p className="mt-1 text-lg font-bold">{selectedOpportunity.raw.probability}%</p></div>
             </div>
             <dl className="mt-6 space-y-4 text-sm">
-              {[["Stage", selectedOpportunity.raw.stageName || "Unassigned"], ["Package / service", selectedOpportunity.treatment], ["Owner", selectedOpportunity.owner], ["Lead source", selectedOpportunity.source], ["Expected close", selectedOpportunity.raw.expectedCloseDate ? formatFollowUpDate(selectedOpportunity.raw.expectedCloseDate) : "Not set"], ["Next action", selectedOpportunity.nextFollowUpDate ? formatFollowUpDate(selectedOpportunity.nextFollowUpDate) : "No next action"], ["Time in stage", `${selectedOpportunity.daysInStage} days`]].map(([label, value]) => <div key={label} className="flex items-center justify-between gap-4 border-b border-black/[0.06] pb-3"><dt className="text-[#8B8580]">{label}</dt><dd className="text-right font-medium text-[#1B1D22]">{value}</dd></div>)}
+              {[["Stage", selectedOpportunity.raw.stageName || "Unassigned"], ["Package / service", selectedOpportunity.treatment], ["Owner", selectedOpportunity.owner], ["Lead source", selectedOpportunity.source], ["Expected close", selectedOpportunity.raw.expectedCloseDate ? formatFollowUpDate(selectedOpportunity.raw.expectedCloseDate) : "Not set"], ["Next action", selectedOpportunity.nextFollowUpDate ? formatFollowUpDate(selectedOpportunity.nextFollowUpDate) : "No next action"], ["Time in stage", `${selectedOpportunity.daysInStage} days`], ["Lost reason", selectedOpportunity.raw.lostReason ? salesOutcomeLabel(selectedOpportunity.raw.lostReason) : "Not set"], ["Objection type", selectedOpportunity.raw.objectionType ? salesOutcomeLabel(selectedOpportunity.raw.objectionType) : "Not set"]].map(([label, value]) => <div key={label} className="flex items-center justify-between gap-4 border-b border-black/[0.06] pb-3"><dt className="text-[#8B8580]">{label}</dt><dd className="text-right font-medium text-[#1B1D22]">{value}</dd></div>)}
             </dl>
             <div className="mt-6 grid grid-cols-2 gap-2">
               <a href={selectedOpportunity.raw.contactPhone ? `tel:${selectedOpportunity.raw.contactPhone}` : undefined} className="flex items-center justify-center gap-2 rounded-xl border border-black/[0.07] py-3 text-sm font-medium"><Phone className="h-4 w-4" /> Call</a>

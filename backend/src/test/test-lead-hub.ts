@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
+import type { Server } from "node:http";
 import { v4 as uuidv4 } from "uuid";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 const CALL_TABLE = "`\u00A0call\u00A0`";
 
@@ -28,20 +29,7 @@ async function ensureClinicianAvailability(clinicId: string, clinicianId: string
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
+  return createTestClinicAndAdmin(prefix);
 }
 
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
@@ -69,6 +57,14 @@ async function fetchText(baseUrl: string, path: string, token: string, init: Req
   });
   const body = await response.text();
   return { response, body };
+}
+
+async function closeServer(server: Server) {
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  await new Promise<void>((resolve, reject) => {
+    server.close((error?: Error) => (error ? reject(error) : resolve()));
+  });
 }
 
 test("lead hub API supports lead CRUD, detail activity, required stages, stage moves, lost reason, and tenant safety", async () => {
@@ -412,14 +408,16 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
       method: "PATCH",
       body: JSON.stringify({
         stageId: lostStage.id,
-        lostReason: "Budget not approved",
+        lostReason: "budget",
+        objectionType: "budget",
         notes: "Lost after follow-up",
       }),
     });
     assert.equal(lostMove.response.status, 200);
     assert.equal(lostMove.body.data.status, "lost");
-    assert.equal(lostMove.body.data.lostReason, "Budget not approved");
-    console.log("[lead-hub] stage moves and lost reason passed");
+    assert.equal(lostMove.body.data.lostReason, "budget");
+    assert.equal(lostMove.body.data.objectionType, "budget");
+    console.log("[lead-hub] stage moves and sales loss fields passed");
 
     const timeline = await fetchJson(baseUrl, `/api/contacts/${contactId}/timeline`, primary.token);
     assert.equal(timeline.response.status, 200);
@@ -467,9 +465,7 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
     if (contactId) {
       await pool.execute(`UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id = ? AND deleted_at IS NULL`, [primary.clinicId, contactId]);
     }
-    await new Promise<void>((resolve, reject) => {
-      server.close((error?: Error) => (error ? reject(error) : resolve()));
-    });
+    await closeServer(server);
     await pool.end();
   }
 

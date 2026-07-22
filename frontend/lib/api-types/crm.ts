@@ -218,6 +218,8 @@ export interface ContactRecord {
   tags: string[];
   status: string;
   leadStatus: string | null;
+  lostReason: string | null;
+  objectionType: string | null;
   source: string | null;
   firstSource: string | null;
   latestSource: string | null;
@@ -268,6 +270,8 @@ export interface ContactListParams {
   search?: string;
   status?: string;
   leadStatus?: string;
+  lostReason?: string;
+  objectionType?: string;
   auditStatus?: AuditWorkflowStatus;
   auditWorkflow?: "due" | "overdue" | "in_progress" | "completed";
   source?: string;
@@ -316,6 +320,8 @@ export interface ContactCreatePayload {
   tags?: string[];
   status?: string | null;
   leadStatus?: string | null;
+  lostReason?: string | null;
+  objectionType?: string | null;
   source?: string | null;
   firstSource?: string | null;
   latestSource?: string | null;
@@ -544,6 +550,8 @@ export interface ContactImportRow {
   tags?: string[];
   status?: string;
   leadStatus?: string;
+  lostReason?: string;
+  objectionType?: string;
   source?: string;
   value?: number | string;
   treatmentInterests?: string[];

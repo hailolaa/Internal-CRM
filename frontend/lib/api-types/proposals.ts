@@ -49,6 +49,7 @@ export interface ProposalRecord {
   wonReason: string | null;
   lostAt: string | null;
   lostReason: string | null;
+  objectionType: string | null;
   expiresAt: string | null;
   proposalUrl: string | null;
   notes: string | null;
@@ -128,6 +129,7 @@ export interface ProposalStatusUpdatePayload {
   status: Extract<ProposalStatus, "follow_up_due" | "accepted" | "won" | "lost">;
   followUpAt?: string | null;
   reason?: string | null;
+  objectionType?: string | null;
   acceptedByName?: string | null;
   acceptedByEmail?: string | null;
   acceptedAt?: string | null;
@@ -186,6 +188,7 @@ export interface ProposalPayload {
   wonReason?: string | null;
   lostAt?: string | null;
   lostReason?: string | null;
+  objectionType?: string | null;
   expiresAt?: string | null;
   proposalUrl?: string | null;
   notes?: string | null;

@@ -1,6 +1,7 @@
 import { body, param, query } from "express-validator";
 import { hasUsableLeadIdentity } from "./contacts.normalizers.js";
 import { auditWorkflowStatuses } from "../audit-workflow/audit-workflow.constants.js";
+import { salesLossReasons, salesObjectionTypes } from "../sales-outcomes/sales-outcomes.constants.js";
 
 const contactSortFields = ["name", "source", "status", "value", "lastContact", "createdAt", "updatedAt"];
 const attributionTextFields = [
@@ -80,6 +81,8 @@ const contactMutationValidator = [
   body("tags.*").optional().isString().trim().isLength({ max: 50 }),
   body("status").optional({ nullable: true }).isString().trim().isLength({ max: 50 }),
   body("leadStatus").optional({ nullable: true }).isString().trim().isLength({ max: 50 }),
+  body("lostReason").optional({ nullable: true }).isIn(salesLossReasons),
+  body("objectionType").optional({ nullable: true }).isIn(salesObjectionTypes),
   body("source").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
   ...attributionTextFields.map((field) =>
     body(field).optional({ nullable: true }).isString().trim().isLength({ max: 150 }),
@@ -130,6 +133,8 @@ export const listContactsValidator = [
   query("search").optional().isString().trim().isLength({ max: 255 }),
   query("status").optional().isString().trim().isLength({ max: 50 }),
   query("leadStatus").optional().isString().trim().isLength({ max: 50 }),
+  query("lostReason").optional().isIn(salesLossReasons),
+  query("objectionType").optional().isIn(salesObjectionTypes),
   query("auditStatus").optional().isIn(auditWorkflowStatuses),
   query("auditWorkflow").optional().isIn(["due", "overdue", "in_progress", "completed"]),
   query("source").optional().isString().trim().isLength({ max: 100 }),

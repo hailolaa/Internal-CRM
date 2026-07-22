@@ -134,6 +134,8 @@ export function mapContact(row: any): ContactResponse {
     tags: parseJsonArray(row.tags),
     status: row.status || "active",
     leadStatus: row.leadStatus || null,
+    lostReason: row.lostReason || null,
+    objectionType: row.objectionType || null,
     source: row.source || null,
     firstSource: row.firstSource || null,
     latestSource: row.latestSource || null,

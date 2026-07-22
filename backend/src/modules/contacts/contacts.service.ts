@@ -823,6 +823,8 @@ export class ContactsService {
     addField("tags", "tags", JSON.stringify(normalized.tags));
     addField("status", "status", normalized.status);
     addField("leadStatus", "lead_status", normalized.leadStatus);
+    addField("lostReason", "lost_reason", normalized.lostReason);
+    addField("objectionType", "objection_type", normalized.objectionType);
     addField("source", "source", normalized.source);
     addField("firstSource", "first_source", normalized.firstSource);
     addField("latestSource", "latest_source", normalized.latestSource);
@@ -1493,6 +1495,7 @@ export class ContactsService {
       priority: data.priority as any,
       status: data.status as any,
       category: data.category as any,
+      contactId,
       contact: contact.name,
       due: data.due as any,
       dueDate: data.dueDate as any,

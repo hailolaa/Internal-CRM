@@ -1,5 +1,6 @@
 import { body, param, query } from "express-validator";
 import { proposalStatuses } from "./proposals.types.js";
+import { salesLossReasons, salesObjectionTypes } from "../sales-outcomes/sales-outcomes.constants.js";
 
 const idValidator = (field: string) =>
   body(field)
@@ -142,7 +143,8 @@ export const createProposalValidator = [
   optionalDate("wonAt"),
   body("wonReason").optional({ nullable: true }).trim().isLength({ max: 255 }),
   optionalDate("lostAt"),
-  body("lostReason").optional({ nullable: true }).trim().isLength({ max: 255 }),
+  body("lostReason").optional({ nullable: true }).isIn(salesLossReasons),
+  body("objectionType").optional({ nullable: true }).isIn(salesObjectionTypes),
   optionalDate("expiresAt"),
   body("proposalUrl").optional({ nullable: true }).trim().isLength({ max: 500 }),
   body("notes").optional({ nullable: true }).trim().isLength({ max: 10000 }),
@@ -184,7 +186,8 @@ export const updateProposalValidator = [
   optionalDate("wonAt"),
   body("wonReason").optional({ nullable: true }).trim().isLength({ max: 255 }),
   optionalDate("lostAt"),
-  body("lostReason").optional({ nullable: true }).trim().isLength({ max: 255 }),
+  body("lostReason").optional({ nullable: true }).isIn(salesLossReasons),
+  body("objectionType").optional({ nullable: true }).isIn(salesObjectionTypes),
   optionalDate("expiresAt"),
   body("proposalUrl").optional({ nullable: true }).trim().isLength({ max: 500 }),
   body("notes").optional({ nullable: true }).trim().isLength({ max: 10000 }),
@@ -206,7 +209,17 @@ export const proposalStatusUpdateValidator = [
   ...proposalIdParamValidator,
   body("status").isIn(["follow_up_due", "accepted", "won", "lost"]),
   optionalDate("followUpAt"),
-  body("reason").optional({ nullable: true }).trim().isLength({ max: 255 }),
+  body("reason")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 255 })
+    .custom((value, { req }) => {
+      if (req.body?.status === "lost" && !salesLossReasons.includes(value)) {
+        throw new Error("Lost reason must be one of the supported options");
+      }
+      return true;
+    }),
+  body("objectionType").optional({ nullable: true }).isIn(salesObjectionTypes),
   body("acceptedByName").optional({ nullable: true }).trim().isLength({ max: 255 }),
   body("acceptedByEmail").optional({ nullable: true }).trim().isEmail().withMessage("Accepted by email must be valid"),
   optionalDate("acceptedAt"),

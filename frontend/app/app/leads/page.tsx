@@ -36,6 +36,7 @@ import {
   nextBestActionBadgeClass,
   type NextBestActionResult,
 } from "@/lib/next-best-action";
+import { salesOutcomeLabel } from "@/lib/sales-outcomes";
 import { AlertTriangle, Plus, PoundSterling, Target, Users } from "lucide-react";
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
 
@@ -95,6 +96,7 @@ interface Lead {
   recordKind: "deal" | "contact";
   stageKind: string | null;
   lostReason: string | null;
+  objectionType: string | null;
 }
 
 const STAGE_COLORS_WARM: Record<string, string> = {
@@ -127,6 +129,9 @@ const searchFn = (lead: Lead, query: string) =>
   lead.nextBestAction.detail.toLowerCase().includes(query) ||
   lead.auditLabel.toLowerCase().includes(query) ||
   lead.lostReason?.toLowerCase().includes(query) ||
+  salesOutcomeLabel(lead.lostReason).toLowerCase().includes(query) ||
+  lead.objectionType?.toLowerCase().includes(query) ||
+  salesOutcomeLabel(lead.objectionType).toLowerCase().includes(query) ||
   lead.lastContactDate.toLowerCase().includes(query) ||
   slaLabel(lead.slaStatus).toLowerCase().includes(query) ||
   lead.followUpDate.toLowerCase().includes(query);
@@ -321,7 +326,8 @@ function toLead(contact: ContactRecord): Lead {
     contactId: contact.id,
     recordKind: "contact",
     stageKind: null,
-    lostReason: null,
+    lostReason: contact.lostReason,
+    objectionType: contact.objectionType,
   }));
 }
 
@@ -370,6 +376,7 @@ function toLeadFromDeal(deal: PipelineDealRecord): Lead {
     recordKind: "deal",
     stageKind: deal.stageKind,
     lostReason: deal.lostReason,
+    objectionType: deal.objectionType,
   }));
 }
 
@@ -418,6 +425,8 @@ function enrichLeadWithContactAndTask(
     attemptCount,
     slaStatus,
     slaSort: slaStatus === "overdue" ? 0 : slaStatus === "uncontacted" ? 1 : 2,
+    lostReason: contact?.lostReason || lead.lostReason,
+    objectionType: contact?.objectionType || lead.objectionType,
   }));
 }
 
@@ -895,7 +904,13 @@ export default function LeadsPage() {
                     {lead.lostReason && (
                       <p className="mt-1 break-words text-xs leading-5 text-red-600">
                         <span className="font-semibold">Lost reason:</span>{" "}
-                        {lead.lostReason}
+                        {salesOutcomeLabel(lead.lostReason)}
+                      </p>
+                    )}
+                    {lead.objectionType && (
+                      <p className="mt-1 break-words text-xs leading-5 text-red-600">
+                        <span className="font-semibold">Objection:</span>{" "}
+                        {salesOutcomeLabel(lead.objectionType)}
                       </p>
                     )}
                     </div>

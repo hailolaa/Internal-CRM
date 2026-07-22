@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import pool from "../../config/database.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
 import { logAuditEvent } from "../../utils/audit.js";
@@ -99,6 +100,7 @@ function getMoveValues(stage: PipelineDealStageRow, data: MovePipelineDealDTO): 
   if (stage.kind === "lost") {
     values.lostAt = toMysqlDateTime(data.lostAt);
     values.lostReason = data.lostReason || null;
+    values.objectionType = data.objectionType || null;
   }
 
   return values;
@@ -126,6 +128,9 @@ function validateMove(stage: PipelineDealStageRow, data: MovePipelineDealDTO, ex
 
   if (stage.kind === "lost" && !data.lostReason?.trim() && !existing.lostReason) {
     throw ApiError.badRequest("lostReason is required when moving an opportunity to Lost");
+  }
+  if (stage.kind === "lost" && !data.objectionType?.trim() && !existing.objectionType) {
+    throw ApiError.badRequest("objectionType is required when moving an opportunity to Lost");
   }
 }
 
@@ -283,6 +288,24 @@ export class PipelineDealsService {
     const movementId = uuidv4();
     const moveValues = getMoveValues(stage, data);
     await movePipelineDealStage(clinicId, dealId, moveValues);
+    if (stage.kind === "lost") {
+      await pool.execute(
+        `UPDATE contact
+         SET lost_reason = ?,
+             objection_type = ?,
+             lead_status = CASE WHEN lead_status IS NULL OR lead_status <> 'client' THEN 'lost' ELSE lead_status END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND clinic_id = ?
+           AND deleted_at IS NULL`,
+        [
+          data.lostReason || existing.lostReason || null,
+          data.objectionType || existing.objectionType || null,
+          existing.contactId,
+          clinicId,
+        ],
+      );
+    }
     await insertPipelineDealMovement({
       id: movementId,
       clinicId,
@@ -297,6 +320,7 @@ export class PipelineDealsService {
         notes: data.notes || null,
         valueCents: data.valueCents ?? existing.valueCents,
         lostReason: data.lostReason || null,
+        objectionType: data.objectionType || null,
       },
     });
 
@@ -312,6 +336,8 @@ export class PipelineDealsService {
         changes: {
           fromStage: existing.stageName,
           toStage: stage.name,
+          lostReason: data.lostReason || existing.lostReason || null,
+          objectionType: data.objectionType || existing.objectionType || null,
         },
       }),
     });
@@ -325,6 +351,8 @@ export class PipelineDealsService {
         fromStage: existing.stageName,
         toStage: stage.name,
         movementId,
+        lostReason: data.lostReason || existing.lostReason || null,
+        objectionType: data.objectionType || existing.objectionType || null,
       },
     });
 

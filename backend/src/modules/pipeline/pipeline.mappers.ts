@@ -80,6 +80,7 @@ export function mapPipelineDeal(row: any): PipelineDealResponse {
     soldAt: dateToIso(row.soldAt),
     lostAt: dateToIso(row.lostAt),
     lostReason: row.lostReason || null,
+    objectionType: row.objectionType || null,
     auditStatus: row.auditStatus || null,
     auditAssignedTo: row.auditAssignedTo || null,
     auditFollowUpDueAt: dateToIso(row.auditFollowUpDueAt),

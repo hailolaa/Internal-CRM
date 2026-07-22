@@ -48,6 +48,8 @@ export interface ContactListQuery {
   utmMedium?: string;
   utmCampaign?: string;
   leadStatus?: string;
+  lostReason?: string;
+  objectionType?: string;
   auditStatus?: AuditWorkflowStatus;
   auditWorkflow?: ContactAuditWorkflowFilter;
   createdFrom?: string;
@@ -91,6 +93,8 @@ export interface ContactMutationDTO {
   tags?: string[];
   status?: string | null;
   leadStatus?: string | null;
+  lostReason?: string | null;
+  objectionType?: string | null;
   source?: string | null;
   firstSource?: string | null;
   latestSource?: string | null;
@@ -166,6 +170,8 @@ export interface NormalizedContactData {
   tags: string[];
   status: string | null;
   leadStatus: string | null;
+  lostReason: string | null;
+  objectionType: string | null;
   source: string | null;
   firstSource: string | null;
   latestSource: string | null;
@@ -250,6 +256,8 @@ export interface ContactResponse {
   tags: string[];
   status: string;
   leadStatus: string | null;
+  lostReason: string | null;
+  objectionType: string | null;
   source: string | null;
   firstSource: string | null;
   latestSource: string | null;
@@ -530,6 +538,8 @@ export interface ContactImportRow {
   tags?: string[];
   status?: string;
   leadStatus?: string;
+  lostReason?: string;
+  objectionType?: string;
   source?: string;
   firstSource?: string;
   latestSource?: string;

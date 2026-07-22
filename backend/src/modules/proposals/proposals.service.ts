@@ -279,6 +279,7 @@ function mapProposal(row: any, options: { publicView?: boolean } = {}): Proposal
     wonReason: row.wonReason || null,
     lostAt: toIso(row.lostAt),
     lostReason: row.lostReason || null,
+    objectionType: row.objectionType || null,
     expiresAt: toIso(row.expiresAt),
     proposalUrl: row.proposalUrl || null,
     notes: row.notes || null,
@@ -336,6 +337,7 @@ function proposalSelectSql() {
                  p.won_reason as wonReason,
                  p.lost_at as lostAt,
                  p.lost_reason as lostReason,
+                 p.objection_type as objectionType,
                  p.expires_at as expiresAt,
                  p.proposal_url as proposalUrl,
                  p.public_link_created_at as publicLinkCreatedAt,
@@ -834,6 +836,9 @@ export class ProposalsService {
 
     const status = data.status || "draft";
     this.validateStatusRequirements(status, data.followUpAt);
+    if (status === "lost" && (!cleanString(data.lostReason) || !cleanString(data.objectionType))) {
+      throw ApiError.badRequest("Lost reason and objection type are required when marking a proposal lost");
+    }
     const recommendedPackage = await this.resolveRecommendedPackage(clinicId, data.recommendedPackageId);
     const packageName = cleanString(data.packageName) || recommendedPackage?.name || null;
     const valueCents = data.valueCents ?? recommendedPackage?.priceCents ?? null;
@@ -874,6 +879,7 @@ export class ProposalsService {
       cleanString(data.wonReason),
       timestamps.lostAt ?? null,
       cleanString(data.lostReason),
+      cleanString(data.objectionType),
       toMysqlDateTime(data.expiresAt),
       cleanString(data.proposalUrl),
       cleanString(data.notes),
@@ -892,9 +898,9 @@ export class ProposalsService {
          template_key, package_name, recommended_package_id, owner_id, status, value,
          monthly_fee_cents, setup_fee_cents, currency, ad_spend_note, vat_status,
          minimum_term_months, notice_period_days, start_date, follow_up_at, ready_at,
-         sent_at, viewed_at, accepted_at, accepted_reason, won_at, won_reason, lost_at, lost_reason, expires_at, proposal_url,
+         sent_at, viewed_at, accepted_at, accepted_reason, won_at, won_reason, lost_at, lost_reason, objection_type, expires_at, proposal_url,
          notes, add_ons, discounts, internal_margin_note, section_content, draft_saved_at, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       values,
     );
 
@@ -927,6 +933,7 @@ export class ProposalsService {
         acceptedReason: cleanString(data.acceptedReason),
         wonReason: cleanString(data.wonReason),
         lostReason: cleanString(data.lostReason),
+        objectionType: cleanString(data.objectionType),
       },
     });
     await logAuditEvent({
@@ -963,6 +970,11 @@ export class ProposalsService {
     const status = data.status || existing.status;
     const followUpAt = data.followUpAt === undefined ? existing.followUpAt : data.followUpAt;
     this.validateStatusRequirements(status, followUpAt);
+    const lostReason = data.lostReason === undefined ? existing.lostReason : data.lostReason;
+    const objectionType = data.objectionType === undefined ? existing.objectionType : data.objectionType;
+    if (status === "lost" && (!cleanString(lostReason) || !cleanString(objectionType))) {
+      throw ApiError.badRequest("Lost reason and objection type are required when marking a proposal lost");
+    }
     const recommendedPackage = Object.prototype.hasOwnProperty.call(data, "recommendedPackageId")
       ? await this.resolveRecommendedPackage(clinicId, data.recommendedPackageId)
       : null;
@@ -1012,6 +1024,7 @@ export class ProposalsService {
     if (Object.prototype.hasOwnProperty.call(data, "acceptedReason")) add("accepted_reason", cleanString(data.acceptedReason));
     if (Object.prototype.hasOwnProperty.call(data, "wonReason")) add("won_reason", cleanString(data.wonReason));
     if (Object.prototype.hasOwnProperty.call(data, "lostReason")) add("lost_reason", cleanString(data.lostReason));
+    if (Object.prototype.hasOwnProperty.call(data, "objectionType")) add("objection_type", cleanString(data.objectionType));
     if (Object.prototype.hasOwnProperty.call(data, "proposalUrl")) add("proposal_url", cleanString(data.proposalUrl));
     if (Object.prototype.hasOwnProperty.call(data, "notes")) add("notes", cleanString(data.notes));
     if (Object.prototype.hasOwnProperty.call(data, "addOns")) add("add_ons", serializeCommercialItems(data.addOns) ?? null);
@@ -1052,6 +1065,7 @@ export class ProposalsService {
           acceptedReason: updated.acceptedReason,
           wonReason: updated.wonReason,
           lostReason: updated.lostReason,
+          objectionType: updated.objectionType,
         },
       });
     } else {
@@ -1114,7 +1128,9 @@ export class ProposalsService {
 
     if (status === "lost") {
       if (!reason) throw ApiError.badRequest("Reason is required when marking a proposal lost");
+      if (!cleanString(data.objectionType)) throw ApiError.badRequest("Objection type is required when marking a proposal lost");
       payload.lostReason = reason;
+      payload.objectionType = data.objectionType || null;
     }
 
     return this.updateProposal(clinicId, userId, proposalId, payload, access);
@@ -1529,6 +1545,20 @@ export class ProposalsService {
     proposal: ProposalResponse,
     previousProposal?: ProposalResponse,
   ) {
+    if (proposal.status === "lost" && proposal.contactId) {
+      await pool.execute(
+        `UPDATE contact
+         SET lost_reason = ?,
+             objection_type = ?,
+             lead_status = CASE WHEN lead_status IS NULL OR lead_status <> 'client' THEN 'lost' ELSE lead_status END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND clinic_id = ?
+           AND deleted_at IS NULL`,
+        [proposal.lostReason, proposal.objectionType, proposal.contactId, clinicId],
+      );
+    }
+
     if (!proposal.dealId || !["sent", "viewed", "follow_up_due", "accepted", "won", "lost"].includes(proposal.status)) return;
 
     const [dealRows]: any = await pool.execute(
@@ -1593,6 +1623,7 @@ export class ProposalsService {
            sold_at = CASE WHEN ? = 'won' THEN COALESCE(sold_at, CURRENT_TIMESTAMP) ELSE NULL END,
            lost_at = CASE WHEN ? = 'lost' THEN COALESCE(lost_at, CURRENT_TIMESTAMP) ELSE NULL END,
            lost_reason = CASE WHEN ? = 'lost' THEN ? ELSE NULL END,
+           objection_type = CASE WHEN ? = 'lost' THEN ? ELSE NULL END,
            stage_changed_at = CURRENT_TIMESTAMP,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
@@ -1606,6 +1637,8 @@ export class ProposalsService {
         nextDealStatus,
         nextDealStatus,
         outcomeReason,
+        nextDealStatus,
+        proposal.objectionType,
         proposal.dealId,
         clinicId,
       ],
@@ -1631,6 +1664,7 @@ export class ProposalsService {
           previousProposalStatus: previousProposal?.status || null,
           proposalStatus: proposal.status,
           reason: outcomeReason,
+          objectionType: proposal.objectionType,
         }),
       ],
     );
@@ -1648,6 +1682,7 @@ export class ProposalsService {
         previousStatus: deal.status,
         nextStatus: nextDealStatus,
         reason: outcomeReason,
+        objectionType: proposal.objectionType,
       },
     });
   }

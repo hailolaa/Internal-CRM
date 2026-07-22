@@ -64,6 +64,7 @@ export interface PipelineDealMoveValues {
   soldAt?: string | null;
   lostAt?: string | null;
   lostReason?: string | null;
+  objectionType?: string | null;
 }
 
 export interface PipelineDealMovementValues {
@@ -126,6 +127,7 @@ const dealSelect = `
          d.sold_at as soldAt,
          d.lost_at as lostAt,
          d.lost_reason as lostReason,
+         d.objection_type as objectionType,
          d.audit_status as auditStatus,
          d.audit_assigned_to as auditAssignedTo,
          d.audit_follow_up_due_at as auditFollowUpDueAt,
@@ -360,6 +362,10 @@ export async function movePipelineDealStage(
   if (values.lostReason !== undefined) {
     fields.push("lost_reason = ?");
     params.push(values.lostReason);
+  }
+  if (values.objectionType !== undefined) {
+    fields.push("objection_type = ?");
+    params.push(values.objectionType);
   }
 
   await pool.execute(

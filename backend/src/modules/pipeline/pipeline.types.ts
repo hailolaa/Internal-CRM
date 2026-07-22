@@ -55,6 +55,7 @@ export interface PipelineDealResponse {
   soldAt: string | null;
   lostAt: string | null;
   lostReason: string | null;
+  objectionType: string | null;
   auditStatus: AuditWorkflowStatus | null;
   auditAssignedTo: string | null;
   auditFollowUpDueAt: string | null;
@@ -99,5 +100,6 @@ export interface MovePipelineDealDTO {
   soldAt?: string | null;
   lostAt?: string | null;
   lostReason?: string | null;
+  objectionType?: string | null;
   notes?: string | null;
 }

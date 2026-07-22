@@ -224,6 +224,8 @@ export function normalizeContactData(data: Partial<ContactMutationDTO>): Normali
     tags: normalizeStringList(data.tags),
     status: cleanString(data.status),
     leadStatus: cleanString(data.leadStatus),
+    lostReason: cleanString(data.lostReason),
+    objectionType: cleanString(data.objectionType),
     source: cleanString(data.source),
     firstSource: cleanString(data.firstSource),
     latestSource: cleanString(data.latestSource),
@@ -269,6 +271,8 @@ export function normalizeImportRow(row: ContactImportRow): NormalizedImportConta
     ...row,
     status: row.status || "lead",
     leadStatus: row.leadStatus || row.status || "new",
+    lostReason: row.lostReason || null,
+    objectionType: row.objectionType || null,
     source: row.source || "import",
   });
 
@@ -276,6 +280,8 @@ export function normalizeImportRow(row: ContactImportRow): NormalizedImportConta
     ...normalized,
     status: normalized.status || "lead",
     leadStatus: normalized.leadStatus || "new",
+    lostReason: normalized.lostReason,
+    objectionType: normalized.objectionType,
     source: normalized.source || "import",
   };
 }

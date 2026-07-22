@@ -49,6 +49,7 @@ export interface ProposalMutationDTO {
   wonReason?: string | null;
   lostAt?: string | Date | null;
   lostReason?: string | null;
+  objectionType?: string | null;
   expiresAt?: string | Date | null;
   proposalUrl?: string | null;
   notes?: string | null;
@@ -69,6 +70,7 @@ export interface ProposalStatusUpdateDTO {
   status: Extract<ProposalStatus, "follow_up_due" | "accepted" | "won" | "lost">;
   followUpAt?: string | Date | null;
   reason?: string | null;
+  objectionType?: string | null;
   acceptedByName?: string | null;
   acceptedByEmail?: string | null;
   acceptedAt?: string | Date | null;
@@ -130,6 +132,7 @@ export interface ProposalResponse {
   wonReason: string | null;
   lostAt: string | null;
   lostReason: string | null;
+  objectionType: string | null;
   expiresAt: string | null;
   proposalUrl: string | null;
   notes: string | null;

@@ -7,6 +7,11 @@ import { useSearchParams } from "next/navigation";
 import { AlertBanner, PageHeader } from "@/components/ui";
 import { SubNav } from "@/components/sub-nav";
 import { SALES_NAV } from "@/lib/section-nav";
+import {
+  SALES_LOSS_REASON_OPTIONS,
+  SALES_OBJECTION_TYPE_OPTIONS,
+  salesOutcomeLabel,
+} from "@/lib/sales-outcomes";
 import { api } from "@/lib/api-client";
 import type { GrowthPackageRecord, ProposalRecord } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
@@ -49,6 +54,7 @@ const sampleProposal: ProposalRecord = {
   wonReason: null,
   lostAt: null,
   lostReason: null,
+  objectionType: null,
   expiresAt: null,
   proposalUrl: null,
   notes: "Internal preview generated from Mission Control.",
@@ -117,7 +123,8 @@ function statusLabel(value: string) {
 
 const acceptedReasons = ["Verbal acceptance", "Email acceptance", "Accepted pending setup", "Other"];
 const wonReasons = ["Accepted recommended package", "Budget approved", "Urgent growth priority", "Existing relationship", "Other"];
-const lostReasons = ["Price/budget", "No response", "Timing", "Chose competitor", "Not a fit", "Other"];
+const lostReasons = SALES_LOSS_REASON_OPTIONS;
+const objectionTypes = SALES_OBJECTION_TYPE_OPTIONS;
 
 export default function ProposalPreviewPage() {
   const searchParams = useSearchParams();
@@ -136,7 +143,8 @@ export default function ProposalPreviewPage() {
   const [followUpAt, setFollowUpAt] = useState("");
   const [acceptedReason, setAcceptedReason] = useState(acceptedReasons[0]);
   const [wonReason, setWonReason] = useState(wonReasons[0]);
-  const [lostReason, setLostReason] = useState(lostReasons[0]);
+  const [lostReason, setLostReason] = useState<string>(lostReasons[0].value);
+  const [objectionType, setObjectionType] = useState<string>(objectionTypes[0].value);
   const [acceptedByName, setAcceptedByName] = useState("");
   const [acceptedByEmail, setAcceptedByEmail] = useState("");
   const [acceptedAt, setAcceptedAt] = useState("");
@@ -169,7 +177,8 @@ export default function ProposalPreviewPage() {
       setFollowUpAt(toDatetimeLocalValue(proposalRecord.followUpAt));
       setAcceptedReason(proposalRecord.acceptedReason || acceptedReasons[0]);
       setWonReason(proposalRecord.wonReason || wonReasons[0]);
-      setLostReason(proposalRecord.lostReason || lostReasons[0]);
+      setLostReason(proposalRecord.lostReason || lostReasons[0].value);
+      setObjectionType(proposalRecord.objectionType || objectionTypes[0].value);
       setAcceptedByName(proposalRecord.acceptanceRecord?.acceptedByName || proposalRecord.sentToName || proposalRecord.contactName || proposalRecord.accountName || "");
       setAcceptedByEmail(proposalRecord.acceptanceRecord?.acceptedByEmail || proposalRecord.sentToEmail || proposalRecord.contactEmail || "");
       setAcceptedAt(toDatetimeLocalValue(proposalRecord.acceptanceRecord?.acceptedAt || proposalRecord.acceptedAt || proposalRecord.wonAt));
@@ -251,6 +260,7 @@ export default function ProposalPreviewPage() {
         status,
         followUpAt: status === "follow_up_due" ? followUpAt || null : undefined,
         reason: status === "follow_up_due" ? undefined : reason || null,
+        objectionType: status === "lost" ? objectionType : undefined,
         acceptedByName: status === "accepted" || status === "won" ? acceptedByName.trim() || null : undefined,
         acceptedByEmail: status === "accepted" || status === "won" ? acceptedByEmail.trim() || null : undefined,
         acceptedAt: status === "accepted" || status === "won" ? acceptedAt || null : undefined,
@@ -260,7 +270,8 @@ export default function ProposalPreviewPage() {
       setFollowUpAt(toDatetimeLocalValue(updated.followUpAt));
       setAcceptedReason(updated.acceptedReason || acceptedReasons[0]);
       setWonReason(updated.wonReason || wonReasons[0]);
-      setLostReason(updated.lostReason || lostReasons[0]);
+      setLostReason(updated.lostReason || lostReasons[0].value);
+      setObjectionType(updated.objectionType || objectionTypes[0].value);
       setAcceptedByName(updated.acceptanceRecord?.acceptedByName || updated.sentToName || updated.contactName || updated.accountName || "");
       setAcceptedByEmail(updated.acceptanceRecord?.acceptedByEmail || updated.sentToEmail || updated.contactEmail || "");
       setAcceptedAt(toDatetimeLocalValue(updated.acceptanceRecord?.acceptedAt || updated.acceptedAt || updated.wonAt));
@@ -278,7 +289,7 @@ export default function ProposalPreviewPage() {
     } finally {
       setIsUpdatingStatus(false);
     }
-  }, [acceptedAt, acceptedByEmail, acceptedByName, followUpAt, paymentTerms, proposalId, token]);
+  }, [acceptedAt, acceptedByEmail, acceptedByName, followUpAt, objectionType, paymentTerms, proposalId, token]);
 
   return (
     <div className="min-h-screen bg-[#f5f6f1]">
@@ -549,7 +560,17 @@ export default function ProposalPreviewPage() {
                         onChange={(event) => setLostReason(event.target.value)}
                         className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                       >
-                        {lostReasons.map((reason) => <option key={reason}>{reason}</option>)}
+                        {lostReasons.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    <label className="mt-3 block text-sm font-medium text-[#354943]">
+                      Objection type
+                      <select
+                        value={objectionType}
+                        onChange={(event) => setObjectionType(event.target.value)}
+                        className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      >
+                        {objectionTypes.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </label>
                     <button
@@ -566,6 +587,8 @@ export default function ProposalPreviewPage() {
                 <p className="mt-3 text-xs text-[#5b7069]">
                   Current status: <span className="font-semibold text-[#14231f]">{statusLabel(proposal.status)}</span>
                   {proposal.followUpAt ? ` - follow-up ${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(proposal.followUpAt))}` : ""}
+                  {proposal.status === "lost" && proposal.lostReason ? ` - lost: ${salesOutcomeLabel(proposal.lostReason)}` : ""}
+                  {proposal.status === "lost" && proposal.objectionType ? ` - objection: ${salesOutcomeLabel(proposal.objectionType)}` : ""}
                 </p>
                 {proposal.acceptanceRecord ? (
                   <div className="mt-3 rounded-[8px] border border-[#cfe3dc] bg-[#f4faf7] p-3">

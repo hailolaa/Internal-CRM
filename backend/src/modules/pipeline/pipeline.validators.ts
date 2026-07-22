@@ -1,6 +1,7 @@
 import { body, param } from "express-validator";
 import { pipelineDealStatuses, pipelineStageKinds } from "./pipeline.constants.js";
 import { auditWorkflowStatuses } from "../audit-workflow/audit-workflow.constants.js";
+import { salesLossReasons, salesObjectionTypes } from "../sales-outcomes/sales-outcomes.constants.js";
 
 const colorPattern = /^bg-[a-z]+-\d{3}$/;
 const idValidator = param("id").isString().trim().isLength({ min: 1, max: 100 });
@@ -60,6 +61,7 @@ export const movePipelineDealValidator = [
   body("bookedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("soldAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("lostAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
-  body("lostReason").optional({ nullable: true }).isString().trim().isLength({ max: 255 }),
+  body("lostReason").optional({ nullable: true }).isIn(salesLossReasons),
+  body("objectionType").optional({ nullable: true }).isIn(salesObjectionTypes),
   body("notes").optional({ nullable: true }).isString().trim().isLength({ max: 2000 }),
 ];

@@ -38,6 +38,8 @@ export const contactSelectFields = `c.id,
               c.tags,
               c.status,
               c.lead_status as leadStatus,
+              c.lost_reason as lostReason,
+              c.objection_type as objectionType,
               c.source,
               c.first_source as firstSource,
               c.latest_source as latestSource,
@@ -133,6 +135,8 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
   const search = cleanString(query.search)?.toLowerCase();
   const status = cleanString(query.status);
   const leadStatus = cleanString(query.leadStatus);
+  const lostReason = cleanString(query.lostReason);
+  const objectionType = cleanString(query.objectionType);
   const auditStatus = cleanString(query.auditStatus);
   const auditWorkflow = cleanString(query.auditWorkflow);
   const source = cleanString(query.source);
@@ -151,6 +155,16 @@ export function buildListFilters(clinicId: string, query: ContactListQuery) {
   if (leadStatus) {
     clauses.push("c.lead_status = ?");
     values.push(leadStatus);
+  }
+
+  if (lostReason) {
+    clauses.push("c.lost_reason = ?");
+    values.push(lostReason);
+  }
+
+  if (objectionType) {
+    clauses.push("c.objection_type = ?");
+    values.push(objectionType);
   }
 
   if (auditStatus) {
