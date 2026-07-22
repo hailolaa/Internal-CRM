@@ -314,7 +314,7 @@ export default function ProposalEditPage() {
   }, [proposalId, token]);
 
   useEffect(() => {
-    void loadProposalWorkflow();
+    void Promise.resolve().then(() => loadProposalWorkflow());
   }, [loadProposalWorkflow]);
 
   const applyPackage = (packageId: string) => {
