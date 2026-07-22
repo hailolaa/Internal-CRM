@@ -1,18 +1,24 @@
 import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
+import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
+import { generateResetToken, hashToken } from "../../utils/helpers.js";
 import type {
   ProposalCommercialItem,
   ProposalLinkAccess,
   ProposalListQuery,
+  ProposalPublicPreviewResponse,
   ProposalMutationDTO,
   ProposalResponse,
   ProposalSectionContent,
+  ProposalSendDTO,
+  ProposalShareResponse,
   ProposalSourceDataQuery,
   ProposalSourceDataResponse,
   ProposalStatus,
+  ProposalStatusUpdateDTO,
 } from "./proposals.types.js";
 
 function cleanString(value: unknown) {
@@ -80,6 +86,10 @@ function serializeSectionContent(value: ProposalSectionContent | null | undefine
   if (value === undefined) return undefined;
   if (value === null) return null;
   return JSON.stringify(value);
+}
+
+function isFinalProposalStatus(status: ProposalStatus) {
+  return ["accepted", "won", "lost", "expired", "archived"].includes(status);
 }
 
 function parseCommercialItems(value: unknown): ProposalCommercialItem[] {
@@ -201,7 +211,7 @@ function scoreGaps(categories: Record<string, number | null>) {
     }));
 }
 
-function mapProposal(row: any): ProposalResponse {
+function mapProposal(row: any, options: { publicView?: boolean } = {}): ProposalResponse {
   const ownerName = [row.ownerFirstName, row.ownerLastName].filter(Boolean).join(" ").trim();
   return {
     id: row.id,
@@ -227,16 +237,25 @@ function mapProposal(row: any): ProposalResponse {
     followUpAt: toIso(row.followUpAt),
     readyAt: toIso(row.readyAt),
     sentAt: toIso(row.sentAt),
+    sentToEmail: row.sentToEmail || null,
+    sentToName: row.sentToName || null,
+    sendMethod: row.sendMethod || null,
+    sendNote: options.publicView ? null : row.sendNote || null,
+    sentBy: options.publicView ? null : row.sentBy || null,
+    sentByName: options.publicView ? null : [row.sentByFirstName, row.sentByLastName].filter(Boolean).join(" ").trim() || row.sentByEmail || null,
     viewedAt: toIso(row.viewedAt),
     acceptedAt: toIso(row.acceptedAt),
+    acceptedReason: row.acceptedReason || null,
     wonAt: toIso(row.wonAt),
+    wonReason: row.wonReason || null,
     lostAt: toIso(row.lostAt),
+    lostReason: row.lostReason || null,
     expiresAt: toIso(row.expiresAt),
     proposalUrl: row.proposalUrl || null,
     notes: row.notes || null,
     addOns: parseCommercialItems(row.addOns),
     discounts: parseCommercialItems(row.discounts),
-    internalMarginNote: row.internalMarginNote || null,
+    internalMarginNote: options.publicView ? null : row.internalMarginNote || null,
     sectionContent: parseSectionContent(row.sectionContent),
     draftSavedAt: toIso(row.draftSavedAt),
     contactName: contactName(row),
@@ -253,6 +272,7 @@ function mapProposal(row: any): ProposalResponse {
 
 function proposalSelectSql() {
   return `SELECT p.id,
+                 p.clinic_id as clinicId,
                  p.contact_id as contactId,
                  p.deal_id as dealId,
                  p.client_account_profile_id as clientAccountProfileId,
@@ -274,12 +294,22 @@ function proposalSelectSql() {
                  p.follow_up_at as followUpAt,
                  p.ready_at as readyAt,
                  p.sent_at as sentAt,
+                 p.sent_to_email as sentToEmail,
+                 p.sent_to_name as sentToName,
+                 p.send_method as sendMethod,
+                 p.send_note as sendNote,
+                 p.sent_by as sentBy,
                  p.viewed_at as viewedAt,
                  p.accepted_at as acceptedAt,
+                 p.accepted_reason as acceptedReason,
                  p.won_at as wonAt,
+                 p.won_reason as wonReason,
                  p.lost_at as lostAt,
+                 p.lost_reason as lostReason,
                  p.expires_at as expiresAt,
                  p.proposal_url as proposalUrl,
+                 p.public_link_created_at as publicLinkCreatedAt,
+                 p.public_last_accessed_at as publicLastAccessedAt,
                  p.notes,
                  p.add_ons as addOns,
                  p.discounts,
@@ -299,7 +329,10 @@ function proposalSelectSql() {
                  account_clinic.name as clientAccountName,
                  owner.first_name as ownerFirstName,
                  owner.last_name as ownerLastName,
-                 owner.email as ownerEmail
+                 owner.email as ownerEmail,
+                 sent_by.first_name as sentByFirstName,
+                 sent_by.last_name as sentByLastName,
+                 sent_by.email as sentByEmail
           FROM proposal p
           LEFT JOIN contact c
             ON c.id = p.contact_id
@@ -316,7 +349,10 @@ function proposalSelectSql() {
            AND account_clinic.deleted_at IS NULL
           LEFT JOIN user owner
             ON owner.id = p.owner_id
-           AND owner.deleted_at IS NULL`;
+           AND owner.deleted_at IS NULL
+          LEFT JOIN user sent_by
+            ON sent_by.id = p.sent_by
+           AND sent_by.deleted_at IS NULL`;
 }
 
 function isTruthy(value: unknown) {
@@ -395,6 +431,172 @@ export class ProposalsService {
     );
     if (rows.length === 0) throw ApiError.notFound("Proposal not found");
     return mapProposal(rows[0]);
+  }
+
+  async createProposalShare(clinicId: string, userId: string, proposalId: string): Promise<ProposalShareResponse> {
+    const proposal = await this.getProposal(clinicId, proposalId);
+    if (proposal.status === "archived") throw ApiError.notFound("Proposal not found");
+
+    const rawToken = generateResetToken();
+    const tokenHash = hashToken(rawToken);
+    const proposalUrl = `${config.frontendUrl.replace(/\/+$/, "")}/proposals/${encodeURIComponent(rawToken)}`;
+    const createdAt = new Date().toISOString();
+
+    await pool.execute(
+      `UPDATE proposal
+       SET public_token_hash = ?,
+           proposal_url = ?,
+           public_link_created_at = CURRENT_TIMESTAMP,
+           updated_by = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL`,
+      [tokenHash, proposalUrl, userId, proposalId, clinicId],
+    );
+
+    await this.logProposalActivity({
+      clinicId,
+      userId,
+      contactId: proposal.contactId,
+      proposalId,
+      action: "proposal_link_created",
+      title: proposal.proposalName,
+      status: proposal.status,
+      changes: { proposalUrl },
+    });
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "PROPOSAL_LINK_CREATED",
+      entityType: "proposal",
+      entityId: proposalId,
+      changes: { proposalUrl },
+    });
+
+    return { proposalId, proposalUrl, createdAt };
+  }
+
+  async markProposalSent(
+    clinicId: string,
+    userId: string,
+    proposalId: string,
+    data: ProposalSendDTO,
+  ): Promise<ProposalResponse> {
+    let proposal = await this.getProposal(clinicId, proposalId);
+    if (proposal.status === "archived") throw ApiError.notFound("Proposal not found");
+
+    if (!proposal.proposalUrl) {
+      await this.createProposalShare(clinicId, userId, proposalId);
+      proposal = await this.getProposal(clinicId, proposalId);
+    }
+
+    const recipientEmail = cleanString(data.recipientEmail) || proposal.contactEmail || null;
+    const recipientName = cleanString(data.recipientName) || proposal.contactName || proposal.accountName || proposal.clientAccountName || null;
+    if (!recipientEmail && !recipientName) {
+      throw ApiError.badRequest("Record a recipient email or name before marking the proposal sent");
+    }
+
+    const sendMethod = cleanString(data.sendMethod) || "manual_email";
+    const sendNote =
+      cleanString(data.sendNote) ||
+      "Manual send fallback: proposal link was copied/sent outside Mission Control and logged here.";
+    const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+
+    await pool.execute(
+      `UPDATE proposal
+       SET status = 'sent',
+           sent_at = COALESCE(sent_at, ?),
+           sent_to_email = ?,
+           sent_to_name = ?,
+           send_method = ?,
+           send_note = ?,
+           sent_by = ?,
+           updated_by = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL`,
+      [now, recipientEmail, recipientName, sendMethod, sendNote, userId, userId, proposalId, clinicId],
+    );
+
+    const updated = await this.getProposal(clinicId, proposalId);
+    await this.logProposalActivity({
+      clinicId,
+      userId,
+      contactId: updated.contactId,
+      proposalId,
+      action: "proposal_sent",
+      title: updated.proposalName,
+      status: "sent",
+      previousStatus: proposal.status,
+      changes: {
+        previousStatus: proposal.status,
+        status: "sent",
+        sentAt: updated.sentAt,
+        recipientEmail,
+        recipientName,
+        sendMethod,
+        proposalUrl: updated.proposalUrl,
+        manualFallback: sendMethod === "manual_email",
+      },
+    });
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "PROPOSAL_SENT_LOGGED",
+      entityType: "proposal",
+      entityId: proposalId,
+      changes: {
+        previousStatus: proposal.status,
+        status: "sent",
+        sentAt: updated.sentAt,
+        recipientEmail,
+        recipientName,
+        sendMethod,
+        manualFallback: sendMethod === "manual_email",
+      },
+    });
+    await this.syncProposalFollowUpTask(clinicId, userId, updated);
+    await this.syncRelatedDealStage(clinicId, userId, updated);
+
+    return updated;
+  }
+
+  async getSharedProposal(rawToken: string): Promise<ProposalPublicPreviewResponse> {
+    const token = cleanString(rawToken);
+    if (!token || token.length < 20) throw ApiError.notFound("Proposal link not found");
+
+    const [rows]: any = await pool.execute(
+      `${proposalSelectSql()}
+       WHERE p.public_token_hash = ?
+         AND p.deleted_at IS NULL
+         AND p.status <> 'archived'
+       LIMIT 1`,
+      [hashToken(token)],
+    );
+    if (rows.length === 0) throw ApiError.notFound("Proposal link not found");
+
+    await pool.execute(
+      `UPDATE proposal
+       SET public_last_accessed_at = CURRENT_TIMESTAMP,
+           viewed_at = CASE
+             WHEN viewed_at IS NULL AND status IN ('ready', 'sent', 'follow_up_due') THEN CURRENT_TIMESTAMP
+             ELSE viewed_at
+           END
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [rows[0].id, rows[0].clinicId],
+    );
+
+    const proposal = mapProposal(rows[0], { publicView: true });
+    const packageRecord = await this.getProposalPreviewPackage(
+      rows[0].clinicId,
+      proposal.recommendedPackageId,
+      proposal.packageName,
+    );
+
+    return { proposal, packageRecord };
   }
 
   async getProposalSourceData(
@@ -610,8 +812,11 @@ export class ProposalsService {
       timestamps.sentAt ?? null,
       timestamps.viewedAt ?? null,
       timestamps.acceptedAt ?? null,
+      cleanString(data.acceptedReason),
       timestamps.wonAt ?? null,
+      cleanString(data.wonReason),
       timestamps.lostAt ?? null,
+      cleanString(data.lostReason),
       toMysqlDateTime(data.expiresAt),
       cleanString(data.proposalUrl),
       cleanString(data.notes),
@@ -630,9 +835,9 @@ export class ProposalsService {
          template_key, package_name, recommended_package_id, owner_id, status, value,
          monthly_fee_cents, setup_fee_cents, currency, ad_spend_note, vat_status,
          minimum_term_months, notice_period_days, start_date, follow_up_at, ready_at,
-         sent_at, viewed_at, accepted_at, won_at, lost_at, expires_at, proposal_url,
+         sent_at, viewed_at, accepted_at, accepted_reason, won_at, won_reason, lost_at, lost_reason, expires_at, proposal_url,
          notes, add_ons, discounts, internal_margin_note, section_content, draft_saved_at, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       values,
     );
 
@@ -662,6 +867,9 @@ export class ProposalsService {
         discounts: data.discounts || [],
         ownerId: cleanString(data.ownerId) || userId,
         followUpAt: toMysqlDateTime(data.followUpAt),
+        acceptedReason: cleanString(data.acceptedReason),
+        wonReason: cleanString(data.wonReason),
+        lostReason: cleanString(data.lostReason),
       },
     });
     await logAuditEvent({
@@ -673,7 +881,11 @@ export class ProposalsService {
       changes: { ...data, contactId: links.contactId, dealId: links.dealId, clientAccountProfileId: links.clientAccountProfileId },
     });
 
-    return this.getProposal(clinicId, id);
+    const created = await this.getProposal(clinicId, id);
+    await this.syncProposalFollowUpTask(clinicId, userId, created);
+    await this.syncRelatedDealStage(clinicId, userId, created);
+
+    return created;
   }
 
   async updateProposal(
@@ -739,6 +951,9 @@ export class ProposalsService {
     if (Object.prototype.hasOwnProperty.call(data, "noticePeriodDays")) add("notice_period_days", data.noticePeriodDays ?? null);
     if (Object.prototype.hasOwnProperty.call(data, "startDate")) add("start_date", toMysqlDateOnly(data.startDate));
     if (Object.prototype.hasOwnProperty.call(data, "followUpAt")) add("follow_up_at", toMysqlDateTime(data.followUpAt));
+    if (Object.prototype.hasOwnProperty.call(data, "acceptedReason")) add("accepted_reason", cleanString(data.acceptedReason));
+    if (Object.prototype.hasOwnProperty.call(data, "wonReason")) add("won_reason", cleanString(data.wonReason));
+    if (Object.prototype.hasOwnProperty.call(data, "lostReason")) add("lost_reason", cleanString(data.lostReason));
     if (Object.prototype.hasOwnProperty.call(data, "proposalUrl")) add("proposal_url", cleanString(data.proposalUrl));
     if (Object.prototype.hasOwnProperty.call(data, "notes")) add("notes", cleanString(data.notes));
     if (Object.prototype.hasOwnProperty.call(data, "addOns")) add("add_ons", serializeCommercialItems(data.addOns) ?? null);
@@ -776,6 +991,9 @@ export class ProposalsService {
           previousStatus: existing.status,
           status: updated.status,
           followUpAt: updated.followUpAt,
+          acceptedReason: updated.acceptedReason,
+          wonReason: updated.wonReason,
+          lostReason: updated.lostReason,
         },
       });
     } else {
@@ -798,8 +1016,41 @@ export class ProposalsService {
       entityId: proposalId,
       changes: { before: { status: existing.status }, after: data },
     });
+    await this.syncProposalFollowUpTask(clinicId, userId, updated);
+    await this.syncRelatedDealStage(clinicId, userId, updated, existing);
 
     return updated;
+  }
+
+  async updateProposalStatus(
+    clinicId: string,
+    userId: string,
+    proposalId: string,
+    data: ProposalStatusUpdateDTO,
+    access: ProposalLinkAccess,
+  ): Promise<ProposalResponse> {
+    const status = data.status;
+    const reason = cleanString(data.reason);
+    const payload: ProposalMutationDTO = { status };
+
+    if (status === "follow_up_due") {
+      payload.followUpAt = data.followUpAt || null;
+    }
+
+    if (status === "accepted") {
+      payload.acceptedReason = reason;
+    }
+
+    if (status === "won") {
+      payload.wonReason = reason;
+    }
+
+    if (status === "lost") {
+      if (!reason) throw ApiError.badRequest("Reason is required when marking a proposal lost");
+      payload.lostReason = reason;
+    }
+
+    return this.updateProposal(clinicId, userId, proposalId, payload, access);
   }
 
   async archiveProposal(clinicId: string, userId: string, proposalId: string): Promise<void> {
@@ -835,8 +1086,8 @@ export class ProposalsService {
     const dealId = cleanString(data.dealId);
     const clientAccountProfileId = cleanString(data.clientAccountProfileId);
 
-    if (!contactId && !dealId) {
-      throw ApiError.badRequest("Proposal must link to a lead/contact or deal so activity can appear on the record timeline");
+    if (!contactId && !dealId && !clientAccountProfileId) {
+      throw ApiError.badRequest("Proposal must link to a lead/contact, deal, or client account");
     }
 
     if (dealId) {
@@ -1019,6 +1270,52 @@ export class ProposalsService {
     };
   }
 
+  private async getProposalPreviewPackage(
+    clinicId: string,
+    recommendedPackageId: string | null | undefined,
+    packageName: string | null | undefined,
+  ) {
+    const cleanPackageId = cleanString(recommendedPackageId);
+    const cleanPackageName = cleanString(packageName);
+    if (!cleanPackageId && !cleanPackageName) return null;
+
+    const values: any[] = [clinicId];
+    const matchSql = cleanPackageId
+      ? "id = ?"
+      : "LOWER(name) = LOWER(?)";
+    values.push(cleanPackageId || cleanPackageName);
+
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              name,
+              price_cents as priceCents,
+              setup_fee_cents as setupFeeCents,
+              currency,
+              billing_frequency as billingFrequency,
+              included_features as includedFeatures,
+              proposal_wording as proposalWording
+       FROM growth_package
+       WHERE clinic_id = ?
+         AND deleted_at IS NULL
+         AND status <> 'archived'
+         AND ${matchSql}
+       LIMIT 1`,
+      values,
+    );
+    if (rows.length === 0) return null;
+
+    return {
+      id: rows[0].id,
+      name: rows[0].name,
+      priceCents: rows[0].priceCents === null || rows[0].priceCents === undefined ? null : Number(rows[0].priceCents),
+      setupFeeCents: rows[0].setupFeeCents === null || rows[0].setupFeeCents === undefined ? null : Number(rows[0].setupFeeCents),
+      currency: rows[0].currency || "GBP",
+      billingFrequency: rows[0].billingFrequency || null,
+      includedFeatures: parseJsonArray(rows[0].includedFeatures),
+      proposalWording: rows[0].proposalWording || null,
+    };
+  }
+
   private async ensureActiveOwner(userId: string) {
     const [rows]: any = await pool.execute(
       `SELECT id
@@ -1053,6 +1350,239 @@ export class ProposalsService {
     );
     if (rows.length === 0) throw ApiError.badRequest("Recommended package must be available to this workspace");
     return rows[0] as { id: string; name: string; priceCents: number | null; setupFeeCents: number | null; billingFrequency: string | null; currency: string };
+  }
+
+  private async syncProposalFollowUpTask(clinicId: string, userId: string, proposal: ProposalResponse) {
+    const templateKey = `proposal_follow_up:${proposal.id}`;
+    const shouldComplete = !proposal.followUpAt || isFinalProposalStatus(proposal.status);
+
+    if (shouldComplete) {
+      await pool.execute(
+        `UPDATE task
+         SET status = 'completed',
+             completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE clinic_id = ?
+           AND is_internal = 1
+           AND template_key = ?
+           AND status <> 'completed'
+           AND archived_at IS NULL
+           AND deleted_at IS NULL`,
+        [clinicId, templateKey],
+      );
+      return;
+    }
+
+    const dueDate = toMysqlDateOnly(proposal.followUpAt);
+    const ownerName = proposal.ownerName || "Unassigned";
+    const contactNameValue = proposal.contactName || proposal.accountName || proposal.clientAccountName || proposal.proposalName;
+    const title = `Follow up proposal: ${proposal.proposalName}`;
+    const description = [
+      `Proposal status: ${proposal.status.replace(/_/g, " ")}`,
+      proposal.proposalUrl ? `Proposal link: ${proposal.proposalUrl}` : "",
+      proposal.contactEmail ? `Recipient email: ${proposal.contactEmail}` : "",
+    ].filter(Boolean).join("\n");
+
+    const [existingRows]: any = await pool.execute(
+      `SELECT id
+       FROM task
+       WHERE clinic_id = ?
+         AND is_internal = 1
+         AND template_key = ?
+         AND archived_at IS NULL
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [clinicId, templateKey],
+    );
+
+    if (existingRows.length > 0) {
+      await pool.execute(
+        `UPDATE task
+         SET title = ?,
+             description = ?,
+             priority = 'high',
+             status = 'pending',
+             category = 'proposal_follow_up',
+             board_key = 'sales',
+             service_type = 'strategy',
+             client_account_profile_id = ?,
+             contact_id = ?,
+             contact_name = ?,
+             due_label = 'Proposal follow-up',
+             due_date = ?,
+             assigned_to = ?,
+             assigned_user_id = ?,
+             completed_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND clinic_id = ?
+           AND is_internal = 1
+           AND deleted_at IS NULL`,
+        [
+          title,
+          description || null,
+          proposal.clientAccountProfileId,
+          proposal.contactId,
+          contactNameValue,
+          dueDate,
+          ownerName,
+          proposal.ownerId,
+          existingRows[0].id,
+          clinicId,
+        ],
+      );
+      return;
+    }
+
+    await pool.execute(
+      `INSERT INTO task
+        (id, clinic_id, is_internal, title, description, priority, status, category, board_key, service_type,
+         client_account_profile_id, contact_id, contact_name, due_label, due_date, assigned_to, assigned_user_id, template_key, created_by)
+       VALUES (?, ?, 1, ?, ?, 'high', 'pending', 'proposal_follow_up', 'sales', 'strategy', ?, ?, ?, 'Proposal follow-up', ?, ?, ?, ?, ?)`,
+      [
+        uuidv4(),
+        clinicId,
+        title,
+        description || null,
+        proposal.clientAccountProfileId,
+        proposal.contactId,
+        contactNameValue,
+        dueDate,
+        ownerName,
+        proposal.ownerId,
+        templateKey,
+        userId,
+      ],
+    );
+  }
+
+  private async syncRelatedDealStage(
+    clinicId: string,
+    userId: string,
+    proposal: ProposalResponse,
+    previousProposal?: ProposalResponse,
+  ) {
+    if (!proposal.dealId || !["sent", "viewed", "follow_up_due", "accepted", "won", "lost"].includes(proposal.status)) return;
+
+    const [dealRows]: any = await pool.execute(
+      `SELECT id,
+              pipeline_id as pipelineId,
+              pipeline_stage_id as stageId,
+              stage as stageName,
+              status
+       FROM deal
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [proposal.dealId, clinicId],
+    );
+    if (dealRows.length === 0) return;
+
+    const deal = dealRows[0];
+    const targetStageNames =
+      proposal.status === "follow_up_due"
+        ? ["Follow-up Needed", "Follow-Up Needed", "Proposal Sent"]
+        : proposal.status === "accepted" || proposal.status === "won"
+          ? ["Won", "Sold"]
+          : proposal.status === "lost"
+            ? ["Lost"]
+            : ["Proposal Sent", "Proposal"];
+
+    const placeholders = targetStageNames.map(() => "?").join(", ");
+    const [stageRows]: any = await pool.execute(
+      `SELECT id, name, kind
+       FROM pipeline_stage
+       WHERE clinic_id = ?
+         AND pipeline_id = ?
+         AND deleted_at IS NULL
+         AND LOWER(name) IN (${placeholders})
+       ORDER BY FIELD(LOWER(name), ${placeholders}), position ASC
+       LIMIT 1`,
+      [
+        clinicId,
+        deal.pipelineId,
+        ...targetStageNames.map((name) => name.toLowerCase()),
+        ...targetStageNames.map((name) => name.toLowerCase()),
+      ],
+    );
+    if (stageRows.length === 0) return;
+
+    const targetStage = stageRows[0];
+    const nextDealStatus = proposal.status === "accepted" || proposal.status === "won"
+      ? "won"
+      : proposal.status === "lost"
+        ? "lost"
+        : "open";
+    const outcomeReason = proposal.lostReason || proposal.wonReason || proposal.acceptedReason || null;
+
+    if (deal.stageId === targetStage.id && deal.status === nextDealStatus) return;
+
+    await pool.execute(
+      `UPDATE deal
+       SET pipeline_stage_id = ?,
+           stage = ?,
+           status = ?,
+           sold_at = CASE WHEN ? = 'won' THEN COALESCE(sold_at, CURRENT_TIMESTAMP) ELSE NULL END,
+           lost_at = CASE WHEN ? = 'lost' THEN COALESCE(lost_at, CURRENT_TIMESTAMP) ELSE NULL END,
+           lost_reason = CASE WHEN ? = 'lost' THEN ? ELSE NULL END,
+           stage_changed_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL`,
+      [
+        targetStage.id,
+        targetStage.name,
+        nextDealStatus,
+        nextDealStatus,
+        nextDealStatus,
+        nextDealStatus,
+        outcomeReason,
+        proposal.dealId,
+        clinicId,
+      ],
+    );
+
+    await pool.execute(
+      `INSERT INTO pipeline_deal_movement
+        (id, clinic_id, deal_id, pipeline_id, from_stage_id, to_stage_id, from_stage, to_stage, moved_by, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuidv4(),
+        clinicId,
+        proposal.dealId,
+        deal.pipelineId,
+        deal.stageId || null,
+        targetStage.id,
+        deal.stageName || null,
+        targetStage.name,
+        userId,
+        JSON.stringify({
+          source: "proposal",
+          proposalId: proposal.id,
+          previousProposalStatus: previousProposal?.status || null,
+          proposalStatus: proposal.status,
+          reason: outcomeReason,
+        }),
+      ],
+    );
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "PROPOSAL_SYNCED_DEAL_STAGE",
+      entityType: "deal",
+      entityId: proposal.dealId,
+      changes: {
+        proposalId: proposal.id,
+        previousStage: deal.stageName || null,
+        nextStage: targetStage.name,
+        previousStatus: deal.status,
+        nextStatus: nextDealStatus,
+        reason: outcomeReason,
+      },
+    });
   }
 
   private validateStatusRequirements(status: ProposalStatus, followUpAt: unknown) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
+import type { Server } from "node:http";
 import { v4 as uuidv4 } from "uuid";
 import pool, { testConnection } from "../config/database.js";
 import proposalsRoutes from "../modules/proposals/proposals.routes.js";
@@ -47,6 +48,14 @@ async function request(baseUrl: string, path: string, token: string, init: Reque
     },
   });
   return { response, body: await response.json() as any };
+}
+
+async function closeServer(server: Server) {
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
 }
 
 test("proposal API enforces permissions, persists statuses, and isolates tenants", async () => {
@@ -123,18 +132,25 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     const missing = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token);
     assert.equal(missing.response.status, 404);
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await pool.execute("DELETE FROM audit_log WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
-    await pool.execute("DELETE FROM activity WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
-    await pool.execute("DELETE FROM proposal WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
-    await pool.execute("DELETE FROM contact WHERE id = ?", [contactId]);
-    for (const user of users) {
-      await pool.execute("DELETE FROM clinic_membership WHERE user_id = ?", [user.id]);
-      await pool.execute("DELETE FROM user WHERE id = ?", [user.id]);
-      await pool.execute("DELETE FROM role_permission WHERE role_id = ?", [user.roleId]);
-      await pool.execute("DELETE FROM role WHERE id = ?", [user.roleId]);
+    try {
+      await closeServer(server);
+      await pool.execute("DELETE FROM audit_log WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+      await pool.execute("DELETE FROM activity WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+      await pool.execute(
+        "DELETE FROM task WHERE clinic_id IN (?, ?) AND (template_key LIKE 'proposal_follow_up:%' OR category = 'proposal_follow_up')",
+        [primaryClinicId, otherClinicId],
+      );
+      await pool.execute("DELETE FROM proposal WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+      await pool.execute("DELETE FROM contact WHERE id = ?", [contactId]);
+      for (const user of users) {
+        await pool.execute("DELETE FROM clinic_membership WHERE user_id = ?", [user.id]);
+        await pool.execute("DELETE FROM user WHERE id = ?", [user.id]);
+        await pool.execute("DELETE FROM role_permission WHERE role_id = ?", [user.roleId]);
+        await pool.execute("DELETE FROM role WHERE id = ?", [user.roleId]);
+      }
+      await pool.execute("DELETE FROM clinic WHERE id IN (?, ?)", [primaryClinicId, otherClinicId]);
+    } finally {
+      await pool.end();
     }
-    await pool.execute("DELETE FROM clinic WHERE id IN (?, ?)", [primaryClinicId, otherClinicId]);
-    await pool.end();
   }
 });

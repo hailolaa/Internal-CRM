@@ -41,8 +41,11 @@ export interface ProposalMutationDTO {
   sentAt?: string | Date | null;
   viewedAt?: string | Date | null;
   acceptedAt?: string | Date | null;
+  acceptedReason?: string | null;
   wonAt?: string | Date | null;
+  wonReason?: string | null;
   lostAt?: string | Date | null;
+  lostReason?: string | null;
   expiresAt?: string | Date | null;
   proposalUrl?: string | null;
   notes?: string | null;
@@ -50,6 +53,19 @@ export interface ProposalMutationDTO {
   discounts?: ProposalCommercialItem[] | null;
   internalMarginNote?: string | null;
   sectionContent?: ProposalSectionContent | null;
+}
+
+export interface ProposalSendDTO {
+  recipientEmail?: string | null;
+  recipientName?: string | null;
+  sendMethod?: "manual_email" | "gmail" | "brevo" | "whatsapp" | "phone" | "other" | string | null;
+  sendNote?: string | null;
+}
+
+export interface ProposalStatusUpdateDTO {
+  status: Extract<ProposalStatus, "follow_up_due" | "accepted" | "won" | "lost">;
+  followUpAt?: string | Date | null;
+  reason?: string | null;
 }
 
 export interface ProposalListQuery {
@@ -94,10 +110,19 @@ export interface ProposalResponse {
   followUpAt: string | null;
   readyAt: string | null;
   sentAt: string | null;
+  sentToEmail: string | null;
+  sentToName: string | null;
+  sendMethod: string | null;
+  sendNote: string | null;
+  sentBy: string | null;
+  sentByName: string | null;
   viewedAt: string | null;
   acceptedAt: string | null;
+  acceptedReason: string | null;
   wonAt: string | null;
+  wonReason: string | null;
   lostAt: string | null;
+  lostReason: string | null;
   expiresAt: string | null;
   proposalUrl: string | null;
   notes: string | null;
@@ -131,6 +156,26 @@ export interface ProposalCommercialItem {
   name: string;
   amountCents?: number | null;
   note?: string | null;
+}
+
+export interface ProposalShareResponse {
+  proposalId: string;
+  proposalUrl: string;
+  createdAt: string;
+}
+
+export interface ProposalPublicPreviewResponse {
+  proposal: ProposalResponse;
+  packageRecord: {
+    id: string;
+    name: string;
+    priceCents: number | null;
+    setupFeeCents: number | null;
+    currency: string;
+    billingFrequency: string | null;
+    includedFeatures: string[];
+    proposalWording: string | null;
+  } | null;
 }
 
 export interface ProposalSourceDataResponse {

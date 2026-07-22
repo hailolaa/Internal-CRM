@@ -1,3 +1,5 @@
+import type { GrowthPackageRecord } from "@/lib/api-types/packages";
+
 export type ProposalStatus =
   | "draft"
   | "ready"
@@ -34,10 +36,19 @@ export interface ProposalRecord {
   followUpAt: string | null;
   readyAt: string | null;
   sentAt: string | null;
+  sentToEmail: string | null;
+  sentToName: string | null;
+  sendMethod: string | null;
+  sendNote: string | null;
+  sentBy: string | null;
+  sentByName: string | null;
   viewedAt: string | null;
   acceptedAt: string | null;
+  acceptedReason: string | null;
   wonAt: string | null;
+  wonReason: string | null;
   lostAt: string | null;
+  lostReason: string | null;
   expiresAt: string | null;
   proposalUrl: string | null;
   notes: string | null;
@@ -71,6 +82,33 @@ export interface ProposalCommercialItem {
   name: string;
   amountCents?: number | null;
   note?: string | null;
+}
+
+export interface ProposalShareRecord {
+  proposalId: string;
+  proposalUrl: string;
+  createdAt: string;
+}
+
+export interface ProposalSendPayload {
+  recipientEmail?: string | null;
+  recipientName?: string | null;
+  sendMethod?: string | null;
+  sendNote?: string | null;
+}
+
+export interface ProposalStatusUpdatePayload {
+  status: Extract<ProposalStatus, "follow_up_due" | "accepted" | "won" | "lost">;
+  followUpAt?: string | null;
+  reason?: string | null;
+}
+
+export interface ProposalPublicPreviewRecord {
+  proposal: ProposalRecord;
+  packageRecord: Pick<
+    GrowthPackageRecord,
+    "id" | "name" | "priceCents" | "setupFeeCents" | "currency" | "billingFrequency" | "includedFeatures" | "proposalWording"
+  > | null;
 }
 
 export interface ProposalListParams {
@@ -109,8 +147,11 @@ export interface ProposalPayload {
   sentAt?: string | null;
   viewedAt?: string | null;
   acceptedAt?: string | null;
+  acceptedReason?: string | null;
   wonAt?: string | null;
+  wonReason?: string | null;
   lostAt?: string | null;
+  lostReason?: string | null;
   expiresAt?: string | null;
   proposalUrl?: string | null;
   notes?: string | null;

@@ -41,6 +41,7 @@ import type {
   InternalTaskRecord,
   PipelineDealRecord,
   PipelineStageRecord,
+  ProposalRecord,
 } from "@/lib/api-types";
 
 type DeadlineRow = {
@@ -49,7 +50,7 @@ type DeadlineRow = {
   owner: string;
   date: string | null;
   href: string;
-  type: "Task" | "Service";
+  type: "Task" | "Service" | "Proposal";
 };
 
 type DashboardActionRow = {
@@ -140,6 +141,13 @@ function isUpcomingService(service: ClientAccountServiceRecord) {
   return days !== null && days >= 0 && days <= 30;
 }
 
+function isActionableProposalFollowUp(proposal: ProposalRecord) {
+  if (!proposal.followUpAt) return false;
+  if (["accepted", "won", "lost", "expired", "archived"].includes(proposal.status)) return false;
+  const days = daysFromToday(proposal.followUpAt);
+  return days !== null && days <= 14;
+}
+
 function isAuditInProgress(status?: string | null) {
   return Boolean(status) && !["audit_completed", "audit_sent"].includes(status || "");
 }
@@ -175,6 +183,7 @@ export default function AppPage() {
   const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [tasks, setTasks] = useState<InternalTaskRecord[]>([]);
+  const [proposals, setProposals] = useState<ProposalRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -190,8 +199,9 @@ export default function AppPage() {
       api.clientAccounts.list(token),
       api.clientAccounts.listServices(token, { includeArchived: false }),
       api.internalTasks.list(token, { includeArchived: false }),
+      api.proposals.list(token, { includeArchived: false, limit: 250 }),
     ])
-      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult]) => {
+      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult, proposalResult]) => {
         if (!isMounted) return;
 
         setDeals(dealResult.status === "fulfilled" ? dealResult.value.deals : []);
@@ -202,6 +212,7 @@ export default function AppPage() {
         );
         setServices(serviceResult.status === "fulfilled" ? serviceResult.value : []);
         setTasks(taskResult.status === "fulfilled" ? taskResult.value : []);
+        setProposals(proposalResult.status === "fulfilled" ? proposalResult.value : []);
 
         const failedSources = [
           dealResult.status === "rejected" ? "sales pipeline" : "",
@@ -210,6 +221,7 @@ export default function AppPage() {
           accountResult.status === "rejected" ? "client accounts" : "",
           serviceResult.status === "rejected" ? "active projects" : "",
           taskResult.status === "rejected" ? "internal tasks" : "",
+          proposalResult.status === "rejected" ? "proposal follow-ups" : "",
         ].filter(Boolean);
 
         setLoadError(
@@ -351,14 +363,23 @@ export default function AppPage() {
       type: "Service" as const,
     }));
 
-    return [...taskRows, ...serviceRows]
+    const proposalRows = proposals.filter(isActionableProposalFollowUp).map((proposal) => ({
+      id: proposal.id,
+      title: proposal.proposalName,
+      owner: proposal.ownerName || proposal.contactName || proposal.accountName || "Unassigned",
+      date: proposal.followUpAt,
+      href: `/app/crm/proposals/preview?id=${encodeURIComponent(proposal.id)}`,
+      type: "Proposal" as const,
+    }));
+
+    return [...taskRows, ...serviceRows, ...proposalRows]
       .sort((a, b) => {
         const aTime = parseDate(a.date)?.getTime() || 0;
         const bTime = parseDate(b.date)?.getTime() || 0;
         return aTime - bTime;
       })
       .slice(0, 8);
-  }, [clientAccountByProfileId, clientNameByProfileId, services, tasks]);
+  }, [clientAccountByProfileId, clientNameByProfileId, proposals, services, tasks]);
 
   const nextBestActions = useMemo<DashboardActionRow[]>(() => {
     const contactRows = contacts
@@ -751,7 +772,7 @@ export default function AppPage() {
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <h2 className="font-semibold text-[#151f21]">Upcoming Deadlines</h2>
-              <p className="text-sm text-[#5e8a8d]">Tasks and service renewals</p>
+              <p className="text-sm text-[#5e8a8d]">Tasks, proposals, and service renewals</p>
             </div>
             <CalendarClock className="h-5 w-5 text-[#60b4af]" />
           </div>

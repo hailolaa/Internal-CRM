@@ -74,12 +74,16 @@ const sectionContentValidator = body("sectionContent")
     return true;
   });
 
-function hasTimelineRecord(value: Record<string, unknown>) {
-  return Boolean(value.contactId || value.dealId);
+function hasLinkedRecord(value: Record<string, unknown>) {
+  return Boolean(value.contactId || value.dealId || value.clientAccountProfileId);
 }
 
 export const proposalIdParamValidator = [
   param("id").trim().isLength({ min: 1, max: 36 }).withMessage("Proposal ID is required"),
+];
+
+export const proposalPublicTokenParamValidator = [
+  param("token").trim().isLength({ min: 20, max: 200 }).withMessage("Proposal link is invalid"),
 ];
 
 export const listProposalsValidator = [
@@ -107,7 +111,7 @@ export const proposalSourceDataValidator = [
 ];
 
 export const createProposalValidator = [
-  body().custom(hasTimelineRecord).withMessage("Proposal must link to a lead/contact or deal so activity can appear on the record timeline"),
+  body().custom(hasLinkedRecord).withMessage("Proposal must link to a lead/contact, deal, or client account"),
   idValidator("contactId"),
   idValidator("dealId"),
   idValidator("clientAccountProfileId"),
@@ -131,8 +135,11 @@ export const createProposalValidator = [
   optionalDate("sentAt"),
   optionalDate("viewedAt"),
   optionalDate("acceptedAt"),
+  body("acceptedReason").optional({ nullable: true }).trim().isLength({ max: 255 }),
   optionalDate("wonAt"),
+  body("wonReason").optional({ nullable: true }).trim().isLength({ max: 255 }),
   optionalDate("lostAt"),
+  body("lostReason").optional({ nullable: true }).trim().isLength({ max: 255 }),
   optionalDate("expiresAt"),
   body("proposalUrl").optional({ nullable: true }).trim().isLength({ max: 500 }),
   body("notes").optional({ nullable: true }).trim().isLength({ max: 10000 }),
@@ -167,8 +174,11 @@ export const updateProposalValidator = [
   optionalDate("sentAt"),
   optionalDate("viewedAt"),
   optionalDate("acceptedAt"),
+  body("acceptedReason").optional({ nullable: true }).trim().isLength({ max: 255 }),
   optionalDate("wonAt"),
+  body("wonReason").optional({ nullable: true }).trim().isLength({ max: 255 }),
   optionalDate("lostAt"),
+  body("lostReason").optional({ nullable: true }).trim().isLength({ max: 255 }),
   optionalDate("expiresAt"),
   body("proposalUrl").optional({ nullable: true }).trim().isLength({ max: 500 }),
   body("notes").optional({ nullable: true }).trim().isLength({ max: 10000 }),
@@ -176,4 +186,19 @@ export const updateProposalValidator = [
   commercialItemsValidator("discounts"),
   body("internalMarginNote").optional({ nullable: true }).trim().isLength({ max: 5000 }),
   sectionContentValidator,
+];
+
+export const sendProposalValidator = [
+  ...proposalIdParamValidator,
+  body("recipientEmail").optional({ nullable: true }).trim().isEmail().withMessage("Recipient email must be valid"),
+  body("recipientName").optional({ nullable: true }).trim().isLength({ max: 255 }),
+  body("sendMethod").optional({ nullable: true }).trim().isLength({ min: 1, max: 50 }),
+  body("sendNote").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+];
+
+export const proposalStatusUpdateValidator = [
+  ...proposalIdParamValidator,
+  body("status").isIn(["follow_up_due", "accepted", "won", "lost"]),
+  optionalDate("followUpAt"),
+  body("reason").optional({ nullable: true }).trim().isLength({ max: 255 }),
 ];

@@ -7,11 +7,21 @@ import {
   createProposalValidator,
   listProposalsValidator,
   proposalIdParamValidator,
+  proposalPublicTokenParamValidator,
+  proposalStatusUpdateValidator,
   proposalSourceDataValidator,
+  sendProposalValidator,
   updateProposalValidator,
 } from "./proposals.validators.js";
 
 const router = Router();
+
+router.get(
+  "/shared/:token",
+  proposalPublicTokenParamValidator,
+  validate,
+  proposalsController.getSharedProposal,
+);
 
 router.use(authenticate);
 
@@ -45,6 +55,30 @@ router.get(
   proposalIdParamValidator,
   validate,
   proposalsController.getProposal,
+);
+
+router.post(
+  "/:id/share",
+  authorizePermission("proposals:write"),
+  proposalIdParamValidator,
+  validate,
+  proposalsController.createProposalShare,
+);
+
+router.post(
+  "/:id/send",
+  authorizePermission("proposals:write"),
+  sendProposalValidator,
+  validate,
+  proposalsController.markProposalSent,
+);
+
+router.post(
+  "/:id/status",
+  authorizePermission("proposals:write"),
+  proposalStatusUpdateValidator,
+  validate,
+  proposalsController.updateProposalStatus,
 );
 
 router.patch(

@@ -1,4 +1,14 @@
-import type { ProposalListParams, ProposalPayload, ProposalRecord, ProposalSourceDataParams, ProposalSourceDataRecord } from "@/lib/api-types";
+import type {
+  ProposalListParams,
+  ProposalPayload,
+  ProposalPublicPreviewRecord,
+  ProposalRecord,
+  ProposalSendPayload,
+  ProposalShareRecord,
+  ProposalSourceDataParams,
+  ProposalSourceDataRecord,
+  ProposalStatusUpdatePayload,
+} from "@/lib/api-types";
 import type { ApiRequest } from "./core";
 
 function toQuery(params: ProposalListParams = {}) {
@@ -25,6 +35,12 @@ export function createProposalsApi(apiRequest: ApiRequest) {
         const response = await apiRequest<ProposalRecord>(`/api/proposals/${proposalId}`, { token });
         return response.data!;
       },
+      async getShared(publicToken: string) {
+        const response = await apiRequest<ProposalPublicPreviewRecord>(
+          `/api/proposals/shared/${encodeURIComponent(publicToken)}`,
+        );
+        return response.data!;
+      },
       async sourceData(token: string, params: ProposalSourceDataParams) {
         const query = toQuery(params);
         const response = await apiRequest<ProposalSourceDataRecord>(
@@ -44,6 +60,29 @@ export function createProposalsApi(apiRequest: ApiRequest) {
       async update(token: string, proposalId: string, payload: ProposalPayload) {
         const response = await apiRequest<ProposalRecord>(`/api/proposals/${proposalId}`, {
           method: "PATCH",
+          token,
+          body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async share(token: string, proposalId: string) {
+        const response = await apiRequest<ProposalShareRecord>(`/api/proposals/${proposalId}/share`, {
+          method: "POST",
+          token,
+        });
+        return response.data!;
+      },
+      async send(token: string, proposalId: string, payload: ProposalSendPayload) {
+        const response = await apiRequest<ProposalRecord>(`/api/proposals/${proposalId}/send`, {
+          method: "POST",
+          token,
+          body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async updateStatus(token: string, proposalId: string, payload: ProposalStatusUpdatePayload) {
+        const response = await apiRequest<ProposalRecord>(`/api/proposals/${proposalId}/status`, {
+          method: "POST",
           token,
           body: JSON.stringify(payload),
         });
