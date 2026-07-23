@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
+import type { Server } from "node:http";
 import { v4 as uuidv4 } from "uuid";
 import pool, { testConnection } from "../config/database.js";
 import { config } from "../config/index.js";
@@ -185,6 +186,17 @@ async function createTestContact(clinicId: string, prefix: string, accountName?:
   return contactId;
 }
 
+async function createClientAccountProfile(clinicId: string, userId: string) {
+  const profileId = uuidv4();
+  await pool.execute(
+    `INSERT INTO client_account_profile
+      (id, clinic_id, active_services, created_by, updated_by)
+     VALUES (?, ?, JSON_ARRAY(), ?, ?)`,
+    [profileId, clinicId, userId, userId],
+  );
+  return profileId;
+}
+
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
@@ -211,6 +223,14 @@ function parseDbJsonObject(value: unknown) {
   if (Buffer.isBuffer(value)) return JSON.parse(value.toString("utf8"));
   if (typeof value === "string") return JSON.parse(value);
   return value as Record<string, any>;
+}
+
+async function closeTestServer(server: Server) {
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  await new Promise<void>((resolve, reject) => {
+    server.close((error?: Error) => (error ? reject(error) : resolve()));
+  });
 }
 
 test("client account validation accepts seeded user identifiers", async () => {
@@ -243,7 +263,7 @@ test("client account validation accepts seeded user identifiers", async () => {
     });
     assert.equal(rejected.status, 400);
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   }
 });
 
@@ -253,6 +273,8 @@ test("client account Drive links require validated Google access and tenant avai
   const primary = await createClinicAndAdmin("ClientDrivePrimary");
   const secondary = await createClinicAndAdmin("ClientDriveSecondary");
   const primaryWriter = await createClientAccountWriterUser(primary.clinicId, "ClientDrivePrimary");
+  await createClientAccountProfile(primary.clinicId, primary.userId);
+  await createClientAccountProfile(secondary.clinicId, secondary.userId);
 
   const expressModule = await import("express") as any;
   const express = expressModule.default;
@@ -276,11 +298,32 @@ test("client account Drive links require validated Google access and tenant avai
 
   (config as any).oauth.google.clientId = "drive-client-id";
   (config as any).oauth.google.clientSecret = "drive-client-secret";
+  (config as any).googleDrive.databaseOAuthEnabled = true;
   (config as any).googleDrive.validationEnabled = true;
   (config as any).googleDrive.refreshToken = "refreshable-drive-token";
   (config as any).googleDrive.serviceAccountEmail = "";
   (config as any).googleDrive.serviceAccountPrivateKey = "";
   (clientAccountsService as any).googleDriveTokenCache = null;
+
+  const driveIntegrationId = uuidv4();
+  await pool.execute(
+    `INSERT INTO integration
+      (id, clinic_id, name, type, config, is_active, setup_status, health_status, missing_permissions, oauth_authorize_url)
+     VALUES (?, ?, 'Google Drive', 'google_drive', ?, 1, 'ready', 'healthy', JSON_ARRAY(), NULL)`,
+    [
+      driveIntegrationId,
+      primary.clinicId,
+      JSON.stringify({
+        oauthConnected: true,
+        connectedEmail: "drive-admin@leapdigital.online",
+        connectedAt: new Date().toISOString(),
+        tokenExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        grantedScopes: ["https://www.googleapis.com/auth/drive"],
+        encryptedAccessToken: "fresh-drive-token",
+        encryptedRefreshToken: "refreshable-drive-token",
+      }),
+    ],
+  );
 
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -479,9 +522,10 @@ test("client account Drive links require validated Google access and tenant avai
     Object.assign((config as any).googleDrive, originalGoogleDrive);
     Object.assign((config as any).oauth.google, originalGoogleOAuth);
     (clientAccountsService as any).googleDriveTokenCache = null;
+    await pool.execute("DELETE FROM integration WHERE id = ?", [driveIntegrationId]);
     await pool.execute("DELETE FROM role_permission WHERE role_id = ?", [primaryWriter.roleId]);
     await pool.execute("DELETE FROM role WHERE id = ?", [primaryWriter.roleId]);
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   }
 });
 
@@ -497,6 +541,8 @@ test("client account contacts and tasks use stable workspace-scoped relations", 
   const secondContactId = await createTestContact(primary.clinicId, "StableUnlinked", "Duplicate Client");
 
   await pool.execute("UPDATE clinic SET name = 'Duplicate Client' WHERE id IN (?, ?)", [clientA.clinicId, clientB.clinicId]);
+  await createClientAccountProfile(clientA.clinicId, clientA.userId);
+  await createClientAccountProfile(clientB.clinicId, clientB.userId);
 
   const expressModule = await import("express") as any;
   const express = expressModule.default;
@@ -631,7 +677,7 @@ test("client account contacts and tasks use stable workspace-scoped relations", 
     await pool.execute("UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id IN (?, ?)", [primary.clinicId, contactId, secondContactId]);
     await pool.execute("DELETE FROM role_permission WHERE role_id IN (?, ?)", [clientWriter.roleId, taskWriter.roleId]);
     await pool.execute("DELETE FROM role WHERE id IN (?, ?)", [clientWriter.roleId, taskWriter.roleId]);
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await closeTestServer(server);
   }
 });
 
@@ -941,8 +987,7 @@ test("client account profile API is permission protected, updateable, audited, a
       [admin.clinicId, "ClientAccountProfile_viewer_%@test.com"],
     );
 
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
-    });
+    await closeTestServer(server);
+    await pool.end();
   }
 });
