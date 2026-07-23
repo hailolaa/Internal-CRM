@@ -681,6 +681,219 @@ test("client account contacts and tasks use stable workspace-scoped relations", 
   }
 });
 
+test("won opportunities convert into client accounts with preserved history and onboarding tasks", async () => {
+  await testConnection();
+
+  const primary = await createClinicAndAdmin("WonDealConversion");
+  const contactId = await createTestContact(primary.clinicId, "WonConversion", "Won Conversion Account");
+  const pipelineId = uuidv4();
+  const stageId = uuidv4();
+  const dealId = uuidv4();
+  const proposalId = uuidv4();
+  const acceptanceId = uuidv4();
+  const growthScoreSnapshotId = uuidv4();
+
+  await pool.execute(
+    `UPDATE contact
+     SET website = 'https://won-conversion.example',
+         address = '42 Client Road',
+         city = 'London',
+         state = 'England',
+         postal_code = 'WC1 1AA',
+         country = 'UK',
+         treatment_interests = JSON_ARRAY('Growth Engine', 'SEO'),
+         package_interest = 'Growth Engine',
+         recommended_package = 'Market Leader',
+         notes = 'Original sales notes stay on the contact.',
+         growth_score_overall = 71.50,
+         growth_score_categories = JSON_OBJECT('seo', 62, 'tracking', 58),
+         growth_score_recommended_package = 'Market Leader',
+         growth_score_gap_summary = 'Tracking and SEO are the biggest gaps.',
+         growth_score_updated_at = '2026-07-20 10:00:00'
+     WHERE id = ? AND clinic_id = ?`,
+    [contactId, primary.clinicId],
+  );
+
+  await pool.execute(
+    "INSERT INTO pipeline (id, clinic_id, name, description, stages) VALUES (?, ?, ?, ?, JSON_ARRAY('Won'))",
+    [pipelineId, primary.clinicId, `Won Conversion Pipeline ${Date.now()}`, "MC-041 conversion test pipeline"],
+  );
+  await pool.execute(
+    `INSERT INTO pipeline_stage
+      (id, clinic_id, pipeline_id, name, color, position, kind, is_locked, created_by)
+     VALUES (?, ?, ?, 'Won', 'bg-emerald-500', 1, 'won', 1, ?)`,
+    [stageId, primary.clinicId, pipelineId, primary.userId],
+  );
+  await pool.execute(
+    `INSERT INTO deal
+      (id, clinic_id, contact_id, pipeline_id, pipeline_stage_id, title, value, stage, probability,
+       owner_id, source, treatment, status, stage_changed_at, sold_at, created_by)
+     VALUES (?, ?, ?, ?, ?, 'Won SEO and Ads Opportunity', 1995.00, 'Won', 100,
+       ?, 'website', 'Growth Engine', 'won', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+    [dealId, primary.clinicId, contactId, pipelineId, stageId, primary.userId, primary.userId],
+  );
+  await pool.execute(
+    `INSERT INTO proposal
+      (id, clinic_id, contact_id, deal_id, proposal_name, package_name, owner_id, status, value, created_by, updated_by)
+     VALUES (?, ?, ?, ?, 'Growth Engine Proposal', 'Growth Engine', ?, 'won', 1995.00, ?, ?)`,
+    [proposalId, primary.clinicId, contactId, dealId, primary.userId, primary.userId, primary.userId],
+  );
+  await pool.execute(
+    `INSERT INTO proposal_acceptance_record
+      (id, clinic_id, proposal_id, contact_id, deal_id, accepted_by_name, accepted_by_email,
+       package_name, monthly_fee_cents, setup_fee_cents, payment_terms, start_date,
+       minimum_term_months, notice_period_days, created_by)
+     VALUES (?, ?, ?, ?, ?, 'Won Conversion', 'won.conversion@test.com',
+       'Growth Engine', 199500, 0, 'Monthly in advance', '2026-08-01',
+       6, 30, ?)`,
+    [acceptanceId, primary.clinicId, proposalId, contactId, dealId, primary.userId],
+  );
+  await pool.execute(
+    `INSERT INTO growth_score_snapshot
+      (id, clinic_id, contact_id, snapshot_date, overall_score, category_scores,
+       seo_score, tracking_score, recommended_package, gap_summary, source, created_by)
+     VALUES (?, ?, ?, '2026-07-20', 71.50, JSON_OBJECT('seo', 62, 'tracking', 58),
+       62, 58, 'Market Leader', 'Tracking and SEO are the biggest gaps.', 'manual', ?)`,
+    [growthScoreSnapshotId, primary.clinicId, contactId, primary.userId],
+  );
+
+  const expressModule = await import("express") as any;
+  const express = expressModule.default;
+  const testApp = express();
+  testApp.use(express.json());
+  testApp.use("/api/client-accounts", clientAccountsRoutes);
+  testApp.use(errorHandler);
+
+  const server = testApp.listen(0);
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to start won deal conversion test server");
+  }
+
+  const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
+
+  try {
+    const converted = await fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
+      method: "POST",
+      body: JSON.stringify({
+        dealId,
+        accountName: "Won Conversion Client",
+        clientStatus: "onboarding",
+        onboardingStatus: "in_progress",
+        createOnboardingTasks: true,
+      }),
+    });
+
+    assert.equal(converted.response.status, 201);
+    assert.equal(converted.body.status, "success");
+    assert.ok(converted.body.data.id, "Converted client account should return a stable profile id");
+    assert.notEqual(converted.body.data.clinicId, primary.clinicId, "Client status must live on the new client account, not the sales workspace");
+    assert.equal(converted.body.data.clientStatus, "onboarding");
+    assert.equal(converted.body.data.onboardingStatus, "in_progress");
+    assert.equal(converted.body.data.currentPackage, "Growth Engine");
+    assert.equal(converted.body.data.recommendedNextPackage, "Market Leader");
+
+    const clientAccountProfileId = converted.body.data.id;
+    const clientClinicId = converted.body.data.clinicId;
+
+    const [dealRows]: any = await pool.execute(
+      `SELECT status, client_account_profile_id as clientAccountProfileId, client_converted_at as clientConvertedAt
+       FROM deal WHERE id = ? AND clinic_id = ?`,
+      [dealId, primary.clinicId],
+    );
+    assert.equal(dealRows[0].status, "won", "Deal stage/status remains separate from client status");
+    assert.equal(dealRows[0].clientAccountProfileId, clientAccountProfileId);
+    assert.ok(dealRows[0].clientConvertedAt);
+
+    const [contactRows]: any = await pool.execute(
+      `SELECT lead_status as leadStatus, status, account_name as accountName
+       FROM contact WHERE id = ? AND clinic_id = ?`,
+      [contactId, primary.clinicId],
+    );
+    assert.equal(contactRows[0].leadStatus, "converted");
+    assert.equal(contactRows[0].status, "active");
+    assert.equal(contactRows[0].accountName, "Won Conversion Account");
+
+    const [relationRows]: any = await pool.execute(
+      `SELECT id, client_account_profile_id as clientAccountProfileId
+       FROM client_account_contact
+       WHERE clinic_id = ? AND contact_id = ? AND client_account_profile_id = ?`,
+      [primary.clinicId, contactId, clientAccountProfileId],
+    );
+    assert.equal(relationRows.length, 1);
+
+    const [proposalRows]: any = await pool.execute(
+      "SELECT client_account_profile_id as clientAccountProfileId FROM proposal WHERE id = ?",
+      [proposalId],
+    );
+    assert.equal(proposalRows[0].clientAccountProfileId, clientAccountProfileId);
+
+    const [acceptanceRows]: any = await pool.execute(
+      "SELECT client_account_profile_id as clientAccountProfileId FROM proposal_acceptance_record WHERE id = ?",
+      [acceptanceId],
+    );
+    assert.equal(acceptanceRows[0].clientAccountProfileId, clientAccountProfileId);
+
+    const [snapshotRows]: any = await pool.execute(
+      "SELECT client_account_profile_id as clientAccountProfileId FROM growth_score_snapshot WHERE id = ?",
+      [growthScoreSnapshotId],
+    );
+    assert.equal(snapshotRows[0].clientAccountProfileId, clientAccountProfileId);
+
+    const [taskRows]: any = await pool.execute(
+      `SELECT title, client_account_profile_id as clientAccountProfileId, contact_id as contactId, status, category, template_key as templateKey
+       FROM task
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?
+         AND contact_id = ?
+         AND category = 'client_onboarding'
+         AND is_internal = 1
+         AND deleted_at IS NULL`,
+      [primary.clinicId, clientAccountProfileId, contactId],
+    );
+    assert.equal(taskRows.length, 4);
+    assert.equal(taskRows.every((task: any) => task.status === "pending"), true);
+    assert.equal(taskRows.every((task: any) => String(task.templateKey).startsWith(`won_client_onboarding:${dealId}:`)), true);
+
+    const secondConversion = await fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
+      method: "POST",
+      body: JSON.stringify({ dealId, accountName: "Duplicate Conversion Attempt" }),
+    });
+    assert.equal(secondConversion.response.status, 201);
+    assert.equal(secondConversion.body.data.id, clientAccountProfileId);
+
+    const [taskRowsAfterRetry]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM task
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?
+         AND category = 'client_onboarding'
+         AND is_internal = 1
+         AND deleted_at IS NULL`,
+      [primary.clinicId, clientAccountProfileId],
+    );
+    assert.equal(Number(taskRowsAfterRetry[0].count), 4, "Retrying conversion should not duplicate onboarding tasks");
+
+    const linkedRecords = await fetchJson(baseUrl, `/api/client-accounts/${clientClinicId}/linked-records`, primary.token);
+    assert.equal(linkedRecords.response.status, 200);
+    assert.equal(linkedRecords.body.data.contacts.some((contact: any) => contact.id === contactId), true);
+    assert.equal(linkedRecords.body.data.openTasks.length, 4);
+
+    console.log("[client-accounts] won deal conversion, history links, and onboarding tasks passed");
+  } finally {
+    await pool.execute("DELETE FROM task WHERE clinic_id = ? AND template_key LIKE ?", [primary.clinicId, `won_client_onboarding:${dealId}:%`]);
+    await pool.execute("DELETE FROM proposal_acceptance_record WHERE id = ?", [acceptanceId]);
+    await pool.execute("DELETE FROM proposal WHERE id = ?", [proposalId]);
+    await pool.execute("DELETE FROM growth_score_snapshot WHERE id = ?", [growthScoreSnapshotId]);
+    await pool.execute("DELETE FROM deal WHERE id = ?", [dealId]);
+    await pool.execute("DELETE FROM pipeline_stage WHERE id = ?", [stageId]);
+    await pool.execute("DELETE FROM pipeline WHERE id = ?", [pipelineId]);
+    await pool.execute("DELETE FROM client_account_contact WHERE clinic_id = ? AND contact_id = ?", [primary.clinicId, contactId]);
+    await pool.execute("UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND clinic_id = ?", [contactId, primary.clinicId]);
+    await closeTestServer(server);
+  }
+});
+
 test("client account profile API is permission protected, updateable, audited, and separate from legacy contact data", async () => {
   await testConnection();
 

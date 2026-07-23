@@ -350,7 +350,14 @@ export default function ContactDetailPage() {
       { label: "Proposals", href: `/app/crm/proposals/edit?contactId=${encodeURIComponent(contact?.id || "")}&accountName=${encodeURIComponent(contact?.accountName || contact?.name || "")}&packageName=${encodeURIComponent(contact?.recommendedPackage || contact?.packageInterest || contact?.treatmentInterests?.[0] || "")}` },
       { label: "Notes", href: `/app/crm/contacts/detail?id=${encodeURIComponent(contact?.id || "")}#contact-notes` },
     ],
-    [contact?.id],
+    [
+      contact?.accountName,
+      contact?.id,
+      contact?.name,
+      contact?.packageInterest,
+      contact?.recommendedPackage,
+      contact?.treatmentInterests,
+    ],
   );
 
   const handleMarkContacted = useCallback(async () => {

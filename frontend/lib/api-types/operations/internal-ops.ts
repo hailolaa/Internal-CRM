@@ -287,6 +287,12 @@ export interface ClientAccountFromContactPayload
   accountName?: string | null;
 }
 
+export interface ClientAccountWonDealConversionPayload
+  extends Omit<ClientAccountFromContactPayload, "contactId"> {
+  dealId: string;
+  createOnboardingTasks?: boolean;
+}
+
 export interface ClientAccountServiceRecord {
   id: string;
   clinicId: string;

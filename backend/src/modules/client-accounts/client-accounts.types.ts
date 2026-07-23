@@ -83,6 +83,12 @@ export interface CreateClientAccountFromContactDTO
   accountName?: string | null;
 }
 
+export interface ConvertWonDealToClientDTO
+  extends Omit<CreateClientAccountFromContactDTO, "contactId"> {
+  dealId: string;
+  createOnboardingTasks?: boolean;
+}
+
 export interface ClientAccountProfileResponse {
   id: string | null;
   clinicId: string;

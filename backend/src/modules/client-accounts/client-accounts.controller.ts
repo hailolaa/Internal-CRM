@@ -96,6 +96,25 @@ export class ClientAccountsController {
     }
   };
 
+  convertWonDealToClient = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const account = await clientAccountsService.convertWonDealToClient(
+        user.clinicId,
+        user.userId,
+        req.body,
+        this.auditContext(req),
+      );
+
+      res.status(201).json({
+        status: "success",
+        data: account,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getProfile = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const clinicId = (req as any).user.clinicId;

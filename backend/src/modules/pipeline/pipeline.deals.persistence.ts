@@ -111,8 +111,9 @@ const dealSelect = `
             AND t.archived_at IS NULL
             AND t.deleted_at IS NULL
           ORDER BY t.due_date IS NULL ASC, t.due_date ASC, t.priority DESC, t.created_at ASC
-          LIMIT 1) as priority,
+         LIMIT 1) as priority,
          d.contact_id as contactId,
+         d.client_account_profile_id as clientAccountProfileId,
          c.first_name as contactFirstName,
          c.last_name as contactLastName,
          c.email as contactEmail,

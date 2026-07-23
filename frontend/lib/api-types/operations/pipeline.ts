@@ -37,6 +37,7 @@ export interface PipelineDealRecord {
   nextFollowUpDate: string | null;
   priority: "low" | "medium" | "high" | null;
   contactId: string;
+  clientAccountProfileId: string | null;
   contactName: string;
   contactEmail: string | null;
   contactPhone: string | null;

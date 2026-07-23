@@ -40,7 +40,10 @@ export default function SharedProposalPage() {
   }, [token]);
 
   useEffect(() => {
-    void loadSharedProposal();
+    const timeoutId = window.setTimeout(() => {
+      void loadSharedProposal();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [loadSharedProposal]);
 
   return (

@@ -103,6 +103,26 @@ export const createClientAccountFromContactValidator = [
   body("keyNotes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Key notes must be 10000 characters or fewer"),
 ];
 
+export const convertWonDealToClientValidator = [
+  body("dealId").isString().trim().notEmpty().isLength({ max: 100 }).withMessage("A valid won deal ID is required"),
+  body("accountName").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Client account name must be 255 characters or fewer"),
+  userIdentifier("accountManagerId", "Account manager ID"),
+  body("activeServices").optional().isArray().withMessage("Active services must be an array"),
+  body("activeServices.*").optional().trim().isLength({ min: 1, max: 100 }).withMessage("Active service names must be 1-100 characters"),
+  body("onboardingStatus").optional().isIn(["not_started", "in_progress", "completed", "paused"]),
+  body("healthStatus").optional().isIn(["healthy", "attention_needed", "at_risk", "critical"]),
+  body("clientStatus").optional().isIn(clientStatuses),
+  body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
+  body("recommendedNextPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Recommended next package must be 150 characters or fewer"),
+  body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
+  ...growthScoreValidators,
+  body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
+  body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
+  body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),
+  body("keyNotes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Key notes must be 10000 characters or fewer"),
+  body("createOnboardingTasks").optional().isBoolean().withMessage("createOnboardingTasks must be true or false"),
+];
+
 export const updateClientAccountDriveFolderValidator = [
   param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
   body("folderUrl")

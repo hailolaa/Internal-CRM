@@ -195,7 +195,10 @@ export default function ProposalPreviewPage() {
   }, [proposalId, token]);
 
   useEffect(() => {
-    void loadPreview();
+    const timeoutId = window.setTimeout(() => {
+      void loadPreview();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [loadPreview]);
 
   const packageRecord = useMemo(

@@ -85,7 +85,12 @@ export default function TaskDetailPage() {
     finally { setLoading(false); }
   }, [taskId, token]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [load]);
 
   const selectedMembers = useMemo(() => members.filter((member) => mentionedIds.includes(member.id)), [members, mentionedIds]);
   const linkedClient = useMemo(
@@ -132,7 +137,12 @@ export default function TaskDetailPage() {
 
   useEffect(() => {
     if (!syncToDrive || !linkedClient?.googleDriveFolderId || driveBrowser) return;
-    void loadDriveFolder(linkedClient.googleDriveFolderId, [{ id: linkedClient.googleDriveFolderId, name: linkedClient.googleDriveFolderName || "Client Drive" }]);
+    const folderId = linkedClient.googleDriveFolderId;
+    const folderName = linkedClient.googleDriveFolderName || "Client Drive";
+    const timeoutId = window.setTimeout(() => {
+      void loadDriveFolder(folderId, [{ id: folderId, name: folderName }]);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [driveBrowser, linkedClient, loadDriveFolder, syncToDrive]);
 
   function resetUpload() {

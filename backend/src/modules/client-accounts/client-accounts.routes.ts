@@ -12,6 +12,7 @@ import {
   createClientAccountFromContactValidator,
   createClientAccountDriveFolderValidator,
   createClientAccountValidator,
+  convertWonDealToClientValidator,
   createClientAccountServiceValidator,
   listClientAccountsValidator,
   listClientAccountDriveFoldersValidator,
@@ -66,6 +67,14 @@ router.post(
   createClientAccountFromContactValidator,
   validate,
   clientAccountsController.createAccountFromContact,
+);
+
+router.post(
+  "/convert-won",
+  authorizePermission("client_accounts:write"),
+  convertWonDealToClientValidator,
+  validate,
+  clientAccountsController.convertWonDealToClient,
 );
 
 router.get(

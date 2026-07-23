@@ -792,6 +792,7 @@ export default function PipelinePage() {
   const { hasPermission, session } = useAuth();
   const token = session?.token;
   const canWriteContacts = hasPermission("contacts:write");
+  const canWriteClientAccounts = hasPermission("client_accounts:write");
   const {
     exportCsv: exportPipelineCsv,
     exportStatus,
@@ -814,6 +815,7 @@ export default function PipelinePage() {
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [movingDealId, setMovingDealId] = useState<string | null>(null);
+  const [convertingDealId, setConvertingDealId] = useState<string | null>(null);
   const [removingDealId, setRemovingDealId] = useState<string | null>(null);
   const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
   const [dragOverStageId, setDragOverStageId] = useState<string | null>(null);
@@ -1129,6 +1131,48 @@ export default function PipelinePage() {
     });
     router.push(`/app/crm/proposals/edit?${params.toString()}`);
   }, [router]);
+
+  const handleConvertWonDeal = useCallback(async (deal: PipelineDealData) => {
+    if (!token || !canWriteClientAccounts || convertingDealId) return;
+    if (deal.raw.status !== "won" && deal.raw.stageKind !== "won") {
+      setActionError("Only won opportunities can be converted to client accounts.");
+      return;
+    }
+
+    const accountName = window.prompt("Client account name", deal.name);
+    if (accountName === null) return;
+    const trimmedAccountName = accountName.trim();
+    if (!trimmedAccountName) {
+      setActionError("Client account name is required.");
+      return;
+    }
+
+    setConvertingDealId(deal.id);
+    setActionError("");
+    setActionMessage("");
+    try {
+      const account = await api.clientAccounts.convertWonDeal(token, {
+        dealId: deal.raw.id,
+        accountName: trimmedAccountName,
+        currentPackage: deal.raw.treatment || null,
+        activeServices: deal.raw.treatment ? [deal.raw.treatment] : undefined,
+        clientStatus: "onboarding",
+        onboardingStatus: "in_progress",
+        healthStatus: "attention_needed",
+        contractStatus: "pending",
+        createOnboardingTasks: true,
+      });
+      const rows = await fetchPipeline();
+      setStages(rows);
+      setSelectedDeal(null);
+      setActionMessage(`${deal.name} converted to client account: ${account.clinicName}.`);
+      router.push(`/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not convert won opportunity to a client.");
+    } finally {
+      setConvertingDealId(null);
+    }
+  }, [canWriteClientAccounts, convertingDealId, fetchPipeline, router, token]);
 
   const handleRemoveDeal = useCallback(
     async (deal: PipelineDealData) => {
@@ -1632,6 +1676,22 @@ export default function PipelinePage() {
               <a href={selectedOpportunity.raw.contactPhone ? `tel:${selectedOpportunity.raw.contactPhone}` : undefined} className="flex items-center justify-center gap-2 rounded-xl border border-black/[0.07] py-3 text-sm font-medium"><Phone className="h-4 w-4" /> Call</a>
               <a href={selectedOpportunity.raw.contactEmail ? `mailto:${selectedOpportunity.raw.contactEmail}` : undefined} className="flex items-center justify-center gap-2 rounded-xl border border-black/[0.07] py-3 text-sm font-medium"><Mail className="h-4 w-4" /> Email</a>
               <button onClick={() => openProposalBuilder(selectedOpportunity)} className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-[#315f51]/20 bg-[#edf5f3] py-3 text-sm font-semibold text-[#315f51]"><FileText className="h-4 w-4" /> Create proposal</button>
+              {(selectedOpportunity.raw.status === "won" || selectedOpportunity.raw.stageKind === "won") && (
+                selectedOpportunity.raw.clientAccountProfileId ? (
+                  <div className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-[#315f51]/20 bg-[#edf5f3] py-3 text-sm font-semibold text-[#315f51]">
+                    <CheckCircle className="h-4 w-4" /> Converted to client
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => void handleConvertWonDeal(selectedOpportunity)}
+                    disabled={!canWriteClientAccounts || convertingDealId === selectedOpportunity.id}
+                    className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-[#315f51] py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {convertingDealId === selectedOpportunity.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                    Convert won to client
+                  </button>
+                )
+              )}
               <button onClick={() => router.push(`/app/crm/contacts/detail?id=${encodeURIComponent(selectedOpportunity.raw.contactId)}`)} className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-[#6E6AE8] py-3 text-sm font-semibold text-white"><ExternalLink className="h-4 w-4" /> Open complete contact record</button>
             </div>
           </aside>

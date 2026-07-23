@@ -4,6 +4,7 @@ import type {
   ClientAccountDriveFolderPayload,
   ClientAccountContactAccountLinkRecord,
   ClientAccountFromContactPayload,
+  ClientAccountWonDealConversionPayload,
   ClientAccountLinkedRecords,
   ClientAccountProfilePayload,
   ClientAccountProfileRecord,
@@ -92,6 +93,17 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
       async createFromContact(token: string, payload: ClientAccountFromContactPayload) {
         const response = await apiRequest<ClientAccountSummaryRecord>(
           "/api/client-accounts/from-contact",
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async convertWonDeal(token: string, payload: ClientAccountWonDealConversionPayload) {
+        const response = await apiRequest<ClientAccountSummaryRecord>(
+          "/api/client-accounts/convert-won",
           {
             method: "POST",
             token,
