@@ -5,6 +5,14 @@ import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
 import { generateResetToken, hashToken } from "../../utils/helpers.js";
+import {
+  buildProposalPublicUrl,
+  isProposalPubliclyVisible,
+  mapProposalPublicPackage,
+  mapProposalPublicResponse,
+  proposalViewTransitionStatuses,
+} from "./proposals.public.js";
+import { proposalPublicStatuses } from "./proposals.types.js";
 import type {
   ProposalCommercialItem,
   ProposalLinkAccess,
@@ -240,7 +248,7 @@ function mapAcceptanceRecord(row: any) {
   };
 }
 
-function mapProposal(row: any, options: { publicView?: boolean } = {}): ProposalResponse {
+function mapProposal(row: any): ProposalResponse {
   const ownerName = [row.ownerFirstName, row.ownerLastName].filter(Boolean).join(" ").trim();
   return {
     id: row.id,
@@ -269,9 +277,9 @@ function mapProposal(row: any, options: { publicView?: boolean } = {}): Proposal
     sentToEmail: row.sentToEmail || null,
     sentToName: row.sentToName || null,
     sendMethod: row.sendMethod || null,
-    sendNote: options.publicView ? null : row.sendNote || null,
-    sentBy: options.publicView ? null : row.sentBy || null,
-    sentByName: options.publicView ? null : [row.sentByFirstName, row.sentByLastName].filter(Boolean).join(" ").trim() || row.sentByEmail || null,
+    sendNote: row.sendNote || null,
+    sentBy: row.sentBy || null,
+    sentByName: [row.sentByFirstName, row.sentByLastName].filter(Boolean).join(" ").trim() || row.sentByEmail || null,
     viewedAt: toIso(row.viewedAt),
     acceptedAt: toIso(row.acceptedAt),
     acceptedReason: row.acceptedReason || null,
@@ -285,7 +293,7 @@ function mapProposal(row: any, options: { publicView?: boolean } = {}): Proposal
     notes: row.notes || null,
     addOns: parseCommercialItems(row.addOns),
     discounts: parseCommercialItems(row.discounts),
-    internalMarginNote: options.publicView ? null : row.internalMarginNote || null,
+    internalMarginNote: row.internalMarginNote || null,
     sectionContent: parseSectionContent(row.sectionContent),
     draftSavedAt: toIso(row.draftSavedAt),
     contactName: contactName(row),
@@ -297,7 +305,7 @@ function mapProposal(row: any, options: { publicView?: boolean } = {}): Proposal
     updatedBy: row.updatedBy || null,
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
-    acceptanceRecord: options.publicView ? null : mapAcceptanceRecord(row),
+    acceptanceRecord: mapAcceptanceRecord(row),
   };
 }
 
@@ -495,10 +503,13 @@ export class ProposalsService {
   async createProposalShare(clinicId: string, userId: string, proposalId: string): Promise<ProposalShareResponse> {
     const proposal = await this.getProposal(clinicId, proposalId);
     if (proposal.status === "archived") throw ApiError.notFound("Proposal not found");
+    if (!isProposalPubliclyVisible(proposal.status, proposal.expiresAt)) {
+      throw ApiError.badRequest("Only active client-facing proposals can be shared");
+    }
 
     const rawToken = generateResetToken();
     const tokenHash = hashToken(rawToken);
-    const proposalUrl = `${config.frontendUrl.replace(/\/+$/, "")}/proposals/${encodeURIComponent(rawToken)}`;
+    const proposalUrl = buildProposalPublicUrl(config.frontendUrl, rawToken);
     const createdAt = new Date().toISOString();
 
     await pool.execute(
@@ -542,12 +553,10 @@ export class ProposalsService {
     proposalId: string,
     data: ProposalSendDTO,
   ): Promise<ProposalResponse> {
-    let proposal = await this.getProposal(clinicId, proposalId);
+    const proposal = await this.getProposal(clinicId, proposalId);
     if (proposal.status === "archived") throw ApiError.notFound("Proposal not found");
-
-    if (!proposal.proposalUrl) {
-      await this.createProposalShare(clinicId, userId, proposalId);
-      proposal = await this.getProposal(clinicId, proposalId);
+    if (!isProposalPubliclyVisible("sent", proposal.expiresAt)) {
+      throw ApiError.badRequest("Extend the proposal expiry before marking it sent");
     }
 
     const recipientEmail = cleanString(data.recipientEmail) || proposal.contactEmail || null;
@@ -579,7 +588,11 @@ export class ProposalsService {
       [now, recipientEmail, recipientName, sendMethod, sendNote, userId, userId, proposalId, clinicId],
     );
 
-    const updated = await this.getProposal(clinicId, proposalId);
+    let updated = await this.getProposal(clinicId, proposalId);
+    if (!updated.proposalUrl) {
+      await this.createProposalShare(clinicId, userId, proposalId);
+      updated = await this.getProposal(clinicId, proposalId);
+    }
     await this.logProposalActivity({
       clinicId,
       userId,
@@ -625,35 +638,109 @@ export class ProposalsService {
   async getSharedProposal(rawToken: string): Promise<ProposalPublicPreviewResponse> {
     const token = cleanString(rawToken);
     if (!token || token.length < 20) throw ApiError.notFound("Proposal link not found");
+    const tokenHash = hashToken(token);
+    const publicStatusPlaceholders = proposalPublicStatuses.map(() => "?").join(", ");
 
-    const [rows]: any = await pool.execute(
-      `${proposalSelectSql()}
+    const selectSharedProposal = `${proposalSelectSql()}
        WHERE p.public_token_hash = ?
          AND p.deleted_at IS NULL
-         AND p.status <> 'archived'
-       LIMIT 1`,
-      [hashToken(token)],
+         AND p.status IN (${publicStatusPlaceholders})
+         AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
+       LIMIT 1`;
+    const sharedProposalParams = [tokenHash, ...proposalPublicStatuses];
+    const [rows]: any = await pool.execute(
+      selectSharedProposal,
+      sharedProposalParams,
     );
     if (rows.length === 0) throw ApiError.notFound("Proposal link not found");
 
-    await pool.execute(
+    const viewStatusPlaceholders = proposalViewTransitionStatuses.map(() => "?").join(", ");
+    const [viewResult]: any = await pool.execute(
       `UPDATE proposal
-       SET public_last_accessed_at = CURRENT_TIMESTAMP,
-           viewed_at = CASE
-             WHEN viewed_at IS NULL AND status IN ('ready', 'sent', 'follow_up_due') THEN CURRENT_TIMESTAMP
-             ELSE viewed_at
-           END
+       SET status = 'viewed',
+           viewed_at = COALESCE(viewed_at, CURRENT_TIMESTAMP),
+           public_last_accessed_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
-         AND clinic_id = ?`,
-      [rows[0].id, rows[0].clinicId],
+         AND clinic_id = ?
+         AND public_token_hash = ?
+         AND deleted_at IS NULL
+         AND status IN (${viewStatusPlaceholders})
+         AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
+      [
+        rows[0].id,
+        rows[0].clinicId,
+        tokenHash,
+        ...proposalViewTransitionStatuses,
+      ],
     );
 
-    const proposal = mapProposal(rows[0], { publicView: true });
-    const packageRecord = await this.getProposalPreviewPackage(
-      rows[0].clinicId,
-      proposal.recommendedPackageId,
-      proposal.packageName,
+    if (viewResult.affectedRows === 0) {
+      await pool.execute(
+        `UPDATE proposal
+         SET public_last_accessed_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND clinic_id = ?
+           AND public_token_hash = ?
+           AND deleted_at IS NULL
+           AND status IN (${publicStatusPlaceholders})
+           AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
+        [
+          rows[0].id,
+          rows[0].clinicId,
+          tokenHash,
+          ...proposalPublicStatuses,
+        ],
+      );
+    }
+
+    const [refreshedRows]: any = await pool.execute(
+      selectSharedProposal,
+      sharedProposalParams,
     );
+    if (refreshedRows.length === 0) throw ApiError.notFound("Proposal link not found");
+
+    const internalProposal = mapProposal(refreshedRows[0]);
+    if (!isProposalPubliclyVisible(internalProposal.status, internalProposal.expiresAt)) {
+      throw ApiError.notFound("Proposal link not found");
+    }
+
+    if (viewResult.affectedRows > 0) {
+      await this.logProposalActivity({
+        clinicId: refreshedRows[0].clinicId,
+        userId: null,
+        contactId: internalProposal.contactId,
+        proposalId: internalProposal.id,
+        action: "proposal_viewed",
+        title: internalProposal.proposalName,
+        status: "viewed",
+        previousStatus: rows[0].status,
+        changes: {
+          previousStatus: rows[0].status,
+          status: "viewed",
+          viewedAt: internalProposal.viewedAt,
+        },
+      });
+      await logAuditEvent({
+        clinicId: refreshedRows[0].clinicId,
+        userId: null,
+        action: "PROPOSAL_VIEWED",
+        entityType: "proposal",
+        entityId: internalProposal.id,
+        changes: {
+          previousStatus: rows[0].status,
+          status: "viewed",
+          viewedAt: internalProposal.viewedAt,
+        },
+      });
+    }
+
+    const proposal = mapProposalPublicResponse(internalProposal);
+    const packageRecord = mapProposalPublicPackage(await this.getProposalPreviewPackage(
+      refreshedRows[0].clinicId,
+      internalProposal.recommendedPackageId,
+      internalProposal.packageName,
+    ));
 
     return { proposal, packageRecord };
   }
@@ -1866,7 +1953,7 @@ export class ProposalsService {
 
   private async logProposalActivity(input: {
     clinicId: string;
-    userId: string;
+    userId: string | null;
     contactId: string | null;
     proposalId: string;
     action: string;

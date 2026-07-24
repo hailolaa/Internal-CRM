@@ -13,6 +13,17 @@ export const proposalStatuses = [
 
 export type ProposalStatus = typeof proposalStatuses[number];
 
+export const proposalPublicStatuses = [
+  "ready",
+  "sent",
+  "viewed",
+  "follow_up_due",
+  "accepted",
+  "won",
+] as const satisfies readonly ProposalStatus[];
+
+export type ProposalPublicStatus = typeof proposalPublicStatuses[number];
+
 export interface ProposalLinkAccess {
   canManageAllClientAccounts: boolean;
 }
@@ -201,18 +212,40 @@ export interface ProposalShareResponse {
   createdAt: string;
 }
 
+export interface ProposalPublicResponse {
+  proposalName: string;
+  packageName: string | null;
+  valueCents: number | null;
+  monthlyFeeCents: number | null;
+  setupFeeCents: number | null;
+  currency: string;
+  adSpendNote: string | null;
+  vatStatus: string | null;
+  minimumTermMonths: number | null;
+  noticePeriodDays: number | null;
+  startDate: string | null;
+  expiresAt: string | null;
+  addOns: ProposalCommercialItem[];
+  discounts: ProposalCommercialItem[];
+  sectionContent: ProposalSectionContent | null;
+  contactName: string | null;
+  accountName: string | null;
+  clientAccountName: string | null;
+}
+
+export interface ProposalPublicPackageResponse {
+  name: string;
+  priceCents: number | null;
+  setupFeeCents: number | null;
+  currency: string;
+  billingFrequency: string | null;
+  includedFeatures: string[];
+  proposalWording: string | null;
+}
+
 export interface ProposalPublicPreviewResponse {
-  proposal: ProposalResponse;
-  packageRecord: {
-    id: string;
-    name: string;
-    priceCents: number | null;
-    setupFeeCents: number | null;
-    currency: string;
-    billingFrequency: string | null;
-    includedFeatures: string[];
-    proposalWording: string | null;
-  } | null;
+  proposal: ProposalPublicResponse;
+  packageRecord: ProposalPublicPackageResponse | null;
 }
 
 export interface ProposalSourceDataResponse {

@@ -50,6 +50,13 @@ async function request(baseUrl: string, path: string, token: string, init: Reque
   return { response, body: await response.json() as any };
 }
 
+async function requestPublic(baseUrl: string, path: string) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    headers: { Accept: "application/json" },
+  });
+  return { response, body: await response.json() as any };
+}
+
 async function closeServer(server: Server) {
   server.closeIdleConnections?.();
   server.closeAllConnections?.();
@@ -107,15 +114,120 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       body: JSON.stringify({
         contactId,
         proposalName: "Week 2 API proposal",
-        status: "ready",
+        status: "draft",
         valueCents: 125000,
         currency: "GBP",
       }),
     });
     assert.equal(created.response.status, 201);
-    assert.equal(created.body.data.status, "ready");
+    assert.equal(created.body.data.status, "draft");
     assert.equal(created.body.data.valueCents, 125000);
-    assert.ok(created.body.data.readyAt);
+
+    const prematureShare = await request(
+      baseUrl,
+      `/api/proposals/${created.body.data.id}/share`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(prematureShare.response.status, 400);
+
+    const ready = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "ready" }),
+    });
+    assert.equal(ready.response.status, 200);
+    assert.equal(ready.body.data.status, "ready");
+    assert.ok(ready.body.data.readyAt);
+
+    const share = await request(baseUrl, `/api/proposals/${created.body.data.id}/share`, writer.token, {
+      method: "POST",
+    });
+    assert.equal(share.response.status, 201);
+    const proposalUrl = new URL(share.body.data.proposalUrl);
+    assert.equal(proposalUrl.pathname, "/proposals/shared/");
+    const publicToken = proposalUrl.searchParams.get("token");
+    assert.ok(publicToken);
+
+    const publicPreview = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(publicToken)}`,
+    );
+    assert.equal(publicPreview.response.status, 200);
+    assert.equal(publicPreview.response.headers.get("cache-control"), "no-store");
+    assert.equal(publicPreview.body.data.proposal.proposalName, "Week 2 API proposal");
+    for (const sensitiveField of [
+      "id",
+      "contactId",
+      "dealId",
+      "clientAccountProfileId",
+      "recommendedPackageId",
+      "ownerId",
+      "ownerName",
+      "status",
+      "followUpAt",
+      "sentAt",
+      "sentToEmail",
+      "sentToName",
+      "sendMethod",
+      "sendNote",
+      "sentBy",
+      "sentByName",
+      "viewedAt",
+      "acceptedAt",
+      "acceptedReason",
+      "wonAt",
+      "wonReason",
+      "lostAt",
+      "lostReason",
+      "objectionType",
+      "proposalUrl",
+      "notes",
+      "internalMarginNote",
+      "contactEmail",
+      "dealTitle",
+      "createdBy",
+      "updatedBy",
+      "createdAt",
+      "updatedAt",
+      "acceptanceRecord",
+    ]) {
+      assert.equal(
+        Object.hasOwn(publicPreview.body.data.proposal, sensitiveField),
+        false,
+        `${sensitiveField} must not be public`,
+      );
+    }
+
+    const viewed = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token);
+    assert.equal(viewed.response.status, 200);
+    assert.equal(viewed.body.data.status, "viewed");
+    assert.ok(viewed.body.data.viewedAt);
+
+    const [firstViewActivityRows]: any = await pool.execute(
+      `SELECT COUNT(*) as total
+       FROM activity
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = 'proposal_viewed'`,
+      [primaryClinicId, contactId],
+    );
+    assert.equal(Number(firstViewActivityRows[0].total), 1);
+
+    const repeatedPublicPreview = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(publicToken)}`,
+    );
+    assert.equal(repeatedPublicPreview.response.status, 200);
+    const [repeatedViewActivityRows]: any = await pool.execute(
+      `SELECT COUNT(*) as total
+       FROM activity
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = 'proposal_viewed'`,
+      [primaryClinicId, contactId],
+    );
+    assert.equal(Number(repeatedViewActivityRows[0].total), 1);
+
     const updated = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token, {
       method: "PATCH",
       body: JSON.stringify({ status: "follow_up_due", followUpAt: "2026-07-24T09:00:00.000Z" }),
@@ -142,6 +254,37 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(accepted.body.data.acceptanceRecord.packageName, null);
     assert.equal(accepted.body.data.acceptanceRecord.monthlyFeeCents, null);
     assert.equal(accepted.body.data.acceptanceRecord.paymentTerms, "Monthly in advance, setup due before kickoff.");
+
+    const acceptedPublicPreview = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(publicToken)}`,
+    );
+    assert.equal(acceptedPublicPreview.response.status, 200, "accepted proposals remain publicly visible");
+
+    await pool.execute(
+      "UPDATE proposal SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 SECOND) WHERE id = ?",
+      [created.body.data.id],
+    );
+    const expiredPublicPreview = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(publicToken)}`,
+    );
+    assert.equal(expiredPublicPreview.response.status, 404);
+
+    await pool.execute(
+      `UPDATE proposal
+       SET expires_at = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 1 DAY),
+           status = 'lost',
+           lost_reason = 'budget',
+           objection_type = 'budget'
+       WHERE id = ?`,
+      [created.body.data.id],
+    );
+    const lostPublicPreview = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(publicToken)}`,
+    );
+    assert.equal(lostPublicPreview.response.status, 404);
 
     const crossTenant = await request(baseUrl, `/api/proposals/${created.body.data.id}`, otherWriter.token);
     assert.equal(crossTenant.response.status, 404);

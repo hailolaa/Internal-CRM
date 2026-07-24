@@ -100,6 +100,23 @@ const samplePackage: GrowthPackageRecord = {
   updatedAt: new Date().toISOString(),
 };
 
+const shareableProposalStatuses: ProposalRecord["status"][] = [
+  "ready",
+  "sent",
+  "viewed",
+  "follow_up_due",
+  "accepted",
+  "won",
+];
+
+function canGenerateProposalLink(proposal: ProposalRecord | null) {
+  if (!proposal || !shareableProposalStatuses.includes(proposal.status)) return false;
+  if (!proposal.expiresAt) return true;
+
+  const expiryTime = new Date(proposal.expiresAt).getTime();
+  return Number.isFinite(expiryTime) && expiryTime > Date.now();
+}
+
 function findMatchingPackage(proposal: ProposalRecord, packages: GrowthPackageRecord[]) {
   if (proposal.recommendedPackageId) {
     const selected = packages.find((item) => item.id === proposal.recommendedPackageId);
@@ -205,6 +222,7 @@ export default function ProposalPreviewPage() {
     () => (proposal ? findMatchingPackage(proposal, packages) || (proposalId ? null : samplePackage) : null),
     [packages, proposal, proposalId],
   );
+  const canGenerateLink = canGenerateProposalLink(proposal);
 
   const createProposalLink = useCallback(async () => {
     if (!token || !proposalId) return;
@@ -319,8 +337,9 @@ export default function ProposalPreviewPage() {
             {proposalId ? (
               <button
                 type="button"
-                disabled={isGeneratingLink || isLoading}
+                disabled={isGeneratingLink || isLoading || !canGenerateLink}
                 onClick={() => void createProposalLink()}
+                title={canGenerateLink ? undefined : "Mark the proposal ready and ensure it has not expired before sharing."}
                 className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isGeneratingLink ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}

@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   Target,
 } from "lucide-react";
-import type { GrowthPackageRecord, ProposalRecord } from "@/lib/api-types";
+import type { GrowthPackageRecord, ProposalPublicRecord, ProposalRecord } from "@/lib/api-types";
 
 type ProposalTemplatePackage = Pick<
   GrowthPackageRecord,
@@ -18,7 +18,7 @@ type ProposalTemplatePackage = Pick<
 >;
 
 export interface ClinicGrowerProposalTemplateProps {
-  proposal: ProposalRecord;
+  proposal: ProposalPublicRecord | ProposalRecord;
   packageRecord?: ProposalTemplatePackage | null;
   previewMode?: boolean;
 }
@@ -52,7 +52,7 @@ const defaultFeatures = [
   "SEO, GBP and paid lead source review",
   "Tracking and reporting setup guidance",
   "Lead handling and follow-up recommendations",
-  "Internal action plan for the next 30 days",
+  "Prioritised action plan for the next 30 days",
 ];
 
 function linesFromText(value: string | null | undefined) {
@@ -113,7 +113,9 @@ export function ClinicGrowerProposalTemplate({
     "This proposal sets out the recommended ClinicGrower plan to improve visibility, conversion, lead handling and measurable growth.";
   const executiveSummary =
     sectionContent.executiveSummary ||
-    "This proposal is managed inside Mission Control so ownership, follow-up and sales activity stay attached to the CRM record.";
+    (previewMode
+      ? "This proposal is managed inside Mission Control so ownership, follow-up and sales activity stay attached to the CRM record."
+      : "It brings the recommended priorities, delivery scope and commercial terms together in one clear plan.");
   const diagnosisLines = linesFromText(sectionContent.diagnosis);
   const timelineLines = linesFromText(sectionContent.timeline);
   const nextStep =
@@ -141,20 +143,22 @@ export function ClinicGrowerProposalTemplate({
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Prepared for</p>
             <p className="mt-2 text-lg font-semibold text-[#14231f]">{accountName}</p>
             <p className="mt-1 text-sm text-[#5b7069]">{contactName}</p>
-            <div className="mt-4 border-t border-[#e2ebe7] pt-4 text-sm text-[#4e635d]">
-              <div className="flex justify-between gap-4">
-                <span>Status</span>
-                <span className="font-semibold capitalize text-[#315f51]">{statusLabel(proposal.status)}</span>
+            {previewMode && "status" in proposal ? (
+              <div className="mt-4 border-t border-[#e2ebe7] pt-4 text-sm text-[#4e635d]">
+                <div className="flex justify-between gap-4">
+                  <span>Status</span>
+                  <span className="font-semibold capitalize text-[#315f51]">{statusLabel(proposal.status)}</span>
+                </div>
+                <div className="mt-2 flex justify-between gap-4">
+                  <span>Owner</span>
+                  <span className="font-semibold text-[#315f51]">{proposal.ownerName || "Unassigned"}</span>
+                </div>
+                <div className="mt-2 flex justify-between gap-4">
+                  <span>Follow-up</span>
+                  <span className="font-semibold text-[#315f51]">{formatDate(proposal.followUpAt)}</span>
+                </div>
               </div>
-              <div className="mt-2 flex justify-between gap-4">
-                <span>Owner</span>
-                <span className="font-semibold text-[#315f51]">{proposal.ownerName || "Unassigned"}</span>
-              </div>
-              <div className="mt-2 flex justify-between gap-4">
-                <span>Follow-up</span>
-                <span className="font-semibold text-[#315f51]">{formatDate(proposal.followUpAt)}</span>
-              </div>
-            </div>
+            ) : null}
           </div>
         </div>
       </header>
@@ -267,7 +271,9 @@ export function ClinicGrowerProposalTemplate({
           <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">A controlled path from insight to action.</h2>
           <p className="mt-4 text-sm leading-6 text-[#5b7069]">
             {sectionContent.investmentNotes ||
-              "The proposal keeps the commercial plan, owner, follow-up date and CRM activity together so the team is not relying on Better Proposals, email threads or memory."}
+              (previewMode
+                ? "The proposal keeps the commercial plan, owner, follow-up date and CRM activity together so the team is not relying on Better Proposals, email threads or memory."
+                : "The recommended scope brings the highest-impact growth priorities into one practical, measurable delivery plan.")}
           </p>
         </div>
         <div className="grid gap-3">
@@ -306,12 +312,22 @@ export function ClinicGrowerProposalTemplate({
           <div className="rounded-[8px] bg-[#f4f0e8] p-5">
             <MousePointerClick className="h-5 w-5 text-[#8a6630]" />
             <p className="mt-4 text-sm font-semibold text-[#14231f]">Clear next step</p>
-            <p className="mt-2 text-sm leading-6 text-[#5b7069]">Follow-up stays owned inside Mission Control.</p>
+            <p className="mt-2 text-sm leading-6 text-[#5b7069]">
+              {previewMode
+                ? "Follow-up stays owned inside Mission Control."
+                : "A straightforward path from review to approval and kickoff."}
+            </p>
           </div>
           <div className="rounded-[8px] bg-[#eef2fb] p-5">
             <ShieldCheck className="h-5 w-5 text-[#4f63a5]" />
-            <p className="mt-4 text-sm font-semibold text-[#14231f]">Controlled process</p>
-            <p className="mt-2 text-sm leading-6 text-[#5b7069]">Proposal activity appears on the CRM timeline.</p>
+            <p className="mt-4 text-sm font-semibold text-[#14231f]">
+              {previewMode ? "Controlled process" : "Clear delivery"}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-[#5b7069]">
+              {previewMode
+                ? "Proposal activity appears on the CRM timeline."
+                : "Scope, timing and commercial terms stay clear from the outset."}
+            </p>
           </div>
         </div>
       </section>
@@ -322,7 +338,7 @@ export function ClinicGrowerProposalTemplate({
           <p className="mt-1 text-sm text-white/75">{nextStep}</p>
         </div>
         <div className="inline-flex items-center gap-2 text-sm font-semibold">
-          Continue in Mission Control
+          {previewMode ? "Continue in Mission Control" : "Ready to move forward"}
           <ArrowRight className="h-4 w-4" />
         </div>
       </footer>
