@@ -22,12 +22,18 @@ The staging and production URLs are documented targets. The actual hosting provi
 mysql -u root -p < backend/db.sql
 ```
 
-2. Configure backend:
+2. Install and configure the backend:
 
 ```bash
 cd backend
 npm install
 cp .env.example .env
+```
+
+Set `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` in `backend/.env`, then migrate and start the backend:
+
+```bash
+npm run db:migrate
 npm run dev
 ```
 
@@ -108,4 +114,4 @@ Use database restore only if the deploy changed data or schema in a way that can
 
 ## Fresh Database Rule
 
-For this internal CRM, `backend/db.sql` is the source of truth for fresh dev/staging database creation. If schema or seed data changes, update `backend/db.sql` and recreate the environment from that file.
+For this internal CRM, `backend/db.sql` is the base schema and `backend/scripts/migrations/` is the append-only change history. Fresh dev/staging databases must load `db.sql` and then run `npm run db:migrate`, matching the CI and deployment order.

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
@@ -110,6 +111,8 @@ function toPayload(profile: ClientAccountProfileRecord): ClientAccountProfilePay
 }
 
 export default function ClientPackagePage() {
+  const searchParams = useSearchParams();
+  const targetClinicId = searchParams.get("id") || undefined;
   const { session } = useAuth();
   const { addToast } = useToast();
   const token = session?.token;
@@ -123,7 +126,10 @@ export default function ClientPackagePage() {
 
   useEffect(() => {
     if (!token) return;
-    Promise.all([api.clientAccounts.getProfile(token), api.team.getMembers(token)])
+    Promise.all([
+      api.clientAccounts.getProfile(token, targetClinicId),
+      api.team.getMembers(token),
+    ])
       .then(([profileRow, members]) => {
         setProfile(profileRow);
         setDraft(toPayload(profileRow));
@@ -134,7 +140,7 @@ export default function ClientPackagePage() {
         addToast("Package profile could not be loaded.", "error");
       })
       .finally(() => setIsLoading(false));
-  }, [addToast, token]);
+  }, [addToast, targetClinicId, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -172,7 +178,11 @@ export default function ClientPackagePage() {
     if (!token || !draft) return;
     setIsSaving(true);
     try {
-      const updated = await api.clientAccounts.updateProfile(token, draft);
+      const updated = await api.clientAccounts.updateProfile(
+        token,
+        draft,
+        targetClinicId,
+      );
       setProfile(updated);
       setDraft(toPayload(updated));
       addToast("Package profile updated.", "success");

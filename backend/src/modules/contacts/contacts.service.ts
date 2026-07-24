@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
 import { ApiError } from "../../utils/ApiError.js";
+import { csvCell } from "../../utils/csv.js";
 import { buildTimelineMetadata, logTimelineActivity, type ActivityType } from "../../utils/activity.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { phase1TimelineActions } from "../events/phase1-events.js";
@@ -145,12 +146,6 @@ const importHeaderAliases: Record<string, keyof ContactImportRow | "tags"> = {
   auditfollowupdue: "auditFollowUpDueAt",
   auditfollowupdueat: "auditFollowUpDueAt",
 };
-
-function csvCell(value: unknown) {
-  if (value == null) return "";
-  const text = Array.isArray(value) ? value.join("; ") : String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
 
 function contactAttemptActivityType(channel: RecordContactAttemptDTO["channel"]): ActivityType {
   if (channel === "call") return "Call";

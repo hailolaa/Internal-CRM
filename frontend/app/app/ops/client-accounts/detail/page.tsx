@@ -127,7 +127,7 @@ export default function ClientAccountDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const clinicId = searchParams.get("id") || "";
-  const { session } = useAuth();
+  const { hasPermission, session } = useAuth();
   const token = session?.token;
   const missingAccountId = !clinicId;
   const [account, setAccount] = useState<ClientAccountSummaryRecord | null>(null);
@@ -247,7 +247,6 @@ export default function ClientAccountDetailPage() {
     );
   }
 
-  const canEditProfile = session?.clinicId === account.clinicId;
   const nextBestAction = getClientNextBestAction({
     churnRisk: account.churnRisk,
     contractStatus: account.contractStatus,
@@ -263,6 +262,13 @@ export default function ClientAccountDetailPage() {
     renewalDate: account.renewalDate,
     upsellOpportunity: account.upsellOpportunity,
   });
+  const canEditProfile =
+    hasPermission("client_accounts:write") &&
+    (session?.clinicId === account.clinicId || hasPermission("sensitive:read"));
+  const editProfileHref =
+    session?.clinicId === account.clinicId
+      ? "/app/ops/client-accounts/package"
+      : `/app/ops/client-accounts/package?id=${encodeURIComponent(account.clinicId)}`;
 
   return (
     <div className="space-y-6">
@@ -276,9 +282,9 @@ export default function ClientAccountDetailPage() {
           </div>
         </div>
         {canEditProfile ? (
-          <Link href="/app/ops/client-accounts/package" className="inline-flex items-center gap-2 rounded-full bg-[#5e8a8d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#507b7e]"><Pencil className="h-4 w-4" />Edit account</Link>
+          <Link href={editProfileHref} className="inline-flex items-center gap-2 rounded-full bg-[#5e8a8d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#507b7e]"><Pencil className="h-4 w-4" />Edit account</Link>
         ) : (
-          <span className="rounded-full border border-[#d8ddda] px-4 py-2 text-sm font-medium text-[#7A746A]">Switch to this workspace to edit</span>
+          <span className="rounded-full border border-[#d8ddda] px-4 py-2 text-sm font-medium text-[#7A746A]">Read-only account</span>
         )}
       </div>
 

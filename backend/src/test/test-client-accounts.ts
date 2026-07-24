@@ -692,6 +692,8 @@ test("won opportunities convert into client accounts with preserved history and 
   const proposalId = uuidv4();
   const acceptanceId = uuidv4();
   const growthScoreSnapshotId = uuidv4();
+  const rollbackAccountName = `Rollback Won Conversion ${dealId}`;
+  const convertedAccountName = `Won Conversion Client ${dealId}`;
 
   await pool.execute(
     `UPDATE contact
@@ -773,20 +775,228 @@ test("won opportunities convert into client accounts with preserved history and 
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
 
   try {
-    const converted = await fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
-      method: "POST",
-      body: JSON.stringify({
+    const serviceWithPrivateHooks = clientAccountsService as any;
+    const originalConversionEventInserter = serviceWithPrivateHooks.insertConversionEvents;
+    let rolledBackClientClinicId: string | null = null;
+    serviceWithPrivateHooks.insertConversionEvents = async (...args: any[]) => {
+      rolledBackClientClinicId = args[1].createdClinicId;
+      await originalConversionEventInserter.apply(clientAccountsService, args);
+      throw new Error("Injected conversion event failure");
+    };
+
+    let rolledBackConversion: any;
+    try {
+      rolledBackConversion = await fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
+        method: "POST",
+        body: JSON.stringify({
+          dealId,
+          accountName: rollbackAccountName,
+          clientStatus: "onboarding",
+          onboardingStatus: "in_progress",
+          createOnboardingTasks: true,
+        }),
+      });
+    } finally {
+      serviceWithPrivateHooks.insertConversionEvents = originalConversionEventInserter;
+    }
+
+    assert.equal(rolledBackConversion.response.status, 500);
+    assert.ok(rolledBackClientClinicId);
+
+    const [rolledBackDealRows]: any = await pool.execute(
+      `SELECT client_account_profile_id as clientAccountProfileId, client_converted_at as clientConvertedAt
+       FROM deal
+       WHERE id = ? AND clinic_id = ?`,
+      [dealId, primary.clinicId],
+    );
+    assert.equal(rolledBackDealRows[0].clientAccountProfileId, null);
+    assert.equal(rolledBackDealRows[0].clientConvertedAt, null);
+
+    const [rolledBackHistoryRows]: any = await pool.execute(
+      `SELECT
+         (SELECT client_account_profile_id FROM proposal WHERE id = ?) as proposalProfileId,
+         (SELECT client_account_profile_id FROM proposal_acceptance_record WHERE id = ?) as acceptanceProfileId,
+         (SELECT client_account_profile_id FROM growth_score_snapshot WHERE id = ?) as growthScoreProfileId,
+         (SELECT COUNT(*) FROM client_account_contact WHERE clinic_id = ? AND contact_id = ?) as relationCount,
+         (SELECT COUNT(*) FROM task WHERE clinic_id = ? AND template_key LIKE ?) as taskCount,
+         (SELECT COUNT(*) FROM clinic WHERE name = ? AND deleted_at IS NULL) as accountCount`,
+      [
+        proposalId,
+        acceptanceId,
+        growthScoreSnapshotId,
+        primary.clinicId,
+        contactId,
+        primary.clinicId,
+        `won_client_onboarding:${dealId}:%`,
+        rollbackAccountName,
+      ],
+    );
+    assert.equal(rolledBackHistoryRows[0].proposalProfileId, null);
+    assert.equal(rolledBackHistoryRows[0].acceptanceProfileId, null);
+    assert.equal(rolledBackHistoryRows[0].growthScoreProfileId, null);
+    assert.equal(Number(rolledBackHistoryRows[0].relationCount), 0);
+    assert.equal(Number(rolledBackHistoryRows[0].taskCount), 0);
+    assert.equal(Number(rolledBackHistoryRows[0].accountCount), 0);
+
+    const [rolledBackEventRows]: any = await pool.execute(
+      `SELECT
+         (SELECT COUNT(*)
+          FROM audit_log
+          WHERE clinic_id = ?
+            AND action = 'CLIENT_ACCOUNT_CREATED') as accountCreatedAuditCount,
+         (SELECT COUNT(*)
+          FROM audit_log
+          WHERE clinic_id = ?
+            AND action = 'WON_DEAL_CONVERTED_TO_CLIENT_ACCOUNT'
+            AND entity_id = ?) as conversionAuditCount,
+         (SELECT COUNT(*)
+          FROM activity
+          WHERE clinic_id = ?
+            AND contact_id = ?
+            AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = 'won_deal_converted_to_client'
+            AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.dealId')) = ?) as conversionActivityCount`,
+      [
+        rolledBackClientClinicId,
+        primary.clinicId,
         dealId,
-        accountName: "Won Conversion Client",
-        clientStatus: "onboarding",
-        onboardingStatus: "in_progress",
-        createOnboardingTasks: true,
-      }),
+        primary.clinicId,
+        contactId,
+        dealId,
+      ],
+    );
+    assert.equal(Number(rolledBackEventRows[0].accountCreatedAuditCount), 0);
+    assert.equal(Number(rolledBackEventRows[0].conversionAuditCount), 0);
+    assert.equal(Number(rolledBackEventRows[0].conversionActivityCount), 0);
+
+    const [rolledBackContactRows]: any = await pool.execute(
+      `SELECT status, lead_status as leadStatus, notes
+       FROM contact
+       WHERE id = ? AND clinic_id = ?`,
+      [contactId, primary.clinicId],
+    );
+    assert.equal(rolledBackContactRows[0].status, "lead");
+    assert.equal(rolledBackContactRows[0].leadStatus, "new");
+    assert.equal(rolledBackContactRows[0].notes, "Original sales notes stay on the contact.");
+
+    const conversionPayload = {
+      dealId,
+      accountName: convertedAccountName,
+      clientStatus: "onboarding",
+      onboardingStatus: "in_progress",
+      createOnboardingTasks: true,
+    };
+    const convert = () => fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
+      method: "POST",
+      body: JSON.stringify(conversionPayload),
     });
+    const originalAccountInserter = serviceWithPrivateHooks.insertAccountRows;
+    let signalAccountInsertReached!: () => void;
+    let releaseAccountInsert!: () => void;
+    const accountInsertReached = new Promise<void>((resolve) => {
+      signalAccountInsertReached = resolve;
+    });
+    const accountInsertRelease = new Promise<void>((resolve) => {
+      releaseAccountInsert = resolve;
+    });
+    let pauseNextAccountInsert = true;
+    serviceWithPrivateHooks.insertAccountRows = async (...args: any[]) => {
+      if (pauseNextAccountInsert) {
+        pauseNextAccountInsert = false;
+        signalAccountInsertReached();
+        await accountInsertRelease;
+      }
+      return originalAccountInserter.apply(clientAccountsService, args);
+    };
+
+    let firstConversionPromise: Promise<any> | null = null;
+    let concurrentConversionPromise: Promise<any> | null = null;
+    let contactEditPromise: Promise<any> | null = null;
+    const earlierContactEditor = await pool.getConnection();
+    let earlierContactEditCommitted = false;
+    let converted: any;
+    let concurrentConversion: any;
+    try {
+      await earlierContactEditor.beginTransaction();
+      await earlierContactEditor.execute(
+        `SELECT id
+         FROM contact
+         WHERE id = ? AND clinic_id = ?
+         FOR UPDATE`,
+        [contactId, primary.clinicId],
+      );
+      await earlierContactEditor.execute(
+        `UPDATE contact
+         SET notes = 'Editor note committed before conversion.',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ?`,
+        [contactId, primary.clinicId],
+      );
+
+      firstConversionPromise = convert();
+      const conversionWhileContactLocked = await Promise.race([
+        firstConversionPromise.then(() => "completed"),
+        new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 100)),
+      ]);
+      assert.equal(
+        conversionWhileContactLocked,
+        "blocked",
+        "Conversion should wait for a contact edit that already owns the row lock",
+      );
+
+      await earlierContactEditor.commit();
+      earlierContactEditCommitted = true;
+      await accountInsertReached;
+
+      contactEditPromise = pool.execute(
+        `UPDATE contact
+         SET notes = 'Concurrent editor note is preserved.',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ?`,
+        [contactId, primary.clinicId],
+      );
+      const contactEditState = await Promise.race([
+        contactEditPromise.then(() => "completed"),
+        new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 100)),
+      ]);
+      assert.equal(contactEditState, "blocked", "Contact edits should wait for the conversion transaction");
+
+      concurrentConversionPromise = convert();
+      const concurrentConversionState = await Promise.race([
+        concurrentConversionPromise.then(() => "completed"),
+        new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 100)),
+      ]);
+      assert.equal(
+        concurrentConversionState,
+        "blocked",
+        "A concurrent conversion should wait for the locked deal",
+      );
+
+      releaseAccountInsert();
+      [converted, concurrentConversion] = await Promise.all([
+        firstConversionPromise,
+        concurrentConversionPromise,
+      ]);
+      await contactEditPromise;
+    } finally {
+      if (!earlierContactEditCommitted) {
+        await earlierContactEditor.rollback();
+      }
+      earlierContactEditor.release();
+      releaseAccountInsert();
+      serviceWithPrivateHooks.insertAccountRows = originalAccountInserter;
+      await Promise.allSettled(
+        [firstConversionPromise, concurrentConversionPromise, contactEditPromise]
+          .filter((promise): promise is Promise<any> => promise !== null),
+      );
+    }
 
     assert.equal(converted.response.status, 201);
+    assert.equal(concurrentConversion.response.status, 201);
     assert.equal(converted.body.status, "success");
+    assert.equal(concurrentConversion.body.status, "success");
     assert.ok(converted.body.data.id, "Converted client account should return a stable profile id");
+    assert.equal(concurrentConversion.body.data.id, converted.body.data.id);
+    assert.equal(concurrentConversion.body.data.clinicId, converted.body.data.clinicId);
     assert.notEqual(converted.body.data.clinicId, primary.clinicId, "Client status must live on the new client account, not the sales workspace");
     assert.equal(converted.body.data.clientStatus, "onboarding");
     assert.equal(converted.body.data.onboardingStatus, "in_progress");
@@ -802,6 +1012,27 @@ test("won opportunities convert into client accounts with preserved history and 
 
     const clientAccountProfileId = converted.body.data.id;
     const clientClinicId = converted.body.data.clinicId;
+    const [convertedProfileRows]: any = await pool.execute(
+      `SELECT key_notes as keyNotes
+       FROM client_account_profile
+       WHERE id = ? AND clinic_id = ?`,
+      [clientAccountProfileId, clientClinicId],
+    );
+    assert.match(
+      convertedProfileRows[0].keyNotes,
+      /Editor note committed before conversion\./,
+      "Conversion should read the contact notes committed before it acquired the contact lock",
+    );
+
+    const [createdAccountRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM clinic c
+       JOIN client_account_profile cap ON cap.clinic_id = c.id
+       WHERE c.name = ?
+         AND c.deleted_at IS NULL`,
+      [convertedAccountName],
+    );
+    assert.equal(Number(createdAccountRows[0].count), 1, "Concurrent conversion should create one client account");
 
     const [dealRows]: any = await pool.execute(
       `SELECT status, client_account_profile_id as clientAccountProfileId, client_converted_at as clientConvertedAt
@@ -813,13 +1044,14 @@ test("won opportunities convert into client accounts with preserved history and 
     assert.ok(dealRows[0].clientConvertedAt);
 
     const [contactRows]: any = await pool.execute(
-      `SELECT lead_status as leadStatus, status, account_name as accountName
+      `SELECT lead_status as leadStatus, status, account_name as accountName, notes
        FROM contact WHERE id = ? AND clinic_id = ?`,
       [contactId, primary.clinicId],
     );
     assert.equal(contactRows[0].leadStatus, "converted");
     assert.equal(contactRows[0].status, "active");
     assert.equal(contactRows[0].accountName, "Won Conversion Account");
+    assert.equal(contactRows[0].notes, "Concurrent editor note is preserved.");
 
     const [relationRows]: any = await pool.execute(
       `SELECT id, client_account_profile_id as clientAccountProfileId
@@ -848,7 +1080,8 @@ test("won opportunities convert into client accounts with preserved history and 
     assert.equal(snapshotRows[0].clientAccountProfileId, clientAccountProfileId);
 
     const [taskRows]: any = await pool.execute(
-      `SELECT title, client_account_profile_id as clientAccountProfileId, contact_id as contactId, status, category, template_key as templateKey
+      `SELECT title, client_account_profile_id as clientAccountProfileId, contact_id as contactId,
+              assigned_user_id as assignedUserId, status, category, template_key as templateKey
        FROM task
        WHERE clinic_id = ?
          AND client_account_profile_id = ?
@@ -861,10 +1094,15 @@ test("won opportunities convert into client accounts with preserved history and 
     assert.equal(taskRows.length, 4);
     assert.equal(taskRows.every((task: any) => task.status === "pending"), true);
     assert.equal(taskRows.every((task: any) => String(task.templateKey).startsWith(`won_client_onboarding:${dealId}:`)), true);
+    assert.equal(taskRows.every((task: any) => task.assignedUserId === primary.userId), true);
 
     const secondConversion = await fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
       method: "POST",
-      body: JSON.stringify({ dealId, accountName: "Duplicate Conversion Attempt" }),
+      body: JSON.stringify({
+        dealId,
+        accountName: "Duplicate Conversion Attempt",
+        accountManagerId: uuidv4(),
+      }),
     });
     assert.equal(secondConversion.response.status, 201);
     assert.equal(secondConversion.body.data.id, clientAccountProfileId);
@@ -885,9 +1123,69 @@ test("won opportunities convert into client accounts with preserved history and 
     assert.equal(linkedRecords.response.status, 200);
     assert.equal(linkedRecords.body.data.contacts.some((contact: any) => contact.id === contactId), true);
     assert.equal(linkedRecords.body.data.openTasks.length, 4);
+    assert.equal(
+      linkedRecords.body.data.openTasks.every((task: any) => task.assignedTo === "WonDealConversion Admin"),
+      true,
+    );
+
+    const [accountCreatedAuditRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM audit_log
+       WHERE clinic_id = ?
+         AND action = 'CLIENT_ACCOUNT_CREATED'
+         AND entity_type = 'client_account_profile'
+         AND entity_id = ?
+         AND deleted_at IS NULL`,
+      [clientClinicId, clientAccountProfileId],
+    );
+    assert.equal(Number(accountCreatedAuditRows[0].count), 1, "Concurrent conversion should emit one account-created audit");
+
+    const [conversionAuditRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM audit_log
+       WHERE clinic_id = ?
+         AND action = 'WON_DEAL_CONVERTED_TO_CLIENT_ACCOUNT'
+         AND entity_type = 'deal'
+         AND entity_id = ?
+         AND deleted_at IS NULL`,
+      [primary.clinicId, dealId],
+    );
+    assert.equal(Number(conversionAuditRows[0].count), 1, "Concurrent conversion should emit one conversion audit");
+
+    const [conversionActivityRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM activity
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = 'won_deal_converted_to_client'
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.dealId')) = ?
+         AND deleted_at IS NULL`,
+      [primary.clinicId, contactId, dealId],
+    );
+    assert.equal(Number(conversionActivityRows[0].count), 1, "Concurrent conversion should emit one timeline event");
 
     console.log("[client-accounts] won deal conversion, history links, and onboarding tasks passed");
   } finally {
+    const [createdClientRows]: any = await pool.execute(
+      `SELECT c.id as clinicId
+       FROM clinic c
+       JOIN client_account_profile cap ON cap.clinic_id = c.id
+       WHERE c.name IN (?, ?)`,
+      [rollbackAccountName, convertedAccountName],
+    );
+
+    await pool.execute(
+      `DELETE FROM activity
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = 'won_deal_converted_to_client'
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.dealId')) = ?`,
+      [primary.clinicId, contactId, dealId],
+    );
+    await pool.execute(
+      "DELETE FROM audit_log WHERE clinic_id = ? AND action = 'WON_DEAL_CONVERTED_TO_CLIENT_ACCOUNT' AND entity_id = ?",
+      [primary.clinicId, dealId],
+    );
     await pool.execute("DELETE FROM task WHERE clinic_id = ? AND template_key LIKE ?", [primary.clinicId, `won_client_onboarding:${dealId}:%`]);
     await pool.execute("DELETE FROM proposal_acceptance_record WHERE id = ?", [acceptanceId]);
     await pool.execute("DELETE FROM proposal WHERE id = ?", [proposalId]);
@@ -897,6 +1195,11 @@ test("won opportunities convert into client accounts with preserved history and 
     await pool.execute("DELETE FROM pipeline WHERE id = ?", [pipelineId]);
     await pool.execute("DELETE FROM client_account_contact WHERE clinic_id = ? AND contact_id = ?", [primary.clinicId, contactId]);
     await pool.execute("UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND clinic_id = ?", [contactId, primary.clinicId]);
+    for (const createdClient of createdClientRows) {
+      await pool.execute("DELETE FROM audit_log WHERE clinic_id = ?", [createdClient.clinicId]);
+      await pool.execute("DELETE FROM client_account_profile WHERE clinic_id = ?", [createdClient.clinicId]);
+      await pool.execute("DELETE FROM clinic WHERE id = ?", [createdClient.clinicId]);
+    }
     await closeTestServer(server);
   }
 });
@@ -906,6 +1209,8 @@ test("client account profile API is permission protected, updateable, audited, a
 
   const admin = await createClinicAndAdmin("ClientAccountProfile");
   const limitedUser = await createInternalViewerUser(admin.clinicId, "ClientAccountProfile");
+  const clientAccountWriter = await createClientAccountWriterUser(admin.clinicId, "ClientAccountProfile");
+  const originalAutoProvisionClinicId = config.oauth.google.autoProvisionClinicId;
   const expressModule = await import("express") as any;
   const express = expressModule.default;
   const testApp = express();
@@ -920,8 +1225,11 @@ test("client account profile API is permission protected, updateable, audited, a
   }
 
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
+  let managedClientClinicId: string | null = null;
 
   try {
+    (config as any).oauth.google.autoProvisionClinicId = admin.clinicId;
+
     const forbidden = await fetchJson(baseUrl, "/api/client-accounts/profile", limitedUser.token);
     assert.equal(forbidden.response.status, 403);
 
@@ -1035,6 +1343,95 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(auditChanges.monthlyPrice.after, "3495.00");
     assert.equal(auditChanges.paymentStatus.after, "pending");
     assert.equal(auditChanges.invoiceStatus.after, "sent");
+
+    const writerSelfProfile = await fetchJson(
+      baseUrl,
+      "/api/client-accounts/profile",
+      clientAccountWriter.token,
+    );
+    assert.equal(writerSelfProfile.response.status, 200);
+
+    const writerSelfUpdate = await fetchJson(
+      baseUrl,
+      "/api/client-accounts/profile",
+      clientAccountWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ keyNotes: "Quarterly review scheduled by client account writer" }),
+      },
+    );
+    assert.equal(writerSelfUpdate.response.status, 200);
+    assert.equal(
+      writerSelfUpdate.body.data.keyNotes,
+      "Quarterly review scheduled by client account writer",
+    );
+
+    const createdManagedClient = await fetchJson(baseUrl, "/api/client-accounts", admin.token, {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Managed Client ${admin.clinicId}`,
+        currentPackage: "Growth Engine",
+        monthlyPrice: 1995,
+      }),
+    });
+    assert.equal(createdManagedClient.response.status, 201);
+    managedClientClinicId = createdManagedClient.body.data.clinicId;
+
+    const writerManagedProfile = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${managedClientClinicId}/profile`,
+      clientAccountWriter.token,
+    );
+    assert.equal(writerManagedProfile.response.status, 403);
+
+    const writerManagedUpdate = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${managedClientClinicId}/profile`,
+      clientAccountWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          monthlyPrice: 1,
+          paymentStatus: "paid",
+          invoiceStatus: "paid",
+        }),
+      },
+    );
+    assert.equal(writerManagedUpdate.response.status, 403);
+
+    const managedProfile = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${managedClientClinicId}/profile`,
+      admin.token,
+    );
+    assert.equal(managedProfile.response.status, 200);
+    assert.equal(managedProfile.body.data.clinicId, managedClientClinicId);
+    assert.equal(managedProfile.body.data.currentPackage, "Growth Engine");
+    assert.equal(
+      managedProfile.body.data.monthlyPrice,
+      1995,
+      "Forbidden managed update must not change commercial fields",
+    );
+
+    const managedUpdate = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${managedClientClinicId}/profile`,
+      admin.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          accountManagerId: admin.userId,
+          monthlyPrice: 2495,
+          paymentStatus: "paid",
+          invoiceStatus: "paid",
+        }),
+      },
+    );
+    assert.equal(managedUpdate.response.status, 200);
+    assert.equal(managedUpdate.body.data.accountManager.id, admin.userId);
+    assert.equal(managedUpdate.body.data.monthlyPrice, 2495);
+    assert.equal(managedUpdate.body.data.paymentStatus, "paid");
+    assert.equal(managedUpdate.body.data.invoiceStatus, "paid");
 
     console.log("[client-accounts] profile API integration test passed");
 
@@ -1209,8 +1606,20 @@ test("client account profile API is permission protected, updateable, audited, a
 
     console.log("[client-accounts] service CRUD integration test passed");
   } finally {
-    await pool.execute("DELETE FROM role_permission WHERE role_id = ?", [limitedUser.roleId]);
-    await pool.execute("DELETE FROM role WHERE id = ?", [limitedUser.roleId]);
+    (config as any).oauth.google.autoProvisionClinicId = originalAutoProvisionClinicId;
+    if (managedClientClinicId) {
+      await pool.execute("DELETE FROM audit_log WHERE clinic_id IN (?, ?)", [admin.clinicId, managedClientClinicId]);
+      await pool.execute("DELETE FROM client_account_profile WHERE clinic_id = ?", [managedClientClinicId]);
+      await pool.execute("DELETE FROM clinic WHERE id = ?", [managedClientClinicId]);
+    }
+    await pool.execute(
+      "DELETE FROM role_permission WHERE role_id IN (?, ?)",
+      [limitedUser.roleId, clientAccountWriter.roleId],
+    );
+    await pool.execute(
+      "DELETE FROM role WHERE id IN (?, ?)",
+      [limitedUser.roleId, clientAccountWriter.roleId],
+    );
 
     // Clean up service records before profile/contact cleanup
     await pool.execute(`DELETE FROM audit_log WHERE clinic_id = ? AND entity_type = 'client_account_service'`, [admin.clinicId]);

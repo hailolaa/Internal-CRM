@@ -395,7 +395,7 @@ export default function ClientAccountsPage() {
                     </Link>
                   </p>
                   <p className="text-xs text-[#7A746A]">
-                    {formatLabel(account.healthStatus)} - {formatLabel(account.churnRisk)} risk
+                    {formatLabel(account.clientStatus)} · {formatLabel(account.healthStatus)} · {formatLabel(account.churnRisk)} risk
                   </p>
                 </div>
               </TableCell>
@@ -410,10 +410,10 @@ export default function ClientAccountsPage() {
                     {account.currentPackage || "No current package"}
                   </p>
                   <p className="text-xs text-[#7A746A]">
-                    MRR: {account.monthlyPrice ? formatMoney(account.monthlyPrice, account.currency) : "Not set"}
+                    MRR: {account.monthlyPrice === null || account.monthlyPrice === undefined ? "Not set" : formatMoney(account.monthlyPrice, account.currency)}
                   </p>
                   <p className="text-xs text-[#7A746A]">
-                    Setup: {account.setupFee ? formatMoney(account.setupFee, account.currency) : "Not set"}
+                    Setup: {account.setupFee === null || account.setupFee === undefined ? "Not set" : formatMoney(account.setupFee, account.currency)}
                   </p>
                   {account.recommendedNextPackage ? (
                     <p className="max-w-[220px] truncate text-xs font-medium text-[#315f62]">
@@ -444,7 +444,14 @@ export default function ClientAccountsPage() {
                   </p>
                 </div>
               </TableCell>
-              <TableCell>{contractBadge(account.contractStatus)}</TableCell>
+              <TableCell>
+                <div className="space-y-1">
+                  {contractBadge(account.contractStatus)}
+                  <p className="text-xs text-[#7A746A]">
+                    Start: {formatDate(account.contractStartDate)}
+                  </p>
+                </div>
+              </TableCell>
               <TableCell>
                 <div className="space-y-1">
                   {renewalBadge(account.renewalDate)}

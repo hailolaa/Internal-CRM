@@ -55,6 +55,13 @@ function buildQuery(params: object = {}) {
   return query ? `?${query}` : "";
 }
 
+export function buildClientAccountProfilePath(targetClinicId?: string | null) {
+  const clinicId = targetClinicId?.trim();
+  return clinicId
+    ? `/api/client-accounts/${encodeURIComponent(clinicId)}/profile`
+    : "/api/client-accounts/profile";
+}
+
 export function createInternalOpsApi(apiRequest: ApiRequest) {
   return {
     clientAccounts: {
@@ -112,16 +119,20 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
         );
         return response.data!;
       },
-      async getProfile(token: string) {
+      async getProfile(token: string, targetClinicId?: string) {
         const response = await apiRequest<ClientAccountProfileRecord>(
-          "/api/client-accounts/profile",
+          buildClientAccountProfilePath(targetClinicId),
           { token },
         );
         return response.data!;
       },
-      async updateProfile(token: string, payload: ClientAccountProfilePayload) {
+      async updateProfile(
+        token: string,
+        payload: ClientAccountProfilePayload,
+        targetClinicId?: string,
+      ) {
         const response = await apiRequest<ClientAccountProfileRecord>(
-          "/api/client-accounts/profile",
+          buildClientAccountProfilePath(targetClinicId),
           {
             method: "PATCH",
             token,

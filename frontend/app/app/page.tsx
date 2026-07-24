@@ -23,9 +23,12 @@ import {
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import {
+  getDashboardTaskDetailHref,
   getDashboardKpiCards,
+  hasActionableSyncedProposalFollowUpTask,
   isDashboardActiveProjectStatus,
   isDashboardNewProspect,
+  isDashboardUpcomingTask,
 } from "@/lib/dashboard-cards";
 import {
   getClientNextBestAction,
@@ -127,12 +130,6 @@ function isTaskOverdue(task: InternalTaskRecord) {
   if (task.isOverdue) return true;
   const days = daysFromToday(task.dueDate);
   return days !== null && days < 0;
-}
-
-function isUpcomingTask(task: InternalTaskRecord) {
-  if (task.status === "completed") return false;
-  const days = daysFromToday(task.dueDate);
-  return days !== null && days >= 0 && days <= 14;
 }
 
 function isUpcomingService(service: ClientAccountServiceRecord) {
@@ -341,14 +338,17 @@ export default function AppPage() {
   }, [deals, stages]);
 
   const upcomingDeadlines = useMemo<DeadlineRow[]>(() => {
-    const taskRows = tasks.filter(isUpcomingTask).map((task) => ({
-      id: task.id,
-      title: task.title,
-      owner: task.assignedTo || "Unassigned",
-      date: task.dueDate,
-      href: `/app/crm/tasks?taskId=${task.id}`,
-      type: "Task" as const,
-    }));
+    const deadlineNow = new Date();
+    const taskRows = tasks
+      .filter((task) => isDashboardUpcomingTask(task, deadlineNow))
+      .map((task) => ({
+        id: task.id,
+        title: task.title,
+        owner: task.assignedTo || "Unassigned",
+        date: task.dueDate,
+        href: getDashboardTaskDetailHref(task.id),
+        type: "Task" as const,
+      }));
 
     const serviceRows = services.filter(isUpcomingService).map((service) => ({
       id: service.id,
@@ -363,14 +363,24 @@ export default function AppPage() {
       type: "Service" as const,
     }));
 
-    const proposalRows = proposals.filter(isActionableProposalFollowUp).map((proposal) => ({
-      id: proposal.id,
-      title: proposal.proposalName,
-      owner: proposal.ownerName || proposal.contactName || proposal.accountName || "Unassigned",
-      date: proposal.followUpAt,
-      href: `/app/crm/proposals/preview?id=${encodeURIComponent(proposal.id)}`,
-      type: "Proposal" as const,
-    }));
+    const proposalRows = proposals
+      .filter(isActionableProposalFollowUp)
+      .filter(
+        (proposal) =>
+          !hasActionableSyncedProposalFollowUpTask(
+            proposal.id,
+            tasks,
+            deadlineNow,
+          ),
+      )
+      .map((proposal) => ({
+        id: proposal.id,
+        title: proposal.proposalName,
+        owner: proposal.ownerName || proposal.contactName || proposal.accountName || "Unassigned",
+        date: proposal.followUpAt,
+        href: `/app/crm/proposals/preview?id=${encodeURIComponent(proposal.id)}`,
+        type: "Proposal" as const,
+      }));
 
     return [...taskRows, ...serviceRows, ...proposalRows]
       .sort((a, b) => {
@@ -898,7 +908,7 @@ export default function AppPage() {
               overdueTasks.map((task) => (
                 <Link
                   key={task.id}
-                  href={`/app/crm/tasks?taskId=${task.id}`}
+                  href={getDashboardTaskDetailHref(task.id)}
                   className="block p-5 transition-colors hover:bg-[rgba(96,180,175,0.03)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#315f62]"
                 >
                   <div className="flex items-center justify-between gap-3">

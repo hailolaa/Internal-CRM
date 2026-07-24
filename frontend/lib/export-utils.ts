@@ -5,22 +5,30 @@
 /**
  * Convert an array of objects to CSV string and trigger download.
  */
+export function toCsvCell(value: unknown) {
+  if (value === null || value === undefined) return "";
+
+  const text = Array.isArray(value) ? value.join("; ") : String(value);
+  const spreadsheetSafe =
+    typeof value !== "number" &&
+    /^(?:[=+\-@\t\r]|[ \t\r]+[=+\-@])/.test(text)
+      ? `'${text}`
+      : text;
+
+  return /[",\n\r]/.test(spreadsheetSafe)
+    ? `"${spreadsheetSafe.replace(/"/g, '""')}"`
+    : spreadsheetSafe;
+}
+
 export function exportToCSV(data: Record<string, unknown>[], filename: string) {
   if (data.length === 0) return;
 
   const headers = Object.keys(data[0]);
   const csvRows = [
-    headers.join(","),
+    headers.map(toCsvCell).join(","),
     ...data.map((row) =>
       headers
-        .map((h) => {
-          const val = row[h];
-          const str = val === null || val === undefined ? "" : String(val);
-          // Escape commas and quotes
-          return str.includes(",") || str.includes('"') || str.includes("\n")
-            ? `"${str.replace(/"/g, '""')}"`
-            : str;
-        })
+        .map((h) => toCsvCell(row[h]))
         .join(","),
     ),
   ];

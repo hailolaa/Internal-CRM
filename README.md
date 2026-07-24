@@ -8,7 +8,7 @@ This repository is the isolated internal system for the ClinicGrower/The Growth 
 
 - Separate project/repo: this working copy points at `https://github.com/hailolaa/Internal-CRM.git`.
 - Separate database: fresh local/dev databases should use `growth_group_internal_crm`.
-- Source of truth for a fresh database is [backend/db.sql](backend/db.sql).
+- A fresh database is created from [backend/db.sql](backend/db.sql) and then brought to the current schema by the ordered files in `backend/scripts/migrations/`.
 - Local environment files are intentionally ignored by Git. Copy the tracked examples and fill in local/internal values only:
   - `backend/.env.example` -> `backend/.env`
   - `frontend/.env.example` -> `frontend/.env`
@@ -45,7 +45,13 @@ DB_NAME=growth_group_internal_crm
 JWT_SECRET=replace-with-a-long-random-secret
 ```
 
-3. Configure the frontend:
+3. Apply the ordered schema migrations:
+
+```bash
+npm run db:migrate
+```
+
+4. Configure the frontend:
 
 ```bash
 cd ../frontend
@@ -60,7 +66,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-4. Run both apps in separate terminals:
+5. Run both apps in separate terminals:
 
 ```bash
 cd backend
@@ -79,7 +85,7 @@ Then open `http://localhost:3000`.
 - Do not point this app at `clinicgrower.ai` production services.
 - Do not use the clinic production database name.
 - Keep `.env` files local and uncommitted.
-- When schema or seed data changes, update `backend/db.sql` because this internal project is expected to start from a fresh DB.
+- Keep `backend/db.sql` as the base schema and add append-only files under `backend/scripts/migrations/` for later schema changes. A fresh setup must run both.
 
 ## Environment And Rollback Notes
 

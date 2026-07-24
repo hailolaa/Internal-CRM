@@ -172,12 +172,30 @@ router.get(
   clientAccountsController.getProfile,
 );
 
+router.get(
+  "/:clinicId/profile",
+  authorizePermission("client_accounts:read"),
+  authorizePermission("sensitive:read"),
+  clientAccountClinicIdParamValidator,
+  validate,
+  clientAccountsController.getManagedProfile,
+);
+
 router.patch(
   "/profile",
   authorizePermission("client_accounts:write"),
   updateClientAccountProfileValidator,
   validate,
   clientAccountsController.updateProfile,
+);
+
+router.patch(
+  "/:clinicId/profile",
+  authorizePermission("client_accounts:write"),
+  authorizePermission("sensitive:read"),
+  [...clientAccountClinicIdParamValidator, ...updateClientAccountProfileValidator],
+  validate,
+  clientAccountsController.updateManagedProfile,
 );
 
 router.get(

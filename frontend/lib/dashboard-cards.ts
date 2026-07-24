@@ -60,6 +60,43 @@ export function isDashboardActiveProjectStatus(status: string) {
   return status === "active" || status === "onboarding";
 }
 
+type DashboardDeadlineTask = {
+  templateKey?: string | null;
+  status: string;
+  dueDate?: string | null;
+};
+
+export function isDashboardUpcomingTask(
+  task: DashboardDeadlineTask,
+  now = new Date(),
+) {
+  if (task.status === "completed" || !task.dueDate) return false;
+
+  const dueDay = startOfDayTimestamp(task.dueDate);
+  const today = startOfDayTimestamp(now);
+  const days = dueDay === null || today === null
+    ? null
+    : Math.ceil((dueDay - today) / 86400000);
+
+  return days !== null && days >= 0 && days <= 14;
+}
+
+export function hasActionableSyncedProposalFollowUpTask(
+  proposalId: string,
+  tasks: DashboardDeadlineTask[],
+  now = new Date(),
+) {
+  return tasks.some(
+    (task) =>
+      task.templateKey === `proposal_follow_up:${proposalId}` &&
+      isDashboardUpcomingTask(task, now),
+  );
+}
+
+export function getDashboardTaskDetailHref(taskId: string) {
+  return `/app/crm/tasks/detail?id=${encodeURIComponent(taskId)}&from=dashboard`;
+}
+
 export function getDashboardKpiCards(counts: DashboardMetricCounts): DashboardKpiCard[] {
   return [
     {
