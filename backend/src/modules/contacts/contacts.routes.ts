@@ -16,6 +16,7 @@ import {
   leadNoteActionValidator,
   leadSalesCallDemoActionValidator,
   leadTaskActionValidator,
+  updateContactDocumentLinkValidator,
   listContactsValidator,
   resolveDuplicateValidator,
   updateContactValidator,
@@ -151,6 +152,28 @@ router.get(
   contactIdParamValidator,
   validate,
   contactsController.getLeadDrawerActions,
+);
+
+// @route   GET /api/contacts/:id/documents
+// @desc    List lead/prospect Drive document links
+// @access  Private
+router.get(
+  "/:id/documents",
+  authorizePermission("contacts:read"),
+  contactIdParamValidator,
+  validate,
+  contactsController.listDocumentLinks,
+);
+
+// @route   PATCH /api/contacts/:id/documents/:documentType
+// @desc    Save or remove one lead/prospect Drive document link
+// @access  Private
+router.patch(
+  "/:id/documents/:documentType",
+  authorizePermission("contacts:write"),
+  updateContactDocumentLinkValidator,
+  validate,
+  contactsController.updateDocumentLink,
 );
 
 // @route   POST /api/contacts/:id/actions/call-outcome

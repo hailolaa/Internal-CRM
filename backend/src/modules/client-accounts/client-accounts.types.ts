@@ -8,6 +8,31 @@ export type ClientStatus = "prospect" | "onboarding" | "active" | "paused" | "at
 export type ClientServiceType = "ppc" | "seo" | "gbp" | "website" | "landing_pages" | "cro" | "strategy" | "other";
 export type ClientServiceStatus = "onboarding" | "active" | "paused" | "ended" | "archived";
 export type MonthlyActionPlanStatus = "draft" | "active" | "completed" | "archived";
+export type ClientDocumentType =
+  | "main_client_folder"
+  | "audit"
+  | "proposal"
+  | "contract_admin"
+  | "onboarding"
+  | "website_assets"
+  | "reports"
+  | "strategy_looms"
+  | "ads"
+  | "seo_content"
+  | "landing_pages";
+export type ClientDocumentLinkStatus = "missing" | "linked" | "not_checked" | "access_problem";
+export type ClientAccessItemType =
+  | "website"
+  | "ga4"
+  | "gsc"
+  | "gtm"
+  | "google_ads"
+  | "gbp"
+  | "meta"
+  | "brand_assets"
+  | "treatment_pricing_info"
+  | "reporting_access";
+export type ClientAccessItemStatus = "requested" | "received" | "not_needed";
 
 export interface GrowthScoreCategories {
   websiteVisibility: number | null;
@@ -64,6 +89,18 @@ export interface UpdateClientAccountDriveFolderDTO {
   folderUrl?: string | null;
   folderId?: string | null;
   displayName?: string | null;
+}
+
+export interface UpdateClientAccountDocumentLinkDTO {
+  driveUrl?: string | null;
+  driveItemId?: string | null;
+  displayName?: string | null;
+  notes?: string | null;
+}
+
+export interface UpdateClientAccountAccessItemDTO {
+  status: ClientAccessItemStatus;
+  notes?: string | null;
 }
 
 export interface CreateClientAccountDriveFolderDTO {
@@ -222,6 +259,31 @@ export interface ClientAccountLinkedRecordsResponse {
     openTasks: number;
     completedTasks: number;
   };
+}
+
+export interface ClientAccountDocumentLinkResponse {
+  documentType: ClientDocumentType;
+  label: string;
+  driveItemId: string | null;
+  driveUrl: string | null;
+  displayName: string | null;
+  status: ClientDocumentLinkStatus;
+  accessStatus: "not_checked" | "accessible" | "inaccessible";
+  accessError: string | null;
+  checkedAt: string | null;
+  notes: string | null;
+  updatedAt: string | null;
+}
+
+export interface ClientAccountAccessItemResponse {
+  itemType: ClientAccessItemType;
+  label: string;
+  status: ClientAccessItemStatus;
+  isMissing: boolean;
+  notes: string | null;
+  requestedAt: string | null;
+  receivedAt: string | null;
+  updatedAt: string | null;
 }
 
 export interface ClientAccountAuditContext {

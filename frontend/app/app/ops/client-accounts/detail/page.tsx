@@ -29,6 +29,8 @@ import { api } from "@/lib/api-client";
 import type {
   ClientAccountLinkedRecords,
   ClientAccountLinkedTaskRecord,
+  ClientAccountAccessItemRecord,
+  ClientAccountDocumentLinkRecord,
   ClientAccountServiceRecord,
   ClientAccountSummaryRecord,
   ContactRecord,
@@ -133,6 +135,8 @@ export default function ClientAccountDetailPage() {
   const [account, setAccount] = useState<ClientAccountSummaryRecord | null>(null);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [linkedRecords, setLinkedRecords] = useState<ClientAccountLinkedRecords | null>(null);
+  const [documents, setDocuments] = useState<ClientAccountDocumentLinkRecord[]>([]);
+  const [accessItems, setAccessItems] = useState<ClientAccountAccessItemRecord[]>([]);
   const [growthScoreHistory, setGrowthScoreHistory] = useState<GrowthScoreSnapshotList | null>(null);
   const [contactSearch, setContactSearch] = useState("");
   const [contactSearchTerm, setContactSearchTerm] = useState("");
@@ -140,6 +144,11 @@ export default function ClientAccountDetailPage() {
   const [isSearchingContacts, setIsSearchingContacts] = useState(false);
   const [linkActionContactId, setLinkActionContactId] = useState<string | null>(null);
   const [linkStatusMessage, setLinkStatusMessage] = useState("");
+  const [documentDrafts, setDocumentDrafts] = useState<Record<string, { driveUrl: string; displayName: string; notes: string }>>({});
+  const [accessDrafts, setAccessDrafts] = useState<Record<string, string>>({});
+  const [documentActionType, setDocumentActionType] = useState<string | null>(null);
+  const [accessActionType, setAccessActionType] = useState<string | null>(null);
+  const [filesStatusMessage, setFilesStatusMessage] = useState("");
   const [isLoading, setIsLoading] = useState(!missingAccountId);
   const [loadError, setLoadError] = useState(missingAccountId ? "No client account id was provided." : "");
 
@@ -150,13 +159,26 @@ export default function ClientAccountDetailPage() {
       api.clientAccounts.list(token),
       api.clientAccounts.listServices(token, { includeArchived: false, includeAllClinics: true }),
       api.clientAccounts.getLinkedRecords(token, clinicId),
+      api.clientAccounts.listDocuments(token, clinicId),
+      api.clientAccounts.listAccessItems(token, clinicId),
     ])
-      .then(([accounts, allServices, records]) => {
+      .then(([accounts, allServices, records, documentLinks, accessList]) => {
         const selected = accounts.find((item) => item.clinicId === clinicId) || null;
         if (!selected) throw new Error("Client account not found or unavailable to this user.");
         setAccount(selected);
         setServices(allServices.filter((service) => service.clinicId === clinicId));
         setLinkedRecords(records);
+        setDocuments(documentLinks);
+        setAccessItems(accessList);
+        setDocumentDrafts(Object.fromEntries(documentLinks.map((document) => [
+          document.documentType,
+          {
+            driveUrl: document.driveUrl || "",
+            displayName: document.displayName || "",
+            notes: document.notes || "",
+          },
+        ])));
+        setAccessDrafts(Object.fromEntries(accessList.map((item) => [item.itemType, item.notes || ""])));
         if (selected.id) {
           void api.growthScores
             .listSnapshots(token, { clientAccountProfileId: selected.id, limit: 5 })
@@ -196,6 +218,14 @@ export default function ClientAccountDetailPage() {
   const onboardingChecklistProgress = onboardingChecklistTotal
     ? Math.round((onboardingChecklistComplete / onboardingChecklistTotal) * 100)
     : 0;
+  const missingDocumentCount = useMemo(
+    () => documents.filter((document) => document.status === "missing" || document.status === "access_problem").length,
+    [documents],
+  );
+  const missingAccessCount = useMemo(
+    () => accessItems.filter((item) => item.isMissing).length,
+    [accessItems],
+  );
   const availableContactSearchResults = useMemo(
     () => contactSearchResults.filter((contact) => !linkedContacts.some((linked) => linked.id === contact.id)),
     [contactSearchResults, linkedContacts],
@@ -233,6 +263,73 @@ export default function ClientAccountDetailPage() {
       setLinkStatusMessage(error instanceof Error ? error.message : "Could not link this contact.");
     } finally {
       setLinkActionContactId(null);
+    }
+  };
+
+  const handleSaveDocument = async (document: ClientAccountDocumentLinkRecord) => {
+    if (!token || !account || documentActionType) return;
+    const draft = documentDrafts[document.documentType] || { driveUrl: "", displayName: "", notes: "" };
+    setDocumentActionType(document.documentType);
+    setFilesStatusMessage("");
+    try {
+      const nextDocuments = await api.clientAccounts.updateDocument(token, account.clinicId, document.documentType, {
+        driveUrl: draft.driveUrl,
+        displayName: draft.displayName,
+        notes: draft.notes,
+      });
+      setDocuments(nextDocuments);
+      setDocumentDrafts(Object.fromEntries(nextDocuments.map((item) => [
+        item.documentType,
+        { driveUrl: item.driveUrl || "", displayName: item.displayName || "", notes: item.notes || "" },
+      ])));
+      setFilesStatusMessage(`${document.label} link saved.`);
+    } catch (error) {
+      setFilesStatusMessage(error instanceof Error ? error.message : "Could not save this document link.");
+    } finally {
+      setDocumentActionType(null);
+    }
+  };
+
+  const handleRemoveDocument = async (document: ClientAccountDocumentLinkRecord) => {
+    if (!token || !account || documentActionType) return;
+    setDocumentActionType(document.documentType);
+    setFilesStatusMessage("");
+    try {
+      const nextDocuments = await api.clientAccounts.updateDocument(token, account.clinicId, document.documentType, {
+        driveUrl: null,
+        driveItemId: null,
+        displayName: null,
+        notes: null,
+      });
+      setDocuments(nextDocuments);
+      setDocumentDrafts((current) => ({
+        ...current,
+        [document.documentType]: { driveUrl: "", displayName: "", notes: "" },
+      }));
+      setFilesStatusMessage(`${document.label} link removed.`);
+    } catch (error) {
+      setFilesStatusMessage(error instanceof Error ? error.message : "Could not remove this document link.");
+    } finally {
+      setDocumentActionType(null);
+    }
+  };
+
+  const handleUpdateAccessItem = async (item: ClientAccountAccessItemRecord, status: ClientAccountAccessItemRecord["status"]) => {
+    if (!token || !account || accessActionType) return;
+    setAccessActionType(item.itemType);
+    setFilesStatusMessage("");
+    try {
+      const nextAccessItems = await api.clientAccounts.updateAccessItem(token, account.clinicId, item.itemType, {
+        status,
+        notes: accessDrafts[item.itemType] || "",
+      });
+      setAccessItems(nextAccessItems);
+      setAccessDrafts(Object.fromEntries(nextAccessItems.map((nextItem) => [nextItem.itemType, nextItem.notes || ""])));
+      setFilesStatusMessage(`${item.label} status updated.`);
+    } catch (error) {
+      setFilesStatusMessage(error instanceof Error ? error.message : "Could not update this access item.");
+    } finally {
+      setAccessActionType(null);
     }
   };
 
@@ -569,6 +666,120 @@ export default function ClientAccountDetailPage() {
             <div className="mt-5 flex flex-wrap gap-2">{activeServices.map((service) => <Badge key={service.id} variant="success">{service.name}</Badge>)}{activeServices.length === 0 && <Badge variant="warning">No active services</Badge>}</div>
           </Card>
 
+          <div id="account-files" className="scroll-mt-24">
+          <Card padding="p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-[#151f21]">
+                  <FolderOpen className="h-5 w-5 text-[#315f62]" />
+                  Files/Documents
+                </h2>
+                <p className="mt-1 text-sm text-[#7A746A]">Google Drive links for the folders and documents this client needs.</p>
+              </div>
+              <Badge variant={missingDocumentCount > 0 ? "warning" : "success"}>
+                {missingDocumentCount} missing
+              </Badge>
+            </div>
+            {filesStatusMessage ? <p className="mt-4 rounded-xl border border-[#d8ddda] bg-[#FAF8F5] px-4 py-3 text-sm font-medium text-[#315f62]">{filesStatusMessage}</p> : null}
+            <div className="mt-5 grid gap-3 lg:grid-cols-2">
+              {documents.map((document) => {
+                const draft = documentDrafts[document.documentType] || { driveUrl: "", displayName: "", notes: "" };
+                const isBusy = documentActionType === document.documentType;
+                const badgeVariant = document.status === "linked" ? "success" : document.status === "access_problem" ? "error" : "warning";
+                return (
+                  <div key={document.documentType} className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-semibold text-[#151f21]">{document.label}</h3>
+                        <p className="mt-1 truncate text-sm text-[#7A746A]">{document.displayName || document.driveUrl || "No link saved"}</p>
+                      </div>
+                      <Badge variant={badgeVariant}>{formatLabel(document.status)}</Badge>
+                    </div>
+                    {document.driveUrl ? (
+                      <a href={document.driveUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-[#315f62] hover:underline">
+                        Open link<ExternalLink className="h-4 w-4" />
+                      </a>
+                    ) : null}
+                    {document.accessError ? <p className="mt-2 text-xs font-medium text-[#B42318]">{document.accessError}</p> : null}
+                    <div className="mt-4 grid gap-2">
+                      <input
+                        value={draft.driveUrl}
+                        onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.documentType]: { ...draft, driveUrl: event.target.value } }))}
+                        placeholder="Google Drive folder, file, or ZIP URL/ID"
+                        className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                      />
+                      <input
+                        value={draft.displayName}
+                        onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.documentType]: { ...draft, displayName: event.target.value } }))}
+                        placeholder="Display title"
+                        className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                      />
+                      <textarea
+                        value={draft.notes}
+                        onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.documentType]: { ...draft, notes: event.target.value } }))}
+                        placeholder="Notes"
+                        rows={2}
+                        className="rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                      />
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" onClick={() => void handleSaveDocument(document)} disabled={isBusy || !draft.driveUrl.trim()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#315f62] px-3 text-sm font-semibold text-white hover:bg-[#264f51] disabled:opacity-60">
+                        {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                        Save link
+                      </button>
+                      <button type="button" onClick={() => void handleRemoveDocument(document)} disabled={isBusy || !document.driveUrl} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#ead4cb] bg-white px-3 text-sm font-semibold text-[#9a5524] hover:bg-[#fff4f0] disabled:opacity-60">
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+          </div>
+
+          <div id="account-access-assets" className="scroll-mt-24">
+          <Card padding="p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-[#151f21]">
+                  <ShieldCheck className="h-5 w-5 text-[#315f62]" />
+                  Access/assets
+                </h2>
+                <p className="mt-1 text-sm text-[#7A746A]">Track what is still requested before onboarding can move cleanly.</p>
+              </div>
+              <Badge variant={missingAccessCount > 0 ? "warning" : "success"}>{missingAccessCount} requested</Badge>
+            </div>
+            <div className="mt-5 grid gap-3 lg:grid-cols-2">
+              {accessItems.map((item) => {
+                const isBusy = accessActionType === item.itemType;
+                return (
+                  <div key={item.itemType} className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-semibold text-[#151f21]">{item.label}</h3>
+                      <Badge variant={item.status === "received" ? "success" : item.status === "not_needed" ? "neutral" : "warning"}>{formatLabel(item.status)}</Badge>
+                    </div>
+                    <textarea
+                      value={accessDrafts[item.itemType] || ""}
+                      onChange={(event) => setAccessDrafts((current) => ({ ...current, [item.itemType]: event.target.value }))}
+                      placeholder="Access notes"
+                      rows={2}
+                      className="mt-3 w-full rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                    />
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      {(["requested", "received", "not_needed"] as const).map((status) => (
+                        <button key={status} type="button" onClick={() => void handleUpdateAccessItem(item, status)} disabled={isBusy || item.status === status} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-[#d8ddda] bg-white px-3 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3] disabled:opacity-60">
+                          {formatLabel(status)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+          </div>
+
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -701,6 +912,8 @@ export default function ClientAccountDetailPage() {
               {[
                 [Users, "Contacts and leads", `/app/leads?account=${encodeURIComponent(account.clinicName)}`],
                 [BriefcaseBusiness, "Deals", `/app/crm/pipeline?account=${encodeURIComponent(account.clinicName)}`],
+                [FolderOpen, "Files/Documents", "#account-files"],
+                [ShieldCheck, "Access/assets", "#account-access-assets"],
                 [NotebookText, "Notes", "#account-notes"],
                 [CheckSquare2, "Tasks", "#account-tasks"],
                 [ShieldCheck, "Audits", `/app/admin?clinicId=${account.clinicId}`],

@@ -59,6 +59,43 @@ export interface FormSubmissionRecord {
   archivedAt?: string | null;
 }
 
+export type ContactDocumentType =
+  | "main_client_folder"
+  | "audit"
+  | "proposal"
+  | "contract_admin"
+  | "onboarding"
+  | "website_assets"
+  | "reports"
+  | "strategy_looms"
+  | "ads"
+  | "seo_content"
+  | "landing_pages";
+
+export type ContactDocumentLinkStatus =
+  | "missing"
+  | "linked"
+  | "not_checked"
+  | "access_problem";
+
+export interface ContactDocumentLinkRecord {
+  documentType: ContactDocumentType;
+  label: string;
+  driveItemId: string | null;
+  driveUrl: string | null;
+  displayName: string | null;
+  status: ContactDocumentLinkStatus;
+  notes: string | null;
+  updatedAt: string | null;
+}
+
+export interface ContactDocumentLinkPayload {
+  driveUrl?: string | null;
+  driveItemId?: string | null;
+  displayName?: string | null;
+  notes?: string | null;
+}
+
 export type AppointmentStatus =
   | "scheduled"
   | "completed"

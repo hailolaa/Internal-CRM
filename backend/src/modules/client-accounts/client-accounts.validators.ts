@@ -9,6 +9,32 @@ const paymentStatuses = ["not_started", "pending", "paid", "overdue", "failed", 
 const invoiceStatuses = ["not_required", "not_sent", "sent", "paid", "overdue", "disputed", "void"];
 const healthStatuses = ["healthy", "attention_needed", "at_risk", "critical"];
 const churnRisks = ["low", "medium", "high", "critical"];
+const clientDocumentTypes = [
+  "main_client_folder",
+  "audit",
+  "proposal",
+  "contract_admin",
+  "onboarding",
+  "website_assets",
+  "reports",
+  "strategy_looms",
+  "ads",
+  "seo_content",
+  "landing_pages",
+];
+const clientAccessItemTypes = [
+  "website",
+  "ga4",
+  "gsc",
+  "gtm",
+  "google_ads",
+  "gbp",
+  "meta",
+  "brand_assets",
+  "treatment_pricing_info",
+  "reporting_access",
+];
+const clientAccessItemStatuses = ["requested", "received", "not_needed"];
 const growthScoreCategoryFields = [
   "websiteVisibility",
   "seo",
@@ -153,6 +179,45 @@ export const updateClientAccountDriveFolderValidator = [
     .optional({ nullable: true })
     .custom((value) => value === null || String(value).trim().length <= 255)
     .withMessage("Google Drive title must be 255 characters or fewer"),
+];
+
+export const clientAccountDocumentTypeParamValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  param("documentType").isIn(clientDocumentTypes).withMessage("Document type is not supported"),
+];
+
+export const updateClientAccountDocumentLinkValidator = [
+  ...clientAccountDocumentTypeParamValidator,
+  body("driveUrl")
+    .optional({ nullable: true })
+    .custom((value) => value === null || String(value).trim().length <= 500)
+    .withMessage("Google Drive URL must be 500 characters or fewer"),
+  body("driveItemId")
+    .optional({ nullable: true })
+    .custom((value) => value === null || String(value).trim() === "" || /^[A-Za-z0-9_-]{5,255}$/.test(String(value).trim()))
+    .withMessage("Google Drive item ID is not valid"),
+  body("displayName")
+    .optional({ nullable: true })
+    .custom((value) => value === null || String(value).trim().length <= 255)
+    .withMessage("Document title must be 255 characters or fewer"),
+  body("notes")
+    .optional({ nullable: true })
+    .custom((value) => value === null || String(value).trim().length <= 2000)
+    .withMessage("Document notes must be 2000 characters or fewer"),
+];
+
+export const clientAccountAccessItemTypeParamValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  param("itemType").isIn(clientAccessItemTypes).withMessage("Access item type is not supported"),
+];
+
+export const updateClientAccountAccessItemValidator = [
+  ...clientAccountAccessItemTypeParamValidator,
+  body("status").isIn(clientAccessItemStatuses).withMessage("Access status must be requested, received, or not needed"),
+  body("notes")
+    .optional({ nullable: true })
+    .custom((value) => value === null || String(value).trim().length <= 2000)
+    .withMessage("Access notes must be 2000 characters or fewer"),
 ];
 
 const driveParentId = () =>

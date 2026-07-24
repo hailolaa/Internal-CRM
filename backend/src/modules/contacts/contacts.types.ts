@@ -5,12 +5,43 @@ export type ContactImportMode = "create_only" | "upsert";
 export type ContactSortBy = "name" | "source" | "status" | "value" | "lastContact" | "createdAt" | "updatedAt";
 export type ContactSortOrder = "asc" | "desc";
 export type ContactAuditWorkflowFilter = "due" | "overdue" | "in_progress" | "completed";
+export type ContactDocumentType =
+  | "main_client_folder"
+  | "audit"
+  | "proposal"
+  | "contract_admin"
+  | "onboarding"
+  | "website_assets"
+  | "reports"
+  | "strategy_looms"
+  | "ads"
+  | "seo_content"
+  | "landing_pages";
+export type ContactDocumentLinkStatus = "missing" | "linked" | "not_checked" | "access_problem";
 
 export interface ContactCommunicationPermissions {
   email: boolean;
   sms: boolean;
   whatsapp: boolean;
   phone: boolean;
+}
+
+export interface ContactDocumentLinkResponse {
+  documentType: ContactDocumentType;
+  label: string;
+  driveItemId: string | null;
+  driveUrl: string | null;
+  displayName: string | null;
+  status: ContactDocumentLinkStatus;
+  notes: string | null;
+  updatedAt: string | null;
+}
+
+export interface UpdateContactDocumentLinkDTO {
+  driveUrl?: string | null;
+  driveItemId?: string | null;
+  displayName?: string | null;
+  notes?: string | null;
 }
 
 export interface GrowthScoreCategories {

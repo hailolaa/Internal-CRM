@@ -13,19 +13,25 @@ import type {
   ClientAccountLinkedContactResponse,
   ClientAccountLinkedRecordsResponse,
   ClientAccountLinkedTaskResponse,
+  ClientAccountAccessItemResponse,
+  ClientAccountDocumentLinkResponse,
   ClientAccountProfileResponse,
   ClientAccountServiceListQuery,
   ClientAccountServiceResponse,
   ClientAccountSummaryResponse,
+  ClientAccessItemType,
   CreateClientAccountDTO,
   CreateClientAccountFromContactDTO,
   CreateClientAccountDriveFolderDTO,
+  ClientDocumentType,
   ConvertWonDealToClientDTO,
   GrowthScoreCategories,
   InvoiceStatus,
   PaymentStatus,
   RenameClientAccountDriveFileDTO,
   CreateClientAccountServiceDTO,
+  UpdateClientAccountAccessItemDTO,
+  UpdateClientAccountDocumentLinkDTO,
   UpdateClientAccountDriveFolderDTO,
   UpdateClientAccountServiceDTO,
   UpdateClientAccountProfileDTO,
@@ -64,6 +70,33 @@ const emptyGrowthScoreCategories = {
   revenueLeakage: null as number | null,
   growthOpportunity: null as number | null,
 };
+
+const clientDocumentTypes = [
+  { type: "main_client_folder", label: "Main client folder" },
+  { type: "audit", label: "Audit" },
+  { type: "proposal", label: "Proposal" },
+  { type: "contract_admin", label: "Contract/admin" },
+  { type: "onboarding", label: "Onboarding" },
+  { type: "website_assets", label: "Website/assets" },
+  { type: "reports", label: "Reports" },
+  { type: "strategy_looms", label: "Strategy/looms" },
+  { type: "ads", label: "Ads" },
+  { type: "seo_content", label: "SEO/content" },
+  { type: "landing_pages", label: "Landing pages" },
+] as const satisfies ReadonlyArray<{ type: ClientDocumentType; label: string }>;
+
+const clientAccessItemTypes = [
+  { type: "website", label: "Website access" },
+  { type: "ga4", label: "GA4" },
+  { type: "gsc", label: "Search Console" },
+  { type: "gtm", label: "Tag Manager" },
+  { type: "google_ads", label: "Google Ads" },
+  { type: "gbp", label: "Google Business Profile" },
+  { type: "meta", label: "Meta" },
+  { type: "brand_assets", label: "Brand assets" },
+  { type: "treatment_pricing_info", label: "Treatment/pricing information" },
+  { type: "reporting_access", label: "Reporting access" },
+] as const satisfies ReadonlyArray<{ type: ClientAccessItemType; label: string }>;
 
 function parseServices(value: unknown): string[] {
   if (!value) return [];
@@ -1332,6 +1365,242 @@ export class ClientAccountsService {
     return this.getProfile(clientClinicId);
   }
 
+  async listDocumentLinks(
+    sourceClinicId: string,
+    clientClinicId: string,
+    access: { canManageAllClientAccounts: boolean },
+  ): Promise<ClientAccountDocumentLinkResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const account = await this.getProfile(clientClinicId);
+
+    const rows = account.id
+      ? await this.getClientDocumentRows(sourceClinicId, account.id)
+      : [];
+    const byType = new Map(rows.map((row: any) => [String(row.documentType), row]));
+
+    return clientDocumentTypes.map((definition) => {
+      if (definition.type === "main_client_folder") {
+        return {
+          documentType: definition.type,
+          label: definition.label,
+          driveItemId: account.googleDriveFolderId,
+          driveUrl: account.googleDriveFolderUrl,
+          displayName: account.googleDriveFolderName,
+          status: this.documentStatus(account.googleDriveFolderUrl, account.googleDriveFolderAccessStatus),
+          accessStatus: account.googleDriveFolderAccessStatus,
+          accessError: account.googleDriveFolderError,
+          checkedAt: account.googleDriveFolderCheckedAt,
+          notes: null,
+          updatedAt: account.updatedAt,
+        };
+      }
+
+      const row = byType.get(definition.type) as any | undefined;
+      return {
+        documentType: definition.type,
+        label: definition.label,
+        driveItemId: row?.driveItemId || null,
+        driveUrl: row?.driveUrl || null,
+        displayName: row?.displayName || null,
+        status: this.documentStatus(row?.driveUrl, row?.accessStatus),
+        accessStatus: row?.accessStatus || "not_checked",
+        accessError: row?.accessError || null,
+        checkedAt: toIsoString(row?.checkedAt),
+        notes: row?.notes || null,
+        updatedAt: toIsoString(row?.updatedAt),
+      };
+    });
+  }
+
+  async updateDocumentLink(
+    sourceClinicId: string,
+    clientClinicId: string,
+    userId: string,
+    documentType: ClientDocumentType,
+    data: UpdateClientAccountDocumentLinkDTO,
+    access: { canManageAllClientAccounts: boolean },
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountDocumentLinkResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+
+    if (documentType === "main_client_folder") {
+      await this.updateDriveFolder(
+        sourceClinicId,
+        clientClinicId,
+        userId,
+        {
+          folderId: data.driveItemId || null,
+          folderUrl: data.driveUrl || null,
+          displayName: data.displayName || null,
+        },
+        access,
+        auditContext,
+      );
+      return this.listDocumentLinks(sourceClinicId, clientClinicId, access);
+    }
+
+    const account = await this.getProfile(clientClinicId);
+    const profileId = account.id || await this.ensureProfileRow(clientClinicId, userId);
+    const input = (data.driveItemId || data.driveUrl || "").trim();
+
+    if (!input) {
+      await pool.execute(
+        `DELETE FROM client_account_document_link
+         WHERE clinic_id = ?
+           AND client_account_profile_id = ?
+           AND document_type = ?`,
+        [sourceClinicId, profileId, documentType],
+      );
+
+      await logAuditEvent({
+        clinicId: sourceClinicId,
+        userId,
+        action: "CLIENT_ACCOUNT_DOCUMENT_LINK_REMOVED",
+        entityType: "client_account_document_link",
+        entityId: profileId,
+        changes: { clientAccountProfileId: profileId, documentType },
+        ipAddress: auditContext.ipAddress || null,
+        userAgent: auditContext.userAgent || null,
+      });
+
+      return this.listDocumentLinks(sourceClinicId, clientClinicId, access);
+    }
+
+    const driveItem = extractGoogleDriveItem(input);
+    const accessCheck = await this.checkGoogleDriveItemAccess(sourceClinicId, driveItem.id, driveItem.kindHint);
+    const driveUrl =
+      accessCheck.itemType === "zip" || driveItem.kindHint === "zip"
+        ? `https://drive.google.com/file/d/${driveItem.id}/view`
+        : `https://drive.google.com/drive/folders/${driveItem.id}`;
+    const displayName =
+      data.displayName?.trim() ||
+      accessCheck.name ||
+      clientDocumentTypes.find((item) => item.type === documentType)?.label ||
+      "Google Drive item";
+
+    await pool.execute(
+      `INSERT INTO client_account_document_link
+        (id, clinic_id, client_account_profile_id, document_type, drive_item_id, drive_url,
+         display_name, access_status, access_error, checked_at, notes, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         drive_item_id = VALUES(drive_item_id),
+         drive_url = VALUES(drive_url),
+         display_name = VALUES(display_name),
+         access_status = VALUES(access_status),
+         access_error = VALUES(access_error),
+         checked_at = VALUES(checked_at),
+         notes = VALUES(notes),
+         updated_by = VALUES(updated_by),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        uuidv4(),
+        sourceClinicId,
+        profileId,
+        documentType,
+        driveItem.id,
+        driveUrl,
+        displayName,
+        accessCheck.status,
+        accessCheck.error,
+        accessCheck.checkedAt,
+        data.notes?.trim() || null,
+        userId,
+        userId,
+      ],
+    );
+
+    await logAuditEvent({
+      clinicId: sourceClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_DOCUMENT_LINK_UPDATED",
+      entityType: "client_account_document_link",
+      entityId: profileId,
+      changes: { clientAccountProfileId: profileId, documentType, driveItemId: driveItem.id, driveUrl },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.listDocumentLinks(sourceClinicId, clientClinicId, access);
+  }
+
+  async listAccessItems(
+    sourceClinicId: string,
+    clientClinicId: string,
+    access: { canManageAllClientAccounts: boolean },
+  ): Promise<ClientAccountAccessItemResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const account = await this.getProfile(clientClinicId);
+    const rows = account.id ? await this.getClientAccessRows(sourceClinicId, account.id) : [];
+    const byType = new Map(rows.map((row: any) => [String(row.itemType), row]));
+
+    return clientAccessItemTypes.map((definition) => {
+      const row = byType.get(definition.type) as any | undefined;
+      const status = row?.status || "requested";
+      return {
+        itemType: definition.type,
+        label: definition.label,
+        status,
+        isMissing: status === "requested",
+        notes: row?.notes || null,
+        requestedAt: toIsoString(row?.requestedAt),
+        receivedAt: toIsoString(row?.receivedAt),
+        updatedAt: toIsoString(row?.updatedAt),
+      };
+    });
+  }
+
+  async updateAccessItem(
+    sourceClinicId: string,
+    clientClinicId: string,
+    userId: string,
+    itemType: ClientAccessItemType,
+    data: UpdateClientAccountAccessItemDTO,
+    access: { canManageAllClientAccounts: boolean },
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountAccessItemResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const account = await this.getProfile(clientClinicId);
+    const profileId = account.id || await this.ensureProfileRow(clientClinicId, userId);
+    const status = data.status;
+    const nowExpression = "CURRENT_TIMESTAMP";
+
+    await pool.execute(
+      `INSERT INTO client_account_access_item
+        (id, clinic_id, client_account_profile_id, item_type, status, notes, requested_at, received_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ${status === "requested" ? nowExpression : "NULL"}, ${status === "received" ? nowExpression : "NULL"}, ?)
+       ON DUPLICATE KEY UPDATE
+         status = VALUES(status),
+         notes = VALUES(notes),
+         requested_at = CASE WHEN VALUES(status) = 'requested' THEN COALESCE(requested_at, CURRENT_TIMESTAMP) ELSE requested_at END,
+         received_at = CASE WHEN VALUES(status) = 'received' THEN CURRENT_TIMESTAMP ELSE NULL END,
+         updated_by = VALUES(updated_by),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        uuidv4(),
+        sourceClinicId,
+        profileId,
+        itemType,
+        status,
+        data.notes?.trim() || null,
+        userId,
+      ],
+    );
+
+    await logAuditEvent({
+      clinicId: sourceClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_ACCESS_ITEM_UPDATED",
+      entityType: "client_account_access_item",
+      entityId: profileId,
+      changes: { clientAccountProfileId: profileId, itemType, status, notes: data.notes?.trim() || null },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.listAccessItems(sourceClinicId, clientClinicId, access);
+  }
+
   async listDriveFolders(
     sourceClinicId: string,
     clientClinicId: string,
@@ -2074,6 +2343,51 @@ export class ClientAccountsService {
     const total = Number(denominator || 0);
     if (total <= 0) return 0;
     return Math.round((Number(numerator || 0) / total) * 100);
+  }
+
+  private documentStatus(
+    driveUrl: string | null | undefined,
+    accessStatus: "not_checked" | "accessible" | "inaccessible" | null | undefined,
+  ): "missing" | "linked" | "not_checked" | "access_problem" {
+    if (!driveUrl) return "missing";
+    if (accessStatus === "accessible") return "linked";
+    if (accessStatus === "inaccessible") return "access_problem";
+    return "not_checked";
+  }
+
+  private async getClientDocumentRows(sourceClinicId: string, clientAccountProfileId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT document_type as documentType,
+              drive_item_id as driveItemId,
+              drive_url as driveUrl,
+              display_name as displayName,
+              access_status as accessStatus,
+              access_error as accessError,
+              checked_at as checkedAt,
+              notes,
+              updated_at as updatedAt
+       FROM client_account_document_link
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?`,
+      [sourceClinicId, clientAccountProfileId],
+    );
+    return rows;
+  }
+
+  private async getClientAccessRows(sourceClinicId: string, clientAccountProfileId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT item_type as itemType,
+              status,
+              notes,
+              requested_at as requestedAt,
+              received_at as receivedAt,
+              updated_at as updatedAt
+       FROM client_account_access_item
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?`,
+      [sourceClinicId, clientAccountProfileId],
+    );
+    return rows;
   }
 
   private normalizeMoney(value: number | string | null | undefined) {

@@ -490,6 +490,64 @@ test("client account Drive links require validated Google access and tenant avai
     assert.equal(savedZip.body.data.googleDriveFolderName, "Creative Assets.zip");
     assert.equal(savedZip.body.data.googleDriveFolderUrl, "https://drive.google.com/file/d/valid-zip/view");
 
+    const initialDocuments = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents`,
+      primary.token,
+    );
+    assert.equal(initialDocuments.response.status, 200);
+    assert.equal(initialDocuments.body.data.length, 11);
+    assert.equal(initialDocuments.body.data.find((item: any) => item.documentType === "main_client_folder").status, "linked");
+    assert.equal(initialDocuments.body.data.find((item: any) => item.documentType === "contract_admin").status, "missing");
+
+    setDriveItem("proposal-folder", 200, {
+      id: "proposal-folder",
+      name: "Proposal Docs",
+      mimeType: "application/vnd.google-apps.folder",
+      trashed: false,
+    });
+    const savedProposalDocument = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/proposal`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          driveUrl: "https://drive.google.com/drive/folders/proposal-folder",
+          notes: "Proposal working folder",
+        }),
+      },
+    );
+    assert.equal(savedProposalDocument.response.status, 200);
+    const proposalDocument = savedProposalDocument.body.data.find((item: any) => item.documentType === "proposal");
+    assert.equal(proposalDocument.status, "linked");
+    assert.equal(proposalDocument.displayName, "Proposal Docs");
+    assert.equal(proposalDocument.notes, "Proposal working folder");
+
+    const initialAccessItems = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/access-items`,
+      primary.token,
+    );
+    assert.equal(initialAccessItems.response.status, 200);
+    assert.equal(initialAccessItems.body.data.length, 10);
+    assert.equal(initialAccessItems.body.data.filter((item: any) => item.isMissing).length, 10);
+
+    const updatedAccessItem = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/access-items/ga4`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status: "received", notes: "GA4 admin access confirmed" }),
+      },
+    );
+    assert.equal(updatedAccessItem.response.status, 200);
+    const ga4 = updatedAccessItem.body.data.find((item: any) => item.itemType === "ga4");
+    assert.equal(ga4.status, "received");
+    assert.equal(ga4.isMissing, false);
+    assert.equal(ga4.notes, "GA4 admin access confirmed");
+
     const requestsBeforeCrossWorkspace = driveRequests.length;
     const crossWorkspace = await fetchJson(
       baseUrl,
