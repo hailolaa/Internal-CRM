@@ -29,6 +29,23 @@ export type ClientAccountContractStatus =
   | "cancelled"
   | "expired";
 
+export type ClientAccountPaymentStatus =
+  | "not_started"
+  | "pending"
+  | "paid"
+  | "overdue"
+  | "failed"
+  | "cancelled";
+
+export type ClientAccountInvoiceStatus =
+  | "not_required"
+  | "not_sent"
+  | "sent"
+  | "paid"
+  | "overdue"
+  | "disputed"
+  | "void";
+
 export type ClientAccountServiceType =
   | "ppc"
   | "seo"
@@ -99,6 +116,9 @@ export interface ClientAccountProfileRecord {
   healthStatus: ClientAccountHealthStatus;
   clientStatus: ClientAccountClientStatus;
   currentPackage: string | null;
+  monthlyPrice: number | null;
+  setupFee: number | null;
+  currency: string;
   recommendedNextPackage: string | null;
   upsellOpportunity: string | null;
   growthScore: ClientAccountGrowthScoreSnapshot;
@@ -110,6 +130,11 @@ export interface ClientAccountProfileRecord {
   churnRisk: ClientAccountChurnRisk;
   renewalDate: string | null;
   contractStatus: ClientAccountContractStatus;
+  contractStartDate: string | null;
+  noticeDate: string | null;
+  paymentStatus: ClientAccountPaymentStatus;
+  invoiceStatus: ClientAccountInvoiceStatus;
+  paymentNotes: string | null;
   keyNotes: string | null;
   googleDriveFolderId: string | null;
   googleDriveFolderUrl: string | null;
@@ -222,6 +247,9 @@ export interface ClientAccountProfilePayload {
   healthStatus?: ClientAccountHealthStatus;
   clientStatus?: ClientAccountClientStatus;
   currentPackage?: string | null;
+  monthlyPrice?: number | null;
+  setupFee?: number | null;
+  currency?: string | null;
   recommendedNextPackage?: string | null;
   upsellOpportunity?: string | null;
   growthScore?: Partial<ClientAccountGrowthScoreSnapshot> | null;
@@ -233,6 +261,11 @@ export interface ClientAccountProfilePayload {
   churnRisk?: ClientAccountChurnRisk;
   renewalDate?: string | null;
   contractStatus?: ClientAccountContractStatus;
+  contractStartDate?: string | null;
+  noticeDate?: string | null;
+  paymentStatus?: ClientAccountPaymentStatus;
+  invoiceStatus?: ClientAccountInvoiceStatus;
+  paymentNotes?: string | null;
   keyNotes?: string | null;
 }
 

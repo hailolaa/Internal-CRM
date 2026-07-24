@@ -37,6 +37,14 @@ const emptyAccountForm: ClientAccountCreatePayload = {
   email: "",
   phone: "",
   website: "",
+  monthlyPrice: null,
+  setupFee: null,
+  currency: "GBP",
+  contractStartDate: null,
+  noticeDate: null,
+  paymentStatus: "not_started",
+  invoiceStatus: "not_sent",
+  paymentNotes: "",
   clientStatus: "onboarding",
   onboardingStatus: "in_progress",
   healthStatus: "attention_needed",
@@ -64,6 +72,15 @@ function validateAccount(form: ClientAccountCreatePayload) {
 
 function personName(person: TeamMember) {
   return [person.firstName, person.lastName].filter(Boolean).join(" ") || person.email;
+}
+
+function formatMoney(value: number | null | undefined, currency = "GBP") {
+  if (value === null || value === undefined) return "Not set";
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: currency || "GBP",
+    maximumFractionDigits: 0,
+  }).format(Number(value));
 }
 
 export default function NewClientAccountPage() {
@@ -134,6 +151,12 @@ export default function NewClientAccountPage() {
         phone: form.phone?.trim() || null,
         website: form.website?.trim() || null,
         currentPackage: form.currentPackage || null,
+        monthlyPrice: form.monthlyPrice ?? null,
+        setupFee: form.setupFee ?? null,
+        currency: form.currency?.trim().toUpperCase() || "GBP",
+        contractStartDate: form.contractStartDate || null,
+        noticeDate: form.noticeDate || null,
+        paymentNotes: form.paymentNotes || null,
         recommendedNextPackage: form.recommendedNextPackage || null,
         upsellOpportunity: form.upsellOpportunity || null,
         keyNotes: form.keyNotes || null,
@@ -292,6 +315,48 @@ export default function NewClientAccountPage() {
                 )}
               </label>
               <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Monthly price / MRR</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.monthlyPrice ?? ""}
+                  onChange={(event) => setForm((current) => ({ ...current, monthlyPrice: event.target.value === "" ? null : Number(event.target.value) }))}
+                  className={fieldClass}
+                  placeholder="1995.00"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Setup fee</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.setupFee ?? ""}
+                  onChange={(event) => setForm((current) => ({ ...current, setupFee: event.target.value === "" ? null : Number(event.target.value) }))}
+                  className={fieldClass}
+                  placeholder="0.00"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Currency</span>
+                <input
+                  value={form.currency || "GBP"}
+                  maxLength={3}
+                  onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase() }))}
+                  className={fieldClass}
+                  placeholder="GBP"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Contract start date</span>
+                <input type="date" value={form.contractStartDate || ""} onChange={(event) => setForm((current) => ({ ...current, contractStartDate: event.target.value || null }))} className={fieldClass} />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Notice date</span>
+                <input type="date" value={form.noticeDate || ""} onChange={(event) => setForm((current) => ({ ...current, noticeDate: event.target.value || null }))} className={fieldClass} />
+              </label>
+              <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Recommended next package</span>
                 <select
                   value={form.recommendedNextPackage || ""}
@@ -311,6 +376,39 @@ export default function NewClientAccountPage() {
                   onChange={(event) => setForm((current) => ({ ...current, upsellOpportunity: event.target.value }))}
                   className={fieldClass}
                   placeholder="e.g. Move to Growth Engine after tracking QA"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Payment status</span>
+                <select value={form.paymentStatus || "not_started"} onChange={(event) => setForm((current) => ({ ...current, paymentStatus: event.target.value as ClientAccountCreatePayload["paymentStatus"] }))} className={fieldClass}>
+                  <option value="not_started">Not started</option>
+                  <option value="pending">Pending</option>
+                  <option value="paid">Paid</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="failed">Failed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Invoice status</span>
+                <select value={form.invoiceStatus || "not_sent"} onChange={(event) => setForm((current) => ({ ...current, invoiceStatus: event.target.value as ClientAccountCreatePayload["invoiceStatus"] }))} className={fieldClass}>
+                  <option value="not_required">Not required</option>
+                  <option value="not_sent">Not sent</option>
+                  <option value="sent">Sent</option>
+                  <option value="paid">Paid</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="disputed">Disputed</option>
+                  <option value="void">Void</option>
+                </select>
+              </label>
+              <label className="space-y-1.5 md:col-span-2">
+                <span className="text-sm font-semibold text-[#344446]">Payment notes</span>
+                <textarea
+                  value={form.paymentNotes || ""}
+                  onChange={(event) => setForm((current) => ({ ...current, paymentNotes: event.target.value }))}
+                  rows={3}
+                  className={fieldClass}
+                  placeholder="Manual invoice/payment context for finance..."
                 />
               </label>
             </div>
@@ -375,8 +473,8 @@ export default function NewClientAccountPage() {
                   <p className="mt-1 text-sm font-semibold text-[#344446]">{selectedManager ? personName(selectedManager) : "Unassigned"}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-[#8b9694]">Services</p>
-                  <p className="mt-1 text-sm font-semibold text-[#344446]">{form.activeServices?.length || "None"}</p>
+                  <p className="text-xs text-[#8b9694]">MRR</p>
+                  <p className="mt-1 text-sm font-semibold text-[#344446]">{formatMoney(form.monthlyPrice, form.currency || "GBP")}</p>
                 </div>
               </div>
               <button

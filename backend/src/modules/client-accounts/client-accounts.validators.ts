@@ -5,6 +5,8 @@ const serviceStatuses = ["onboarding", "active", "paused", "ended", "archived"];
 const editableServiceStatuses = ["onboarding", "active", "paused", "ended"];
 const contractStatuses = ["active", "trial", "pending", "paused", "cancelled", "expired"];
 const clientStatuses = ["prospect", "onboarding", "active", "paused", "at_risk", "churned", "inactive"];
+const paymentStatuses = ["not_started", "pending", "paid", "overdue", "failed", "cancelled"];
+const invoiceStatuses = ["not_required", "not_sent", "sent", "paid", "overdue", "disputed", "void"];
 const healthStatuses = ["healthy", "attention_needed", "at_risk", "critical"];
 const churnRisks = ["low", "medium", "high", "critical"];
 const growthScoreCategoryFields = [
@@ -41,6 +43,17 @@ const growthScoreValidators = [
   body("growthScoreUpdatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Growth Score timestamp must be a valid date"),
 ];
 
+const accountCommercialValidators = [
+  body("monthlyPrice").optional({ nullable: true }).isFloat({ min: 0, max: 99999999.99 }).withMessage("Monthly price/MRR must be a positive amount").toFloat(),
+  body("setupFee").optional({ nullable: true }).isFloat({ min: 0, max: 99999999.99 }).withMessage("Setup fee must be a positive amount").toFloat(),
+  body("currency").optional({ nullable: true }).trim().isLength({ min: 3, max: 3 }).withMessage("Currency must be a 3-letter code").toUpperCase(),
+  body("contractStartDate").optional({ nullable: true }).isISO8601().withMessage("Contract start date must be a valid date"),
+  body("noticeDate").optional({ nullable: true }).isISO8601().withMessage("Notice date must be a valid date"),
+  body("paymentStatus").optional().isIn(paymentStatuses),
+  body("invoiceStatus").optional().isIn(invoiceStatuses),
+  body("paymentNotes").optional({ nullable: true }).trim().isLength({ max: 5000 }).withMessage("Payment notes must be 5000 characters or fewer"),
+];
+
 function userIdentifier(field: "accountManagerId" | "ownerId", label: string) {
   return body(field)
     .optional({ nullable: true })
@@ -75,6 +88,7 @@ export const createClientAccountValidator = [
   body("healthStatus").optional().isIn(["healthy", "attention_needed", "at_risk", "critical"]),
   body("clientStatus").optional().isIn(clientStatuses),
   body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
+  ...accountCommercialValidators,
   body("recommendedNextPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Recommended next package must be 150 characters or fewer"),
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
   ...growthScoreValidators,
@@ -94,6 +108,7 @@ export const createClientAccountFromContactValidator = [
   body("healthStatus").optional().isIn(["healthy", "attention_needed", "at_risk", "critical"]),
   body("clientStatus").optional().isIn(clientStatuses),
   body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
+  ...accountCommercialValidators,
   body("recommendedNextPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Recommended next package must be 150 characters or fewer"),
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
   ...growthScoreValidators,
@@ -113,6 +128,7 @@ export const convertWonDealToClientValidator = [
   body("healthStatus").optional().isIn(["healthy", "attention_needed", "at_risk", "critical"]),
   body("clientStatus").optional().isIn(clientStatuses),
   body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
+  ...accountCommercialValidators,
   body("recommendedNextPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Recommended next package must be 150 characters or fewer"),
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
   ...growthScoreValidators,
@@ -203,6 +219,7 @@ export const updateClientAccountProfileValidator = [
   body("healthStatus").optional().isIn(["healthy", "attention_needed", "at_risk", "critical"]),
   body("clientStatus").optional().isIn(clientStatuses),
   body("currentPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Current package must be 150 characters or fewer"),
+  ...accountCommercialValidators,
   body("recommendedNextPackage").optional({ nullable: true }).trim().isLength({ max: 150 }).withMessage("Recommended next package must be 150 characters or fewer"),
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
   ...growthScoreValidators,

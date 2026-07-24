@@ -22,6 +22,8 @@ import type {
   CreateClientAccountDriveFolderDTO,
   ConvertWonDealToClientDTO,
   GrowthScoreCategories,
+  InvoiceStatus,
+  PaymentStatus,
   RenameClientAccountDriveFileDTO,
   CreateClientAccountServiceDTO,
   UpdateClientAccountDriveFolderDTO,
@@ -35,10 +37,18 @@ const DEFAULT_PROFILE = {
   healthStatus: "attention_needed",
   clientStatus: "prospect",
   currentPackage: null as string | null,
+  monthlyPrice: null as number | null,
+  setupFee: null as number | null,
+  currency: "GBP",
   recommendedNextPackage: null as string | null,
   upsellOpportunity: null as string | null,
   churnRisk: "low",
   contractStatus: "pending",
+  contractStartDate: null as string | null,
+  noticeDate: null as string | null,
+  paymentStatus: "not_started",
+  invoiceStatus: "not_sent",
+  paymentNotes: null as string | null,
 };
 
 const emptyGrowthScoreCategories = {
@@ -172,6 +182,16 @@ function toDateString(value: unknown) {
   return String(value).slice(0, 10);
 }
 
+function calculateNoticeDate(value: unknown, months: unknown, noticeDays: unknown) {
+  const start = toDateString(value);
+  if (!start) return null;
+  const date = new Date(`${start}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCMonth(date.getUTCMonth() + Number(months || 0));
+  date.setUTCDate(date.getUTCDate() - Number(noticeDays || 0));
+  return date.toISOString().slice(0, 10);
+}
+
 function toIsoString(value: unknown) {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString();
@@ -277,9 +297,9 @@ export class ClientAccountsService {
     if (search) {
       const wildcard = `%${search}%`;
       conditions.push(
-        "(c.name LIKE ? OR c.email LIKE ? OR cap.current_package LIKE ? OR u.email LIKE ? OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)",
+        "(c.name LIKE ? OR c.email LIKE ? OR cap.current_package LIKE ? OR cap.payment_status LIKE ? OR cap.invoice_status LIKE ? OR u.email LIKE ? OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)",
       );
-      values.push(wildcard, wildcard, wildcard, wildcard, wildcard);
+      values.push(wildcard, wildcard, wildcard, wildcard, wildcard, wildcard, wildcard);
     }
 
     const [rows]: any = await pool.execute(
@@ -302,6 +322,9 @@ export class ClientAccountsService {
           cap.health_status as healthStatus,
           cap.client_status as clientStatus,
           cap.current_package as currentPackage,
+          cap.monthly_price as monthlyPrice,
+          cap.setup_fee as setupFee,
+          cap.currency,
           cap.recommended_next_package as recommendedNextPackage,
           cap.upsell_opportunity as upsellOpportunity,
           cap.growth_score_overall as growthScoreOverall,
@@ -323,6 +346,11 @@ export class ClientAccountsService {
           cap.churn_risk as churnRisk,
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
+          cap.contract_start_date as contractStartDate,
+          cap.notice_date as noticeDate,
+          cap.payment_status as paymentStatus,
+          cap.invoice_status as invoiceStatus,
+          cap.payment_notes as paymentNotes,
           cap.key_notes as keyNotes,
           cap.google_drive_folder_id as googleDriveFolderId,
           cap.google_drive_folder_url as googleDriveFolderUrl,
@@ -468,14 +496,16 @@ export class ClientAccountsService {
       await connection.execute(
         `INSERT INTO client_account_profile
           (id, clinic_id, account_manager_id, active_services, onboarding_status, health_status,
-           client_status, current_package, recommended_next_package, upsell_opportunity,
+           client_status, current_package, monthly_price, setup_fee, currency,
+           recommended_next_package, upsell_opportunity,
            growth_score_overall, growth_score_categories, growth_score_website_visibility, growth_score_seo, growth_score_gbp,
            growth_score_tracking, growth_score_conversion, growth_score_lead_handling, growth_score_response_speed,
            growth_score_enquiry_visibility, growth_score_treatment_performance, growth_score_revenue_leakage,
            growth_score_growth_opportunity, growth_score_recommended_package, growth_score_gap_summary, growth_score_updated_at,
-           churn_risk, renewal_date, contract_status, key_notes,
+           churn_risk, renewal_date, contract_status, contract_start_date, notice_date,
+           payment_status, invoice_status, payment_notes, key_notes,
            created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           profileId,
           clinicId,
@@ -485,6 +515,9 @@ export class ClientAccountsService {
           payload.healthStatus,
           payload.clientStatus,
           payload.currentPackage,
+          payload.monthlyPrice,
+          payload.setupFee,
+          payload.currency,
           payload.recommendedNextPackage,
           payload.upsellOpportunity,
           payload.growthScoreOverall,
@@ -506,6 +539,11 @@ export class ClientAccountsService {
           payload.churnRisk,
           payload.renewalDate,
           payload.contractStatus,
+          payload.contractStartDate,
+          payload.noticeDate,
+          payload.paymentStatus,
+          payload.invoiceStatus,
+          payload.paymentNotes,
           payload.keyNotes,
           userId,
           userId,
@@ -688,7 +726,61 @@ export class ClientAccountsService {
               c.growth_score_growth_opportunity as growthScoreGrowthOpportunity,
               c.growth_score_recommended_package as growthScoreRecommendedPackage,
               c.growth_score_gap_summary as growthScoreGapSummary,
-              c.growth_score_updated_at as growthScoreUpdatedAt
+              c.growth_score_updated_at as growthScoreUpdatedAt,
+              (
+                SELECT par.monthly_fee_cents
+                FROM proposal_acceptance_record par
+                WHERE par.clinic_id = d.clinic_id
+                  AND par.deleted_at IS NULL
+                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                ORDER BY par.accepted_at DESC
+                LIMIT 1
+              ) as acceptedMonthlyFeeCents,
+              (
+                SELECT par.setup_fee_cents
+                FROM proposal_acceptance_record par
+                WHERE par.clinic_id = d.clinic_id
+                  AND par.deleted_at IS NULL
+                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                ORDER BY par.accepted_at DESC
+                LIMIT 1
+              ) as acceptedSetupFeeCents,
+              (
+                SELECT par.currency
+                FROM proposal_acceptance_record par
+                WHERE par.clinic_id = d.clinic_id
+                  AND par.deleted_at IS NULL
+                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                ORDER BY par.accepted_at DESC
+                LIMIT 1
+              ) as acceptedCurrency,
+              (
+                SELECT par.start_date
+                FROM proposal_acceptance_record par
+                WHERE par.clinic_id = d.clinic_id
+                  AND par.deleted_at IS NULL
+                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                ORDER BY par.accepted_at DESC
+                LIMIT 1
+              ) as acceptedStartDate,
+              (
+                SELECT par.minimum_term_months
+                FROM proposal_acceptance_record par
+                WHERE par.clinic_id = d.clinic_id
+                  AND par.deleted_at IS NULL
+                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                ORDER BY par.accepted_at DESC
+                LIMIT 1
+              ) as acceptedMinimumTermMonths,
+              (
+                SELECT par.notice_period_days
+                FROM proposal_acceptance_record par
+                WHERE par.clinic_id = d.clinic_id
+                  AND par.deleted_at IS NULL
+                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                ORDER BY par.accepted_at DESC
+                LIMIT 1
+              ) as acceptedNoticePeriodDays
        FROM deal d
        JOIN contact c
          ON c.id = d.contact_id
@@ -738,6 +830,16 @@ export class ClientAccountsService {
     const parsedGrowthScoreCategories = parseJsonObject(deal.growthScoreCategories) as
       | Partial<GrowthScoreCategories>
       | null;
+    const acceptedMonthlyPrice = deal.acceptedMonthlyFeeCents === null || deal.acceptedMonthlyFeeCents === undefined
+      ? null
+      : Number(deal.acceptedMonthlyFeeCents) / 100;
+    const acceptedSetupFee = deal.acceptedSetupFeeCents === null || deal.acceptedSetupFeeCents === undefined
+      ? null
+      : Number(deal.acceptedSetupFeeCents) / 100;
+    const contractStartDate = data.contractStartDate || toDateString(deal.acceptedStartDate);
+    const noticeDate =
+      data.noticeDate ||
+      calculateNoticeDate(deal.acceptedStartDate, deal.acceptedMinimumTermMonths, deal.acceptedNoticePeriodDays);
     const accountPayload: CreateClientAccountDTO = {
       name: data.accountName || deal.accountName || contactName || deal.email || "New Client Account",
       email: deal.email || null,
@@ -754,6 +856,14 @@ export class ClientAccountsService {
       healthStatus: data.healthStatus || "attention_needed",
       contractStatus: data.contractStatus || "pending",
       currentPackage,
+      monthlyPrice: data.monthlyPrice ?? acceptedMonthlyPrice,
+      setupFee: data.setupFee ?? acceptedSetupFee,
+      currency: data.currency || deal.acceptedCurrency || DEFAULT_PROFILE.currency,
+      contractStartDate,
+      noticeDate,
+      paymentStatus: data.paymentStatus || (acceptedMonthlyPrice !== null ? "pending" : DEFAULT_PROFILE.paymentStatus) as PaymentStatus,
+      invoiceStatus: data.invoiceStatus || (acceptedMonthlyPrice !== null ? "not_sent" : DEFAULT_PROFILE.invoiceStatus) as InvoiceStatus,
+      paymentNotes: data.paymentNotes || null,
       recommendedNextPackage: data.recommendedNextPackage || deal.recommendedPackage || deal.growthScoreRecommendedPackage || null,
       growthScoreOverall: data.growthScoreOverall ?? deal.growthScoreOverall ?? null,
       growthScoreCategories: data.growthScoreCategories || parsedGrowthScoreCategories,
@@ -906,6 +1016,9 @@ export class ClientAccountsService {
           cap.health_status as healthStatus,
           cap.client_status as clientStatus,
           cap.current_package as currentPackage,
+          cap.monthly_price as monthlyPrice,
+          cap.setup_fee as setupFee,
+          cap.currency,
           cap.recommended_next_package as recommendedNextPackage,
           cap.upsell_opportunity as upsellOpportunity,
           cap.growth_score_overall as growthScoreOverall,
@@ -927,6 +1040,11 @@ export class ClientAccountsService {
           cap.churn_risk as churnRisk,
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
+          cap.contract_start_date as contractStartDate,
+          cap.notice_date as noticeDate,
+          cap.payment_status as paymentStatus,
+          cap.invoice_status as invoiceStatus,
+          cap.payment_notes as paymentNotes,
           cap.key_notes as keyNotes,
           cap.google_drive_folder_id as googleDriveFolderId,
           cap.google_drive_folder_url as googleDriveFolderUrl,
@@ -977,12 +1095,20 @@ export class ClientAccountsService {
       healthStatus: row.healthStatus || DEFAULT_PROFILE.healthStatus,
       clientStatus: row.clientStatus || DEFAULT_PROFILE.clientStatus,
       currentPackage: row.currentPackage || DEFAULT_PROFILE.currentPackage,
+      monthlyPrice: numberOrNull(row.monthlyPrice),
+      setupFee: numberOrNull(row.setupFee),
+      currency: row.currency || DEFAULT_PROFILE.currency,
       recommendedNextPackage: row.recommendedNextPackage || DEFAULT_PROFILE.recommendedNextPackage,
       upsellOpportunity: row.upsellOpportunity || DEFAULT_PROFILE.upsellOpportunity,
       ...growthScore,
       churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
+      contractStartDate: toDateString(row.contractStartDate),
+      noticeDate: toDateString(row.noticeDate),
+      paymentStatus: row.paymentStatus || DEFAULT_PROFILE.paymentStatus,
+      invoiceStatus: row.invoiceStatus || DEFAULT_PROFILE.invoiceStatus,
+      paymentNotes: row.paymentNotes || null,
       keyNotes: row.keyNotes || null,
       googleDriveFolderId: row.googleDriveFolderId || null,
       googleDriveFolderUrl: row.googleDriveFolderUrl || null,
@@ -1406,6 +1532,18 @@ export class ClientAccountsService {
       addChange("currentPackage", "current_package", before.currentPackage, data.currentPackage || null);
     }
 
+    if (ownKey(data, "monthlyPrice")) {
+      addChange("monthlyPrice", "monthly_price", before.monthlyPrice, this.normalizeMoney(data.monthlyPrice));
+    }
+
+    if (ownKey(data, "setupFee")) {
+      addChange("setupFee", "setup_fee", before.setupFee, this.normalizeMoney(data.setupFee));
+    }
+
+    if (ownKey(data, "currency")) {
+      addChange("currency", "currency", before.currency, data.currency?.trim().toUpperCase() || DEFAULT_PROFILE.currency);
+    }
+
     if (ownKey(data, "recommendedNextPackage")) {
       addChange("recommendedNextPackage", "recommended_next_package", before.recommendedNextPackage, data.recommendedNextPackage || null);
     }
@@ -1455,6 +1593,26 @@ export class ClientAccountsService {
 
     if (ownKey(data, "contractStatus")) {
       addChange("contractStatus", "contract_status", before.contractStatus, data.contractStatus);
+    }
+
+    if (ownKey(data, "contractStartDate")) {
+      addChange("contractStartDate", "contract_start_date", before.contractStartDate, toDateString(data.contractStartDate));
+    }
+
+    if (ownKey(data, "noticeDate")) {
+      addChange("noticeDate", "notice_date", before.noticeDate, toDateString(data.noticeDate));
+    }
+
+    if (ownKey(data, "paymentStatus")) {
+      addChange("paymentStatus", "payment_status", before.paymentStatus, data.paymentStatus);
+    }
+
+    if (ownKey(data, "invoiceStatus")) {
+      addChange("invoiceStatus", "invoice_status", before.invoiceStatus, data.invoiceStatus);
+    }
+
+    if (ownKey(data, "paymentNotes")) {
+      addChange("paymentNotes", "payment_notes", before.paymentNotes, data.paymentNotes?.trim() || null);
     }
 
     if (ownKey(data, "keyNotes")) {
@@ -1870,12 +2028,20 @@ export class ClientAccountsService {
       healthStatus: row.healthStatus || DEFAULT_PROFILE.healthStatus,
       clientStatus: row.clientStatus || DEFAULT_PROFILE.clientStatus,
       currentPackage: row.currentPackage || DEFAULT_PROFILE.currentPackage,
+      monthlyPrice: numberOrNull(row.monthlyPrice),
+      setupFee: numberOrNull(row.setupFee),
+      currency: row.currency || DEFAULT_PROFILE.currency,
       recommendedNextPackage: row.recommendedNextPackage || DEFAULT_PROFILE.recommendedNextPackage,
       upsellOpportunity: row.upsellOpportunity || DEFAULT_PROFILE.upsellOpportunity,
       ...growthScore,
       churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
+      contractStartDate: toDateString(row.contractStartDate),
+      noticeDate: toDateString(row.noticeDate),
+      paymentStatus: row.paymentStatus || DEFAULT_PROFILE.paymentStatus,
+      invoiceStatus: row.invoiceStatus || DEFAULT_PROFILE.invoiceStatus,
+      paymentNotes: row.paymentNotes || null,
       keyNotes: row.keyNotes || null,
       googleDriveFolderId: row.googleDriveFolderId || null,
       googleDriveFolderUrl: row.googleDriveFolderUrl || null,
@@ -1933,6 +2099,9 @@ export class ClientAccountsService {
       healthStatus: data.healthStatus || DEFAULT_PROFILE.healthStatus,
       clientStatus: data.clientStatus || "onboarding",
       currentPackage: data.currentPackage?.trim() || null,
+      monthlyPrice: this.normalizeMoney(data.monthlyPrice),
+      setupFee: this.normalizeMoney(data.setupFee),
+      currency: data.currency?.trim().toUpperCase() || DEFAULT_PROFILE.currency,
       recommendedNextPackage: data.recommendedNextPackage?.trim() || null,
       upsellOpportunity: data.upsellOpportunity?.trim() || null,
       growthScoreOverall: growthScore.overall,
@@ -1943,6 +2112,11 @@ export class ClientAccountsService {
       churnRisk: data.churnRisk || DEFAULT_PROFILE.churnRisk,
       renewalDate: toDateString(data.renewalDate),
       contractStatus: data.contractStatus || DEFAULT_PROFILE.contractStatus,
+      contractStartDate: toDateString(data.contractStartDate),
+      noticeDate: toDateString(data.noticeDate),
+      paymentStatus: data.paymentStatus || DEFAULT_PROFILE.paymentStatus,
+      invoiceStatus: data.invoiceStatus || DEFAULT_PROFILE.invoiceStatus,
+      paymentNotes: data.paymentNotes?.trim() || null,
       keyNotes: data.keyNotes?.trim() || null,
     };
   }

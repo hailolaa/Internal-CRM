@@ -2,6 +2,8 @@ export type OnboardingStatus = "not_started" | "in_progress" | "completed" | "pa
 export type HealthStatus = "healthy" | "attention_needed" | "at_risk" | "critical";
 export type ChurnRisk = "low" | "medium" | "high" | "critical";
 export type ContractStatus = "active" | "trial" | "pending" | "paused" | "cancelled" | "expired";
+export type PaymentStatus = "not_started" | "pending" | "paid" | "overdue" | "failed" | "cancelled";
+export type InvoiceStatus = "not_required" | "not_sent" | "sent" | "paid" | "overdue" | "disputed" | "void";
 export type ClientStatus = "prospect" | "onboarding" | "active" | "paused" | "at_risk" | "churned" | "inactive";
 export type ClientServiceType = "ppc" | "seo" | "gbp" | "website" | "landing_pages" | "cro" | "strategy" | "other";
 export type ClientServiceStatus = "onboarding" | "active" | "paused" | "ended" | "archived";
@@ -36,6 +38,9 @@ export interface UpdateClientAccountProfileDTO {
   healthStatus?: HealthStatus;
   clientStatus?: ClientStatus;
   currentPackage?: string | null;
+  monthlyPrice?: number | string | null;
+  setupFee?: number | string | null;
+  currency?: string | null;
   recommendedNextPackage?: string | null;
   upsellOpportunity?: string | null;
   growthScore?: Partial<GrowthScoreSnapshot> | null;
@@ -47,6 +52,11 @@ export interface UpdateClientAccountProfileDTO {
   churnRisk?: ChurnRisk;
   renewalDate?: string | null;
   contractStatus?: ContractStatus;
+  contractStartDate?: string | null;
+  noticeDate?: string | null;
+  paymentStatus?: PaymentStatus;
+  invoiceStatus?: InvoiceStatus;
+  paymentNotes?: string | null;
   keyNotes?: string | null;
 }
 
@@ -112,6 +122,9 @@ export interface ClientAccountProfileResponse {
   healthStatus: HealthStatus;
   clientStatus: ClientStatus;
   currentPackage: string | null;
+  monthlyPrice: number | null;
+  setupFee: number | null;
+  currency: string;
   recommendedNextPackage: string | null;
   upsellOpportunity: string | null;
   growthScore: GrowthScoreSnapshot;
@@ -123,6 +136,11 @@ export interface ClientAccountProfileResponse {
   churnRisk: ChurnRisk;
   renewalDate: string | null;
   contractStatus: ContractStatus;
+  contractStartDate: string | null;
+  noticeDate: string | null;
+  paymentStatus: PaymentStatus;
+  invoiceStatus: InvoiceStatus;
+  paymentNotes: string | null;
   keyNotes: string | null;
   googleDriveFolderId: string | null;
   googleDriveFolderUrl: string | null;

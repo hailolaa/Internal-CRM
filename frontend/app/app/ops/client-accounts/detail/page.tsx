@@ -78,6 +78,33 @@ function taskDueLabel(task: ClientAccountLinkedTaskRecord) {
   }).format(new Date(task.dueDate));
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return "Not set";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not set";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatMoney(value: number | null | undefined, currency = "GBP") {
+  if (value === null || value === undefined) return "Not set";
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: currency || "GBP",
+    maximumFractionDigits: 0,
+  }).format(Number(value));
+}
+
+function paymentBadge(status: string) {
+  if (status === "paid") return <Badge variant="success">Paid</Badge>;
+  if (status === "overdue" || status === "failed") return <Badge variant="error">{formatLabel(status)}</Badge>;
+  if (status === "pending" || status === "not_started") return <Badge variant="info">{formatLabel(status)}</Badge>;
+  return <Badge variant="neutral">{formatLabel(status)}</Badge>;
+}
+
 const growthScoreCategoryLabels = [
   ["websiteVisibility", "Website visibility"],
   ["seo", "SEO"],
@@ -284,9 +311,14 @@ export default function ClientAccountDetailPage() {
                 [MapPin, "Location", location(account)],
                 [BriefcaseBusiness, "Account type", formatLabel(account.clientStatus)],
                 [ShieldCheck, "Current package", account.currentPackage || "Not set"],
+                [FileCheck2, "Monthly price / MRR", formatMoney(account.monthlyPrice, account.currency)],
+                [FileCheck2, "Setup fee", formatMoney(account.setupFee, account.currency)],
                 [ShieldCheck, "Recommended next", account.recommendedNextPackage || "Not set"],
                 [BriefcaseBusiness, "Upsell opportunity", account.upsellOpportunity || "Not set"],
                 [Users, "Owner", personName(account)],
+                [FileCheck2, "Contract start", formatDate(account.contractStartDate)],
+                [FileCheck2, "Renewal date", formatDate(account.renewalDate)],
+                [FileCheck2, "Notice date", formatDate(account.noticeDate)],
                 [Phone, "Phone", account.phone || "Not provided"],
               ].map(([Icon, label, value]) => {
                 const DetailIcon = Icon as typeof BriefcaseBusiness;
@@ -314,6 +346,44 @@ export default function ClientAccountDetailPage() {
                 )}
               </div>
             </div>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-[#151f21]">Commercial and payment status</h2>
+                <p className="mt-1 text-sm text-[#7A746A]">Manual MVP fields for finance visibility until billing integrations are added.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {paymentBadge(account.paymentStatus)}
+                <Badge variant={account.invoiceStatus === "paid" ? "success" : account.invoiceStatus === "overdue" ? "error" : "info"}>
+                  Invoice: {formatLabel(account.invoiceStatus)}
+                </Badge>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                <p className="text-xs font-medium text-[#6F6A66]">Current package</p>
+                <p className="mt-2 text-sm font-semibold text-[#151f21]">{account.currentPackage || "Not set"}</p>
+              </div>
+              <div className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                <p className="text-xs font-medium text-[#6F6A66]">MRR</p>
+                <p className="mt-2 text-sm font-semibold text-[#151f21]">{formatMoney(account.monthlyPrice, account.currency)}</p>
+              </div>
+              <div className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                <p className="text-xs font-medium text-[#6F6A66]">Setup fee</p>
+                <p className="mt-2 text-sm font-semibold text-[#151f21]">{formatMoney(account.setupFee, account.currency)}</p>
+              </div>
+              <div className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                <p className="text-xs font-medium text-[#6F6A66]">Contract status</p>
+                <p className="mt-2 text-sm font-semibold text-[#151f21]">{formatLabel(account.contractStatus)}</p>
+              </div>
+            </div>
+            {account.paymentNotes ? (
+              <p className="mt-4 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 text-sm leading-relaxed text-[#7A746A]">
+                {account.paymentNotes}
+              </p>
+            ) : null}
           </Card>
 
           <Card padding="p-5 sm:p-6">

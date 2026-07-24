@@ -791,6 +791,13 @@ test("won opportunities convert into client accounts with preserved history and 
     assert.equal(converted.body.data.clientStatus, "onboarding");
     assert.equal(converted.body.data.onboardingStatus, "in_progress");
     assert.equal(converted.body.data.currentPackage, "Growth Engine");
+    assert.equal(converted.body.data.monthlyPrice, 1995);
+    assert.equal(converted.body.data.setupFee, 0);
+    assert.equal(converted.body.data.currency, "GBP");
+    assert.equal(converted.body.data.contractStartDate, "2026-08-01");
+    assert.equal(converted.body.data.noticeDate, "2027-01-02");
+    assert.equal(converted.body.data.paymentStatus, "pending");
+    assert.equal(converted.body.data.invoiceStatus, "not_sent");
     assert.equal(converted.body.data.recommendedNextPackage, "Market Leader");
 
     const clientAccountProfileId = converted.body.data.id;
@@ -939,6 +946,14 @@ test("client account profile API is permission protected, updateable, audited, a
       activeServices: ["ppc", "seo", "strategy"],
       onboardingStatus: "in_progress",
       healthStatus: "healthy",
+      monthlyPrice: "3495.00",
+      setupFee: "500.00",
+      currency: "GBP",
+      contractStartDate: "2026-07-01",
+      noticeDate: "2026-12-01",
+      paymentStatus: "pending",
+      invoiceStatus: "sent",
+      paymentNotes: "Manual invoice raised in QuickBooks sandbox notes.",
       churnRisk: "low",
       renewalDate: "2026-12-31",
       contractStatus: "active",
@@ -976,6 +991,14 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.deepEqual(updated.body.data.activeServices, ["ppc", "seo", "strategy"]);
     assert.equal(updated.body.data.onboardingStatus, "in_progress");
     assert.equal(updated.body.data.healthStatus, "healthy");
+    assert.equal(updated.body.data.monthlyPrice, 3495);
+    assert.equal(updated.body.data.setupFee, 500);
+    assert.equal(updated.body.data.currency, "GBP");
+    assert.equal(updated.body.data.contractStartDate, "2026-07-01");
+    assert.equal(updated.body.data.noticeDate, "2026-12-01");
+    assert.equal(updated.body.data.paymentStatus, "pending");
+    assert.equal(updated.body.data.invoiceStatus, "sent");
+    assert.equal(updated.body.data.paymentNotes, "Manual invoice raised in QuickBooks sandbox notes.");
     assert.equal(updated.body.data.churnRisk, "low");
     assert.equal(updated.body.data.renewalDate, "2026-12-31");
     assert.equal(updated.body.data.contractStatus, "active");
@@ -1009,6 +1032,9 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.ok(auditChanges);
     assert.equal(auditChanges.healthStatus.after, "healthy");
     assert.equal(auditChanges.contractStatus.after, "active");
+    assert.equal(auditChanges.monthlyPrice.after, "3495.00");
+    assert.equal(auditChanges.paymentStatus.after, "pending");
+    assert.equal(auditChanges.invoiceStatus.after, "sent");
 
     console.log("[client-accounts] profile API integration test passed");
 

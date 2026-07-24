@@ -18,7 +18,9 @@ import type {
   ClientAccountChurnRisk,
   ClientAccountContractStatus,
   ClientAccountHealthStatus,
+  ClientAccountInvoiceStatus,
   ClientAccountOnboardingStatus,
+  ClientAccountPaymentStatus,
   ClientAccountProfilePayload,
   ClientAccountProfileRecord,
   ClientAccountServiceType,
@@ -57,6 +59,8 @@ const HEALTH_STATUSES: ClientAccountHealthStatus[] = [
   "critical",
 ];
 const CHURN_RISKS: ClientAccountChurnRisk[] = ["low", "medium", "high", "critical"];
+const PAYMENT_STATUSES: ClientAccountPaymentStatus[] = ["not_started", "pending", "paid", "overdue", "failed", "cancelled"];
+const INVOICE_STATUSES: ClientAccountInvoiceStatus[] = ["not_required", "not_sent", "sent", "paid", "overdue", "disputed", "void"];
 
 const fieldClass =
   "w-full rounded-xl border border-[#d8ddda] bg-white px-3.5 py-2.5 text-sm text-[#151f21] outline-none transition focus:border-[#75aaa7] focus:ring-4 focus:ring-[rgba(96,180,175,0.1)] disabled:opacity-60";
@@ -66,6 +70,15 @@ function formatLabel(value: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatMoney(value: number | null | undefined, currency = "GBP") {
+  if (value === null || value === undefined) return "Not set";
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: currency || "GBP",
+    maximumFractionDigits: 0,
+  }).format(Number(value));
 }
 
 function personName(person: TeamMember) {
@@ -79,11 +92,19 @@ function toPayload(profile: ClientAccountProfileRecord): ClientAccountProfilePay
     onboardingStatus: profile.onboardingStatus,
     healthStatus: profile.healthStatus,
     currentPackage: profile.currentPackage,
+    monthlyPrice: profile.monthlyPrice,
+    setupFee: profile.setupFee,
+    currency: profile.currency,
     recommendedNextPackage: profile.recommendedNextPackage,
     upsellOpportunity: profile.upsellOpportunity,
     churnRisk: profile.churnRisk,
     renewalDate: profile.renewalDate,
     contractStatus: profile.contractStatus,
+    contractStartDate: profile.contractStartDate,
+    noticeDate: profile.noticeDate,
+    paymentStatus: profile.paymentStatus,
+    invoiceStatus: profile.invoiceStatus,
+    paymentNotes: profile.paymentNotes,
     keyNotes: profile.keyNotes,
   };
 }
@@ -202,6 +223,14 @@ export default function ClientPackagePage() {
                 <input type="date" value={draft?.renewalDate || ""} disabled={isLoading || !draft} onChange={(event) => updateDraft("renewalDate", event.target.value || null)} className={fieldClass} />
               </label>
               <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Contract start date</span>
+                <input type="date" value={draft?.contractStartDate || ""} disabled={isLoading || !draft} onChange={(event) => updateDraft("contractStartDate", event.target.value || null)} className={fieldClass} />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Notice date</span>
+                <input type="date" value={draft?.noticeDate || ""} disabled={isLoading || !draft} onChange={(event) => updateDraft("noticeDate", event.target.value || null)} className={fieldClass} />
+              </label>
+              <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Contract status</span>
                 <select value={draft?.contractStatus || "pending"} disabled={isLoading || !draft} onChange={(event) => updateDraft("contractStatus", event.target.value as ClientAccountContractStatus)} className={fieldClass}>
                   {CONTRACT_STATUSES.map((status) => <option key={status} value={status}>{formatLabel(status)}</option>)}
@@ -236,9 +265,46 @@ export default function ClientPackagePage() {
                     disabled={isLoading || !draft}
                     onChange={(event) => updateDraft("currentPackage", event.target.value)}
                     className={fieldClass}
-                    placeholder="Enter bespoke package name"
+                  placeholder="Enter bespoke package name"
                   />
                 )}
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Monthly price / MRR</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={draft?.monthlyPrice ?? ""}
+                  disabled={isLoading || !draft}
+                  onChange={(event) => updateDraft("monthlyPrice", event.target.value === "" ? null : Number(event.target.value))}
+                  className={fieldClass}
+                  placeholder="1995.00"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Setup fee</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={draft?.setupFee ?? ""}
+                  disabled={isLoading || !draft}
+                  onChange={(event) => updateDraft("setupFee", event.target.value === "" ? null : Number(event.target.value))}
+                  className={fieldClass}
+                  placeholder="0.00"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Currency</span>
+                <input
+                  value={draft?.currency || "GBP"}
+                  disabled={isLoading || !draft}
+                  maxLength={3}
+                  onChange={(event) => updateDraft("currency", event.target.value.toUpperCase())}
+                  className={fieldClass}
+                  placeholder="GBP"
+                />
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Recommended next package</span>
@@ -283,6 +349,22 @@ export default function ClientPackagePage() {
                   {CHURN_RISKS.map((risk) => <option key={risk} value={risk}>{formatLabel(risk)}</option>)}
                 </select>
               </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Payment status</span>
+                <select value={draft?.paymentStatus || "not_started"} disabled={isLoading || !draft} onChange={(event) => updateDraft("paymentStatus", event.target.value as ClientAccountPaymentStatus)} className={fieldClass}>
+                  {PAYMENT_STATUSES.map((status) => <option key={status} value={status}>{formatLabel(status)}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Invoice status</span>
+                <select value={draft?.invoiceStatus || "not_sent"} disabled={isLoading || !draft} onChange={(event) => updateDraft("invoiceStatus", event.target.value as ClientAccountInvoiceStatus)} className={fieldClass}>
+                  {INVOICE_STATUSES.map((status) => <option key={status} value={status}>{formatLabel(status)}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1.5 md:col-span-2">
+                <span className="text-sm font-semibold text-[#344446]">Payment notes</span>
+                <textarea value={draft?.paymentNotes || ""} disabled={isLoading || !draft} onChange={(event) => updateDraft("paymentNotes", event.target.value)} rows={3} className={fieldClass} placeholder="Manual invoice/payment context for finance..." />
+              </label>
             </div>
           </Card>
 
@@ -324,9 +406,9 @@ export default function ClientPackagePage() {
               <div><p className="text-xs font-semibold uppercase tracking-wider text-[#8b9694]">Workspace</p><p className="mt-1 text-lg font-semibold text-[#151f21]">{profile?.clinicName || "Loading profile..."}</p></div>
               <div className="grid grid-cols-2 gap-4 border-y border-[rgba(21,31,33,0.06)] py-4">
                 <div><p className="text-xs text-[#8b9694]">Manager</p><p className="mt-1 text-sm font-semibold text-[#344446]">{selectedManager ? personName(selectedManager) : "Unassigned"}</p></div>
-                <div><p className="text-xs text-[#8b9694]">Services</p><p className="mt-1 text-sm font-semibold text-[#344446]">{draft?.activeServices?.length || "None"}</p></div>
+                <div><p className="text-xs text-[#8b9694]">MRR</p><p className="mt-1 text-sm font-semibold text-[#344446]">{formatMoney(draft?.monthlyPrice, draft?.currency || "GBP")}</p></div>
                 <div><p className="text-xs text-[#8b9694]">Contract</p><p className="mt-1 text-sm font-semibold text-[#344446]">{formatLabel(draft?.contractStatus || "pending")}</p></div>
-                <div><p className="text-xs text-[#8b9694]">Health</p><p className="mt-1 text-sm font-semibold text-[#344446]">{formatLabel(draft?.healthStatus || "attention_needed")}</p></div>
+                <div><p className="text-xs text-[#8b9694]">Invoice</p><p className="mt-1 text-sm font-semibold text-[#344446]">{formatLabel(draft?.invoiceStatus || "not_sent")}</p></div>
               </div>
               <button type="submit" disabled={isLoading || isSaving || !draft} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#5e8a8d] px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#507b7e] disabled:opacity-60">
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Save package profile

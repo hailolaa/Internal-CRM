@@ -19,7 +19,6 @@ import {
   Card,
   DataTable,
   PageHeader,
-  ProgressBar,
   SearchInput,
   StatCard,
   StatCardSkeleton,
@@ -82,13 +81,6 @@ function formatMoney(value: number | null | undefined, currency = "GBP") {
   }).format(Number(value || 0));
 }
 
-function packageName(activeServiceCount: number, monthlyValue: number) {
-  if (activeServiceCount >= 5 || monthlyValue >= 4000) return "Scale";
-  if (activeServiceCount >= 3 || monthlyValue >= 2200) return "Growth";
-  if (activeServiceCount >= 1 || monthlyValue > 0) return "Starter";
-  return "Unpackaged";
-}
-
 function contractBadge(status: ClientAccountContractStatus | string) {
   if (status === "active") return <Badge variant="success">Active</Badge>;
   if (status === "trial" || status === "pending") {
@@ -96,6 +88,13 @@ function contractBadge(status: ClientAccountContractStatus | string) {
   }
   if (status === "paused") return <Badge variant="warning">Paused</Badge>;
   return <Badge variant="error">{formatLabel(status)}</Badge>;
+}
+
+function paymentBadge(status: string) {
+  if (status === "paid") return <Badge variant="success">Paid</Badge>;
+  if (status === "pending" || status === "not_started") return <Badge variant="info">{formatLabel(status)}</Badge>;
+  if (status === "overdue" || status === "failed") return <Badge variant="error">{formatLabel(status)}</Badge>;
+  return <Badge variant="neutral">{formatLabel(status)}</Badge>;
 }
 
 function renewalBadge(value?: string | null) {
@@ -170,15 +169,13 @@ export default function ClientAccountsPage() {
 
   const hasLoadedData = !isLoading && !statusMessage;
   const activeServices = services.filter((service) => service.status === "active");
-  const activeMonthlyValue = activeServices.reduce(
-    (sum, service) => sum + Number(service.recurringValue || 0),
-    0,
-  );
+  const totalMrr = accounts.reduce((sum, account) => sum + Number(account.monthlyPrice || 0), 0);
+  const totalSetupFees = accounts.reduce((sum, account) => sum + Number(account.setupFee || 0), 0);
+  const paymentIssues = accounts.filter((account) => ["overdue", "failed"].includes(account.paymentStatus) || account.invoiceStatus === "overdue");
   const soonRenewals = services.filter((service) => {
     const days = daysUntil(service.renewalDate);
     return days !== null && days >= 0 && days <= 45;
   });
-  const packageTier = packageName(activeServices.length, activeMonthlyValue);
   const nextOpenTaskByClient = useMemo(() => {
     const map = new Map<string, InternalTaskRecord>();
     tasks
@@ -208,6 +205,8 @@ export default function ClientAccountsPage() {
         [
           account.clinicName,
           account.contractStatus,
+          account.paymentStatus,
+          account.invoiceStatus,
           account.healthStatus,
           account.churnRisk,
           account.currentPackage || "",
@@ -291,32 +290,32 @@ export default function ClientAccountsPage() {
         ) : (
           <>
             <StatCard
-              label="Package Tier"
-              value={hasLoadedData ? packageTier : "N/A"}
+              label="Active Clients"
+              value={hasLoadedData ? String(accounts.filter((account) => account.clientStatus === "active").length) : "N/A"}
               sub={hasLoadedData ? `${activeServices.length} active services` : "Live data unavailable"}
               icon={Layers3}
               color="violet"
             />
             <StatCard
-              label="Monthly Value"
-              value={hasLoadedData ? formatMoney(activeMonthlyValue, activeServices[0]?.currency || "GBP") : "N/A"}
-              sub="Recurring services"
+              label="Total MRR"
+              value={hasLoadedData ? formatMoney(totalMrr, accounts[0]?.currency || "GBP") : "N/A"}
+              sub="Client record monthly price"
               icon={CircleDollarSign}
               color="green"
             />
             <StatCard
-              label="Renewal Risk"
-              value={hasLoadedData ? String(soonRenewals.length) : "N/A"}
-              sub={profile?.renewalDate ? formatDate(profile.renewalDate) : "No profile renewal"}
+              label="Setup Fees"
+              value={hasLoadedData ? formatMoney(totalSetupFees, accounts[0]?.currency || "GBP") : "N/A"}
+              sub="One-off setup tracked manually"
               icon={CalendarClock}
-              color={soonRenewals.length ? "amber" : "teal"}
+              color="teal"
             />
             <StatCard
-              label="Contract"
-              value={profile?.contractStatus ? formatLabel(profile.contractStatus) : "N/A"}
-              sub={`Health: ${profile ? formatLabel(profile.healthStatus) : "N/A"}`}
+              label="Payment Issues"
+              value={hasLoadedData ? String(paymentIssues.length) : "N/A"}
+              sub={profile?.renewalDate ? `Next renewal: ${formatDate(profile.renewalDate)}` : `${soonRenewals.length} renewals due soon`}
               icon={ShieldCheck}
-              color={profile?.contractStatus === "active" ? "green" : "amber"}
+              color={paymentIssues.length ? "amber" : "green"}
             />
           </>
         )}
@@ -347,12 +346,12 @@ export default function ClientAccountsPage() {
           headers={[
             { label: "Client" },
             { label: "Manager" },
-            { label: "Package" },
+            { label: "Package / MRR" },
             { label: "Next Action" },
+            { label: "Payment" },
             { label: "Contract" },
-            { label: "Renewal" },
+            { label: "Renewal / Notice" },
             { label: "Next Task" },
-            { label: "Action Plan" },
           ]}
         >
           {isLoading &&
@@ -411,11 +410,14 @@ export default function ClientAccountsPage() {
                     {account.currentPackage || "No current package"}
                   </p>
                   <p className="text-xs text-[#7A746A]">
-                    Next: {account.recommendedNextPackage || "Not set"}
+                    MRR: {account.monthlyPrice ? formatMoney(account.monthlyPrice, account.currency) : "Not set"}
                   </p>
-                  {account.upsellOpportunity ? (
+                  <p className="text-xs text-[#7A746A]">
+                    Setup: {account.setupFee ? formatMoney(account.setupFee, account.currency) : "Not set"}
+                  </p>
+                  {account.recommendedNextPackage ? (
                     <p className="max-w-[220px] truncate text-xs font-medium text-[#315f62]">
-                      {account.upsellOpportunity}
+                      Next: {account.recommendedNextPackage}
                     </p>
                   ) : null}
                 </div>
@@ -434,12 +436,23 @@ export default function ClientAccountsPage() {
                   </p>
                 </div>
               </TableCell>
+              <TableCell>
+                <div className="space-y-1">
+                  {paymentBadge(account.paymentStatus)}
+                  <p className="text-xs text-[#7A746A]">
+                    Invoice: {formatLabel(account.invoiceStatus)}
+                  </p>
+                </div>
+              </TableCell>
               <TableCell>{contractBadge(account.contractStatus)}</TableCell>
               <TableCell>
                 <div className="space-y-1">
                   {renewalBadge(account.renewalDate)}
                   <p className="text-xs text-[#7A746A]">
-                    {formatDate(account.renewalDate)}
+                    Renewal: {formatDate(account.renewalDate)}
+                  </p>
+                  <p className="text-xs text-[#7A746A]">
+                    Notice: {formatDate(account.noticeDate)}
                   </p>
                 </div>
               </TableCell>
@@ -456,29 +469,6 @@ export default function ClientAccountsPage() {
                   ) : (
                     <p className="text-xs text-[#7A746A]">No follow-up task</p>
                   )}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="min-w-[120px]">
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="text-xs text-[#7A746A]">
-                      {account.actionPlanStatus
-                        ? formatLabel(account.actionPlanStatus)
-                        : "No plan"}
-                    </span>
-                    <span className="text-xs font-semibold text-[#151f21]">
-                      {account.actionPlanProgressPercent}%
-                    </span>
-                  </div>
-                  <ProgressBar
-                    value={account.actionPlanProgressPercent}
-                    max={100}
-                    color={
-                      account.actionPlanHighPriorityOpenItems > 0
-                        ? "#b7672e"
-                        : "#60b4af"
-                    }
-                  />
                 </div>
               </TableCell>
             </TableRow>
