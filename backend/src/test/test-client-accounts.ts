@@ -848,7 +848,8 @@ test("won opportunities convert into client accounts with preserved history and 
     assert.equal(snapshotRows[0].clientAccountProfileId, clientAccountProfileId);
 
     const [taskRows]: any = await pool.execute(
-      `SELECT title, client_account_profile_id as clientAccountProfileId, contact_id as contactId, status, category, template_key as templateKey
+      `SELECT title, client_account_profile_id as clientAccountProfileId, contact_id as contactId,
+              assigned_user_id as assignedUserId, due_date as dueDate, status, category, template_key as templateKey
        FROM task
        WHERE clinic_id = ?
          AND client_account_profile_id = ?
@@ -858,9 +859,32 @@ test("won opportunities convert into client accounts with preserved history and 
          AND deleted_at IS NULL`,
       [primary.clinicId, clientAccountProfileId, contactId],
     );
-    assert.equal(taskRows.length, 4);
+    assert.equal(taskRows.length, 16);
     assert.equal(taskRows.every((task: any) => task.status === "pending"), true);
+    assert.equal(taskRows.every((task: any) => task.assignedUserId === primary.userId), true);
+    assert.equal(taskRows.every((task: any) => task.dueDate), true);
     assert.equal(taskRows.every((task: any) => String(task.templateKey).startsWith(`won_client_onboarding:${dealId}:`)), true);
+    const onboardingTemplateKeys = taskRows.map((task: any) => String(task.templateKey));
+    for (const key of [
+      "owner-assignment",
+      "invoice",
+      "gocardless",
+      "onboarding-form",
+      "drive-folder",
+      "website-access",
+      "ga4",
+      "gsc",
+      "gtm",
+      "google-ads",
+      "gbp",
+      "meta",
+      "brand-assets",
+      "treatment-pricing-info",
+      "reporting-setup",
+      "first-review",
+    ]) {
+      assert.ok(onboardingTemplateKeys.includes(`won_client_onboarding:${dealId}:${key}`), `Missing onboarding checklist item ${key}`);
+    }
 
     const secondConversion = await fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
       method: "POST",
@@ -879,12 +903,12 @@ test("won opportunities convert into client accounts with preserved history and 
          AND deleted_at IS NULL`,
       [primary.clinicId, clientAccountProfileId],
     );
-    assert.equal(Number(taskRowsAfterRetry[0].count), 4, "Retrying conversion should not duplicate onboarding tasks");
+    assert.equal(Number(taskRowsAfterRetry[0].count), 16, "Retrying conversion should not duplicate onboarding tasks");
 
     const linkedRecords = await fetchJson(baseUrl, `/api/client-accounts/${clientClinicId}/linked-records`, primary.token);
     assert.equal(linkedRecords.response.status, 200);
     assert.equal(linkedRecords.body.data.contacts.some((contact: any) => contact.id === contactId), true);
-    assert.equal(linkedRecords.body.data.openTasks.length, 4);
+    assert.equal(linkedRecords.body.data.openTasks.length, 16);
 
     console.log("[client-accounts] won deal conversion, history links, and onboarding tasks passed");
   } finally {

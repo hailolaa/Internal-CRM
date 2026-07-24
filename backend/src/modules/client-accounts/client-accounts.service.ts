@@ -2509,10 +2509,22 @@ export class ClientAccountsService {
       deal.dealSource || deal.contactSource ? `Original source: ${deal.dealSource || deal.contactSource}` : null,
     ].filter(Boolean).join("\n");
     const checklist = [
-      { key: "kickoff", title: `Book onboarding kickoff: ${account.clinicName}`, due: 1, serviceType: "strategy" },
-      { key: "access", title: `Collect access and assets: ${account.clinicName}`, due: 2, serviceType: "strategy" },
-      { key: "tracking", title: `Confirm tracking and reporting setup: ${account.clinicName}`, due: 3, serviceType: "other" },
-      { key: "delivery-plan", title: `Create delivery plan: ${account.clinicName}`, due: 5, serviceType: "strategy" },
+      { key: "owner-assignment", title: `Assign client owner: ${account.clinicName}`, due: 0, serviceType: "strategy" },
+      { key: "invoice", title: `Raise first invoice: ${account.clinicName}`, due: 0, serviceType: "strategy" },
+      { key: "gocardless", title: `Confirm GoCardless setup: ${account.clinicName}`, due: 1, serviceType: "strategy" },
+      { key: "onboarding-form", title: `Send onboarding form: ${account.clinicName}`, due: 1, serviceType: "strategy" },
+      { key: "drive-folder", title: `Create or link Drive folder: ${account.clinicName}`, due: 1, serviceType: "strategy" },
+      { key: "website-access", title: `Collect website access: ${account.clinicName}`, due: 2, serviceType: "website" },
+      { key: "ga4", title: `Collect GA4 access: ${account.clinicName}`, due: 2, serviceType: "other" },
+      { key: "gsc", title: `Collect Google Search Console access: ${account.clinicName}`, due: 2, serviceType: "seo" },
+      { key: "gtm", title: `Collect Google Tag Manager access: ${account.clinicName}`, due: 2, serviceType: "other" },
+      { key: "google-ads", title: `Collect Google Ads access: ${account.clinicName}`, due: 3, serviceType: "ppc" },
+      { key: "gbp", title: `Collect Google Business Profile access: ${account.clinicName}`, due: 3, serviceType: "gbp" },
+      { key: "meta", title: `Collect Meta Business access: ${account.clinicName}`, due: 3, serviceType: "ppc" },
+      { key: "brand-assets", title: `Collect brand assets: ${account.clinicName}`, due: 4, serviceType: "website" },
+      { key: "treatment-pricing-info", title: `Collect treatment and pricing info: ${account.clinicName}`, due: 4, serviceType: "strategy" },
+      { key: "reporting-setup", title: `Set up reporting: ${account.clinicName}`, due: 5, serviceType: "other" },
+      { key: "first-review", title: `Book first client review: ${account.clinicName}`, due: 14, serviceType: "strategy" },
     ];
 
     for (const item of checklist) {
@@ -2529,6 +2541,13 @@ export class ClientAccountsService {
       );
       if (existingRows.length > 0) continue;
 
+      const description = [
+        baseDescription,
+        "",
+        `Checklist item: ${item.title}`,
+        "Created automatically when the won opportunity was converted into a client account.",
+      ].join("\n");
+
       await pool.execute(
         `INSERT INTO task
           (id, clinic_id, is_internal, title, description, priority, status, category,
@@ -2540,7 +2559,7 @@ export class ClientAccountsService {
           uuidv4(),
           sourceClinicId,
           item.title,
-          baseDescription,
+          description,
           item.serviceType,
           account.id,
           deal.contactId,

@@ -24,7 +24,7 @@ import {
   Users,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { AlertBanner, Badge, Card, SkeletonLine, StatusBadge } from "@/components/ui";
+import { AlertBanner, Badge, Card, ProgressBar, SkeletonLine, StatusBadge } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import type {
   ClientAccountLinkedRecords,
@@ -179,6 +179,23 @@ export default function ClientAccountDetailPage() {
   );
   const openTasks = useMemo(() => linkedRecords?.openTasks || [], [linkedRecords?.openTasks]);
   const completedTasks = useMemo(() => linkedRecords?.completedTasks || [], [linkedRecords?.completedTasks]);
+  const onboardingOpenTasks = useMemo(
+    () => openTasks.filter((task) => task.category === "client_onboarding"),
+    [openTasks],
+  );
+  const onboardingCompletedTasks = useMemo(
+    () => completedTasks.filter((task) => task.category === "client_onboarding"),
+    [completedTasks],
+  );
+  const onboardingChecklistTasks = useMemo(
+    () => [...onboardingOpenTasks, ...onboardingCompletedTasks],
+    [onboardingOpenTasks, onboardingCompletedTasks],
+  );
+  const onboardingChecklistTotal = onboardingChecklistTasks.length;
+  const onboardingChecklistComplete = onboardingCompletedTasks.length;
+  const onboardingChecklistProgress = onboardingChecklistTotal
+    ? Math.round((onboardingChecklistComplete / onboardingChecklistTotal) * 100)
+    : 0;
   const availableContactSearchResults = useMemo(
     () => contactSearchResults.filter((contact) => !linkedContacts.some((linked) => linked.id === contact.id)),
     [contactSearchResults, linkedContacts],
@@ -550,6 +567,49 @@ export default function ClientAccountDetailPage() {
           <Card padding="p-5 sm:p-6">
             <div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold text-[#151f21]">Services</h2><p className="mt-1 text-sm text-[#7A746A]">Current package delivery and ownership.</p></div><Link href="/app/ops/services" className="text-sm font-semibold text-[#315f62]">View services</Link></div>
             <div className="mt-5 flex flex-wrap gap-2">{activeServices.map((service) => <Badge key={service.id} variant="success">{service.name}</Badge>)}{activeServices.length === 0 && <Badge variant="warning">No active services</Badge>}</div>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-[#151f21]">
+                  <CheckSquare2 className="h-5 w-5 text-[#315f62]" />
+                  Onboarding checklist
+                </h2>
+                <p className="mt-1 text-sm text-[#7A746A]">
+                  Setup actions created automatically when a won opportunity becomes a client.
+                </p>
+              </div>
+              <Badge variant={onboardingChecklistProgress === 100 ? "success" : "info"}>
+                {onboardingChecklistComplete}/{onboardingChecklistTotal} complete
+              </Badge>
+            </div>
+            {onboardingChecklistTotal > 0 ? (
+              <>
+                <div className="mt-5">
+                  <ProgressBar value={onboardingChecklistProgress} max={100} color="sage" height="h-2" />
+                </div>
+                <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                  {onboardingChecklistTasks.map((task) => (
+                    <Link key={task.id} href={`/app/crm/tasks/detail?id=${task.id}&from=delivery`} className="block rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition hover:border-[#a9c7c4] focus:outline-none focus:ring-2 focus:ring-[#75aaa7]">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="min-w-0 font-semibold text-[#151f21]">{task.title}</p>
+                        <Badge variant={task.status === "completed" ? "success" : task.isOverdue ? "error" : "warning"}>
+                          {formatLabel(task.status)}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-sm text-[#7A746A]">
+                        {task.assignedTo || "Unassigned"} - {taskDueLabel(task)}
+                      </p>
+                    </Link>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="mt-5 rounded-xl border border-dashed border-[#E7E1DA] p-5 text-center text-sm text-[#7A746A]">
+                No onboarding checklist has been created yet. Converting a won opportunity into a client will create it automatically.
+              </p>
+            )}
           </Card>
 
           <div id="account-tasks" className="scroll-mt-24">
