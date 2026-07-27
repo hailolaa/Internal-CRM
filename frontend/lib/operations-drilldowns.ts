@@ -14,6 +14,20 @@ type ClientAccountDrilldownRecord = {
   missingDocumentCount?: number | null;
 };
 
+type ClientAccountBlockerRecord = {
+  onboardingStatus: string;
+  missingAccessCount?: number | null;
+  missingDocumentCount?: number | null;
+  openIssueCount?: number | null;
+  overdueIssueCount?: number | null;
+};
+
+export type ClientAccountBlockerHash =
+  | "#account-issues"
+  | "#account-files"
+  | "#account-onboarding"
+  | "#account-access-assets";
+
 type DueTaskRecord = {
   status: string;
   dueDate?: string | null;
@@ -60,6 +74,36 @@ export function matchesClientAccountDrilldown(
     return Number(account.missingAccessCount || 0) > 0;
   }
   return Number(account.missingDocumentCount || 0) > 0;
+}
+
+export function countClientAccountsMatchingDrilldown(
+  accounts: ClientAccountDrilldownRecord[],
+  view: ClientAccountDrilldownView,
+) {
+  return accounts.filter((account) =>
+    matchesClientAccountDrilldown(account, view),
+  ).length;
+}
+
+export function getClientAccountPrimaryBlockerHash(
+  account: ClientAccountBlockerRecord,
+): ClientAccountBlockerHash | null {
+  if (Number(account.overdueIssueCount || 0) > 0) {
+    return "#account-issues";
+  }
+  if (Number(account.missingAccessCount || 0) > 0) {
+    return "#account-access-assets";
+  }
+  if (Number(account.missingDocumentCount || 0) > 0) {
+    return "#account-files";
+  }
+  if (Number(account.openIssueCount || 0) > 0) {
+    return "#account-issues";
+  }
+  if (account.onboardingStatus !== "completed") {
+    return "#account-onboarding";
+  }
+  return null;
 }
 
 export function isTaskDueByToday(

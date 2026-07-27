@@ -41,7 +41,9 @@ import {
   leadPriorityBadgeClass,
 } from "@/lib/lead-priority";
 import {
+  countClientAccountsMatchingDrilldown,
   DASHBOARD_DUE_TASKS_HREF,
+  getClientAccountPrimaryBlockerHash,
   getClientAccountDrilldownHref,
   isOpenClientAccount,
   isTaskDueByToday,
@@ -434,9 +436,10 @@ export default function AppPage() {
         const missingDocuments = account.missingDocumentCount || 0;
         const openIssues = account.openIssueCount || 0;
         const onboardingOpen = account.onboardingStatus !== "completed";
-        const hasBlocker = onboardingOpen || missingAccess > 0 || missingDocuments > 0 || openIssues > 0;
-        if (!hasBlocker) return null;
-      const detail = [
+        const primaryBlockerHash =
+          getClientAccountPrimaryBlockerHash(account);
+        if (!primaryBlockerHash) return null;
+        const detail = [
           onboardingOpen ? `Onboarding ${formatLabel(account.onboardingStatus)}` : null,
           missingAccess > 0 ? `${missingAccess} missing access` : null,
           missingDocuments > 0 ? `${missingDocuments} missing file link${missingDocuments === 1 ? "" : "s"}` : null,
@@ -450,7 +453,7 @@ export default function AppPage() {
             ? [account.accountManager.firstName, account.accountManager.lastName].filter(Boolean).join(" ") || account.accountManager.email || "Unassigned"
             : "Unassigned",
           detail,
-          href: `/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}#account-access-assets`,
+          href: `/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}${primaryBlockerHash}`,
           severity: account.overdueIssueCount > 0 || missingAccess > 0 || missingDocuments > 0 ? "high" : "medium",
           sort: (account.overdueIssueCount || 0) > 0 ? 0 : missingAccess + missingDocuments > 0 ? 1 : 2,
         };
@@ -997,25 +1000,25 @@ export default function AppPage() {
           {[
             {
               label: "Onboarding clients",
-              value: openClientAccounts.filter(
-                (account) => account.onboardingStatus !== "completed",
-              ).length,
+              value: countClientAccountsMatchingDrilldown(
+                clientAccounts,
+                "onboarding",
+              ),
               href: getClientAccountDrilldownHref("onboarding"),
             },
             {
-              label: "Missing access",
-              value: openClientAccounts.reduce(
-                (total, account) => total + (account.missingAccessCount || 0),
-                0,
+              label: "Clients missing access",
+              value: countClientAccountsMatchingDrilldown(
+                clientAccounts,
+                "missing-access",
               ),
               href: getClientAccountDrilldownHref("missing-access"),
             },
             {
-              label: "Missing file links",
-              value: openClientAccounts.reduce(
-                (total, account) =>
-                  total + (account.missingDocumentCount || 0),
-                0,
+              label: "Clients missing file links",
+              value: countClientAccountsMatchingDrilldown(
+                clientAccounts,
+                "missing-files",
               ),
               href: getClientAccountDrilldownHref("missing-files"),
             },

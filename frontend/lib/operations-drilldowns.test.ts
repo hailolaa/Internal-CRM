@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  countClientAccountsMatchingDrilldown,
   DASHBOARD_DUE_TASKS_HREF,
+  getClientAccountPrimaryBlockerHash,
   getClientAccountDrilldownHref,
   getClientAccountDrilldownView,
   isOpenClientAccount,
@@ -68,6 +70,83 @@ describe("operations dashboard drill-downs", () => {
       matchesClientAccountDrilldown(completeAccount, "missing-files"),
     ).toBe(false);
     expect(matchesClientAccountDrilldown(completeAccount, null)).toBe(true);
+  });
+
+  it("counts affected open client accounts rather than missing checklist items", () => {
+    const accounts = [
+      openAccount,
+      {
+        ...openAccount,
+        missingAccessCount: 8,
+        missingDocumentCount: 5,
+      },
+      {
+        ...openAccount,
+        contractStatus: "cancelled",
+        missingAccessCount: 12,
+        missingDocumentCount: 9,
+      },
+    ];
+
+    expect(
+      countClientAccountsMatchingDrilldown(accounts, "missing-access"),
+    ).toBe(2);
+    expect(
+      countClientAccountsMatchingDrilldown(accounts, "missing-files"),
+    ).toBe(2);
+  });
+
+  it("links a blocker row to the tab for its highest-priority blocker", () => {
+    expect(
+      getClientAccountPrimaryBlockerHash({
+        onboardingStatus: "in_progress",
+        missingAccessCount: 2,
+        missingDocumentCount: 1,
+        openIssueCount: 2,
+        overdueIssueCount: 1,
+      }),
+    ).toBe("#account-issues");
+    expect(
+      getClientAccountPrimaryBlockerHash({
+        onboardingStatus: "in_progress",
+        missingAccessCount: 2,
+        missingDocumentCount: 1,
+      }),
+    ).toBe("#account-access-assets");
+    expect(
+      getClientAccountPrimaryBlockerHash({
+        onboardingStatus: "in_progress",
+        missingAccessCount: 2,
+      }),
+    ).toBe("#account-access-assets");
+    expect(
+      getClientAccountPrimaryBlockerHash({
+        onboardingStatus: "in_progress",
+        missingDocumentCount: 1,
+      }),
+    ).toBe("#account-files");
+    expect(
+      getClientAccountPrimaryBlockerHash({
+        onboardingStatus: "completed",
+        missingAccessCount: 2,
+      }),
+    ).toBe("#account-access-assets");
+    expect(
+      getClientAccountPrimaryBlockerHash({
+        onboardingStatus: "completed",
+        openIssueCount: 1,
+      }),
+    ).toBe("#account-issues");
+    expect(
+      getClientAccountPrimaryBlockerHash({
+        onboardingStatus: "in_progress",
+      }),
+    ).toBe("#account-onboarding");
+    expect(
+      getClientAccountPrimaryBlockerHash({
+        onboardingStatus: "completed",
+      }),
+    ).toBeNull();
   });
 
   it("keeps the dashboard task count and due filter on one due-or-overdue contract", () => {

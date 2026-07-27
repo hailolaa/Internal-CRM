@@ -582,18 +582,22 @@ export class ClientAccountsService {
        ) service_summary ON service_summary.clinic_id = c.id
        LEFT JOIN (
           SELECT
-            clinic_id,
-            SUM(CASE WHEN status <> 'completed' THEN 1 ELSE 0 END) as pendingTaskCount,
-            SUM(CASE WHEN status <> 'completed' AND due_date IS NOT NULL AND due_date < CURDATE() THEN 1 ELSE 0 END) as overdueTaskCount,
-            SUM(CASE WHEN needs_qa = 1 OR approval_status IN ('pending', 'needs_changes') THEN 1 ELSE 0 END) as qaTaskCount,
-            SUM(CASE WHEN status <> 'completed' AND missed_task = 1 THEN 1 ELSE 0 END) as missedTaskCount,
-            SUM(CASE WHEN escalation_flag = 1 THEN 1 ELSE 0 END) as escalatedTaskCount
-          FROM task
-          WHERE is_internal = 1
-            AND deleted_at IS NULL
-            AND archived_at IS NULL
-          GROUP BY clinic_id
-       ) task_summary ON task_summary.clinic_id = c.id
+            COALESCE(t.client_account_profile_id, legacy_cap.id) as clientAccountProfileId,
+            SUM(CASE WHEN t.status <> 'completed' THEN 1 ELSE 0 END) as pendingTaskCount,
+            SUM(CASE WHEN t.status <> 'completed' AND t.due_date IS NOT NULL AND t.due_date < CURDATE() THEN 1 ELSE 0 END) as overdueTaskCount,
+            SUM(CASE WHEN t.needs_qa = 1 OR t.approval_status IN ('pending', 'needs_changes') THEN 1 ELSE 0 END) as qaTaskCount,
+            SUM(CASE WHEN t.status <> 'completed' AND t.missed_task = 1 THEN 1 ELSE 0 END) as missedTaskCount,
+            SUM(CASE WHEN t.escalation_flag = 1 THEN 1 ELSE 0 END) as escalatedTaskCount
+          FROM task t
+          LEFT JOIN client_account_profile legacy_cap
+            ON t.client_account_profile_id IS NULL
+           AND legacy_cap.clinic_id = t.clinic_id
+          WHERE t.is_internal = 1
+            AND t.deleted_at IS NULL
+            AND t.archived_at IS NULL
+            AND COALESCE(t.client_account_profile_id, legacy_cap.id) IS NOT NULL
+          GROUP BY COALESCE(t.client_account_profile_id, legacy_cap.id)
+       ) task_summary ON task_summary.clientAccountProfileId = cap.id
        LEFT JOIN (
           SELECT
             client_account_profile_id,

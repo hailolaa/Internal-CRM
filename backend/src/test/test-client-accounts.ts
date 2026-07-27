@@ -1646,6 +1646,45 @@ test("won opportunities convert into client accounts with preserved history and 
     }
 
     await pool.execute(
+      `UPDATE task
+       SET due_date = DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?
+         AND category = 'client_onboarding'
+         AND is_internal = 1
+         AND deleted_at IS NULL`,
+      [primary.clinicId, clientAccountProfileId],
+    );
+    await pool.execute(
+      `UPDATE task
+       SET due_date = DATE_SUB(CURDATE(), INTERVAL 1 DAY),
+           needs_qa = 1,
+           approval_status = 'pending',
+           missed_task = 1,
+           escalation_flag = 1
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?
+         AND template_key = ?`,
+      [
+        primary.clinicId,
+        clientAccountProfileId,
+        `won_client_onboarding:${dealId}:owner-assignment`,
+      ],
+    );
+
+    const convertedAccountList = await fetchJson(baseUrl, "/api/client-accounts", primary.token);
+    assert.equal(convertedAccountList.response.status, 200);
+    const convertedAccountSummary = convertedAccountList.body.data.find(
+      (account: any) => account.id === clientAccountProfileId,
+    );
+    assert.ok(convertedAccountSummary, "Managed won conversion should appear in the client account list");
+    assert.equal(convertedAccountSummary.pendingTaskCount, 16);
+    assert.equal(convertedAccountSummary.overdueTaskCount, 1);
+    assert.equal(convertedAccountSummary.qaTaskCount, 1);
+    assert.equal(convertedAccountSummary.missedTaskCount, 1);
+    assert.equal(convertedAccountSummary.escalatedTaskCount, 1);
+
+    await pool.execute(
       `INSERT INTO user
         (id, clinic_id, email, password_hash, first_name, last_name, role,
          email_verified_at, status, is_active)

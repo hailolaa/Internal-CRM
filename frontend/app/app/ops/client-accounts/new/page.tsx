@@ -221,6 +221,8 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5 md:col-span-2">
                 <span className="text-sm font-semibold text-[#344446]">Client account name *</span>
                 <input
+                  name="name"
+                  autoComplete="organization"
                   required
                   maxLength={255}
                   aria-invalid={Boolean(formError && !form.name.trim())}
@@ -234,6 +236,8 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Main email</span>
                 <input
+                  name="email"
+                  autoComplete="email"
                   type="email"
                   maxLength={255}
                   value={form.email || ""}
@@ -245,6 +249,8 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Phone</span>
                 <input
+                  name="phone"
+                  autoComplete="tel"
                   type="tel"
                   maxLength={20}
                   pattern="[0-9 +()\-]+"
@@ -257,6 +263,7 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Website</span>
                 <input
+                  name="website"
                   type="url"
                   maxLength={255}
                   value={form.website || ""}
@@ -268,6 +275,7 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Account manager</span>
                 <select
+                  name="accountManagerId"
                   value={form.accountManagerId || ""}
                   onChange={(event) => setForm((current) => ({ ...current, accountManagerId: event.target.value || null }))}
                   disabled={!canChooseAccountManager}
@@ -287,6 +295,7 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Client stage</span>
                 <select
+                  name="clientStatus"
                   value={form.clientStatus || "onboarding"}
                   onChange={(event) => setForm((current) => ({ ...current, clientStatus: event.target.value as ClientAccountCreatePayload["clientStatus"] }))}
                   className={fieldClass}
@@ -301,6 +310,7 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Current package</span>
                 <select
+                  name="currentPackage"
                   value={isBespokePackage ? "__bespoke__" : form.currentPackage || ""}
                   onChange={(event) => {
                     if (event.target.value === "__bespoke__") {
@@ -321,6 +331,7 @@ export default function NewClientAccountPage() {
                 </select>
                 {isBespokePackage && (
                   <input
+                    name="customPackage"
                     value={form.currentPackage || ""}
                     onChange={(event) => setForm((current) => ({ ...current, currentPackage: event.target.value }))}
                     className={fieldClass}
@@ -331,6 +342,7 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Monthly price / MRR</span>
                 <input
+                  name="monthlyPrice"
                   type="number"
                   min="0"
                   step="0.01"
@@ -343,6 +355,7 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Setup fee</span>
                 <input
+                  name="setupFee"
                   type="number"
                   min="0"
                   step="0.01"
@@ -355,6 +368,7 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Currency</span>
                 <input
+                  name="currency"
                   value={form.currency || "GBP"}
                   maxLength={3}
                   onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase() }))}
@@ -364,15 +378,16 @@ export default function NewClientAccountPage() {
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Contract start date</span>
-                <input type="date" value={form.contractStartDate || ""} onChange={(event) => setForm((current) => ({ ...current, contractStartDate: event.target.value || null }))} className={fieldClass} />
+                <input name="contractStartDate" type="date" value={form.contractStartDate || ""} onChange={(event) => setForm((current) => ({ ...current, contractStartDate: event.target.value || null }))} className={fieldClass} />
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Notice date</span>
-                <input type="date" value={form.noticeDate || ""} onChange={(event) => setForm((current) => ({ ...current, noticeDate: event.target.value || null }))} className={fieldClass} />
+                <input name="noticeDate" type="date" value={form.noticeDate || ""} onChange={(event) => setForm((current) => ({ ...current, noticeDate: event.target.value || null }))} className={fieldClass} />
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Recommended next package</span>
                 <select
+                  name="recommendedNextPackage"
                   value={form.recommendedNextPackage || ""}
                   onChange={(event) => setForm((current) => ({ ...current, recommendedNextPackage: event.target.value }))}
                   className={fieldClass}
@@ -386,6 +401,7 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5 md:col-span-2">
                 <span className="text-sm font-semibold text-[#344446]">Upsell opportunity</span>
                 <input
+                  name="upsellOpportunity"
                   value={form.upsellOpportunity || ""}
                   onChange={(event) => setForm((current) => ({ ...current, upsellOpportunity: event.target.value }))}
                   className={fieldClass}
@@ -394,19 +410,19 @@ export default function NewClientAccountPage() {
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Last contact</span>
-                <input type="date" value={form.lastContactAt || ""} onChange={(event) => setForm((current) => ({ ...current, lastContactAt: event.target.value || null }))} className={fieldClass} />
+                <input name="lastContactAt" type="date" value={form.lastContactAt || ""} onChange={(event) => setForm((current) => ({ ...current, lastContactAt: event.target.value || null }))} className={fieldClass} />
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Last report</span>
-                <input type="date" value={form.lastReportAt || ""} onChange={(event) => setForm((current) => ({ ...current, lastReportAt: event.target.value || null }))} className={fieldClass} />
+                <input name="lastReportAt" type="date" value={form.lastReportAt || ""} onChange={(event) => setForm((current) => ({ ...current, lastReportAt: event.target.value || null }))} className={fieldClass} />
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Last Loom / strategy call</span>
-                <input type="date" value={form.lastLoomAt || ""} onChange={(event) => setForm((current) => ({ ...current, lastLoomAt: event.target.value || null }))} className={fieldClass} />
+                <input name="lastLoomAt" type="date" value={form.lastLoomAt || ""} onChange={(event) => setForm((current) => ({ ...current, lastLoomAt: event.target.value || null }))} className={fieldClass} />
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Payment status</span>
-                <select value={form.paymentStatus || "not_started"} onChange={(event) => setForm((current) => ({ ...current, paymentStatus: event.target.value as ClientAccountCreatePayload["paymentStatus"] }))} className={fieldClass}>
+                <select name="paymentStatus" value={form.paymentStatus || "not_started"} onChange={(event) => setForm((current) => ({ ...current, paymentStatus: event.target.value as ClientAccountCreatePayload["paymentStatus"] }))} className={fieldClass}>
                   <option value="not_started">Not started</option>
                   <option value="pending">Pending</option>
                   <option value="paid">Paid</option>
@@ -417,7 +433,7 @@ export default function NewClientAccountPage() {
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Invoice status</span>
-                <select value={form.invoiceStatus || "not_sent"} onChange={(event) => setForm((current) => ({ ...current, invoiceStatus: event.target.value as ClientAccountCreatePayload["invoiceStatus"] }))} className={fieldClass}>
+                <select name="invoiceStatus" value={form.invoiceStatus || "not_sent"} onChange={(event) => setForm((current) => ({ ...current, invoiceStatus: event.target.value as ClientAccountCreatePayload["invoiceStatus"] }))} className={fieldClass}>
                   <option value="not_required">Not required</option>
                   <option value="not_sent">Not sent</option>
                   <option value="sent">Sent</option>
@@ -430,6 +446,7 @@ export default function NewClientAccountPage() {
               <label className="space-y-1.5 md:col-span-2">
                 <span className="text-sm font-semibold text-[#344446]">Payment notes</span>
                 <textarea
+                  name="paymentNotes"
                   value={form.paymentNotes || ""}
                   onChange={(event) => setForm((current) => ({ ...current, paymentNotes: event.target.value }))}
                   rows={3}
@@ -464,6 +481,7 @@ export default function NewClientAccountPage() {
             <label className="mt-6 block space-y-1.5">
               <span className="text-sm font-semibold text-[#344446]">Key notes</span>
               <textarea
+                name="keyNotes"
                 value={form.keyNotes || ""}
                 onChange={(event) => setForm((current) => ({ ...current, keyNotes: event.target.value }))}
                 rows={4}
