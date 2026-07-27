@@ -214,6 +214,7 @@ export interface ProposalShareResponse {
 
 export interface ProposalPublicResponse {
   proposalName: string;
+  templateKey: string;
   packageName: string | null;
   valueCents: number | null;
   monthlyFeeCents: number | null;

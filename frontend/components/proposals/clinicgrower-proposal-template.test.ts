@@ -5,6 +5,7 @@ import type { ProposalPublicRecord, ProposalRecord } from "@/lib/api-types";
 
 const publicProposal: ProposalPublicRecord = {
   proposalName: "Example Clinic Growth Proposal",
+  templateKey: "clinicgrower_standard",
   packageName: "Growth Engine",
   valueCents: 199_500,
   monthlyFeeCents: 199_500,
@@ -97,5 +98,38 @@ describe("ClinicGrowerProposalTemplate", () => {
     expect(html).toMatch(/>Follow-up</);
     expect(html).toContain("Internal Owner");
     expect(html).toContain("Continue in Mission Control");
+  });
+
+  it.each([
+    [
+      "clinicgrower_standard",
+      "ClinicGrower Proposal",
+      "Proposal flow",
+      "A controlled path from insight to action.",
+    ],
+    [
+      "growth_score_follow_up",
+      "Growth Score Action Plan",
+      "From score to action",
+      "Turn the Growth Score into measurable progress.",
+    ],
+    [
+      "bespoke_growth_plan",
+      "Bespoke Clinic Growth Plan",
+      "Bespoke delivery model",
+      "A tailored engagement with clear ownership.",
+    ],
+  ])("renders practical %s template content", (templateKey, eyebrow, flowLabel, includedHeading) => {
+    const html = renderToStaticMarkup(
+      ClinicGrowerProposalTemplate({
+        proposal: { ...publicProposal, templateKey },
+        packageRecord: null,
+        previewMode: false,
+      }),
+    );
+
+    expect(html).toContain(eyebrow);
+    expect(html).toContain(flowLabel);
+    expect(html).toContain(includedHeading);
   });
 });

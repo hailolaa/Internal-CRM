@@ -139,6 +139,7 @@ export interface ProposalStatusUpdatePayload {
 export type ProposalPublicRecord = Pick<
   ProposalRecord,
   | "proposalName"
+  | "templateKey"
   | "packageName"
   | "valueCents"
   | "monthlyFeeCents"

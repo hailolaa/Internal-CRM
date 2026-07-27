@@ -3,13 +3,22 @@
 import { ArrowLeft, Eye, FileText, Loader2, RefreshCw, Save } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertBanner, PageHeader } from "@/components/ui";
-import { SubNav } from "@/components/sub-nav";
-import { SALES_NAV } from "@/lib/section-nav";
+import { ClinicGrowerProposalTemplate } from "@/components/proposals/clinicgrower-proposal-template";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { GrowthPackageRecord, ProposalCommercialItem, ProposalPayload, ProposalRecord, ProposalSectionContent, ProposalSourceDataRecord } from "@/lib/api-types";
+import type { GrowthPackageRecord, ProposalCommercialItem, ProposalPayload, ProposalPublicRecord, ProposalRecord, ProposalSectionContent, ProposalSourceDataRecord } from "@/lib/api-types";
+import {
+  PROPOSAL_EDITOR_STATUSES,
+  isCurrentProposalRequest,
+  isFinalProposalStatus,
+  loadOptionalProposalPackages,
+  proposalEditorHref,
+  proposalIdentityFromRecord,
+  resolveProposalSaveTarget,
+  type ProposalIdentity,
+} from "@/lib/proposal-editor-state";
 
 const proposalTemplates = [
   {
@@ -29,17 +38,18 @@ const proposalTemplates = [
   },
 ];
 
-const statusOptions = [
-  { value: "draft", label: "Draft" },
-  { value: "ready", label: "Ready" },
-  { value: "sent", label: "Sent" },
-  { value: "viewed", label: "Viewed" },
-  { value: "follow_up_due", label: "Follow-up due" },
-  { value: "accepted", label: "Accepted" },
-  { value: "won", label: "Won" },
-  { value: "lost", label: "Lost" },
-  { value: "expired", label: "Expired" },
-] as const;
+const statusLabels: Record<(typeof PROPOSAL_EDITOR_STATUSES)[number], string> = {
+  draft: "Draft",
+  ready: "Ready",
+  sent: "Sent",
+  viewed: "Viewed",
+  follow_up_due: "Follow-up due",
+};
+
+const statusOptions = PROPOSAL_EDITOR_STATUSES.map((value) => ({
+  value,
+  label: statusLabels[value],
+}));
 
 type ProposalForm = {
   contactId: string;
@@ -58,7 +68,7 @@ type ProposalForm = {
   minimumTermMonths: string;
   noticePeriodDays: string;
   startDate: string;
-  status: ProposalPayload["status"];
+  status: ProposalRecord["status"];
   followUpAt: string;
   expiresAt: string;
   proposalUrl: string;
@@ -95,11 +105,13 @@ function moneyFromCents(value: number | null | undefined) {
 }
 
 function centsFromMoney(value: string) {
+  if (!value.trim()) return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric * 100) : null;
 }
 
 function intOrNull(value: string) {
+  if (!value.trim()) return null;
   const numeric = Number(value);
   return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
 }
@@ -217,6 +229,22 @@ function createInitialForm(searchParams: URLSearchParams): ProposalForm {
   };
 }
 
+function identityFromSearchParams(searchParams: URLSearchParams): ProposalIdentity {
+  return {
+    contactName: searchParams.get("contactName") || null,
+    accountName: searchParams.get("accountName") || null,
+    clientAccountName: searchParams.get("clientAccountName") || null,
+  };
+}
+
+function currentBrowserRouteKey() {
+  return `${window.location.pathname}?${new URLSearchParams(window.location.search).toString()}`;
+}
+
+function statusLabel(value: ProposalRecord["status"]) {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function formatPackagePrice(item: GrowthPackageRecord) {
   if (item.priceCents === null || item.priceCents === undefined) return "Bespoke";
   const price = new Intl.NumberFormat("en-GB", {
@@ -265,18 +293,37 @@ function formatScore(value: number | null | undefined) {
 export default function ProposalEditPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
   const proposalId = searchParams.get("id") || "";
-  const { session } = useAuth();
+  const { hasPermission, session } = useAuth();
   const token = session?.token;
+  const canWriteProposals = hasPermission("proposals:write");
+  const sourceRequestRef = useRef(0);
+  const saveRequestRef = useRef(0);
   const [form, setForm] = useState<ProposalForm>(() => createInitialForm(searchParams));
   const [packages, setPackages] = useState<GrowthPackageRecord[]>([]);
   const [isLoading, setIsLoading] = useState(Boolean(proposalId));
   const [isSaving, setIsSaving] = useState(false);
   const [isPullingSourceData, setIsPullingSourceData] = useState(false);
-  const [savedProposalId, setSavedProposalId] = useState(proposalId);
+  const [savedProposalId, setSavedProposalId] = useState("");
   const [sourceData, setSourceData] = useState<ProposalSourceDataRecord | null>(null);
+  const [loadedIdentity, setLoadedIdentity] = useState<ProposalIdentity>(
+    () => identityFromSearchParams(searchParams),
+  );
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const proposalIsFinal = Boolean(
+    savedProposalId && isFinalProposalStatus(form.status),
+  );
+  const canEditCurrentProposal = canWriteProposals && (
+    proposalId ? savedProposalId === proposalId : !savedProposalId
+  ) && !proposalIsFinal;
+  const routeHasMismatchedProposal = proposalId
+    ? Boolean(savedProposalId && savedProposalId !== proposalId)
+    : Boolean(savedProposalId);
+  const routeAwaitsProposal = Boolean(proposalId && !savedProposalId && !error);
+  const routeIsLoading =
+    isLoading || routeHasMismatchedProposal || routeAwaitsProposal;
 
   const selectedTemplate = useMemo(
     () => proposalTemplates.find((item) => item.key === form.templateKey) || proposalTemplates[0],
@@ -288,36 +335,93 @@ export default function ProposalEditPage() {
     [form.recommendedPackageId, packages],
   );
 
+  const proposalPreview = useMemo<ProposalPublicRecord>(() => ({
+    proposalName: form.proposalName.trim() || "Untitled proposal",
+    templateKey: form.templateKey,
+    packageName: form.packageName.trim() || selectedPackage?.name || null,
+    valueCents: centsFromMoney(form.value),
+    monthlyFeeCents: centsFromMoney(form.monthlyFee),
+    setupFeeCents: centsFromMoney(form.setupFee),
+    currency: form.currency.trim() || "GBP",
+    adSpendNote: form.adSpendNote.trim() || null,
+    vatStatus: form.vatStatus.trim() || null,
+    minimumTermMonths: intOrNull(form.minimumTermMonths),
+    noticePeriodDays: intOrNull(form.noticePeriodDays),
+    startDate: form.startDate || null,
+    expiresAt: fromDateTimeLocal(form.expiresAt),
+    addOns: commercialItemsFromText(form.addOns),
+    discounts: commercialItemsFromText(form.discounts),
+    sectionContent: sectionContentFromForm(form),
+    contactName: sourceData?.contact.name || loadedIdentity.contactName,
+    accountName:
+      sourceData?.clientAccount.name ||
+      sourceData?.contact.accountName ||
+      loadedIdentity.clientAccountName ||
+      loadedIdentity.accountName,
+    clientAccountName:
+      sourceData?.clientAccount.name || loadedIdentity.clientAccountName,
+  }), [form, loadedIdentity, selectedPackage, sourceData]);
+
   const updateForm = (patch: Partial<ProposalForm>) => {
+    if (!canEditCurrentProposal) return;
     setForm((current) => ({ ...current, ...patch }));
   };
 
-  const loadProposalWorkflow = useCallback(async () => {
-    if (!token) return;
-    setIsLoading(true);
-    setError("");
-    try {
-      const [packageRecords, proposalRecord] = await Promise.all([
-        api.packages.list(token, { includeInactive: true }),
-        proposalId ? api.proposals.get(token, proposalId) : Promise.resolve(null),
-      ]);
-      setPackages(packageRecords);
-      if (proposalRecord) {
-        setForm(formFromProposal(proposalRecord));
-        setSavedProposalId(proposalRecord.id);
-      }
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Could not load proposal workflow.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [proposalId, token]);
-
   useEffect(() => {
-    void Promise.resolve().then(() => loadProposalWorkflow());
-  }, [loadProposalWorkflow]);
+    let active = true;
+    sourceRequestRef.current += 1;
+    saveRequestRef.current += 1;
+    void Promise.resolve().then(async () => {
+      if (!active) return;
+      const routeSearchParams = new URLSearchParams(searchParamsKey);
+
+      setForm(createInitialForm(routeSearchParams));
+      setPackages([]);
+      setSavedProposalId("");
+      setSourceData(null);
+      setLoadedIdentity(identityFromSearchParams(routeSearchParams));
+      setIsSaving(false);
+      setIsPullingSourceData(false);
+      setMessage("");
+      setError("");
+
+      if (!token) {
+        setIsLoading(Boolean(proposalId));
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const [packageRecords, proposalRecord] = await Promise.all([
+          loadOptionalProposalPackages(
+            () => api.packages.list(token, { includeInactive: true }),
+          ),
+          proposalId ? api.proposals.get(token, proposalId) : Promise.resolve(null),
+        ]);
+        if (!active) return;
+        setPackages(packageRecords);
+        if (proposalRecord) {
+          setForm(formFromProposal(proposalRecord));
+          setSavedProposalId(proposalRecord.id);
+          setLoadedIdentity(proposalIdentityFromRecord(proposalRecord));
+        }
+      } catch (loadError: unknown) {
+        if (!active) return;
+        setError(loadError instanceof Error ? loadError.message : "Could not load proposal workflow.");
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+      sourceRequestRef.current += 1;
+      saveRequestRef.current += 1;
+    };
+  }, [proposalId, searchParamsKey, token]);
 
   const applyPackage = (packageId: string) => {
+    if (!canEditCurrentProposal) return;
     const packageRecord = packages.find((item) => item.id === packageId);
     updateForm({
       recommendedPackageId: packageId,
@@ -338,7 +442,7 @@ export default function ProposalEditPage() {
   };
 
   const pullProposalSourceData = useCallback(async () => {
-    if (!token) return;
+    if (!token || !canEditCurrentProposal) return;
     const params = {
       contactId: form.contactId.trim() || undefined,
       dealId: form.dealId.trim() || undefined,
@@ -352,19 +456,32 @@ export default function ProposalEditPage() {
     setIsPullingSourceData(true);
     setError("");
     setMessage("");
+    const request = {
+      requestId: ++sourceRequestRef.current,
+      routeKey: currentBrowserRouteKey(),
+    };
+    const requestIsCurrent = () => isCurrentProposalRequest(
+      {
+        requestId: sourceRequestRef.current,
+        routeKey: currentBrowserRouteKey(),
+      },
+      request,
+    );
     try {
       const pulled = await api.proposals.sourceData(token, params);
+      if (!requestIsCurrent()) return;
       setSourceData(pulled);
       setForm((current) => formWithSourceData(current, pulled));
       setMessage("CRM, audit and Growth Score data pulled into empty proposal fields.");
     } catch (pullError) {
+      if (!requestIsCurrent()) return;
       setError(pullError instanceof Error ? pullError.message : "Could not pull proposal source data.");
     } finally {
-      setIsPullingSourceData(false);
+      if (requestIsCurrent()) setIsPullingSourceData(false);
     }
-  }, [form.clientAccountProfileId, form.contactId, form.dealId, token]);
+  }, [canEditCurrentProposal, form.clientAccountProfileId, form.contactId, form.dealId, token]);
 
-  const buildPayload = (statusOverride?: ProposalPayload["status"]): ProposalPayload => ({
+  const buildPayload = (statusOverride?: ProposalRecord["status"]): ProposalPayload => ({
     contactId: form.contactId.trim() || null,
     dealId: form.dealId.trim() || null,
     clientAccountProfileId: form.clientAccountProfileId.trim() || null,
@@ -393,35 +510,55 @@ export default function ProposalEditPage() {
   });
 
   const saveProposal = async (previewAfterSave = false) => {
-    if (!token) return;
+    if (!token || !canEditCurrentProposal || isPullingSourceData) return;
+    const saveTarget = resolveProposalSaveTarget(proposalId, savedProposalId);
+    if (!saveTarget) {
+      setError("This proposal did not load for the current URL. Refresh before making changes.");
+      return;
+    }
+
     setIsSaving(true);
     setError("");
     setMessage("");
+    const request = {
+      requestId: ++saveRequestRef.current,
+      routeKey: currentBrowserRouteKey(),
+    };
+    const requestIsCurrent = () => isCurrentProposalRequest(
+      {
+        requestId: saveRequestRef.current,
+        routeKey: currentBrowserRouteKey(),
+      },
+      request,
+    );
     try {
-      const payload = buildPayload(savedProposalId ? form.status : "draft");
-      const saved = savedProposalId
-        ? await api.proposals.update(token, savedProposalId, payload)
+      const payload = buildPayload(saveTarget.mode === "update" ? form.status : "draft");
+      const saved = saveTarget.mode === "update"
+        ? await api.proposals.update(token, saveTarget.proposalId, payload)
         : await api.proposals.create(token, payload);
+      if (!requestIsCurrent()) return;
       setSavedProposalId(saved.id);
       setForm(formFromProposal(saved));
+      setLoadedIdentity(proposalIdentityFromRecord(saved));
       setMessage("Draft saved.");
-      if (!savedProposalId) {
-        router.replace(`/app/crm/proposals/edit?id=${encodeURIComponent(saved.id)}`);
+      if (saveTarget.mode === "create") {
+        router.replace(proposalEditorHref(saved.id));
       }
       if (previewAfterSave) {
         router.push(`/app/crm/proposals/preview?id=${encodeURIComponent(saved.id)}`);
       }
     } catch (saveError) {
+      if (!requestIsCurrent()) return;
       setError(saveError instanceof Error ? saveError.message : "Could not save proposal draft.");
     } finally {
-      setIsSaving(false);
+      if (requestIsCurrent()) setIsSaving(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-[#f5f6f1]">
       <PageHeader
-        title={savedProposalId ? "Edit Proposal" : "Create Proposal"}
+        title={proposalId ? "Edit Proposal" : "Create Proposal"}
         subtitle="Create and continue proposal drafts from a lead, deal or client account record."
         right={
           <div className="flex flex-wrap gap-2">
@@ -432,9 +569,18 @@ export default function ProposalEditPage() {
               <ArrowLeft className="h-4 w-4" />
               Pipeline
             </Link>
+            {proposalId ? (
+              <Link
+                href={`/app/crm/proposals/preview?id=${encodeURIComponent(proposalId)}`}
+                className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]"
+              >
+                <Eye className="h-4 w-4" />
+                Preview & outcomes
+              </Link>
+            ) : null}
             <button
               type="button"
-              disabled={isSaving || isLoading}
+              disabled={isSaving || isPullingSourceData || routeIsLoading || !canEditCurrentProposal}
               onClick={() => void pullProposalSourceData()}
               className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -443,7 +589,7 @@ export default function ProposalEditPage() {
             </button>
             <button
               type="button"
-              disabled={isSaving || isLoading}
+              disabled={isSaving || isPullingSourceData || routeIsLoading || !canEditCurrentProposal}
               onClick={() => void saveProposal(false)}
               className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -452,7 +598,7 @@ export default function ProposalEditPage() {
             </button>
             <button
               type="button"
-              disabled={isSaving || isLoading}
+              disabled={isSaving || isPullingSourceData || routeIsLoading || !canEditCurrentProposal}
               onClick={() => void saveProposal(true)}
               className="inline-flex items-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -462,18 +608,36 @@ export default function ProposalEditPage() {
           </div>
         }
       />
-      <SubNav items={SALES_NAV} />
 
       <main className="px-4 py-6 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-6xl space-y-5">
+          {!canWriteProposals && token ? (
+            <AlertBanner
+              title="Read-only proposal access"
+              description="You can review this proposal and its client-facing output, but your role cannot change or save proposal data."
+              variant="warning"
+            />
+          ) : null}
+          {proposalIsFinal ? (
+            <AlertBanner
+              title={`${statusLabel(form.status)} proposal locked`}
+              description="This outcome is final, so the proposal remains available to review but cannot be changed or moved back from the editor."
+              variant="info"
+            />
+          ) : null}
           {error ? <AlertBanner title="Proposal draft issue" description={error} variant="error" /> : null}
           {message ? <AlertBanner title="Saved" description={message} variant="success" /> : null}
 
-          {isLoading ? (
+          {routeIsLoading ? (
             <div className="flex min-h-[420px] items-center justify-center rounded-[8px] border border-[#d8e4df] bg-white">
               <Loader2 className="h-6 w-6 animate-spin text-[#315f51]" />
             </div>
           ) : (
+            <>
+            <fieldset
+              disabled={!canEditCurrentProposal}
+              className="m-0 min-w-0 border-0 p-0 disabled:opacity-90"
+            >
             <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
               <section className="space-y-5">
                 <div className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
@@ -553,15 +717,23 @@ export default function ProposalEditPage() {
                         Status
                         <select
                           value={form.status}
-                          onChange={(event) => updateForm({ status: event.target.value as ProposalPayload["status"] })}
+                          onChange={(event) => updateForm({ status: event.target.value as ProposalRecord["status"] })}
                           className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                         >
+                          {isFinalProposalStatus(form.status) ? (
+                            <option value={form.status}>
+                              {statusLabel(form.status)} (locked)
+                            </option>
+                          ) : null}
                           {statusOptions.map((status) => (
                             <option key={status.value} value={status.value}>
                               {status.label}
                             </option>
                           ))}
                         </select>
+                        <span className="mt-1 block text-xs font-normal leading-5 text-[#5b7069]">
+                          Record Accepted, Won or Lost from Preview & outcomes so the required evidence is saved.
+                        </span>
                       </label>
                       <label className="block text-sm font-medium text-[#354943]">
                         Currency
@@ -749,7 +921,7 @@ export default function ProposalEditPage() {
                   </div>
                   <button
                     type="button"
-                    disabled={isPullingSourceData}
+                    disabled={isPullingSourceData || !canEditCurrentProposal}
                     onClick={() => void pullProposalSourceData()}
                     className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60"
                   >
@@ -829,6 +1001,28 @@ export default function ProposalEditPage() {
                 </div>
               </section>
             </div>
+            </fieldset>
+            <section aria-labelledby="proposal-live-preview-title" className="space-y-3 pt-2">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">
+                    Client-facing output
+                  </p>
+                  <h2 id="proposal-live-preview-title" className="mt-1 text-lg font-semibold text-[#14231f]">
+                    Live {selectedTemplate.label} preview
+                  </h2>
+                </div>
+                <p className="max-w-xl text-sm text-[#5b7069]">
+                  Template, commercial and section changes appear here before the draft is saved.
+                </p>
+              </div>
+              <ClinicGrowerProposalTemplate
+                proposal={proposalPreview}
+                packageRecord={selectedPackage}
+                previewMode={false}
+              />
+            </section>
+            </>
           )}
         </div>
       </main>

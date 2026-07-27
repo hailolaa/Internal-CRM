@@ -1,12 +1,10 @@
 "use client";
 
 import { ArrowLeft, CheckCircle2, Clock, Copy, ExternalLink, Link2, Loader2, Printer, RefreshCw, Send, Trophy, XCircle } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AlertBanner, PageHeader } from "@/components/ui";
-import { SubNav } from "@/components/sub-nav";
-import { SALES_NAV } from "@/lib/section-nav";
 import {
   SALES_LOSS_REASON_OPTIONS,
   SALES_OBJECTION_TYPE_OPTIONS,
@@ -16,6 +14,13 @@ import { api } from "@/lib/api-client";
 import type { GrowthPackageRecord, ProposalRecord } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { ClinicGrowerProposalTemplate } from "@/components/proposals/clinicgrower-proposal-template";
+import { fromDatetimeLocalValue, toDatetimeLocalValue } from "@/lib/datetime-local";
+import {
+  isCurrentProposalRequest,
+  isFinalProposalStatus,
+  loadOptionalProposalPackages,
+  proposalRequestRouteKey,
+} from "@/lib/proposal-editor-state";
 
 const sampleProposal: ProposalRecord = {
   id: "preview",
@@ -117,10 +122,6 @@ function canGenerateProposalLink(proposal: ProposalRecord | null) {
   return Number.isFinite(expiryTime) && expiryTime > Date.now();
 }
 
-function isFinalProposalStatus(status: ProposalRecord["status"]) {
-  return ["accepted", "won", "lost", "expired", "archived"].includes(status);
-}
-
 function findMatchingPackage(proposal: ProposalRecord, packages: GrowthPackageRecord[]) {
   if (proposal.recommendedPackageId) {
     const selected = packages.find((item) => item.id === proposal.recommendedPackageId);
@@ -128,14 +129,6 @@ function findMatchingPackage(proposal: ProposalRecord, packages: GrowthPackageRe
   }
   const target = (proposal.packageName || proposal.proposalName || "").toLowerCase();
   return packages.find((item) => target.includes(item.name.toLowerCase()) || item.name.toLowerCase().includes(target)) || null;
-}
-
-function toDatetimeLocalValue(value?: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const offsetMs = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
 function statusLabel(value: string) {
@@ -147,11 +140,25 @@ const wonReasons = ["Accepted recommended package", "Budget approved", "Urgent g
 const lostReasons = SALES_LOSS_REASON_OPTIONS;
 const objectionTypes = SALES_OBJECTION_TYPE_OPTIONS;
 
+function currentBrowserRouteKey() {
+  return proposalRequestRouteKey(window.location.pathname, window.location.search);
+}
+
 export default function ProposalPreviewPage() {
   const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
+  const previewRouteKey = proposalRequestRouteKey(
+    "/app/crm/proposals/preview",
+    searchParamsKey,
+  );
   const proposalId = searchParams.get("id") || "";
-  const { session } = useAuth();
+  const { hasPermission, session } = useAuth();
   const token = session?.token;
+  const canWriteProposals = hasPermission("proposals:write");
+  const loadRequestRef = useRef(0);
+  const shareRequestRef = useRef(0);
+  const sendRequestRef = useRef(0);
+  const statusRequestRef = useRef(0);
   const [proposal, setProposal] = useState<ProposalRecord | null>(proposalId ? null : sampleProposal);
   const [packages, setPackages] = useState<GrowthPackageRecord[]>(proposalId ? [] : [samplePackage]);
   const [isLoading, setIsLoading] = useState(Boolean(proposalId));
@@ -176,20 +183,47 @@ export default function ProposalPreviewPage() {
   const [message, setMessage] = useState("");
 
   const loadPreview = useCallback(async () => {
-    if (!token || !proposalId) {
+    const request = {
+      requestId: ++loadRequestRef.current,
+      routeKey: previewRouteKey,
+    };
+    const requestIsCurrent = () => isCurrentProposalRequest(
+      {
+        requestId: loadRequestRef.current,
+        routeKey: currentBrowserRouteKey(),
+      },
+      request,
+    );
+    shareRequestRef.current += 1;
+    sendRequestRef.current += 1;
+    statusRequestRef.current += 1;
+    setIsGeneratingLink(false);
+    setIsMarkingSent(false);
+    setIsUpdatingStatus(false);
+    setMessage("");
+    setError("");
+    if (!proposalId) {
       setProposal(sampleProposal);
       setPackages([samplePackage]);
       setIsLoading(false);
       return;
     }
+    if (!token) {
+      setProposal(null);
+      setIsLoading(true);
+      return;
+    }
 
     setIsLoading(true);
-    setError("");
+    setProposal(null);
     try {
       const [proposalRecord, packageRecords] = await Promise.all([
         api.proposals.get(token, proposalId),
-        api.packages.list(token, { includeInactive: true }),
+        loadOptionalProposalPackages(
+          () => api.packages.list(token, { includeInactive: true }),
+        ),
       ]);
+      if (!requestIsCurrent()) return;
       setProposal(proposalRecord);
       setPackages(packageRecords);
       setSendRecipientEmail(proposalRecord.sentToEmail || proposalRecord.contactEmail || "");
@@ -208,18 +242,25 @@ export default function ProposalPreviewPage() {
           "Monthly fees payable monthly in advance. Setup fee due before project kickoff unless otherwise agreed.",
       );
     } catch (loadError) {
+      if (!requestIsCurrent()) return;
       setError(loadError instanceof Error ? loadError.message : "Could not load proposal preview.");
       setProposal(null);
     } finally {
-      setIsLoading(false);
+      if (requestIsCurrent()) setIsLoading(false);
     }
-  }, [proposalId, token]);
+  }, [previewRouteKey, proposalId, token]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       void loadPreview();
     }, 0);
-    return () => window.clearTimeout(timeoutId);
+    return () => {
+      window.clearTimeout(timeoutId);
+      loadRequestRef.current += 1;
+      shareRequestRef.current += 1;
+      sendRequestRef.current += 1;
+      statusRequestRef.current += 1;
+    };
   }, [loadPreview]);
 
   const packageRecord = useMemo(
@@ -227,32 +268,63 @@ export default function ProposalPreviewPage() {
     [packages, proposal, proposalId],
   );
   const canGenerateLink = canGenerateProposalLink(proposal);
+  const canMutateProposal =
+    canWriteProposals && Boolean(token && proposalId && proposal?.id === proposalId);
+  const previewIsLoading =
+    isLoading || Boolean(proposalId && proposal && proposal.id !== proposalId);
 
   const createProposalLink = useCallback(async () => {
-    if (!token || !proposalId) return;
+    if (!token || !proposalId || !canMutateProposal) return;
     setIsGeneratingLink(true);
     setError("");
     setMessage("");
+    const request = {
+      requestId: ++shareRequestRef.current,
+      routeKey: previewRouteKey,
+    };
+    const requestIsCurrent = () => isCurrentProposalRequest(
+      {
+        requestId: shareRequestRef.current,
+        routeKey: currentBrowserRouteKey(),
+      },
+      request,
+    );
     try {
       const share = await api.proposals.share(token, proposalId);
-      setProposal((current) => current ? { ...current, proposalUrl: share.proposalUrl } : current);
+      if (!requestIsCurrent()) return;
+      setProposal((current) => current?.id === proposalId
+        ? { ...current, proposalUrl: share.proposalUrl }
+        : current);
       setMessage("Unique proposal link generated and saved to this proposal record.");
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(share.proposalUrl);
+        if (!requestIsCurrent()) return;
         setMessage("Unique proposal link generated, saved and copied.");
       }
     } catch (shareError) {
+      if (!requestIsCurrent()) return;
       setError(shareError instanceof Error ? shareError.message : "Could not generate proposal link.");
     } finally {
-      setIsGeneratingLink(false);
+      if (requestIsCurrent()) setIsGeneratingLink(false);
     }
-  }, [proposalId, token]);
+  }, [canMutateProposal, previewRouteKey, proposalId, token]);
 
   const markProposalSent = useCallback(async () => {
-    if (!token || !proposalId) return;
+    if (!token || !proposalId || !canMutateProposal) return;
     setIsMarkingSent(true);
     setError("");
     setMessage("");
+    const request = {
+      requestId: ++sendRequestRef.current,
+      routeKey: previewRouteKey,
+    };
+    const requestIsCurrent = () => isCurrentProposalRequest(
+      {
+        requestId: sendRequestRef.current,
+        routeKey: currentBrowserRouteKey(),
+      },
+      request,
+    );
     try {
       const updated = await api.proposals.send(token, proposalId, {
         recipientEmail: sendRecipientEmail.trim() || null,
@@ -260,37 +332,51 @@ export default function ProposalPreviewPage() {
         sendMethod: "manual_email",
         sendNote: sendNote.trim() || null,
       });
+      if (!requestIsCurrent()) return;
       setProposal(updated);
       setSendRecipientEmail(updated.sentToEmail || updated.contactEmail || "");
       setSendRecipientName(updated.sentToName || updated.contactName || updated.accountName || "");
       setSendNote(updated.sendNote || "");
       setMessage("Proposal sent date, recipient and manual send log saved.");
     } catch (sendError) {
+      if (!requestIsCurrent()) return;
       setError(sendError instanceof Error ? sendError.message : "Could not mark proposal as sent.");
     } finally {
-      setIsMarkingSent(false);
+      if (requestIsCurrent()) setIsMarkingSent(false);
     }
-  }, [proposalId, sendNote, sendRecipientEmail, sendRecipientName, token]);
+  }, [canMutateProposal, previewRouteKey, proposalId, sendNote, sendRecipientEmail, sendRecipientName, token]);
 
   const updateProposalStatus = useCallback(async (
     status: "follow_up_due" | "accepted" | "won" | "lost",
     reason?: string,
   ) => {
-    if (!token || !proposalId) return;
+    if (!token || !proposalId || !canMutateProposal) return;
     setIsUpdatingStatus(true);
     setError("");
     setMessage("");
+    const request = {
+      requestId: ++statusRequestRef.current,
+      routeKey: previewRouteKey,
+    };
+    const requestIsCurrent = () => isCurrentProposalRequest(
+      {
+        requestId: statusRequestRef.current,
+        routeKey: currentBrowserRouteKey(),
+      },
+      request,
+    );
     try {
       const updated = await api.proposals.updateStatus(token, proposalId, {
         status,
-        followUpAt: status === "follow_up_due" ? followUpAt || null : undefined,
+        followUpAt: status === "follow_up_due" ? fromDatetimeLocalValue(followUpAt) : undefined,
         reason: status === "follow_up_due" ? undefined : reason || null,
         objectionType: status === "lost" ? objectionType : undefined,
         acceptedByName: status === "accepted" || status === "won" ? acceptedByName.trim() || null : undefined,
         acceptedByEmail: status === "accepted" || status === "won" ? acceptedByEmail.trim() || null : undefined,
-        acceptedAt: status === "accepted" || status === "won" ? acceptedAt || null : undefined,
+        acceptedAt: status === "accepted" || status === "won" ? fromDatetimeLocalValue(acceptedAt) : undefined,
         paymentTerms: status === "accepted" || status === "won" ? paymentTerms.trim() || null : undefined,
       });
+      if (!requestIsCurrent()) return;
       setProposal(updated);
       setFollowUpAt(toDatetimeLocalValue(updated.followUpAt));
       setAcceptedReason(updated.acceptedReason || acceptedReasons[0]);
@@ -310,11 +396,12 @@ export default function ProposalPreviewPage() {
           : `Proposal marked ${statusLabel(status)} and SOW snapshot saved.`,
       );
     } catch (statusError) {
+      if (!requestIsCurrent()) return;
       setError(statusError instanceof Error ? statusError.message : "Could not update proposal status.");
     } finally {
-      setIsUpdatingStatus(false);
+      if (requestIsCurrent()) setIsUpdatingStatus(false);
     }
-  }, [acceptedAt, acceptedByEmail, acceptedByName, followUpAt, objectionType, paymentTerms, proposalId, token]);
+  }, [acceptedAt, acceptedByEmail, acceptedByName, canMutateProposal, followUpAt, objectionType, paymentTerms, previewRouteKey, proposalId, token]);
   const proposalIsFinal = proposal ? isFinalProposalStatus(proposal.status) : false;
   const proposalOutcomeIsLocked = proposal
     ? ["won", "lost", "expired", "archived"].includes(proposal.status)
@@ -332,7 +419,7 @@ export default function ProposalPreviewPage() {
               className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]"
             >
               <ArrowLeft className="h-4 w-4" />
-              Edit
+              {canWriteProposals ? "Edit" : "View details"}
             </Link>
             <button
               type="button"
@@ -342,10 +429,10 @@ export default function ProposalPreviewPage() {
               <RefreshCw className="h-4 w-4" />
               Refresh
             </button>
-            {proposalId ? (
+            {proposalId && canWriteProposals ? (
               <button
                 type="button"
-                disabled={isGeneratingLink || isLoading || !canGenerateLink}
+                disabled={isGeneratingLink || previewIsLoading || !canGenerateLink || !canMutateProposal}
                 onClick={() => void createProposalLink()}
                 title={canGenerateLink ? undefined : "Mark the proposal ready and ensure it has not expired before sharing."}
                 className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
@@ -354,10 +441,10 @@ export default function ProposalPreviewPage() {
                 Generate link
               </button>
             ) : null}
-            {proposalId ? (
+            {proposalId && canWriteProposals ? (
               <button
                 type="button"
-                disabled={isMarkingSent || isLoading || proposalIsFinal}
+                disabled={isMarkingSent || previewIsLoading || proposalIsFinal || !canMutateProposal}
                 onClick={() => void markProposalSent()}
                 className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -376,7 +463,6 @@ export default function ProposalPreviewPage() {
           </div>
         }
       />
-      <SubNav items={SALES_NAV} />
 
       <main className="px-4 py-6 sm:px-6 lg:px-8">
         {!proposalId && (
@@ -388,6 +474,16 @@ export default function ProposalPreviewPage() {
             />
           </div>
         )}
+
+        {!canWriteProposals && token && proposalId ? (
+          <div className="mx-auto mb-4 max-w-5xl">
+            <AlertBanner
+              title="Read-only proposal access"
+              description="You can review and print this proposal, but your role cannot send, share or change its status."
+              variant="warning"
+            />
+          </div>
+        ) : null}
 
         {error && (
           <div className="mx-auto mb-4 max-w-5xl">
@@ -401,12 +497,16 @@ export default function ProposalPreviewPage() {
           </div>
         )}
 
-        {isLoading ? (
+        {previewIsLoading ? (
           <div className="mx-auto flex min-h-[420px] max-w-5xl items-center justify-center rounded-[8px] border border-[#d8e4df] bg-white">
             <Loader2 className="h-6 w-6 animate-spin text-[#315f51]" />
           </div>
         ) : proposal ? (
           <>
+            <fieldset
+              disabled={!canMutateProposal}
+              className="m-0 min-w-0 border-0 p-0 disabled:opacity-90"
+            >
             {proposalId ? (
               <section className="mx-auto mb-4 max-w-5xl rounded-[8px] border border-[#d8e4df] bg-white p-4">
                 <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1.2fr_auto] lg:items-end">
@@ -645,6 +745,7 @@ export default function ProposalPreviewPage() {
                 ) : null}
               </section>
             ) : null}
+            </fieldset>
             <div className="mx-auto mb-4 flex max-w-5xl justify-end">
               {proposal.proposalUrl ? (
                 <div className="flex flex-wrap items-center justify-end gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2">

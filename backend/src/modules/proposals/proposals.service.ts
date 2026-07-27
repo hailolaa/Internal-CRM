@@ -1,11 +1,17 @@
 import { v4 as uuidv4 } from "uuid";
+import type { PoolConnection } from "mysql2/promise";
 import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
-import { logAuditEvent } from "../../utils/audit.js";
-import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
+import { insertAuditEvent, logAuditEvent } from "../../utils/audit.js";
+import { buildTimelineMetadata, insertTimelineActivity, logTimelineActivity } from "../../utils/activity.js";
 import { generateResetToken, hashToken } from "../../utils/helpers.js";
-import { pipelineDealsService } from "../pipeline/pipeline.deals.service.js";
+import { clientAccountsService } from "../client-accounts/client-accounts.service.js";
+import { phase1TimelineActions } from "../events/phase1-events.js";
+import {
+  insertPipelineDealMovement,
+  movePipelineDealStage,
+} from "../pipeline/pipeline.deals.persistence.js";
 import {
   buildProposalPublicUrl,
   isProposalPubliclyVisible,
@@ -29,6 +35,8 @@ import type {
   ProposalStatus,
   ProposalStatusUpdateDTO,
 } from "./proposals.types.js";
+
+type QueryExecutor = Pick<PoolConnection, "execute">;
 
 function cleanString(value: unknown) {
   if (value === null || value === undefined) return null;
@@ -216,6 +224,18 @@ function mapScoreCategories(row: any) {
     revenueLeakage: score(row?.growthScoreRevenueLeakage, "revenueLeakage"),
     growthOpportunity: score(row?.growthScoreGrowthOpportunity, "growthOpportunity"),
   };
+}
+
+function mergeScoreCategories(contact: any, clientAccount: any) {
+  const contactCategories = mapScoreCategories(contact || {});
+  const accountCategories = mapScoreCategories(clientAccount || {});
+  return Object.fromEntries(
+    Object.keys(contactCategories).map((key) => [
+      key,
+      contactCategories[key as keyof typeof contactCategories] ??
+        accountCategories[key as keyof typeof accountCategories],
+    ]),
+  ) as Record<keyof typeof contactCategories, number | null>;
 }
 
 function scoreGaps(categories: Record<string, number | null>) {
@@ -498,8 +518,12 @@ export class ProposalsService {
     return rows.map(mapProposal);
   }
 
-  async getProposal(clinicId: string, proposalId: string): Promise<ProposalResponse> {
-    const [rows]: any = await pool.execute(
+  async getProposal(
+    clinicId: string,
+    proposalId: string,
+    executor: QueryExecutor = pool,
+  ): Promise<ProposalResponse> {
+    const [rows]: any = await executor.execute(
       `${proposalSelectSql()}
        WHERE p.id = ?
          AND p.clinic_id = ?
@@ -540,6 +564,7 @@ export class ProposalsService {
       clinicId,
       userId,
       contactId: proposal.contactId,
+      clientAccountProfileId: proposal.clientAccountProfileId,
       proposalId,
       action: "proposal_link_created",
       title: proposal.proposalName,
@@ -585,7 +610,7 @@ export class ProposalsService {
       "Manual send fallback: proposal link was copied/sent outside Mission Control and logged here.";
     const now = new Date().toISOString().slice(0, 19).replace("T", " ");
 
-    await pool.execute(
+    const [sendResult]: any = await pool.execute(
       `UPDATE proposal
        SET status = 'sent',
            sent_at = COALESCE(sent_at, ?),
@@ -598,9 +623,24 @@ export class ProposalsService {
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?
          AND clinic_id = ?
-         AND deleted_at IS NULL`,
-      [now, recipientEmail, recipientName, sendMethod, sendNote, userId, userId, proposalId, clinicId],
+         AND deleted_at IS NULL
+         AND status = ?`,
+      [
+        now,
+        recipientEmail,
+        recipientName,
+        sendMethod,
+        sendNote,
+        userId,
+        userId,
+        proposalId,
+        clinicId,
+        proposal.status,
+      ],
     );
+    if (Number(sendResult.affectedRows || 0) !== 1) {
+      throw ApiError.conflict("Proposal changed while it was being marked sent.");
+    }
 
     let updated = await this.getProposal(clinicId, proposalId);
     if (!updated.proposalUrl) {
@@ -611,6 +651,7 @@ export class ProposalsService {
       clinicId,
       userId,
       contactId: updated.contactId,
+      clientAccountProfileId: updated.clientAccountProfileId,
       proposalId,
       action: "proposal_sent",
       title: updated.proposalName,
@@ -724,6 +765,7 @@ export class ProposalsService {
         clinicId: refreshedRows[0].clinicId,
         userId: null,
         contactId: internalProposal.contactId,
+        clientAccountProfileId: internalProposal.clientAccountProfileId,
         proposalId: internalProposal.id,
         action: "proposal_viewed",
         title: internalProposal.proposalName,
@@ -808,10 +850,14 @@ export class ProposalsService {
     const accountName = clientAccount?.clientName || contact?.accountName || contactFullName(contact) || deal?.title || "Prospect";
     const contactName = contactFullName(contact) || "Decision maker";
     const location = contact ? formatLocation(contact) : null;
-    const categories = mapScoreCategories(contact || clientAccount || {});
+    const categories = mergeScoreCategories(contact, clientAccount);
     const gaps = scoreGaps(categories);
-    const overall = numberOrNull((contact || clientAccount)?.growthScoreOverall);
-    const growthScoreRecommendation = cleanString((contact || clientAccount)?.growthScoreRecommendedPackage);
+    const overall =
+      numberOrNull(contact?.growthScoreOverall) ??
+      numberOrNull(clientAccount?.growthScoreOverall);
+    const growthScoreRecommendation =
+      cleanString(contact?.growthScoreRecommendedPackage) ||
+      cleanString(clientAccount?.growthScoreRecommendedPackage);
     const explicitRecommendation =
       growthScoreRecommendation ||
       cleanString(clientAccount?.recommendedNextPackage) ||
@@ -820,7 +866,9 @@ export class ProposalsService {
       cleanString(deal?.treatment);
     const packageRecord = await this.findRecommendedPackageByName(clinicId, explicitRecommendation);
     const packageName = packageRecord?.name || explicitRecommendation || null;
-    const gapSummary = cleanString((contact || clientAccount)?.growthScoreGapSummary);
+    const gapSummary =
+      cleanString(contact?.growthScoreGapSummary) ||
+      cleanString(clientAccount?.growthScoreGapSummary);
     const auditStatus = cleanString(contact?.auditStatus);
     const auditFollowUpDueAt = toIso(contact?.auditFollowUpDueAt);
     const currentPackage = cleanString(clientAccount?.currentPackage);
@@ -904,7 +952,7 @@ export class ProposalsService {
         gaps,
         recommendedPackage: growthScoreRecommendation,
         gapSummary,
-        updatedAt: toIso((contact || clientAccount)?.growthScoreUpdatedAt),
+        updatedAt: toIso(contact?.growthScoreUpdatedAt || clientAccount?.growthScoreUpdatedAt),
       },
       audit: {
         status: auditStatus,
@@ -998,65 +1046,101 @@ export class ProposalsService {
       userId,
     ];
 
-    await pool.execute(
-      `INSERT INTO proposal
+    const insertSql = `INSERT INTO proposal
         (id, clinic_id, contact_id, deal_id, client_account_profile_id, proposal_name,
          template_key, package_name, recommended_package_id, owner_id, status, value,
          monthly_fee_cents, setup_fee_cents, currency, ad_spend_note, vat_status,
          minimum_term_months, notice_period_days, start_date, follow_up_at, ready_at,
          sent_at, viewed_at, accepted_at, accepted_reason, won_at, won_reason, lost_at, lost_reason, objection_type, expires_at, proposal_url,
          notes, add_ons, discounts, internal_margin_note, section_content, draft_saved_at, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      values,
-    );
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    const mutate = async (executor: QueryExecutor) => {
+      await executor.execute(insertSql, values);
+    };
+    const recordCreated = async (executor: QueryExecutor | null, created: ProposalResponse) => {
+      await this.logProposalActivity({
+        clinicId,
+        userId,
+        contactId: created.contactId,
+        clientAccountProfileId: created.clientAccountProfileId,
+        proposalId: id,
+        action: "proposal_created",
+        title: proposalName,
+        status,
+        changes: {
+          contactId: links.contactId,
+          dealId: links.dealId,
+          clientAccountProfileId: links.clientAccountProfileId,
+          templateKey: cleanString(data.templateKey) || "clinicgrower_standard",
+          packageName,
+          recommendedPackageId: recommendedPackage?.id || null,
+          monthlyFeeCents,
+          setupFeeCents,
+          adSpendNote: cleanString(data.adSpendNote),
+          vatStatus: cleanString(data.vatStatus),
+          minimumTermMonths: data.minimumTermMonths ?? null,
+          noticePeriodDays: data.noticePeriodDays ?? null,
+          startDate: toMysqlDateOnly(data.startDate),
+          addOns: data.addOns || [],
+          discounts: data.discounts || [],
+          ownerId: cleanString(data.ownerId) || userId,
+          followUpAt: toMysqlDateTime(data.followUpAt),
+          acceptedReason: cleanString(data.acceptedReason),
+          wonReason: cleanString(data.wonReason),
+          lostReason: cleanString(data.lostReason),
+          objectionType: cleanString(data.objectionType),
+        },
+      }, executor || undefined);
+      const auditPayload = {
+        clinicId,
+        userId,
+        action: "PROPOSAL_CREATED",
+        entityType: "proposal",
+        entityId: id,
+        changes: {
+          ...data,
+          contactId: links.contactId,
+          dealId: links.dealId,
+          clientAccountProfileId: links.clientAccountProfileId,
+        },
+      };
+      if (executor) {
+        await insertAuditEvent(executor, auditPayload);
+      } else {
+        await logAuditEvent(auditPayload);
+      }
+    };
 
-    await this.logProposalActivity({
-      clinicId,
-      userId,
-      contactId: links.contactId,
-      proposalId: id,
-      action: "proposal_created",
-      title: proposalName,
-      status,
-      changes: {
-        contactId: links.contactId,
+    if (["accepted", "won"].includes(status)) {
+      return this.persistAcceptedProposalMutation({
+        clinicId,
+        userId,
+        proposalId: id,
         dealId: links.dealId,
-        clientAccountProfileId: links.clientAccountProfileId,
-        templateKey: cleanString(data.templateKey) || "clinicgrower_standard",
-        packageName,
-        recommendedPackageId: recommendedPackage?.id || null,
-        monthlyFeeCents,
-        setupFeeCents,
-        adSpendNote: cleanString(data.adSpendNote),
-        vatStatus: cleanString(data.vatStatus),
-        minimumTermMonths: data.minimumTermMonths ?? null,
-        noticePeriodDays: data.noticePeriodDays ?? null,
-        startDate: toMysqlDateOnly(data.startDate),
-        addOns: data.addOns || [],
-        discounts: data.discounts || [],
-        ownerId: cleanString(data.ownerId) || userId,
-        followUpAt: toMysqlDateTime(data.followUpAt),
-        acceptedReason: cleanString(data.acceptedReason),
-        wonReason: cleanString(data.wonReason),
-        lostReason: cleanString(data.lostReason),
-        objectionType: cleanString(data.objectionType),
-      },
-    });
-    await logAuditEvent({
-      clinicId,
-      userId,
-      action: "PROPOSAL_CREATED",
-      entityType: "proposal",
-      entityId: id,
-      changes: { ...data, contactId: links.contactId, dealId: links.dealId, clientAccountProfileId: links.clientAccountProfileId },
-    });
+        data,
+        mutate,
+        recordMutation: (executor, created) => recordCreated(executor, created),
+      });
+    }
+    if (status === "lost") {
+      return this.persistLostProposalMutation({
+        clinicId,
+        userId,
+        proposalId: id,
+        dealId: links.dealId,
+        data,
+        mutate,
+        recordMutation: (executor, created) => recordCreated(executor, created),
+      });
+    }
 
+    await mutate(pool);
     const created = await this.getProposal(clinicId, id);
+    await recordCreated(null, created);
     await this.syncProposalFollowUpTask(clinicId, userId, created);
-    await this.ensureAcceptedProposalSnapshot(clinicId, userId, created, data);
     await this.syncRelatedDealStage(clinicId, userId, created);
 
-    return ["accepted", "won"].includes(created.status) ? this.getProposal(clinicId, id) : created;
+    return created;
   }
 
   async updateProposal(
@@ -1158,60 +1242,67 @@ export class ProposalsService {
     }
 
     add("updated_by", userId);
-    values.push(proposalId, clinicId);
-    await pool.execute(
-      `UPDATE proposal
+    values.push(proposalId, clinicId, existing.status);
+    const updateSql = `UPDATE proposal
        SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
-      values,
-    );
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+         AND status = ?`;
+    const mutate = async (executor: QueryExecutor) => {
+      const [result]: any = await executor.execute(updateSql, values);
+      if (Number(result.affectedRows || 0) !== 1) {
+        throw ApiError.conflict("Proposal changed while this update was in progress.");
+      }
+    };
 
-    const updated = await this.getProposal(clinicId, proposalId);
-    if (existing.status !== updated.status) {
-      await this.logProposalActivity({
+    if (["accepted", "won"].includes(status)) {
+      return this.persistAcceptedProposalMutation({
         clinicId,
         userId,
-        contactId: updated.contactId,
         proposalId,
-        action: "proposal_status_changed",
-        title: updated.proposalName,
-        status: updated.status,
-        previousStatus: existing.status,
-        changes: {
-          previousStatus: existing.status,
-          status: updated.status,
-          followUpAt: updated.followUpAt,
-          acceptedReason: updated.acceptedReason,
-          wonReason: updated.wonReason,
-          lostReason: updated.lostReason,
-          objectionType: updated.objectionType,
-        },
-      });
-    } else {
-      await this.logProposalActivity({
-        clinicId,
-        userId,
-        contactId: updated.contactId,
-        proposalId,
-        action: "proposal_updated",
-        title: updated.proposalName,
-        status: updated.status,
-        changes: data as Record<string, unknown>,
+        dealId: links.dealId,
+        data,
+        mutate,
+        recordMutation: (executor, updated) => this.recordProposalUpdate(
+          executor,
+          clinicId,
+          userId,
+          proposalId,
+          existing,
+          updated,
+          data,
+        ),
       });
     }
-    await logAuditEvent({
-      clinicId,
-      userId,
-      action: existing.status !== updated.status ? "PROPOSAL_STATUS_CHANGED" : "PROPOSAL_UPDATED",
-      entityType: "proposal",
-      entityId: proposalId,
-      changes: { before: { status: existing.status }, after: data },
-    });
+    if (status === "lost") {
+      return this.persistLostProposalMutation({
+        clinicId,
+        userId,
+        proposalId,
+        dealId: links.dealId,
+        data,
+        mutate,
+        recordMutation: (executor, updated) => this.recordProposalUpdate(
+          executor,
+          clinicId,
+          userId,
+          proposalId,
+          existing,
+          updated,
+          data,
+        ),
+        previousProposal: existing,
+      });
+    }
+
+    await mutate(pool);
+    const updated = await this.getProposal(clinicId, proposalId);
+    await this.recordProposalUpdate(null, clinicId, userId, proposalId, existing, updated, data);
     await this.syncProposalFollowUpTask(clinicId, userId, updated);
-    await this.ensureAcceptedProposalSnapshot(clinicId, userId, updated, data);
     await this.syncRelatedDealStage(clinicId, userId, updated, existing);
 
-    return ["accepted", "won"].includes(updated.status) ? this.getProposal(clinicId, proposalId) : updated;
+    return updated;
   }
 
   async updateProposalStatus(
@@ -1257,16 +1348,31 @@ export class ProposalsService {
 
   async archiveProposal(clinicId: string, userId: string, proposalId: string): Promise<void> {
     const existing = await this.getProposal(clinicId, proposalId);
-    await pool.execute(
+    const [archiveResult]: any = await pool.execute(
       `UPDATE proposal
-       SET status = 'archived', deleted_at = CURRENT_TIMESTAMP, updated_by = ?
-       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
-      [userId, proposalId, clinicId],
+       SET status = 'archived',
+           deleted_at = CURRENT_TIMESTAMP,
+           updated_by = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+         AND status = ?`,
+      [userId, proposalId, clinicId, existing.status],
+    );
+    if (Number(archiveResult.affectedRows || 0) !== 1) {
+      throw ApiError.conflict("Proposal changed while it was being archived.");
+    }
+    await this.syncProposalFollowUpTask(
+      clinicId,
+      userId,
+      { ...existing, status: "archived" },
     );
     await this.logProposalActivity({
       clinicId,
       userId,
       contactId: existing.contactId,
+      clientAccountProfileId: existing.clientAccountProfileId,
       proposalId,
       action: "proposal_archived",
       title: existing.proposalName,
@@ -1281,6 +1387,499 @@ export class ProposalsService {
       entityId: proposalId,
       changes: { previousStatus: existing.status },
     });
+  }
+
+  private async withTransaction<T>(work: (connection: PoolConnection) => Promise<T>) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const result = await work(connection);
+      await connection.commit();
+      return result;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  private async persistAcceptedProposalMutation(input: {
+    clinicId: string;
+    userId: string;
+    proposalId: string;
+    dealId: string | null;
+    data: ProposalMutationDTO;
+    mutate: (executor: QueryExecutor) => Promise<void>;
+    recordMutation: (executor: QueryExecutor, proposal: ProposalResponse) => Promise<void>;
+  }) {
+    const finalizeMutation = async (executor: QueryExecutor) => {
+      await input.mutate(executor);
+      if (input.dealId) {
+        await executor.execute(
+          `UPDATE proposal p
+           JOIN deal d
+             ON d.id = p.deal_id
+            AND d.clinic_id = p.clinic_id
+            AND d.deleted_at IS NULL
+           SET p.client_account_profile_id = COALESCE(p.client_account_profile_id, d.client_account_profile_id),
+               p.updated_at = CURRENT_TIMESTAMP
+           WHERE p.id = ?
+             AND p.clinic_id = ?
+             AND p.deleted_at IS NULL`,
+          [input.proposalId, input.clinicId],
+        );
+      }
+      const proposal = await this.getProposal(input.clinicId, input.proposalId, executor);
+      await input.recordMutation(executor, proposal);
+      await this.syncProposalFollowUpTask(input.clinicId, input.userId, proposal, executor);
+      await this.ensureAcceptedProposalSnapshot(
+        input.clinicId,
+        input.userId,
+        proposal,
+        input.data,
+        executor,
+      );
+      return proposal;
+    };
+
+    if (!input.dealId) {
+      await this.withTransaction(finalizeMutation);
+      return this.getProposal(input.clinicId, input.proposalId);
+    }
+
+    await clientAccountsService.convertWonDealToClient(
+      input.clinicId,
+      input.userId,
+      { dealId: input.dealId },
+      {},
+      {
+        beforeConversion: async (connection) => {
+          const proposal = await finalizeMutation(connection);
+          await this.moveAcceptedProposalDeal(
+            connection,
+            input.clinicId,
+            input.userId,
+            proposal,
+          );
+        },
+      },
+    );
+    return this.getProposal(input.clinicId, input.proposalId);
+  }
+
+  private async persistLostProposalMutation(input: {
+    clinicId: string;
+    userId: string;
+    proposalId: string;
+    dealId: string | null;
+    data: ProposalMutationDTO;
+    mutate: (executor: QueryExecutor) => Promise<void>;
+    recordMutation: (executor: QueryExecutor, proposal: ProposalResponse) => Promise<void>;
+    previousProposal?: ProposalResponse;
+  }) {
+    return this.withTransaction(async (connection) => {
+      await input.mutate(connection);
+      const proposal = await this.getProposal(input.clinicId, input.proposalId, connection);
+      await input.recordMutation(connection, proposal);
+      await this.syncProposalFollowUpTask(input.clinicId, input.userId, proposal, connection);
+      await this.syncLostProposalRelations(
+        connection,
+        input.clinicId,
+        input.userId,
+        proposal,
+        input.previousProposal,
+      );
+      return proposal;
+    });
+  }
+
+  private async syncLostProposalRelations(
+    executor: QueryExecutor,
+    clinicId: string,
+    userId: string,
+    proposal: ProposalResponse,
+    previousProposal?: ProposalResponse,
+  ) {
+    let deal: {
+      id: string;
+      pipelineId: string;
+      stageId: string | null;
+      stageName: string | null;
+      status: string;
+      contactId: string;
+      clientAccountProfileId: string | null;
+    } | null = null;
+
+    if (proposal.dealId) {
+      const [dealRows]: any = await executor.execute(
+        `SELECT d.id,
+                d.pipeline_id as pipelineId,
+                d.pipeline_stage_id as stageId,
+                COALESCE(ps.name, d.stage) as stageName,
+                d.status,
+                d.contact_id as contactId,
+                d.client_account_profile_id as clientAccountProfileId
+         FROM deal d
+         LEFT JOIN pipeline_stage ps
+           ON ps.id = d.pipeline_stage_id
+          AND ps.clinic_id = d.clinic_id
+          AND ps.deleted_at IS NULL
+         WHERE d.id = ?
+           AND d.clinic_id = ?
+           AND d.deleted_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+        [proposal.dealId, clinicId],
+      );
+      deal = dealRows[0] || null;
+      if (!deal) throw ApiError.notFound("Linked opportunity not found");
+    }
+
+    const contactId = proposal.contactId || deal?.contactId || null;
+    if (contactId) {
+      await executor.execute(
+        `UPDATE contact
+         SET lost_reason = ?,
+             objection_type = ?,
+             lead_status = CASE
+               WHEN lead_status IN ('client', 'converted')
+                 OR ? IS NOT NULL
+                 OR LOWER(COALESCE(status, '')) = 'client'
+               THEN 'converted'
+               ELSE 'lost'
+             END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND clinic_id = ?
+           AND deleted_at IS NULL`,
+        [
+          proposal.lostReason,
+          proposal.objectionType,
+          deal?.clientAccountProfileId || proposal.clientAccountProfileId,
+          contactId,
+          clinicId,
+        ],
+      );
+    }
+    if (!proposal.dealId || !deal) return;
+
+    const [stageRows]: any = await executor.execute(
+      `SELECT id, name
+       FROM pipeline_stage
+       WHERE clinic_id = ?
+         AND pipeline_id = ?
+         AND kind = 'lost'
+         AND deleted_at IS NULL
+       ORDER BY position ASC
+       LIMIT 1`,
+      [clinicId, deal.pipelineId],
+    );
+    const targetStage = stageRows[0];
+    if (!targetStage) {
+      throw ApiError.badRequest("The linked opportunity pipeline does not have a Lost stage.");
+    }
+    if (deal.stageId === targetStage.id && deal.status === "lost") {
+      await executor.execute(
+        `UPDATE deal
+         SET sold_at = NULL,
+             lost_at = COALESCE(lost_at, ?),
+             lost_reason = ?,
+             objection_type = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND clinic_id = ?
+           AND pipeline_stage_id = ?
+           AND status = 'lost'
+           AND deleted_at IS NULL`,
+        [
+          toMysqlDateTime(proposal.lostAt),
+          proposal.lostReason,
+          proposal.objectionType,
+          proposal.dealId,
+          clinicId,
+          targetStage.id,
+        ],
+      );
+      return;
+    }
+
+    const moved = await movePipelineDealStage(
+      clinicId,
+      proposal.dealId,
+      {
+        stageId: targetStage.id,
+        stageName: targetStage.name,
+        status: "lost",
+        soldAt: null,
+        lostAt: toMysqlDateTime(proposal.lostAt),
+        lostReason: proposal.lostReason,
+        objectionType: proposal.objectionType,
+      },
+      deal.stageId,
+      executor,
+    );
+    if (moved !== 1) {
+      throw ApiError.conflict("Opportunity moved while this proposal was being marked lost.");
+    }
+
+    const movementId = uuidv4();
+    await insertPipelineDealMovement({
+      id: movementId,
+      clinicId,
+      dealId: proposal.dealId,
+      pipelineId: deal.pipelineId,
+      fromStageId: deal.stageId,
+      toStageId: targetStage.id,
+      fromStage: deal.stageName,
+      toStage: targetStage.name,
+      movedBy: userId,
+      metadata: {
+        source: "proposal",
+        proposalId: proposal.id,
+        previousProposalStatus: previousProposal?.status || null,
+        proposalStatus: proposal.status,
+        reason: proposal.lostReason,
+        objectionType: proposal.objectionType,
+      },
+    }, executor);
+    await insertTimelineActivity(executor, {
+      clinicId,
+      contactId: deal.contactId,
+      type: "StatusChange",
+      userId,
+      metadata: buildTimelineMetadata({
+        action: phase1TimelineActions.leadStageChanged,
+        source: "pipeline",
+        recordId: proposal.dealId,
+        changes: {
+          fromStage: deal.stageName,
+          toStage: targetStage.name,
+          proposalId: proposal.id,
+          lostReason: proposal.lostReason,
+          objectionType: proposal.objectionType,
+        },
+      }),
+    });
+    await insertAuditEvent(executor, {
+      clinicId,
+      userId,
+      action: "PIPELINE_DEAL_MOVED",
+      entityType: "deal",
+      entityId: proposal.dealId,
+      changes: {
+        fromStage: deal.stageName,
+        toStage: targetStage.name,
+        movementId,
+        proposalId: proposal.id,
+        lostReason: proposal.lostReason,
+        objectionType: proposal.objectionType,
+      },
+    });
+    await insertAuditEvent(executor, {
+      clinicId,
+      userId,
+      action: "PROPOSAL_SYNCED_DEAL_STAGE",
+      entityType: "deal",
+      entityId: proposal.dealId,
+      changes: {
+        proposalId: proposal.id,
+        previousStage: deal.stageName,
+        nextStage: targetStage.name,
+        previousStatus: deal.status,
+        nextStatus: "lost",
+        reason: proposal.lostReason,
+        objectionType: proposal.objectionType,
+      },
+    });
+  }
+
+  private async moveAcceptedProposalDeal(
+    executor: QueryExecutor,
+    clinicId: string,
+    userId: string,
+    proposal: ProposalResponse,
+  ) {
+    if (!proposal.dealId) return;
+    const [dealRows]: any = await executor.execute(
+      `SELECT d.id,
+              d.pipeline_id as pipelineId,
+              d.pipeline_stage_id as stageId,
+              COALESCE(ps.name, d.stage) as stageName,
+              d.status,
+              d.contact_id as contactId
+       FROM deal d
+       LEFT JOIN pipeline_stage ps
+         ON ps.id = d.pipeline_stage_id
+        AND ps.clinic_id = d.clinic_id
+        AND ps.deleted_at IS NULL
+       WHERE d.id = ?
+         AND d.clinic_id = ?
+         AND d.deleted_at IS NULL
+       LIMIT 1
+       FOR UPDATE`,
+      [proposal.dealId, clinicId],
+    );
+    const deal = dealRows[0];
+    if (!deal) throw ApiError.notFound("Linked opportunity not found");
+
+    const [stageRows]: any = await executor.execute(
+      `SELECT id, name
+       FROM pipeline_stage
+       WHERE clinic_id = ?
+         AND pipeline_id = ?
+         AND kind = 'won'
+         AND deleted_at IS NULL
+       ORDER BY position ASC
+       LIMIT 1`,
+      [clinicId, deal.pipelineId],
+    );
+    const targetStage = stageRows[0];
+    if (!targetStage) {
+      throw ApiError.badRequest("The linked opportunity pipeline does not have a Won stage.");
+    }
+    if (deal.stageId === targetStage.id && deal.status === "won") return;
+
+    const moved = await movePipelineDealStage(
+      clinicId,
+      proposal.dealId,
+      {
+        stageId: targetStage.id,
+        stageName: targetStage.name,
+        status: "won",
+        ...(proposal.valueCents !== null ? { value: centsToValue(proposal.valueCents) } : {}),
+        soldAt: toMysqlDateTime(proposal.wonAt || proposal.acceptedAt),
+        lostAt: null,
+        lostReason: null,
+        objectionType: null,
+      },
+      deal.stageId,
+      executor,
+    );
+    if (moved !== 1) {
+      throw ApiError.conflict("Opportunity moved while this proposal was being accepted.");
+    }
+
+    const movementId = uuidv4();
+    await insertPipelineDealMovement({
+      id: movementId,
+      clinicId,
+      dealId: proposal.dealId,
+      pipelineId: deal.pipelineId,
+      fromStageId: deal.stageId || null,
+      toStageId: targetStage.id,
+      fromStage: deal.stageName || null,
+      toStage: targetStage.name,
+      movedBy: userId,
+      metadata: {
+        source: "proposal",
+        proposalId: proposal.id,
+        proposalStatus: proposal.status,
+        reason: proposal.wonReason || proposal.acceptedReason || null,
+      },
+    }, executor);
+    await insertTimelineActivity(executor, {
+      clinicId,
+      contactId: deal.contactId,
+      type: "StatusChange",
+      userId,
+      metadata: buildTimelineMetadata({
+        action: phase1TimelineActions.leadStageChanged,
+        source: "pipeline",
+        recordId: proposal.dealId,
+        changes: {
+          fromStage: deal.stageName || null,
+          toStage: targetStage.name,
+          proposalId: proposal.id,
+        },
+      }),
+    });
+    await insertAuditEvent(executor, {
+      clinicId,
+      userId,
+      action: "PIPELINE_DEAL_MOVED",
+      entityType: "deal",
+      entityId: proposal.dealId,
+      changes: {
+        fromStage: deal.stageName || null,
+        toStage: targetStage.name,
+        movementId,
+        proposalId: proposal.id,
+      },
+    });
+    await insertAuditEvent(executor, {
+      clinicId,
+      userId,
+      action: "PROPOSAL_SYNCED_DEAL_STAGE",
+      entityType: "deal",
+      entityId: proposal.dealId,
+      changes: {
+        proposalId: proposal.id,
+        previousStage: deal.stageName || null,
+        nextStage: targetStage.name,
+        previousStatus: deal.status,
+        nextStatus: "won",
+        reason: proposal.wonReason || proposal.acceptedReason || null,
+      },
+    });
+  }
+
+  private async recordProposalUpdate(
+    executor: QueryExecutor | null,
+    clinicId: string,
+    userId: string,
+    proposalId: string,
+    existing: ProposalResponse,
+    updated: ProposalResponse,
+    data: ProposalMutationDTO,
+  ) {
+    if (existing.status !== updated.status) {
+      await this.logProposalActivity({
+        clinicId,
+        userId,
+        contactId: updated.contactId,
+        clientAccountProfileId: updated.clientAccountProfileId,
+        proposalId,
+        action: "proposal_status_changed",
+        title: updated.proposalName,
+        status: updated.status,
+        previousStatus: existing.status,
+        changes: {
+          previousStatus: existing.status,
+          status: updated.status,
+          followUpAt: updated.followUpAt,
+          acceptedReason: updated.acceptedReason,
+          wonReason: updated.wonReason,
+          lostReason: updated.lostReason,
+          objectionType: updated.objectionType,
+        },
+      }, executor || undefined);
+    } else {
+      await this.logProposalActivity({
+        clinicId,
+        userId,
+        contactId: updated.contactId,
+        clientAccountProfileId: updated.clientAccountProfileId,
+        proposalId,
+        action: "proposal_updated",
+        title: updated.proposalName,
+        status: updated.status,
+        changes: data as Record<string, unknown>,
+      }, executor || undefined);
+    }
+    const auditPayload = {
+      clinicId,
+      userId,
+      action: existing.status !== updated.status ? "PROPOSAL_STATUS_CHANGED" : "PROPOSAL_UPDATED",
+      entityType: "proposal",
+      entityId: proposalId,
+      changes: { before: { status: existing.status }, after: data },
+    };
+    if (executor) {
+      await insertAuditEvent(executor, auditPayload);
+    } else {
+      await logAuditEvent(auditPayload);
+    }
   }
 
   private async resolveProposalLinks(
@@ -1352,7 +1951,7 @@ export class ProposalsService {
       }
     }
 
-    if (data.ownerId) await this.ensureActiveOwner(String(data.ownerId));
+    if (data.ownerId) await this.ensureActiveOwner(clinicId, String(data.ownerId));
 
     return { contactId, dealId, clientAccountProfileId };
   }
@@ -1535,18 +2134,24 @@ export class ProposalsService {
     };
   }
 
-  private async ensureActiveOwner(userId: string) {
+  private async ensureActiveOwner(clinicId: string, userId: string) {
     const [rows]: any = await pool.execute(
-      `SELECT id
-       FROM user
-       WHERE id = ?
-         AND deleted_at IS NULL
-         AND status = 'active'
-         AND is_active = 1
+      `SELECT u.id
+       FROM user u
+       JOIN clinic_membership cm
+         ON cm.user_id = u.id
+        AND cm.clinic_id = ?
+        AND cm.status = 'active'
+       WHERE u.id = ?
+         AND u.deleted_at IS NULL
+         AND u.status = 'active'
+         AND u.is_active = 1
        LIMIT 1`,
-      [userId],
+      [clinicId, userId],
     );
-    if (rows.length === 0) throw ApiError.badRequest("Proposal owner must be an active internal user");
+    if (rows.length === 0) {
+      throw ApiError.badRequest("Proposal owner must be an active member of this workspace");
+    }
   }
 
   private async resolveRecommendedPackage(clinicId: string, packageId: unknown) {
@@ -1571,12 +2176,17 @@ export class ProposalsService {
     return rows[0] as { id: string; name: string; priceCents: number | null; setupFeeCents: number | null; billingFrequency: string | null; currency: string };
   }
 
-  private async syncProposalFollowUpTask(clinicId: string, userId: string, proposal: ProposalResponse) {
+  private async syncProposalFollowUpTask(
+    clinicId: string,
+    userId: string,
+    proposal: ProposalResponse,
+    executor: QueryExecutor = pool,
+  ) {
     const templateKey = `proposal_follow_up:${proposal.id}`;
     const shouldComplete = !proposal.followUpAt || isFinalProposalStatus(proposal.status);
 
     if (shouldComplete) {
-      await pool.execute(
+      await executor.execute(
         `UPDATE task
          SET status = 'completed',
              completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
@@ -1602,7 +2212,7 @@ export class ProposalsService {
       proposal.contactEmail ? `Recipient email: ${proposal.contactEmail}` : "",
     ].filter(Boolean).join("\n");
 
-    const [existingRows]: any = await pool.execute(
+    const [existingRows]: any = await executor.execute(
       `SELECT id
        FROM task
        WHERE clinic_id = ?
@@ -1615,7 +2225,7 @@ export class ProposalsService {
     );
 
     if (existingRows.length > 0) {
-      await pool.execute(
+      await executor.execute(
         `UPDATE task
          SET title = ?,
              description = ?,
@@ -1653,7 +2263,7 @@ export class ProposalsService {
       return;
     }
 
-    await pool.execute(
+    await executor.execute(
       `INSERT INTO task
         (id, clinic_id, is_internal, title, description, priority, status, category, board_key, service_type,
          client_account_profile_id, contact_id, contact_name, due_label, due_date, assigned_to, assigned_user_id, template_key, created_by)
@@ -1681,203 +2291,169 @@ export class ProposalsService {
     proposal: ProposalResponse,
     previousProposal?: ProposalResponse,
   ) {
-    if (proposal.status === "lost" && proposal.contactId) {
-      await pool.execute(
-        `UPDATE contact
-         SET lost_reason = ?,
-             objection_type = ?,
-             lead_status = CASE WHEN lead_status IS NULL OR lead_status <> 'client' THEN 'lost' ELSE lead_status END,
+    if (!proposal.dealId || !["sent", "viewed", "follow_up_due"].includes(proposal.status)) return;
+    const linkedDealId = proposal.dealId;
+
+    await this.withTransaction(async (connection) => {
+      const [dealRows]: any = await connection.execute(
+        `SELECT id,
+                pipeline_id as pipelineId,
+                pipeline_stage_id as stageId,
+                stage as stageName,
+                status,
+                contact_id as contactId,
+                (
+                  SELECT position
+                  FROM pipeline_stage current_stage
+                  WHERE current_stage.id = deal.pipeline_stage_id
+                    AND current_stage.clinic_id = deal.clinic_id
+                    AND current_stage.deleted_at IS NULL
+                  LIMIT 1
+                ) as stagePosition
+         FROM deal
+         WHERE id = ?
+           AND clinic_id = ?
+           AND deleted_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+        [linkedDealId, clinicId],
+      );
+      if (dealRows.length === 0) return;
+
+      const deal = dealRows[0];
+      if (deal.status === "won" || deal.status === "lost") return;
+
+      const targetStageNames =
+        proposal.status === "follow_up_due"
+          ? ["Follow-up Needed", "Follow-Up Needed", "Proposal Sent"]
+          : ["Proposal Sent", "Proposal"];
+      const [stageRows]: any = await connection.execute(
+        `SELECT id,
+                name,
+                kind,
+                position,
+                (
+                  SELECT MIN(terminal_stage.position)
+                  FROM pipeline_stage terminal_stage
+                  WHERE terminal_stage.clinic_id = pipeline_stage.clinic_id
+                    AND terminal_stage.pipeline_id = pipeline_stage.pipeline_id
+                    AND terminal_stage.kind IN ('won', 'lost')
+                    AND terminal_stage.deleted_at IS NULL
+                ) as earliestTerminalPosition
+         FROM pipeline_stage
+         WHERE clinic_id = ?
+           AND pipeline_id = ?
+           AND deleted_at IS NULL
+           AND kind = 'open'
+         ORDER BY position ASC`,
+        [clinicId, deal.pipelineId],
+      );
+      if (stageRows.length === 0) return;
+
+      const targetStage = this.selectProposalOpenStage(stageRows, proposal.status, targetStageNames);
+      if (!targetStage) return;
+      if (
+        deal.stagePosition !== null &&
+        deal.stagePosition !== undefined &&
+        Number(targetStage.position) <= Number(deal.stagePosition)
+      ) {
+        return;
+      }
+      if (deal.stageId === targetStage.id && deal.status === "open") return;
+
+      const [moveResult]: any = await connection.execute(
+        `UPDATE deal
+         SET pipeline_stage_id = ?,
+             stage = ?,
+             status = 'open',
+             stage_changed_at = CURRENT_TIMESTAMP,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?
            AND clinic_id = ?
+           AND pipeline_stage_id <=> ?
+           AND status = ?
            AND deleted_at IS NULL`,
-        [proposal.lostReason, proposal.objectionType, proposal.contactId, clinicId],
-      );
-    }
-
-    if (!proposal.dealId || !["sent", "viewed", "follow_up_due", "accepted", "won", "lost"].includes(proposal.status)) return;
-
-    const [dealRows]: any = await pool.execute(
-      `SELECT id,
-              pipeline_id as pipelineId,
-              pipeline_stage_id as stageId,
-              stage as stageName,
-              status
-       FROM deal
-       WHERE id = ?
-         AND clinic_id = ?
-         AND deleted_at IS NULL
-       LIMIT 1`,
-      [proposal.dealId, clinicId],
-    );
-    if (dealRows.length === 0) return;
-
-    const deal = dealRows[0];
-    const targetStageKind =
-      proposal.status === "accepted" || proposal.status === "won"
-        ? "won"
-        : proposal.status === "lost"
-          ? "lost"
-          : null;
-    const targetStageNames =
-      proposal.status === "follow_up_due"
-        ? ["Follow-up Needed", "Follow-Up Needed", "Proposal Sent"]
-        : ["Proposal Sent", "Proposal"];
-    if (!targetStageKind && (deal.status === "won" || deal.status === "lost")) return;
-
-    let stageRows: any[];
-    if (targetStageKind) {
-      [stageRows] = await pool.execute(
-        `SELECT id, name, kind
-         FROM pipeline_stage
-         WHERE clinic_id = ?
-           AND pipeline_id = ?
-           AND deleted_at IS NULL
-           AND kind = ?
-         ORDER BY position ASC
-         LIMIT 1`,
-        [clinicId, deal.pipelineId, targetStageKind],
-      ) as any;
-    } else {
-      const placeholders = targetStageNames.map(() => "?").join(", ");
-      [stageRows] = await pool.execute(
-        `SELECT id, name, kind
-         FROM pipeline_stage
-         WHERE clinic_id = ?
-           AND pipeline_id = ?
-           AND deleted_at IS NULL
-           AND LOWER(name) IN (${placeholders})
-         ORDER BY FIELD(LOWER(name), ${placeholders}), position ASC
-         LIMIT 1`,
         [
+          targetStage.id,
+          targetStage.name,
+          linkedDealId,
           clinicId,
-          deal.pipelineId,
-          ...targetStageNames.map((name) => name.toLowerCase()),
-          ...targetStageNames.map((name) => name.toLowerCase()),
+          deal.stageId,
+          deal.status,
         ],
-      ) as any;
-    }
-    if (stageRows.length === 0) return;
-
-    const targetStage = stageRows[0];
-    const nextDealStatus = proposal.status === "accepted" || proposal.status === "won"
-      ? "won"
-      : proposal.status === "lost"
-        ? "lost"
-        : "open";
-    const outcomeReason = proposal.lostReason || proposal.wonReason || proposal.acceptedReason || null;
-
-    if (targetStageKind) {
-      const stageChanged = deal.stageId !== targetStage.id || deal.status !== nextDealStatus;
-      await pipelineDealsService.moveDealFromProposal(clinicId, userId, proposal.dealId, {
-        stageId: targetStage.id,
-        ...(proposal.valueCents !== null ? { valueCents: proposal.valueCents } : {}),
-        ...(proposal.status === "accepted" || proposal.status === "won"
-          ? { soldAt: proposal.wonAt || proposal.acceptedAt }
-          : {
-              lostAt: proposal.lostAt,
-              lostReason: proposal.lostReason,
-              objectionType: proposal.objectionType,
-            }),
-        notes: [
-          `Synced from proposal ${proposal.id} (${proposal.status}).`,
-          outcomeReason,
-        ].filter(Boolean).join(" "),
-      });
-
-      if (stageChanged) {
-        await logAuditEvent({
-          clinicId,
-          userId,
-          action: "PROPOSAL_SYNCED_DEAL_STAGE",
-          entityType: "deal",
-          entityId: proposal.dealId,
-          changes: {
-            proposalId: proposal.id,
-            previousStage: deal.stageName || null,
-            nextStage: targetStage.name,
-            previousStatus: deal.status,
-            nextStatus: nextDealStatus,
-            reason: outcomeReason,
-            objectionType: proposal.objectionType,
-          },
-        });
+      );
+      if (Number(moveResult.affectedRows || 0) !== 1) {
+        throw ApiError.conflict("Opportunity moved while this proposal stage was being synchronized.");
       }
-      return;
-    }
 
-    if (deal.stageId === targetStage.id && deal.status === nextDealStatus) return;
-
-    await pool.execute(
-      `UPDATE deal
-       SET pipeline_stage_id = ?,
-           stage = ?,
-           status = ?,
-           sold_at = CASE WHEN ? = 'won' THEN COALESCE(sold_at, CURRENT_TIMESTAMP) ELSE NULL END,
-           lost_at = CASE WHEN ? = 'lost' THEN COALESCE(lost_at, CURRENT_TIMESTAMP) ELSE NULL END,
-           lost_reason = CASE WHEN ? = 'lost' THEN ? ELSE NULL END,
-           objection_type = CASE WHEN ? = 'lost' THEN ? ELSE NULL END,
-           stage_changed_at = CURRENT_TIMESTAMP,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?
-         AND clinic_id = ?
-         AND deleted_at IS NULL`,
-      [
-        targetStage.id,
-        targetStage.name,
-        nextDealStatus,
-        nextDealStatus,
-        nextDealStatus,
-        nextDealStatus,
-        outcomeReason,
-        nextDealStatus,
-        proposal.objectionType,
-        proposal.dealId,
+      await insertPipelineDealMovement({
+        id: uuidv4(),
         clinicId,
-      ],
-    );
-
-    await pool.execute(
-      `INSERT INTO pipeline_deal_movement
-        (id, clinic_id, deal_id, pipeline_id, from_stage_id, to_stage_id, from_stage, to_stage, moved_by, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        uuidv4(),
-        clinicId,
-        proposal.dealId,
-        deal.pipelineId,
-        deal.stageId || null,
-        targetStage.id,
-        deal.stageName || null,
-        targetStage.name,
-        userId,
-        JSON.stringify({
+        dealId: linkedDealId,
+        pipelineId: deal.pipelineId,
+        fromStageId: deal.stageId || null,
+        toStageId: targetStage.id,
+        fromStage: deal.stageName || null,
+        toStage: targetStage.name,
+        movedBy: userId,
+        metadata: {
           source: "proposal",
           proposalId: proposal.id,
           previousProposalStatus: previousProposal?.status || null,
           proposalStatus: proposal.status,
-          reason: outcomeReason,
-          objectionType: proposal.objectionType,
-        }),
-      ],
-    );
-
-    await logAuditEvent({
-      clinicId,
-      userId,
-      action: "PROPOSAL_SYNCED_DEAL_STAGE",
-      entityType: "deal",
-      entityId: proposal.dealId,
-      changes: {
-        proposalId: proposal.id,
-        previousStage: deal.stageName || null,
-        nextStage: targetStage.name,
-        previousStatus: deal.status,
-        nextStatus: nextDealStatus,
-        reason: outcomeReason,
-        objectionType: proposal.objectionType,
-      },
+        },
+      }, connection);
+      await insertAuditEvent(connection, {
+        clinicId,
+        userId,
+        action: "PROPOSAL_SYNCED_DEAL_STAGE",
+        entityType: "deal",
+        entityId: linkedDealId,
+        changes: {
+          proposalId: proposal.id,
+          previousStage: deal.stageName || null,
+          nextStage: targetStage.name,
+          previousStatus: deal.status,
+          nextStatus: "open",
+        },
+      });
     });
+  }
+
+  private selectProposalOpenStage(
+    stages: Array<{
+      id: string;
+      name: string;
+      kind: string;
+      position: number;
+      earliestTerminalPosition?: number | null;
+    }>,
+    status: ProposalStatus,
+    exactNames: string[],
+  ) {
+    if (stages.length === 0) return null;
+    const earliestTerminalPosition = stages
+      .map((stage) => Number(stage.earliestTerminalPosition))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b)[0];
+    const eligibleStages = earliestTerminalPosition === undefined
+      ? stages
+      : stages.filter((stage) => Number(stage.position) < earliestTerminalPosition);
+    if (eligibleStages.length === 0) return null;
+
+    const exact = new Set(exactNames.map((name) => name.toLowerCase()));
+    const exactMatches = eligibleStages.filter((stage) => exact.has(stage.name.toLowerCase()));
+    if (exactMatches.length > 0) return exactMatches[exactMatches.length - 1];
+
+    const semanticPattern = status === "follow_up_due"
+      ? /(follow[\s_-]*up|decision|pending|review|negotiat)/i
+      : /(proposal|quote|estimate|commercial|offer|decision|contract|review)/i;
+    const semanticMatches = eligibleStages.filter((stage) => semanticPattern.test(stage.name));
+    if (semanticMatches.length > 0) return semanticMatches[semanticMatches.length - 1];
+
+    // Pipelines may use fully custom labels. In that case, the last configured
+    // open stage is the safest proposal-stage fallback before won/lost.
+    return eligibleStages[eligibleStages.length - 1];
   }
 
   private async validateRelatedDealOutcome(
@@ -1931,19 +2507,42 @@ export class ProposalsService {
     userId: string,
     proposal: ProposalResponse,
     data: ProposalMutationDTO = {},
+    executor: QueryExecutor = pool,
   ) {
     if (!["accepted", "won"].includes(proposal.status)) return;
 
-    const clientAccountProfileId = await this.resolveAcceptanceClientAccountProfileId(clinicId, proposal);
-    const acceptedByName = cleanString(data.acceptedByName) || proposal.contactName || proposal.sentToName || proposal.accountName || proposal.clientAccountName;
-    const acceptedByEmail = cleanString(data.acceptedByEmail) || proposal.contactEmail || proposal.sentToEmail;
+    const clientAccountProfileId = await this.resolveAcceptanceClientAccountProfileId(
+      clinicId,
+      proposal,
+      executor,
+    );
+    const priorAcceptance = proposal.acceptanceRecord;
+    const acceptedByName = Object.prototype.hasOwnProperty.call(data, "acceptedByName")
+      ? cleanString(data.acceptedByName)
+      : cleanString(priorAcceptance?.acceptedByName) ||
+        proposal.contactName ||
+        proposal.sentToName ||
+        proposal.accountName ||
+        proposal.clientAccountName;
+    const acceptedByEmail = Object.prototype.hasOwnProperty.call(data, "acceptedByEmail")
+      ? cleanString(data.acceptedByEmail)
+      : cleanString(priorAcceptance?.acceptedByEmail) ||
+        proposal.contactEmail ||
+        proposal.sentToEmail;
+    if (!acceptedByName || !acceptedByEmail) {
+      throw ApiError.badRequest(
+        "Accepted by name and email are required the first time a proposal is accepted.",
+      );
+    }
     const acceptedAt =
       toMysqlDateTime(data.acceptedAt) ||
+      toMysqlDateTime(priorAcceptance?.acceptedAt) ||
       toMysqlDateTime(proposal.acceptedAt) ||
       toMysqlDateTime(proposal.wonAt) ||
       new Date().toISOString().slice(0, 19).replace("T", " ");
     const paymentTerms =
       cleanString(data.paymentTerms) ||
+      cleanString(priorAcceptance?.paymentTerms) ||
       "Monthly fees payable monthly in advance. Setup fee due before project kickoff unless otherwise agreed.";
     const sectionContent = proposal.sectionContent || {};
     const scope = {
@@ -1990,7 +2589,7 @@ export class ProposalsService {
     };
 
     const id = uuidv4();
-    await pool.execute(
+    await executor.execute(
       `INSERT INTO proposal_acceptance_record
         (id, clinic_id, proposal_id, contact_id, deal_id, client_account_profile_id,
          accepted_by_name, accepted_by_email, accepted_at, acceptance_status,
@@ -1999,9 +2598,26 @@ export class ProposalsService {
          scope, commercial_snapshot, proposal_snapshot, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         accepted_by_name = COALESCE(accepted_by_name, VALUES(accepted_by_name)),
-         accepted_by_email = COALESCE(accepted_by_email, VALUES(accepted_by_email)),
-         client_account_profile_id = COALESCE(client_account_profile_id, VALUES(client_account_profile_id)),
+         contact_id = VALUES(contact_id),
+         deal_id = VALUES(deal_id),
+         client_account_profile_id = COALESCE(VALUES(client_account_profile_id), client_account_profile_id),
+         accepted_by_name = VALUES(accepted_by_name),
+         accepted_by_email = VALUES(accepted_by_email),
+         accepted_at = VALUES(accepted_at),
+         acceptance_status = VALUES(acceptance_status),
+         package_name = VALUES(package_name),
+         recommended_package_id = VALUES(recommended_package_id),
+         monthly_fee_cents = VALUES(monthly_fee_cents),
+         setup_fee_cents = VALUES(setup_fee_cents),
+         currency = VALUES(currency),
+         payment_terms = VALUES(payment_terms),
+         start_date = VALUES(start_date),
+         minimum_term_months = VALUES(minimum_term_months),
+         notice_period_days = VALUES(notice_period_days),
+         scope = VALUES(scope),
+         commercial_snapshot = VALUES(commercial_snapshot),
+         proposal_snapshot = VALUES(proposal_snapshot),
+         deleted_at = NULL,
          updated_at = CURRENT_TIMESTAMP`,
       [
         id,
@@ -2029,11 +2645,23 @@ export class ProposalsService {
         userId,
       ],
     );
+    const [persistedRows]: any = await executor.execute(
+      `SELECT id
+       FROM proposal_acceptance_record
+       WHERE proposal_id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [proposal.id, clinicId],
+    );
+    const persistedId = persistedRows[0]?.id;
+    if (!persistedId) throw ApiError.internal("Proposal acceptance record was not saved");
 
     await this.logProposalActivity({
       clinicId,
       userId,
       contactId: proposal.contactId,
+      clientAccountProfileId: proposal.clientAccountProfileId,
       proposalId: proposal.id,
       action: "proposal_acceptance_record_saved",
       title: proposal.proposalName,
@@ -2047,13 +2675,13 @@ export class ProposalsService {
         monthlyFeeCents: proposal.monthlyFeeCents,
         setupFeeCents: proposal.setupFeeCents,
       },
-    });
-    await logAuditEvent({
+    }, executor === pool ? undefined : executor);
+    const auditPayload = {
       clinicId,
       userId,
       action: "PROPOSAL_ACCEPTANCE_RECORD_SAVED",
       entityType: "proposal_acceptance_record",
-      entityId: id,
+      entityId: persistedId,
       changes: {
         proposalId: proposal.id,
         acceptedByName,
@@ -2064,14 +2692,23 @@ export class ProposalsService {
         monthlyFeeCents: proposal.monthlyFeeCents,
         setupFeeCents: proposal.setupFeeCents,
       },
-    });
+    };
+    if (executor === pool) {
+      await logAuditEvent(auditPayload);
+    } else {
+      await insertAuditEvent(executor, auditPayload);
+    }
   }
 
-  private async resolveAcceptanceClientAccountProfileId(clinicId: string, proposal: ProposalResponse) {
+  private async resolveAcceptanceClientAccountProfileId(
+    clinicId: string,
+    proposal: ProposalResponse,
+    executor: QueryExecutor = pool,
+  ) {
     if (proposal.clientAccountProfileId) return proposal.clientAccountProfileId;
     if (!proposal.contactId) return null;
 
-    const [rows]: any = await pool.execute(
+    const [rows]: any = await executor.execute(
       `SELECT client_account_profile_id as clientAccountProfileId
        FROM client_account_contact
        WHERE clinic_id = ?
@@ -2107,14 +2744,28 @@ export class ProposalsService {
     clinicId: string;
     userId: string | null;
     contactId: string | null;
+    clientAccountProfileId?: string | null;
     proposalId: string;
     action: string;
     title: string;
     status: ProposalStatus;
     previousStatus?: ProposalStatus;
     changes?: Record<string, unknown>;
-  }) {
-    if (!input.contactId) return;
+  }, executor?: QueryExecutor) {
+    let contactId = input.contactId;
+    if (!contactId && input.clientAccountProfileId) {
+      const [rows]: any = await (executor || pool).execute(
+        `SELECT contact_id as contactId
+         FROM client_account_contact
+         WHERE clinic_id = ?
+           AND client_account_profile_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [input.clinicId, input.clientAccountProfileId],
+      );
+      contactId = rows[0]?.contactId || null;
+    }
+    if (!contactId) return;
     const metadata = buildTimelineMetadata({
       action: input.action,
       source: "proposal",
@@ -2125,13 +2776,18 @@ export class ProposalsService {
       ...(input.changes ? { changes: input.changes } : {}),
     });
 
-    await logTimelineActivity({
+    const payload = {
       clinicId: input.clinicId,
-      contactId: input.contactId,
+      contactId,
       type: "StatusChange",
       userId: input.userId,
       metadata,
-    });
+    } as const;
+    if (executor) {
+      await insertTimelineActivity(executor, payload);
+    } else {
+      await logTimelineActivity(payload);
+    }
   }
 }
 

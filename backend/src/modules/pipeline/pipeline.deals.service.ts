@@ -89,7 +89,20 @@ function getStatusForStage(stage: PipelineDealStageRow): PipelineDealStatus {
   return "open";
 }
 
-function getMoveValues(stage: PipelineDealStageRow, data: MovePipelineDealDTO): PipelineDealMoveValues {
+function getEffectiveLostOutcome(data: MovePipelineDealDTO, existing: PipelineDealResponse) {
+  return {
+    lostReason: data.lostReason?.trim() || existing.lostReason || null,
+    objectionType: data.objectionType?.trim() || existing.objectionType || null,
+  };
+}
+
+type EffectiveLostOutcome = ReturnType<typeof getEffectiveLostOutcome>;
+
+function getMoveValues(
+  stage: PipelineDealStageRow,
+  data: MovePipelineDealDTO,
+  existing: PipelineDealResponse,
+): PipelineDealMoveValues {
   const stageName = stage.name.toLowerCase();
   const values: PipelineDealMoveValues = {
     stageId: stage.id,
@@ -101,9 +114,10 @@ function getMoveValues(stage: PipelineDealStageRow, data: MovePipelineDealDTO): 
   if (stageName.includes("booked")) values.bookedAt = toMysqlDateTime(data.bookedAt);
   if (stage.kind === "won") values.soldAt = toMysqlDateTime(data.soldAt);
   if (stage.kind === "lost") {
+    const outcome = getEffectiveLostOutcome(data, existing);
     values.lostAt = toMysqlDateTime(data.lostAt);
-    values.lostReason = data.lostReason || null;
-    values.objectionType = data.objectionType || null;
+    values.lostReason = outcome.lostReason;
+    values.objectionType = outcome.objectionType;
   }
 
   return values;
@@ -129,15 +143,168 @@ function validateMove(stage: PipelineDealStageRow, data: MovePipelineDealDTO, ex
     }
   }
 
-  if (stage.kind === "lost" && !data.lostReason?.trim() && !existing.lostReason) {
-    throw ApiError.badRequest("lostReason is required when moving an opportunity to Lost");
-  }
-  if (stage.kind === "lost" && !data.objectionType?.trim() && !existing.objectionType) {
-    throw ApiError.badRequest("objectionType is required when moving an opportunity to Lost");
+  if (stage.kind === "lost") {
+    const outcome = getEffectiveLostOutcome(data, existing);
+    if (!outcome.lostReason) {
+      throw ApiError.badRequest("lostReason is required when moving an opportunity to Lost");
+    }
+    if (!outcome.objectionType) {
+      throw ApiError.badRequest("objectionType is required when moving an opportunity to Lost");
+    }
   }
 }
 
 export class PipelineDealsService {
+  private async insertLostMoveEvents(
+    connection: Pick<PoolConnection, "execute">,
+    context: {
+      clinicId: string;
+      userId: string;
+      dealId: string;
+      movementId: string;
+      existing: PipelineDealResponse;
+      stage: PipelineDealStageRow;
+      data: MovePipelineDealDTO;
+      outcome: EffectiveLostOutcome;
+    },
+  ) {
+    const {
+      clinicId,
+      userId,
+      dealId,
+      movementId,
+      existing,
+      stage,
+      data,
+      outcome,
+    } = context;
+    await insertPipelineDealMovement({
+      id: movementId,
+      clinicId,
+      dealId,
+      pipelineId: existing.pipelineId,
+      fromStageId: existing.stageId,
+      toStageId: stage.id,
+      fromStage: existing.stageName,
+      toStage: stage.name,
+      movedBy: userId,
+      metadata: {
+        notes: data.notes || null,
+        valueCents: data.valueCents ?? existing.valueCents,
+        lostReason: outcome.lostReason,
+        objectionType: outcome.objectionType,
+      },
+    }, connection);
+    await insertTimelineActivity(connection, {
+      clinicId,
+      contactId: existing.contactId,
+      type: "StatusChange",
+      userId,
+      metadata: buildTimelineMetadata({
+        action: phase1TimelineActions.leadStageChanged,
+        source: "pipeline",
+        recordId: dealId,
+        changes: {
+          fromStage: existing.stageName,
+          toStage: stage.name,
+          lostReason: outcome.lostReason,
+          objectionType: outcome.objectionType,
+        },
+      }),
+    });
+    await insertAuditEvent(connection, {
+      clinicId,
+      userId,
+      action: "PIPELINE_DEAL_MOVED",
+      entityType: "deal",
+      entityId: dealId,
+      changes: {
+        fromStage: existing.stageName,
+        toStage: stage.name,
+        movementId,
+        lostReason: outcome.lostReason,
+        objectionType: outcome.objectionType,
+      },
+    });
+  }
+
+  private async persistLostMove(context: {
+    clinicId: string;
+    userId: string;
+    dealId: string;
+    movementId: string;
+    existing: PipelineDealResponse;
+    stage: PipelineDealStageRow;
+    data: MovePipelineDealDTO;
+    moveValues: PipelineDealMoveValues;
+    outcome: EffectiveLostOutcome;
+  }) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const moved = await movePipelineDealStage(
+        context.clinicId,
+        context.dealId,
+        context.moveValues,
+        context.existing.stageId,
+        connection,
+      );
+      if (moved !== 1) {
+        throw ApiError.conflict("Opportunity moved while this update was in progress.");
+      }
+
+      const [relationRows]: any = await connection.execute(
+        `SELECT d.client_account_profile_id as clientAccountProfileId
+         FROM deal d
+         JOIN contact c
+           ON c.id = d.contact_id
+          AND c.clinic_id = d.clinic_id
+          AND c.deleted_at IS NULL
+         WHERE d.id = ?
+           AND d.clinic_id = ?
+           AND d.deleted_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+        [context.dealId, context.clinicId],
+      );
+      if (!relationRows[0]) {
+        throw ApiError.conflict("Linked contact changed while this opportunity was being marked lost.");
+      }
+
+      await connection.execute(
+        `UPDATE contact
+         SET lost_reason = ?,
+             objection_type = ?,
+             lead_status = CASE
+               WHEN lead_status = 'converted'
+                 OR ? IS NOT NULL
+                 OR LOWER(COALESCE(status, '')) = 'client'
+               THEN 'converted'
+               ELSE 'lost'
+             END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND clinic_id = ?
+           AND deleted_at IS NULL`,
+        [
+          context.outcome.lostReason,
+          context.outcome.objectionType,
+          relationRows[0].clientAccountProfileId,
+          context.existing.contactId,
+          context.clinicId,
+        ],
+      );
+
+      await this.insertLostMoveEvents(connection, context);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   private async insertWonMoveEvents(
     connection: Pick<PoolConnection, "execute">,
     context: {
@@ -399,7 +566,7 @@ export class PipelineDealsService {
     validateMove(stage, data, existing);
 
     const movementId = uuidv4();
-    const moveValues = getMoveValues(stage, data);
+    const moveValues = getMoveValues(stage, data, existing);
     if (stage.kind === "won") {
       try {
         await clientAccountsService.convertWonDealToClient(
@@ -441,28 +608,30 @@ export class PipelineDealsService {
       return this.getDeal(clinicId, dealId);
     }
 
+    if (stage.kind === "lost") {
+      const outcome = getEffectiveLostOutcome(data, existing);
+      await this.persistLostMove({
+        clinicId,
+        userId,
+        dealId,
+        movementId,
+        existing,
+        stage,
+        data,
+        moveValues,
+        outcome,
+      });
+      return this.getDeal(clinicId, dealId);
+    }
+
     const moved = await movePipelineDealStage(clinicId, dealId, moveValues, existing.stageId);
     if (moved !== 1) {
       throw ApiError.conflict("Opportunity moved while this update was in progress.");
     }
-    if (stage.kind === "lost") {
-      await pool.execute(
-        `UPDATE contact
-         SET lost_reason = ?,
-             objection_type = ?,
-             lead_status = CASE WHEN lead_status IS NULL OR lead_status <> 'client' THEN 'lost' ELSE lead_status END,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?
-           AND clinic_id = ?
-           AND deleted_at IS NULL`,
-        [
-          data.lostReason || existing.lostReason || null,
-          data.objectionType || existing.objectionType || null,
-          existing.contactId,
-          clinicId,
-        ],
-      );
-    }
+
+    // Reopening an opportunity changes only its active pipeline position. The
+    // deal's historical loss fields and the contact's Lost classification are
+    // intentionally retained until a separate lead update records a new state.
     await insertPipelineDealMovement({
       id: movementId,
       clinicId,

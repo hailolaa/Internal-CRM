@@ -36,6 +36,7 @@ export function mapProposalPublicResponse(proposal: ProposalResponse): ProposalP
 
   return {
     proposalName: proposal.proposalName,
+    templateKey: proposal.templateKey,
     packageName: proposal.packageName,
     valueCents: proposal.valueCents,
     monthlyFeeCents: proposal.monthlyFeeCents,

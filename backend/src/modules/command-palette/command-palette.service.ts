@@ -102,6 +102,7 @@ const PERMISSIONS = Array.from(new Set([
   ...ACTIONS.map((action) => action.requiredPermission).filter(Boolean),
   "internal_tasks:read",
   "client_accounts:read",
+  "proposals:read",
 ])) as string[];
 
 export class CommandPaletteService {
@@ -182,6 +183,8 @@ export class CommandPaletteService {
 
     if (permissions["contacts:read"]) {
       records.push(...await this.searchContacts(clinicId, like, perTypeLimit));
+    }
+    if (permissions["proposals:read"]) {
       records.push(...await this.searchProposals(clinicId, like, perTypeLimit));
     }
 
@@ -208,6 +211,8 @@ export class CommandPaletteService {
 
     if (permissions["contacts:read"]) {
       records.push(...await this.searchContacts(clinicId, "%", perTypeLimit));
+    }
+    if (permissions["proposals:read"]) {
       records.push(...await this.searchProposals(clinicId, "%", perTypeLimit));
     }
     if (permissions["client_accounts:read"]) {
@@ -351,6 +356,7 @@ export class CommandPaletteService {
               p.proposal_name as title,
               p.contact_id as contactId,
               p.deal_id as dealId,
+              p.client_account_profile_id as clientAccountProfileId,
               p.package_name as packageName,
               p.status,
               p.value,
@@ -359,9 +365,10 @@ export class CommandPaletteService {
               TRIM(CONCAT_WS(' ', c.first_name, c.last_name)) as contactName,
               c.account_name as accountName,
               c.email as contactEmail,
-              d.title as dealTitle
+              d.title as dealTitle,
+              account_clinic.name as clientAccountName
        FROM proposal p
-       JOIN contact c
+       LEFT JOIN contact c
          ON c.id = p.contact_id
         AND c.clinic_id = p.clinic_id
         AND c.deleted_at IS NULL
@@ -369,6 +376,11 @@ export class CommandPaletteService {
          ON d.id = p.deal_id
         AND d.clinic_id = p.clinic_id
         AND d.deleted_at IS NULL
+       LEFT JOIN client_account_profile cap
+         ON cap.id = p.client_account_profile_id
+       LEFT JOIN clinic account_clinic
+         ON account_clinic.id = cap.clinic_id
+        AND account_clinic.deleted_at IS NULL
        WHERE p.clinic_id = ?
          AND p.deleted_at IS NULL
          AND p.status <> 'archived'
@@ -382,26 +394,27 @@ export class CommandPaletteService {
            OR c.account_name LIKE ?
            OR c.email LIKE ?
            OR d.title LIKE ?
+           OR account_clinic.name LIKE ?
          )
        ORDER BY p.updated_at DESC
        LIMIT ${limit}`,
-      [clinicId, like, like, like, like, like, like, like, like, like],
+      [clinicId, like, like, like, like, like, like, like, like, like, like],
     );
 
     return rows.map((row: any) => ({
       id: row.id,
       type: "proposal",
-      label: row.title || `${row.contactName || "Prospect"} proposal`,
-      description: [row.accountName, row.contactName, row.packageName, row.status].filter(Boolean).join(" - ") || null,
-      route: row.dealId
-        ? `/app/crm/pipeline?deal=${encodeURIComponent(row.dealId)}&contactId=${encodeURIComponent(row.contactId)}&view=proposals&proposal=${encodeURIComponent(row.id)}`
-        : `/app/crm/contacts/detail?id=${encodeURIComponent(row.contactId)}&view=proposals&proposal=${encodeURIComponent(row.id)}`,
+      label: row.title || `${row.contactName || row.clientAccountName || "Account"} proposal`,
+      description: [row.clientAccountName || row.accountName, row.contactName, row.packageName, row.status].filter(Boolean).join(" - ") || null,
+      route: `/app/crm/proposals/edit?id=${encodeURIComponent(row.id)}`,
       updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
       metadata: {
-        contactId: row.contactId,
+        contactId: row.contactId || null,
         dealId: row.dealId || null,
+        clientAccountProfileId: row.clientAccountProfileId || null,
         contactName: row.contactName || null,
         accountName: row.accountName || null,
+        clientAccountName: row.clientAccountName || null,
         packageName: row.packageName || null,
         status: row.status || null,
         followUpAt: row.followUpAt || null,

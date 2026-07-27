@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { api, ApiClientError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { proposalEditorHref } from "@/lib/proposal-editor-state";
 import type {
   CommandPaletteAction,
   CommandPaletteClinic,
@@ -97,7 +98,7 @@ function getRecordRoute(record: CommandPaletteRecord) {
   }
 
   if (record.type === "proposal") {
-    return record.route;
+    return proposalEditorHref(record.id);
   }
 
   return record.route;

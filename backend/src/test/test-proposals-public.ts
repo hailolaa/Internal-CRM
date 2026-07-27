@@ -113,6 +113,7 @@ test("public proposal mapper returns only the client-facing allow-list", () => {
     "sectionContent",
     "setupFeeCents",
     "startDate",
+    "templateKey",
     "valueCents",
     "vatStatus",
   ].sort());
