@@ -5,6 +5,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
 import { generateResetToken, hashToken } from "../../utils/helpers.js";
+import { pipelineDealsService } from "../pipeline/pipeline.deals.service.js";
 import {
   buildProposalPublicUrl,
   isProposalPubliclyVisible,
@@ -98,6 +99,16 @@ function serializeSectionContent(value: ProposalSectionContent | null | undefine
 
 function isFinalProposalStatus(status: ProposalStatus) {
   return ["accepted", "won", "lost", "expired", "archived"].includes(status);
+}
+
+function validateProposalStatusTransition(previousStatus: ProposalStatus, nextStatus: ProposalStatus) {
+  if (previousStatus === nextStatus) return;
+  if (previousStatus === "accepted" && nextStatus === "won") return;
+  if (isFinalProposalStatus(previousStatus)) {
+    throw ApiError.badRequest(
+      `This ${previousStatus.replace(/_/g, " ")} proposal cannot be moved back to ${nextStatus.replace(/_/g, " ")}.`,
+    );
+  }
 }
 
 function parseCommercialItems(value: unknown): ProposalCommercialItem[] {
@@ -555,6 +566,9 @@ export class ProposalsService {
   ): Promise<ProposalResponse> {
     const proposal = await this.getProposal(clinicId, proposalId);
     if (proposal.status === "archived") throw ApiError.notFound("Proposal not found");
+    if (isFinalProposalStatus(proposal.status)) {
+      throw ApiError.badRequest(`This ${proposal.status.replace(/_/g, " ")} proposal cannot be marked sent.`);
+    }
     if (!isProposalPubliclyVisible("sent", proposal.expiresAt)) {
       throw ApiError.badRequest("Extend the proposal expiry before marking it sent");
     }
@@ -931,6 +945,11 @@ export class ProposalsService {
     const valueCents = data.valueCents ?? recommendedPackage?.priceCents ?? null;
     const monthlyFeeCents = data.monthlyFeeCents ?? (recommendedPackage?.billingFrequency === "monthly" ? recommendedPackage?.priceCents : null);
     const setupFeeCents = data.setupFeeCents ?? recommendedPackage?.setupFeeCents ?? null;
+    await this.validateRelatedDealOutcome(clinicId, {
+      dealId: links.dealId,
+      status,
+      valueCents,
+    });
     const id = uuidv4();
     const timestamps = this.getStatusTimestamps(status, data);
     const draftSavedAt = status === "draft" ? new Date().toISOString().slice(0, 19).replace("T", " ") : null;
@@ -1034,8 +1053,8 @@ export class ProposalsService {
 
     const created = await this.getProposal(clinicId, id);
     await this.syncProposalFollowUpTask(clinicId, userId, created);
-    await this.syncRelatedDealStage(clinicId, userId, created);
     await this.ensureAcceptedProposalSnapshot(clinicId, userId, created, data);
+    await this.syncRelatedDealStage(clinicId, userId, created);
 
     return ["accepted", "won"].includes(created.status) ? this.getProposal(clinicId, id) : created;
   }
@@ -1053,8 +1072,13 @@ export class ProposalsService {
       dealId: data.dealId === undefined ? existing.dealId : data.dealId,
       clientAccountProfileId: data.clientAccountProfileId === undefined ? existing.clientAccountProfileId : data.clientAccountProfileId,
     };
-    const links = await this.resolveProposalLinks(clinicId, linkData, access);
+    const links = await this.resolveProposalLinks(clinicId, linkData, access, {
+      existingClientAccountProfileId: existing.clientAccountProfileId,
+      existingContactId: existing.contactId,
+      existingDealId: existing.dealId,
+    });
     const status = data.status || existing.status;
+    validateProposalStatusTransition(existing.status, status);
     const followUpAt = data.followUpAt === undefined ? existing.followUpAt : data.followUpAt;
     this.validateStatusRequirements(status, followUpAt);
     const lostReason = data.lostReason === undefined ? existing.lostReason : data.lostReason;
@@ -1065,6 +1089,14 @@ export class ProposalsService {
     const recommendedPackage = Object.prototype.hasOwnProperty.call(data, "recommendedPackageId")
       ? await this.resolveRecommendedPackage(clinicId, data.recommendedPackageId)
       : null;
+    const outcomeValueCents = Object.prototype.hasOwnProperty.call(data, "valueCents")
+      ? data.valueCents
+      : recommendedPackage?.priceCents ?? existing.valueCents;
+    await this.validateRelatedDealOutcome(clinicId, {
+      dealId: links.dealId,
+      status,
+      valueCents: outcomeValueCents,
+    });
 
     const fields: string[] = [];
     const values: any[] = [];
@@ -1176,8 +1208,8 @@ export class ProposalsService {
       changes: { before: { status: existing.status }, after: data },
     });
     await this.syncProposalFollowUpTask(clinicId, userId, updated);
-    await this.syncRelatedDealStage(clinicId, userId, updated, existing);
     await this.ensureAcceptedProposalSnapshot(clinicId, userId, updated, data);
+    await this.syncRelatedDealStage(clinicId, userId, updated, existing);
 
     return ["accepted", "won"].includes(updated.status) ? this.getProposal(clinicId, proposalId) : updated;
   }
@@ -1251,7 +1283,16 @@ export class ProposalsService {
     });
   }
 
-  private async resolveProposalLinks(clinicId: string, data: ProposalMutationDTO, access: ProposalLinkAccess) {
+  private async resolveProposalLinks(
+    clinicId: string,
+    data: ProposalMutationDTO,
+    access: ProposalLinkAccess,
+    existingLinks: {
+      existingClientAccountProfileId?: string | null;
+      existingContactId?: string | null;
+      existingDealId?: string | null;
+    } = {},
+  ) {
     let contactId = cleanString(data.contactId);
     const dealId = cleanString(data.dealId);
     const clientAccountProfileId = cleanString(data.clientAccountProfileId);
@@ -1298,7 +1339,15 @@ export class ProposalsService {
         [clientAccountProfileId],
       );
       if (accountRows.length === 0) throw ApiError.notFound("Client account not found");
-      if (accountRows[0].clientClinicId !== clinicId && !access.canManageAllClientAccounts) {
+      const preservesExistingLink =
+        clientAccountProfileId === existingLinks.existingClientAccountProfileId &&
+        contactId === existingLinks.existingContactId &&
+        dealId === existingLinks.existingDealId;
+      if (
+        accountRows[0].clientClinicId !== clinicId &&
+        !access.canManageAllClientAccounts &&
+        !preservesExistingLink
+      ) {
         throw ApiError.forbidden("Client account is not available to this workspace");
       }
     }
@@ -1664,32 +1713,50 @@ export class ProposalsService {
     if (dealRows.length === 0) return;
 
     const deal = dealRows[0];
+    const targetStageKind =
+      proposal.status === "accepted" || proposal.status === "won"
+        ? "won"
+        : proposal.status === "lost"
+          ? "lost"
+          : null;
     const targetStageNames =
       proposal.status === "follow_up_due"
         ? ["Follow-up Needed", "Follow-Up Needed", "Proposal Sent"]
-        : proposal.status === "accepted" || proposal.status === "won"
-          ? ["Won", "Sold"]
-          : proposal.status === "lost"
-            ? ["Lost"]
-            : ["Proposal Sent", "Proposal"];
+        : ["Proposal Sent", "Proposal"];
+    if (!targetStageKind && (deal.status === "won" || deal.status === "lost")) return;
 
-    const placeholders = targetStageNames.map(() => "?").join(", ");
-    const [stageRows]: any = await pool.execute(
-      `SELECT id, name, kind
-       FROM pipeline_stage
-       WHERE clinic_id = ?
-         AND pipeline_id = ?
-         AND deleted_at IS NULL
-         AND LOWER(name) IN (${placeholders})
-       ORDER BY FIELD(LOWER(name), ${placeholders}), position ASC
-       LIMIT 1`,
-      [
-        clinicId,
-        deal.pipelineId,
-        ...targetStageNames.map((name) => name.toLowerCase()),
-        ...targetStageNames.map((name) => name.toLowerCase()),
-      ],
-    );
+    let stageRows: any[];
+    if (targetStageKind) {
+      [stageRows] = await pool.execute(
+        `SELECT id, name, kind
+         FROM pipeline_stage
+         WHERE clinic_id = ?
+           AND pipeline_id = ?
+           AND deleted_at IS NULL
+           AND kind = ?
+         ORDER BY position ASC
+         LIMIT 1`,
+        [clinicId, deal.pipelineId, targetStageKind],
+      ) as any;
+    } else {
+      const placeholders = targetStageNames.map(() => "?").join(", ");
+      [stageRows] = await pool.execute(
+        `SELECT id, name, kind
+         FROM pipeline_stage
+         WHERE clinic_id = ?
+           AND pipeline_id = ?
+           AND deleted_at IS NULL
+           AND LOWER(name) IN (${placeholders})
+         ORDER BY FIELD(LOWER(name), ${placeholders}), position ASC
+         LIMIT 1`,
+        [
+          clinicId,
+          deal.pipelineId,
+          ...targetStageNames.map((name) => name.toLowerCase()),
+          ...targetStageNames.map((name) => name.toLowerCase()),
+        ],
+      ) as any;
+    }
     if (stageRows.length === 0) return;
 
     const targetStage = stageRows[0];
@@ -1699,6 +1766,45 @@ export class ProposalsService {
         ? "lost"
         : "open";
     const outcomeReason = proposal.lostReason || proposal.wonReason || proposal.acceptedReason || null;
+
+    if (targetStageKind) {
+      const stageChanged = deal.stageId !== targetStage.id || deal.status !== nextDealStatus;
+      await pipelineDealsService.moveDealFromProposal(clinicId, userId, proposal.dealId, {
+        stageId: targetStage.id,
+        ...(proposal.valueCents !== null ? { valueCents: proposal.valueCents } : {}),
+        ...(proposal.status === "accepted" || proposal.status === "won"
+          ? { soldAt: proposal.wonAt || proposal.acceptedAt }
+          : {
+              lostAt: proposal.lostAt,
+              lostReason: proposal.lostReason,
+              objectionType: proposal.objectionType,
+            }),
+        notes: [
+          `Synced from proposal ${proposal.id} (${proposal.status}).`,
+          outcomeReason,
+        ].filter(Boolean).join(" "),
+      });
+
+      if (stageChanged) {
+        await logAuditEvent({
+          clinicId,
+          userId,
+          action: "PROPOSAL_SYNCED_DEAL_STAGE",
+          entityType: "deal",
+          entityId: proposal.dealId,
+          changes: {
+            proposalId: proposal.id,
+            previousStage: deal.stageName || null,
+            nextStage: targetStage.name,
+            previousStatus: deal.status,
+            nextStatus: nextDealStatus,
+            reason: outcomeReason,
+            objectionType: proposal.objectionType,
+          },
+        });
+      }
+      return;
+    }
 
     if (deal.stageId === targetStage.id && deal.status === nextDealStatus) return;
 
@@ -1772,6 +1878,52 @@ export class ProposalsService {
         objectionType: proposal.objectionType,
       },
     });
+  }
+
+  private async validateRelatedDealOutcome(
+    clinicId: string,
+    outcome: {
+      dealId: string | null;
+      status: ProposalStatus;
+      valueCents: number | null | undefined;
+    },
+  ) {
+    if (!outcome.dealId || !["accepted", "won", "lost"].includes(outcome.status)) return;
+
+    const targetKind = outcome.status === "lost" ? "lost" : "won";
+    const [rows]: any = await pool.execute(
+      `SELECT d.value,
+              d.treatment,
+              EXISTS (
+                SELECT 1
+                FROM pipeline_stage ps
+                WHERE ps.clinic_id = d.clinic_id
+                  AND ps.pipeline_id = d.pipeline_id
+                  AND ps.kind = ?
+                  AND ps.deleted_at IS NULL
+              ) as hasTargetStage
+       FROM deal d
+       WHERE d.id = ?
+         AND d.clinic_id = ?
+         AND d.deleted_at IS NULL
+       LIMIT 1`,
+      [targetKind, outcome.dealId, clinicId],
+    );
+    if (rows.length === 0) throw ApiError.notFound("Linked opportunity not found");
+    if (!Boolean(rows[0].hasTargetStage)) {
+      throw ApiError.badRequest(
+        `The linked opportunity pipeline does not have a ${targetKind === "won" ? "Won" : "Lost"} stage.`,
+      );
+    }
+    if (targetKind !== "won") return;
+
+    const effectiveValueCents = outcome.valueCents ?? Math.round(Number(rows[0].value || 0) * 100);
+    if (!effectiveValueCents || effectiveValueCents <= 0) {
+      throw ApiError.badRequest("A positive proposal or opportunity value is required before accepting the proposal.");
+    }
+    if (!cleanString(rows[0].treatment)) {
+      throw ApiError.badRequest("Service / Package is required on the linked opportunity before accepting the proposal.");
+    }
   }
 
   private async ensureAcceptedProposalSnapshot(

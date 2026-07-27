@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { v4 as uuidv4 } from "uuid";
 import pool, { testConnection } from "../config/database.js";
+import { contactsService } from "../modules/contacts/contacts.service.js";
 import proposalsRoutes from "../modules/proposals/proposals.routes.js";
 import errorHandler from "../middleware/errorHandler.js";
 import { generateToken, hashPassword } from "../utils/helpers.js";
@@ -75,7 +76,13 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
   const primaryClinicId = uuidv4();
   const otherClinicId = uuidv4();
   const contactId = uuidv4();
+  const pipelineId = uuidv4();
+  const openStageId = uuidv4();
+  const proposalSentStageId = uuidv4();
+  const wonStageId = uuidv4();
+  const dealId = uuidv4();
   const users: TestUser[] = [];
+  let convertedClientClinicId: string | null = null;
 
   await pool.execute(
     `INSERT INTO clinic (id, name, email, timezone, subscription_plan, subscription_status, max_users)
@@ -93,6 +100,64 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     `INSERT INTO contact (id, clinic_id, first_name, last_name, email, status, lead_status, source)
      VALUES (?, ?, 'Week', 'Two', ?, 'lead', 'qualified', 'referral')`,
     [contactId, primaryClinicId, `${contactId}@test.local`],
+  );
+  for (const unsafeDriveUrl of [
+    "javascript://drive.google.com/file/d/unsafe-item/view",
+    "data://drive.google.com/file/d/unsafe-item/view",
+    "https://drive.google.com.evil.example/file/d/unsafe-item/view",
+  ]) {
+    await assert.rejects(
+      contactsService.updateDocumentLink(
+        primaryClinicId,
+        contactsOnly.id,
+        contactId,
+        "audit",
+        { driveUrl: unsafeDriveUrl },
+        {},
+      ),
+      /valid folder, file, or ZIP ID/i,
+    );
+  }
+  const safeContactDocuments = await contactsService.updateDocumentLink(
+    primaryClinicId,
+    contactsOnly.id,
+    contactId,
+    "audit",
+    { driveUrl: "https://docs.google.com/document/d/safe-contact-doc/edit" },
+    {},
+  );
+  assert.equal(
+    safeContactDocuments.find((document) => document.documentType === "audit")?.driveUrl,
+    "https://docs.google.com/document/d/safe-contact-doc/edit",
+  );
+  await pool.execute(
+    "INSERT INTO pipeline (id, clinic_id, name, description, stages) VALUES (?, ?, ?, ?, JSON_ARRAY('Open', 'Client Secured'))",
+    [pipelineId, primaryClinicId, `Proposal outcome pipeline ${Date.now()}`, "Proposal outcome conversion test"],
+  );
+  await pool.execute(
+    `INSERT INTO pipeline_stage
+      (id, clinic_id, pipeline_id, name, color, position, kind, is_locked, created_by)
+     VALUES
+      (?, ?, ?, 'Open', 'bg-slate-500', 1, 'open', 0, ?),
+      (?, ?, ?, 'Client Secured', 'bg-emerald-500', 2, 'won', 1, ?)`,
+    [
+      openStageId,
+      primaryClinicId,
+      pipelineId,
+      writer.id,
+      wonStageId,
+      primaryClinicId,
+      pipelineId,
+      writer.id,
+    ],
+  );
+  await pool.execute(
+    `INSERT INTO deal
+      (id, clinic_id, contact_id, pipeline_id, pipeline_stage_id, title, value, stage,
+       probability, owner_id, source, treatment, status, stage_changed_at, created_by)
+     VALUES (?, ?, ?, ?, ?, 'Proposal-linked Growth Engine opportunity', 1250.00, 'Open',
+       50, ?, 'referral', 'Growth Engine', 'open', CURRENT_TIMESTAMP, ?)`,
+    [dealId, primaryClinicId, contactId, pipelineId, openStageId, writer.id, writer.id],
   );
 
   const expressModule = await import("express") as any;
@@ -113,6 +178,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       method: "POST",
       body: JSON.stringify({
         contactId,
+        dealId,
         proposalName: "Week 2 API proposal",
         status: "draft",
         valueCents: 125000,
@@ -254,6 +320,175 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(accepted.body.data.acceptanceRecord.packageName, null);
     assert.equal(accepted.body.data.acceptanceRecord.monthlyFeeCents, null);
     assert.equal(accepted.body.data.acceptanceRecord.paymentTerms, "Monthly in advance, setup due before kickoff.");
+    assert.ok(accepted.body.data.clientAccountProfileId);
+    assert.equal(
+      accepted.body.data.acceptanceRecord.clientAccountProfileId,
+      accepted.body.data.clientAccountProfileId,
+    );
+
+    const [convertedDealRows]: any = await pool.execute(
+      `SELECT d.pipeline_stage_id as stageId,
+              d.stage,
+              d.status,
+              d.client_account_profile_id as clientAccountProfileId,
+              cap.clinic_id as clientClinicId
+       FROM deal d
+       JOIN client_account_profile cap ON cap.id = d.client_account_profile_id
+       WHERE d.id = ?
+         AND d.clinic_id = ?`,
+      [dealId, primaryClinicId],
+    );
+    assert.equal(convertedDealRows.length, 1);
+    assert.equal(convertedDealRows[0].stageId, wonStageId);
+    assert.equal(convertedDealRows[0].stage, "Client Secured", "terminal proposal sync must resolve stages by kind");
+    assert.equal(convertedDealRows[0].status, "won");
+    assert.equal(convertedDealRows[0].clientAccountProfileId, accepted.body.data.clientAccountProfileId);
+    convertedClientClinicId = convertedDealRows[0].clientClinicId;
+
+    const [onboardingTaskRows]: any = await pool.execute(
+      `SELECT assigned_user_id as assignedUserId, due_date as dueDate
+       FROM task
+       WHERE clinic_id = ?
+         AND template_key LIKE ?
+         AND archived_at IS NULL
+         AND deleted_at IS NULL`,
+      [primaryClinicId, `won_client_onboarding:${dealId}:%`],
+    );
+    assert.equal(onboardingTaskRows.length, 16);
+    assert.equal(onboardingTaskRows.every((row: any) => row.assignedUserId === writer.id), true);
+    assert.equal(onboardingTaskRows.every((row: any) => row.dueDate), true);
+
+    const [movementRows]: any = await pool.execute(
+      "SELECT COUNT(*) as count FROM pipeline_deal_movement WHERE clinic_id = ? AND deal_id = ?",
+      [primaryClinicId, dealId],
+    );
+    assert.equal(Number(movementRows[0].count), 1);
+
+    const acceptedRetry = await request(baseUrl, `/api/proposals/${created.body.data.id}/status`, writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        status: "accepted",
+        reason: "Email acceptance",
+        acceptedByName: "Week Two Owner",
+        acceptedByEmail: "owner@example.com",
+        acceptedAt: "2026-07-25T10:00:00.000Z",
+        paymentTerms: "Monthly in advance, setup due before kickoff.",
+      }),
+    });
+    assert.equal(acceptedRetry.response.status, 200);
+    assert.equal(acceptedRetry.body.data.clientAccountProfileId, accepted.body.data.clientAccountProfileId);
+    const [retryRows]: any = await pool.execute(
+      `SELECT
+         (SELECT COUNT(*) FROM task
+          WHERE clinic_id = ?
+            AND template_key LIKE ?
+            AND archived_at IS NULL
+            AND deleted_at IS NULL) as taskCount,
+         (SELECT COUNT(*) FROM pipeline_deal_movement
+          WHERE clinic_id = ?
+            AND deal_id = ?) as movementCount`,
+      [
+        primaryClinicId,
+        `won_client_onboarding:${dealId}:%`,
+        primaryClinicId,
+        dealId,
+      ],
+    );
+    assert.equal(Number(retryRows[0].taskCount), 16);
+    assert.equal(Number(retryRows[0].movementCount), 1);
+
+    const rejectedAcceptedResend = await request(
+      baseUrl,
+      `/api/proposals/${created.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "owner@example.com",
+          recipientName: "Week Two Owner",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(rejectedAcceptedResend.response.status, 400);
+    assert.match(rejectedAcceptedResend.body.message, /accepted proposal cannot be marked sent/i);
+
+    const rejectedAcceptedFollowUp = await request(
+      baseUrl,
+      `/api/proposals/${created.body.data.id}/status`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          status: "follow_up_due",
+          followUpAt: "2026-07-29T09:00:00.000Z",
+        }),
+      },
+    );
+    assert.equal(rejectedAcceptedFollowUp.response.status, 400);
+    assert.match(rejectedAcceptedFollowUp.body.message, /accepted proposal cannot be moved back/i);
+
+    await pool.execute(
+      `INSERT INTO pipeline_stage
+        (id, clinic_id, pipeline_id, name, color, position, kind, is_locked, created_by)
+       VALUES (?, ?, ?, 'Proposal Sent', 'bg-orange-500', 3, 'open', 0, ?)`,
+      [proposalSentStageId, primaryClinicId, pipelineId, writer.id],
+    );
+    const postWinProposal = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        contactId,
+        dealId,
+        proposalName: "Post-win add-on proposal",
+        status: "ready",
+        valueCents: 25000,
+        currency: "GBP",
+      }),
+    });
+    assert.equal(postWinProposal.response.status, 201);
+    const postWinSent = await request(
+      baseUrl,
+      `/api/proposals/${postWinProposal.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "owner@example.com",
+          recipientName: "Week Two Owner",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(postWinSent.response.status, 200);
+    assert.equal(postWinSent.body.data.status, "sent");
+
+    const [postWinSyncRows]: any = await pool.execute(
+      `SELECT
+         (SELECT status FROM deal WHERE id = ? AND clinic_id = ?) as dealStatus,
+         (SELECT client_account_profile_id FROM deal WHERE id = ? AND clinic_id = ?) as profileId,
+         (SELECT COUNT(*) FROM task
+          WHERE clinic_id = ?
+            AND template_key LIKE ?
+            AND archived_at IS NULL
+            AND deleted_at IS NULL) as taskCount,
+         (SELECT COUNT(*) FROM pipeline_deal_movement
+          WHERE clinic_id = ?
+            AND deal_id = ?) as movementCount`,
+      [
+        dealId,
+        primaryClinicId,
+        dealId,
+        primaryClinicId,
+        primaryClinicId,
+        `won_client_onboarding:${dealId}:%`,
+        primaryClinicId,
+        dealId,
+      ],
+    );
+    assert.equal(postWinSyncRows[0].dealStatus, "won");
+    assert.equal(postWinSyncRows[0].profileId, accepted.body.data.clientAccountProfileId);
+    assert.equal(Number(postWinSyncRows[0].taskCount), 16);
+    assert.equal(Number(postWinSyncRows[0].movementCount), 1);
 
     const acceptedPublicPreview = await requestPublic(
       baseUrl,
@@ -299,12 +534,38 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       await pool.execute("DELETE FROM audit_log WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM activity WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute(
-        "DELETE FROM task WHERE clinic_id IN (?, ?) AND (template_key LIKE 'proposal_follow_up:%' OR category = 'proposal_follow_up')",
-        [primaryClinicId, otherClinicId],
+        `DELETE FROM task
+         WHERE clinic_id IN (?, ?)
+           AND (
+             template_key LIKE 'proposal_follow_up:%'
+             OR category = 'proposal_follow_up'
+             OR template_key LIKE ?
+           )`,
+        [primaryClinicId, otherClinicId, `won_client_onboarding:${dealId}:%`],
       );
       await pool.execute("DELETE FROM proposal_acceptance_record WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+      await pool.execute("DELETE FROM contact_document_link WHERE clinic_id = ? AND contact_id = ?", [primaryClinicId, contactId]);
+      await pool.execute(
+        "DELETE FROM client_account_contact WHERE clinic_id = ? AND contact_id = ?",
+        [primaryClinicId, contactId],
+      );
+      await pool.execute(
+        "DELETE FROM pipeline_deal_movement WHERE clinic_id = ? AND deal_id = ?",
+        [primaryClinicId, dealId],
+      );
+      await pool.execute("DELETE FROM deal WHERE id = ?", [dealId]);
+      await pool.execute(
+        "DELETE FROM pipeline_stage WHERE id IN (?, ?, ?)",
+        [openStageId, proposalSentStageId, wonStageId],
+      );
+      await pool.execute("DELETE FROM pipeline WHERE id = ?", [pipelineId]);
       await pool.execute("DELETE FROM contact WHERE id = ?", [contactId]);
+      if (convertedClientClinicId) {
+        await pool.execute("DELETE FROM audit_log WHERE clinic_id = ?", [convertedClientClinicId]);
+        await pool.execute("DELETE FROM client_account_profile WHERE clinic_id = ?", [convertedClientClinicId]);
+        await pool.execute("DELETE FROM clinic WHERE id = ?", [convertedClientClinicId]);
+      }
       for (const user of users) {
         await pool.execute("DELETE FROM clinic_membership WHERE user_id = ?", [user.id]);
         await pool.execute("DELETE FROM user WHERE id = ?", [user.id]);

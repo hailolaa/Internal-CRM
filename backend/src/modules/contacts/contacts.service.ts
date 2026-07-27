@@ -51,6 +51,8 @@ import type {
   ContactImportRequest,
   ContactImportResponse,
   ContactImportRow,
+  ContactDocumentLinkResponse,
+  ContactDocumentType,
   ContactListQuery,
   ContactListResponse,
   ContactMutationDTO,
@@ -62,6 +64,7 @@ import type {
   RecordContactAttemptDTO,
   RecordSalesCallDemoDTO,
   SendContactMessageTemplateDTO,
+  UpdateContactDocumentLinkDTO,
   UpdateContactDTO,
 } from "./contacts.types.js";
 
@@ -72,6 +75,19 @@ interface RequestMeta {
 
 const CALL_TABLE = "`\u00A0call\u00A0`";
 const maxImportRows = 1000;
+const contactDocumentTypes = [
+  { type: "main_client_folder", label: "Main client folder" },
+  { type: "audit", label: "Audit" },
+  { type: "proposal", label: "Proposal" },
+  { type: "contract_admin", label: "Contract/admin" },
+  { type: "onboarding", label: "Onboarding" },
+  { type: "website_assets", label: "Website/assets" },
+  { type: "reports", label: "Reports" },
+  { type: "strategy_looms", label: "Strategy/looms" },
+  { type: "ads", label: "Ads" },
+  { type: "seo_content", label: "SEO/content" },
+  { type: "landing_pages", label: "Landing pages" },
+] as const satisfies ReadonlyArray<{ type: ContactDocumentType; label: string }>;
 
 const importHeaderAliases: Record<string, keyof ContactImportRow | "tags"> = {
   firstname: "firstName",
@@ -504,6 +520,102 @@ export class ContactsService {
     }
 
     return mapContact(rows[0]);
+  }
+
+  async listDocumentLinks(clinicId: string, contactId: string): Promise<ContactDocumentLinkResponse[]> {
+    await this.getContact(clinicId, contactId);
+    const [rows]: any = await pool.execute(
+      `SELECT document_type as documentType,
+              drive_item_id as driveItemId,
+              drive_url as driveUrl,
+              display_name as displayName,
+              status,
+              notes,
+              updated_at as updatedAt
+       FROM contact_document_link
+       WHERE clinic_id = ?
+         AND contact_id = ?`,
+      [clinicId, contactId],
+    );
+    const byType = new Map(rows.map((row: any) => [String(row.documentType), row]));
+
+    return contactDocumentTypes.map((definition) => {
+      const row = byType.get(definition.type) as any | undefined;
+      return {
+        documentType: definition.type,
+        label: definition.label,
+        driveItemId: row?.driveItemId || null,
+        driveUrl: row?.driveUrl || null,
+        displayName: row?.displayName || null,
+        status: row?.driveUrl ? row.status || "linked" : "missing",
+        notes: row?.notes || null,
+        updatedAt: toIsoString(row?.updatedAt),
+      };
+    });
+  }
+
+  async updateDocumentLink(
+    clinicId: string,
+    userId: string,
+    contactId: string,
+    documentType: ContactDocumentType,
+    data: UpdateContactDocumentLinkDTO,
+    meta: RequestMeta,
+  ): Promise<ContactDocumentLinkResponse[]> {
+    await this.getContact(clinicId, contactId);
+    const input = (data.driveItemId || data.driveUrl || "").trim();
+
+    if (!input) {
+      await pool.execute(
+        `DELETE FROM contact_document_link
+         WHERE clinic_id = ?
+           AND contact_id = ?
+           AND document_type = ?`,
+        [clinicId, contactId, documentType],
+      );
+    } else {
+      const driveItemId = normalizeDriveItemId(input);
+      if (!driveItemId) throw ApiError.badRequest("Google Drive link must include a valid folder, file, or ZIP ID.");
+      const driveUrl = normalizeDriveUrl(input, driveItemId);
+      await pool.execute(
+        `INSERT INTO contact_document_link
+          (id, clinic_id, contact_id, document_type, drive_item_id, drive_url, display_name, status, notes, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'linked', ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           drive_item_id = VALUES(drive_item_id),
+           drive_url = VALUES(drive_url),
+           display_name = VALUES(display_name),
+           status = 'linked',
+           notes = VALUES(notes),
+           updated_by = VALUES(updated_by),
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          uuidv4(),
+          clinicId,
+          contactId,
+          documentType,
+          driveItemId,
+          driveUrl,
+          data.displayName?.trim() || null,
+          data.notes?.trim() || null,
+          userId,
+          userId,
+        ],
+      );
+    }
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: input ? "CONTACT_DOCUMENT_LINK_UPDATED" : "CONTACT_DOCUMENT_LINK_REMOVED",
+      entityType: "contact_document_link",
+      entityId: contactId,
+      changes: { contactId, documentType, driveUrl: input || null },
+      ipAddress: meta.ipAddress || null,
+      userAgent: meta.userAgent || null,
+    });
+
+    return this.listDocumentLinks(clinicId, contactId);
   }
 
   // Read user-facing contact history from the activity table
@@ -2144,4 +2256,51 @@ export const contactsService = new ContactsService();
 function stringValue(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   return String(value);
+}
+
+function toIsoString(value: unknown) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+const googleDriveHosts = new Set(["drive.google.com", "docs.google.com"]);
+const googleDriveItemIdPattern = /^[A-Za-z0-9_-]{5,255}$/;
+
+function normalizeDriveItemId(input: string) {
+  const value = input.trim().replace(/^["'<\s]+|[>"'\s]+$/g, "");
+  if (googleDriveItemIdPattern.test(value) && !value.includes(".")) return value;
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || !googleDriveHosts.has(url.hostname.toLowerCase())) return null;
+
+    const path = decodeURIComponent(url.pathname);
+    const itemId =
+      path.match(/\/file\/d\/([^/?#]+)/)?.[1] ||
+      path.match(/\/drive\/(?:u\/\d+\/)?(?:mobile\/)?folders\/([^/?#]+)/)?.[1] ||
+      path.match(/\/folders\/([^/?#]+)/)?.[1] ||
+      path.match(/\/(?:document|spreadsheets|presentation|forms|drawings)\/(?:u\/\d+\/)?d\/([^/?#]+)/)?.[1] ||
+      url.searchParams.get("id") ||
+      null;
+
+    return itemId && googleDriveItemIdPattern.test(itemId) ? itemId : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDriveUrl(input: string, driveItemId: string | null) {
+  const value = input.trim().replace(/^["'<\s]+|[>"'\s]+$/g, "");
+
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" && googleDriveHosts.has(url.hostname.toLowerCase())) return url.toString();
+  } catch {
+    // IDs are accepted for manual lead document links.
+  }
+
+  return driveItemId
+    ? `https://drive.google.com/open?id=${encodeURIComponent(driveItemId)}`
+    : value;
 }

@@ -14,19 +14,25 @@ import type {
   ClientAccountLinkedContactResponse,
   ClientAccountLinkedRecordsResponse,
   ClientAccountLinkedTaskResponse,
+  ClientAccountAccessItemResponse,
+  ClientAccountDocumentLinkResponse,
   ClientAccountProfileResponse,
   ClientAccountServiceListQuery,
   ClientAccountServiceResponse,
   ClientAccountSummaryResponse,
+  ClientAccessItemType,
   CreateClientAccountDTO,
   CreateClientAccountFromContactDTO,
   CreateClientAccountDriveFolderDTO,
+  ClientDocumentType,
   ConvertWonDealToClientDTO,
   GrowthScoreCategories,
   InvoiceStatus,
   PaymentStatus,
   RenameClientAccountDriveFileDTO,
   CreateClientAccountServiceDTO,
+  UpdateClientAccountAccessItemDTO,
+  UpdateClientAccountDocumentLinkDTO,
   UpdateClientAccountDriveFolderDTO,
   UpdateClientAccountServiceDTO,
   UpdateClientAccountProfileDTO,
@@ -65,6 +71,33 @@ const emptyGrowthScoreCategories = {
   revenueLeakage: null as number | null,
   growthOpportunity: null as number | null,
 };
+
+const clientDocumentTypes = [
+  { type: "main_client_folder", label: "Main client folder" },
+  { type: "audit", label: "Audit" },
+  { type: "proposal", label: "Proposal" },
+  { type: "contract_admin", label: "Contract/admin" },
+  { type: "onboarding", label: "Onboarding" },
+  { type: "website_assets", label: "Website/assets" },
+  { type: "reports", label: "Reports" },
+  { type: "strategy_looms", label: "Strategy/looms" },
+  { type: "ads", label: "Ads" },
+  { type: "seo_content", label: "SEO/content" },
+  { type: "landing_pages", label: "Landing pages" },
+] as const satisfies ReadonlyArray<{ type: ClientDocumentType; label: string }>;
+
+const clientAccessItemTypes = [
+  { type: "website", label: "Website access" },
+  { type: "ga4", label: "GA4" },
+  { type: "gsc", label: "Search Console" },
+  { type: "gtm", label: "Tag Manager" },
+  { type: "google_ads", label: "Google Ads" },
+  { type: "gbp", label: "Google Business Profile" },
+  { type: "meta", label: "Meta" },
+  { type: "brand_assets", label: "Brand assets" },
+  { type: "treatment_pricing_info", label: "Treatment/pricing information" },
+  { type: "reporting_access", label: "Reporting access" },
+] as const satisfies ReadonlyArray<{ type: ClientAccessItemType; label: string }>;
 
 function parseServices(value: unknown): string[] {
   if (!value) return [];
@@ -215,10 +248,15 @@ function contactDisplayName(row: any) {
     "Unnamed contact";
 }
 
-type GoogleDriveItemKind = "folder" | "zip" | "unknown";
+type GoogleDriveItemKind = "folder" | "file" | "unknown";
 type GoogleDriveTokenCache = {
   token: string;
   expiresAt: number;
+};
+
+type WonDealConversionTransactionHooks = {
+  beforeConversion?: (connection: PoolConnection) => Promise<void>;
+  afterConversion?: (connection: PoolConnection) => Promise<void>;
 };
 
 function extractGoogleDriveItem(value: string): { id: string; kindHint: GoogleDriveItemKind } {
@@ -232,27 +270,39 @@ function extractGoogleDriveItem(value: string): { id: string; kindHint: GoogleDr
   try {
     url = new URL(input);
   } catch {
-    throw ApiError.badRequest("Enter a valid Google Drive folder or ZIP file URL or ID.");
+    throw ApiError.badRequest("Enter a valid Google Drive item URL or ID.");
   }
 
   const host = url.hostname.toLowerCase();
-  if (!host.endsWith("drive.google.com")) {
-    throw ApiError.badRequest("Only Google Drive folder or ZIP file links are supported.");
+  if (
+    url.protocol !== "https:" ||
+    (host !== "drive.google.com" && host !== "docs.google.com")
+  ) {
+    throw ApiError.badRequest("Only HTTPS Google Drive and Google Docs links are supported.");
   }
 
-  const path = decodeURIComponent(url.pathname);
+  let path: string;
+  try {
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    throw ApiError.badRequest("Google Drive link contains invalid URL encoding.");
+  }
   const fileId = path.match(/\/file\/d\/([^/?#]+)/)?.[1];
+  const googleEditorId = path.match(
+    /\/(?:document|spreadsheets|presentation|forms|drawings)\/(?:u\/\d+\/)?d\/([^/?#]+)/,
+  )?.[1];
   const folderId =
     path.match(/\/drive\/(?:u\/\d+\/)?(?:mobile\/)?folders\/([^/?#]+)/)?.[1] ||
     path.match(/\/folders\/([^/?#]+)/)?.[1];
   const driveId =
     folderId ||
     fileId ||
+    googleEditorId ||
     url.searchParams.get("id");
-  const kindHint: GoogleDriveItemKind = folderId ? "folder" : fileId ? "zip" : "unknown";
+  const kindHint: GoogleDriveItemKind = folderId ? "folder" : fileId || googleEditorId ? "file" : "unknown";
 
   if (!validDriveId(driveId)) {
-    throw ApiError.badRequest("Google Drive link must include a valid folder or ZIP file ID.");
+    throw ApiError.badRequest("Google Drive link must include a valid item ID.");
   }
 
   return { id: String(driveId), kindHint };
@@ -688,6 +738,7 @@ export class ClientAccountsService {
     userId: string,
     data: ConvertWonDealToClientDTO,
     auditContext: ClientAccountAuditContext,
+    transactionHooks: WonDealConversionTransactionHooks = {},
   ): Promise<ClientAccountSummaryResponse> {
     const connection = await pool.getConnection();
     let existingClinicId: string | null = null;
@@ -698,6 +749,7 @@ export class ClientAccountsService {
 
     try {
       await connection.beginTransaction();
+      await transactionHooks.beforeConversion?.(connection);
 
       const [lockedDealRows]: any = await connection.execute(
         `SELECT contact_id as contactId,
@@ -715,13 +767,56 @@ export class ClientAccountsService {
 
       if (lockedDeal.clientAccountProfileId) {
         const [profileRows]: any = await connection.execute(
-          "SELECT clinic_id as clinicId FROM client_account_profile WHERE id = ? LIMIT 1",
+          `SELECT cap.clinic_id as clinicId,
+                  c.name as clinicName
+           FROM client_account_profile cap
+           JOIN clinic c
+             ON c.id = cap.clinic_id
+            AND c.deleted_at IS NULL
+           WHERE cap.id = ?
+           LIMIT 1`,
           [lockedDeal.clientAccountProfileId],
         );
         if (!profileRows[0]?.clinicId) {
           throw ApiError.conflict("Converted client account link is invalid");
         }
         existingClinicId = profileRows[0].clinicId;
+
+        const [existingDealRows]: any = await connection.execute(
+          `SELECT d.id,
+                  d.contact_id as contactId,
+                  d.title,
+                  d.treatment,
+                  d.source as dealSource,
+                  d.owner_id as ownerId,
+                  c.first_name as firstName,
+                  c.last_name as lastName,
+                  c.email,
+                  c.source as contactSource
+           FROM deal d
+           JOIN contact c
+             ON c.id = d.contact_id
+            AND c.clinic_id = d.clinic_id
+            AND c.deleted_at IS NULL
+           WHERE d.id = ?
+             AND d.clinic_id = ?
+             AND d.deleted_at IS NULL
+           LIMIT 1`,
+          [data.dealId, sourceClinicId],
+        );
+        deal = existingDealRows[0];
+        if (!deal) throw ApiError.notFound("Won opportunity not found");
+
+        await this.createConversionOnboardingTasks(
+          sourceClinicId,
+          userId,
+          {
+            id: lockedDeal.clientAccountProfileId,
+            clinicName: profileRows[0].clinicName,
+          },
+          deal,
+          connection,
+        );
       } else {
         const [lockedContactRows]: any = await connection.execute(
           `SELECT id
@@ -1004,15 +1099,13 @@ export class ClientAccountsService {
 
         await this.linkContactRelation(sourceClinicId, createdProfileId, deal.contactId, userId, connection);
 
-        if (data.createOnboardingTasks !== false) {
-          await this.createConversionOnboardingTasks(
-            sourceClinicId,
-            userId,
-            { id: createdProfileId, clinicName: normalizedAccount.name },
-            deal,
-            connection,
-          );
-        }
+        await this.createConversionOnboardingTasks(
+          sourceClinicId,
+          userId,
+          { id: createdProfileId, clinicName: normalizedAccount.name },
+          deal,
+          connection,
+        );
 
         await this.insertConversionEvents(connection, {
           sourceClinicId,
@@ -1026,6 +1119,7 @@ export class ClientAccountsService {
         });
       }
 
+      await transactionHooks.afterConversion?.(connection);
       await connection.commit();
     } catch (error) {
       await connection.rollback();
@@ -1285,6 +1379,7 @@ export class ClientAccountsService {
     data: UpdateClientAccountDriveFolderDTO,
     access: { canManageAllClientAccounts: boolean },
     auditContext: ClientAccountAuditContext,
+    requireFolder = false,
   ): Promise<ClientAccountProfileResponse> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
 
@@ -1292,22 +1387,93 @@ export class ClientAccountsService {
     const profileId = before.id || await this.ensureProfileRow(clientClinicId, userId);
     const input = (data.folderId || data.folderUrl || "").trim();
     const displayName = data.displayName?.trim() || null;
+    const driveItem = input ? extractGoogleDriveItem(input) : null;
+    const accessCheck = driveItem
+      ? await this.checkGoogleDriveItemAccess(sourceClinicId, driveItem.id, driveItem.kindHint)
+      : null;
+    if (requireFolder && accessCheck && accessCheck.itemType !== "folder") {
+      throw ApiError.badRequest("The main client Drive link must point to a folder.");
+    }
+    const folderId = driveItem?.id || null;
+    const folderUrl = accessCheck
+      ? accessCheck.itemType === "zip"
+        ? `https://drive.google.com/file/d/${folderId}/view`
+        : `https://drive.google.com/drive/folders/${folderId}`
+      : null;
+    const driveItemName = accessCheck
+      ? displayName ||
+        accessCheck.name ||
+        (accessCheck.itemType === "zip" ? "Google Drive ZIP archive" : "Google Drive folder")
+      : null;
 
-    if (!input) {
-      await pool.execute(
+    let previousFolderId = before.googleDriveFolderId;
+    let previousFolderUrl = before.googleDriveFolderUrl;
+    let previousAccessStatus = before.googleDriveFolderAccessStatus;
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [profileRows]: any = await connection.execute(
+        `SELECT google_drive_folder_id as folderId,
+                google_drive_folder_url as folderUrl,
+                google_drive_folder_access_status as accessStatus
+         FROM client_account_profile
+         WHERE id = ?
+           AND clinic_id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [profileId, clientClinicId],
+      );
+      if (!profileRows[0]) throw ApiError.notFound("Client account profile not found");
+      previousFolderId = profileRows[0].folderId || null;
+      previousFolderUrl = profileRows[0].folderUrl || null;
+      previousAccessStatus = profileRows[0].accessStatus || "not_checked";
+
+      const [documentCountRows]: any = await connection.execute(
+        `SELECT COUNT(*) as count
+         FROM client_account_document_link
+         WHERE client_account_profile_id = ?`,
+        [profileId],
+      );
+      const hasLinkedDocuments = Number(documentCountRows[0]?.count || 0) > 0;
+      if (hasLinkedDocuments && !folderId) {
+        throw ApiError.conflict("Remove the client document links before clearing the main Drive folder.");
+      }
+      if (hasLinkedDocuments && folderId !== previousFolderId) {
+        throw ApiError.conflict("Remove the client document links before changing the main Drive folder.");
+      }
+
+      await connection.execute(
         `UPDATE client_account_profile
-         SET google_drive_folder_id = NULL,
-             google_drive_folder_url = NULL,
-             google_drive_folder_name = NULL,
-             google_drive_folder_access_status = 'not_checked',
-             google_drive_folder_error = NULL,
-             google_drive_folder_checked_at = NULL,
+         SET google_drive_folder_id = ?,
+             google_drive_folder_url = ?,
+             google_drive_folder_name = ?,
+             google_drive_folder_access_status = ?,
+             google_drive_folder_error = ?,
+             google_drive_folder_checked_at = ?,
              updated_by = ?,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND clinic_id = ?`,
-        [userId, profileId, clientClinicId],
+        [
+          folderId,
+          folderUrl,
+          driveItemName,
+          accessCheck?.status || "not_checked",
+          accessCheck?.error || null,
+          accessCheck?.checkedAt || null,
+          userId,
+          profileId,
+          clientClinicId,
+        ],
       );
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
 
+    if (!folderId) {
       await logAuditEvent({
         clinicId: clientClinicId,
         userId,
@@ -1315,8 +1481,8 @@ export class ClientAccountsService {
         entityType: "client_account_profile",
         entityId: profileId,
         changes: {
-          googleDriveFolderId: { before: before.googleDriveFolderId, after: null },
-          googleDriveFolderUrl: { before: before.googleDriveFolderUrl, after: null },
+          googleDriveFolderId: { before: previousFolderId, after: null },
+          googleDriveFolderUrl: { before: previousFolderUrl, after: null },
         },
         ipAddress: auditContext.ipAddress || null,
         userAgent: auditContext.userAgent || null,
@@ -1325,43 +1491,6 @@ export class ClientAccountsService {
       return this.getProfile(clientClinicId);
     }
 
-    const driveItem = extractGoogleDriveItem(input);
-    const accessCheck = await this.checkGoogleDriveItemAccess(sourceClinicId, driveItem.id, driveItem.kindHint);
-    const folderId = driveItem.id;
-    const folderUrl =
-      accessCheck.itemType === "zip" || driveItem.kindHint === "zip"
-        ? `https://drive.google.com/file/d/${folderId}/view`
-        : `https://drive.google.com/drive/folders/${folderId}`;
-
-    const driveItemName =
-      displayName ||
-      accessCheck.name ||
-      (accessCheck.itemType === "zip" ? "Google Drive ZIP archive" : "Google Drive folder");
-
-    await pool.execute(
-      `UPDATE client_account_profile
-       SET google_drive_folder_id = ?,
-           google_drive_folder_url = ?,
-           google_drive_folder_name = ?,
-           google_drive_folder_access_status = ?,
-           google_drive_folder_error = ?,
-           google_drive_folder_checked_at = ?,
-           updated_by = ?,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND clinic_id = ?`,
-      [
-        folderId,
-        folderUrl,
-        driveItemName,
-        accessCheck.status,
-        accessCheck.error,
-        accessCheck.checkedAt,
-        userId,
-        profileId,
-        clientClinicId,
-      ],
-    );
-
     await logAuditEvent({
       clinicId: clientClinicId,
       userId,
@@ -1369,15 +1498,324 @@ export class ClientAccountsService {
       entityType: "client_account_profile",
       entityId: profileId,
       changes: {
-        googleDriveFolderId: { before: before.googleDriveFolderId, after: folderId },
-        googleDriveFolderUrl: { before: before.googleDriveFolderUrl, after: folderUrl },
-        googleDriveFolderAccessStatus: { before: before.googleDriveFolderAccessStatus, after: accessCheck.status },
+        googleDriveFolderId: { before: previousFolderId, after: folderId },
+        googleDriveFolderUrl: { before: previousFolderUrl, after: folderUrl },
+        googleDriveFolderAccessStatus: { before: previousAccessStatus, after: accessCheck?.status },
       },
       ipAddress: auditContext.ipAddress || null,
       userAgent: auditContext.userAgent || null,
     });
 
     return this.getProfile(clientClinicId);
+  }
+
+  async listDocumentLinks(
+    sourceClinicId: string,
+    clientClinicId: string,
+    access: { canManageAllClientAccounts: boolean },
+  ): Promise<ClientAccountDocumentLinkResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const account = await this.getProfile(clientClinicId);
+
+    const rows = account.id
+      ? await this.getClientDocumentRows(sourceClinicId, account.id)
+      : [];
+    const byType = new Map(rows.map((row: any) => [String(row.documentType), row]));
+
+    return clientDocumentTypes.map((definition) => {
+      if (definition.type === "main_client_folder") {
+        return {
+          documentType: definition.type,
+          label: definition.label,
+          driveItemId: account.googleDriveFolderId,
+          driveUrl: account.googleDriveFolderUrl,
+          displayName: account.googleDriveFolderName,
+          status: this.documentStatus(account.googleDriveFolderUrl, account.googleDriveFolderAccessStatus),
+          accessStatus: account.googleDriveFolderAccessStatus,
+          accessError: account.googleDriveFolderError,
+          checkedAt: account.googleDriveFolderCheckedAt,
+          notes: null,
+          updatedAt: account.updatedAt,
+        };
+      }
+
+      const row = byType.get(definition.type) as any | undefined;
+      return {
+        documentType: definition.type,
+        label: definition.label,
+        driveItemId: row?.driveItemId || null,
+        driveUrl: row?.driveUrl || null,
+        displayName: row?.displayName || null,
+        status: this.documentStatus(row?.driveUrl, row?.accessStatus),
+        accessStatus: row?.accessStatus || "not_checked",
+        accessError: row?.accessError || null,
+        checkedAt: toIsoString(row?.checkedAt),
+        notes: row?.notes || null,
+        updatedAt: toIsoString(row?.updatedAt),
+      };
+    });
+  }
+
+  async updateDocumentLink(
+    sourceClinicId: string,
+    clientClinicId: string,
+    userId: string,
+    documentType: ClientDocumentType,
+    data: UpdateClientAccountDocumentLinkDTO,
+    access: { canManageAllClientAccounts: boolean; canConfigureDrive: boolean },
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountDocumentLinkResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+
+    if (documentType === "main_client_folder") {
+      if (!access.canConfigureDrive) {
+        throw ApiError.forbidden("Only an Admin can change the main client Drive folder.");
+      }
+      await this.updateDriveFolder(
+        sourceClinicId,
+        clientClinicId,
+        userId,
+        {
+          folderId: data.driveItemId || null,
+          folderUrl: data.driveUrl || null,
+          displayName: data.displayName || null,
+        },
+        access,
+        auditContext,
+        true,
+      );
+      return this.listDocumentLinks(sourceClinicId, clientClinicId, access);
+    }
+
+    const account = await this.getProfile(clientClinicId);
+    const profileId = account.id || await this.ensureProfileRow(clientClinicId, userId);
+    const input = (data.driveItemId || data.driveUrl || "").trim();
+
+    if (!input) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        await connection.execute(
+          `SELECT id
+           FROM client_account_profile
+           WHERE id = ?
+             AND clinic_id = ?
+           LIMIT 1
+           FOR UPDATE`,
+          [profileId, clientClinicId],
+        );
+        await connection.execute(
+          `DELETE FROM client_account_document_link
+           WHERE clinic_id = ?
+             AND client_account_profile_id = ?
+             AND document_type = ?`,
+          [sourceClinicId, profileId, documentType],
+        );
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
+
+      await logAuditEvent({
+        clinicId: sourceClinicId,
+        userId,
+        action: "CLIENT_ACCOUNT_DOCUMENT_LINK_REMOVED",
+        entityType: "client_account_document_link",
+        entityId: profileId,
+        changes: { clientAccountProfileId: profileId, documentType },
+        ipAddress: auditContext.ipAddress || null,
+        userAgent: auditContext.userAgent || null,
+      });
+
+      return this.listDocumentLinks(sourceClinicId, clientClinicId, access);
+    }
+
+    const driveItem = extractGoogleDriveItem(input);
+    if (!account.googleDriveFolderId) {
+      throw ApiError.badRequest("An Admin must select a main Google Drive folder for this client first.");
+    }
+    if (account.googleDriveFolderUrl?.includes("/file/d/")) {
+      throw ApiError.badRequest("The main client Drive link must be a folder before document links can be added.");
+    }
+    if (!await this.isGoogleDriveItemWithinFolder(
+      sourceClinicId,
+      driveItem.id,
+      account.googleDriveFolderId,
+    )) {
+      throw ApiError.forbidden("This Google Drive item is outside the selected client folder.");
+    }
+    const accessCheck = await this.checkGoogleDriveItemAccess(
+      sourceClinicId,
+      driveItem.id,
+      driveItem.kindHint,
+      true,
+    );
+    const driveUrl =
+      accessCheck.webViewLink ||
+      (accessCheck.itemType === "folder"
+        ? `https://drive.google.com/drive/folders/${driveItem.id}`
+        : `https://drive.google.com/file/d/${driveItem.id}/view`);
+    const displayName =
+      data.displayName?.trim() ||
+      accessCheck.name ||
+      clientDocumentTypes.find((item) => item.type === documentType)?.label ||
+      "Google Drive item";
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [lockedProfileRows]: any = await connection.execute(
+        `SELECT google_drive_folder_id as folderId,
+                google_drive_folder_url as folderUrl
+         FROM client_account_profile
+         WHERE id = ?
+           AND clinic_id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [profileId, clientClinicId],
+      );
+      if (!lockedProfileRows[0]) throw ApiError.notFound("Client account profile not found");
+      if (lockedProfileRows[0].folderId !== account.googleDriveFolderId) {
+        throw ApiError.conflict("The main client Drive folder changed. Check the document link and try again.");
+      }
+      if (!lockedProfileRows[0].folderId || String(lockedProfileRows[0].folderUrl || "").includes("/file/d/")) {
+        throw ApiError.conflict("The main client Drive folder is no longer available.");
+      }
+
+      await connection.execute(
+        `INSERT INTO client_account_document_link
+          (id, clinic_id, client_account_profile_id, document_type, drive_item_id, drive_url,
+           display_name, access_status, access_error, checked_at, notes, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           drive_item_id = VALUES(drive_item_id),
+           drive_url = VALUES(drive_url),
+           display_name = VALUES(display_name),
+           access_status = VALUES(access_status),
+           access_error = VALUES(access_error),
+           checked_at = VALUES(checked_at),
+           notes = VALUES(notes),
+           updated_by = VALUES(updated_by),
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          uuidv4(),
+          sourceClinicId,
+          profileId,
+          documentType,
+          driveItem.id,
+          driveUrl,
+          displayName,
+          accessCheck.status,
+          accessCheck.error,
+          accessCheck.checkedAt,
+          data.notes?.trim() || null,
+          userId,
+          userId,
+        ],
+      );
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
+    await logAuditEvent({
+      clinicId: sourceClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_DOCUMENT_LINK_UPDATED",
+      entityType: "client_account_document_link",
+      entityId: profileId,
+      changes: { clientAccountProfileId: profileId, documentType, driveItemId: driveItem.id, driveUrl },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.listDocumentLinks(sourceClinicId, clientClinicId, access);
+  }
+
+  async listAccessItems(
+    sourceClinicId: string,
+    clientClinicId: string,
+    access: { canManageAllClientAccounts: boolean },
+  ): Promise<ClientAccountAccessItemResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const account = await this.getProfile(clientClinicId);
+    const rows = account.id ? await this.getClientAccessRows(sourceClinicId, account.id) : [];
+    const byType = new Map(rows.map((row: any) => [String(row.itemType), row]));
+
+    return clientAccessItemTypes.map((definition) => {
+      const row = byType.get(definition.type) as any | undefined;
+      const status = row?.status || "requested";
+      return {
+        itemType: definition.type,
+        label: definition.label,
+        status,
+        isMissing: status === "requested",
+        notes: row?.notes || null,
+        requestedAt: toIsoString(row?.requestedAt),
+        receivedAt: toIsoString(row?.receivedAt),
+        updatedAt: toIsoString(row?.updatedAt),
+      };
+    });
+  }
+
+  async updateAccessItem(
+    sourceClinicId: string,
+    clientClinicId: string,
+    userId: string,
+    itemType: ClientAccessItemType,
+    data: UpdateClientAccountAccessItemDTO,
+    access: { canManageAllClientAccounts: boolean },
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountAccessItemResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const account = await this.getProfile(clientClinicId);
+    const profileId = account.id || await this.ensureProfileRow(clientClinicId, userId);
+    const status = data.status;
+    const nowExpression = "CURRENT_TIMESTAMP";
+
+    await pool.execute(
+      `INSERT INTO client_account_access_item
+        (id, clinic_id, client_account_profile_id, item_type, status, notes, requested_at, received_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ${status === "requested" ? nowExpression : "NULL"}, ${status === "received" ? nowExpression : "NULL"}, ?)
+       ON DUPLICATE KEY UPDATE
+         status = VALUES(status),
+         notes = VALUES(notes),
+         requested_at = CASE WHEN VALUES(status) = 'requested' THEN COALESCE(requested_at, CURRENT_TIMESTAMP) ELSE requested_at END,
+         received_at = CASE
+           WHEN VALUES(status) = 'received' THEN COALESCE(received_at, CURRENT_TIMESTAMP)
+           ELSE NULL
+         END,
+         updated_by = VALUES(updated_by),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        uuidv4(),
+        sourceClinicId,
+        profileId,
+        itemType,
+        status,
+        data.notes?.trim() || null,
+        userId,
+      ],
+    );
+
+    await logAuditEvent({
+      clinicId: sourceClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_ACCESS_ITEM_UPDATED",
+      entityType: "client_account_access_item",
+      entityId: profileId,
+      changes: { clientAccountProfileId: profileId, itemType, status, notes: data.notes?.trim() || null },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.listAccessItems(sourceClinicId, clientClinicId, access);
   }
 
   async listDriveFolders(
@@ -2156,6 +2594,51 @@ export class ClientAccountsService {
     return Math.round((Number(numerator || 0) / total) * 100);
   }
 
+  private documentStatus(
+    driveUrl: string | null | undefined,
+    accessStatus: "not_checked" | "accessible" | "inaccessible" | null | undefined,
+  ): "missing" | "linked" | "not_checked" | "access_problem" {
+    if (!driveUrl) return "missing";
+    if (accessStatus === "accessible") return "linked";
+    if (accessStatus === "inaccessible") return "access_problem";
+    return "not_checked";
+  }
+
+  private async getClientDocumentRows(sourceClinicId: string, clientAccountProfileId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT document_type as documentType,
+              drive_item_id as driveItemId,
+              drive_url as driveUrl,
+              display_name as displayName,
+              access_status as accessStatus,
+              access_error as accessError,
+              checked_at as checkedAt,
+              notes,
+              updated_at as updatedAt
+       FROM client_account_document_link
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?`,
+      [sourceClinicId, clientAccountProfileId],
+    );
+    return rows;
+  }
+
+  private async getClientAccessRows(sourceClinicId: string, clientAccountProfileId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT item_type as itemType,
+              status,
+              notes,
+              requested_at as requestedAt,
+              received_at as receivedAt,
+              updated_at as updatedAt
+       FROM client_account_access_item
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?`,
+      [sourceClinicId, clientAccountProfileId],
+    );
+    return rows;
+  }
+
   private normalizeMoney(value: number | string | null | undefined) {
     if (value === null || value === undefined || value === "") return null;
     return Number(value).toFixed(2);
@@ -2236,15 +2719,21 @@ export class ClientAccountsService {
       throw ApiError.badRequest("An Admin must select a Google Drive folder for this client first.");
     }
     const resolvedItemId = itemId === "root" ? rootFolderId : itemId;
-    if (!await googleDriveOAuthService.isItemWithinFolder(sourceClinicId, resolvedItemId, rootFolderId)) {
+    if (!await this.isGoogleDriveItemWithinFolder(sourceClinicId, resolvedItemId, rootFolderId)) {
       throw ApiError.forbidden("This Google Drive item is outside the selected client folder.");
     }
     return resolvedItemId;
   }
 
-  private async checkGoogleDriveItemAccess(clinicId: string, folderId: string, kindHint: GoogleDriveItemKind): Promise<{
+  private async checkGoogleDriveItemAccess(
+    clinicId: string,
+    folderId: string,
+    kindHint: GoogleDriveItemKind,
+    allowAnyFile = false,
+  ): Promise<{
     name: string | null;
-    itemType: "folder" | "zip" | null;
+    itemType: "folder" | "zip" | "file" | null;
+    webViewLink: string | null;
     status: "not_checked" | "accessible" | "inaccessible";
     error: string | null;
     checkedAt: string | null;
@@ -2257,7 +2746,7 @@ export class ClientAccountsService {
     const checkedAt = new Date().toISOString().slice(0, 19).replace("T", " ");
     try {
       const response = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed&supportsAllDrives=true`,
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed,webViewLink,shortcutDetails&supportsAllDrives=true`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -2272,13 +2761,16 @@ export class ClientAccountsService {
         throw ApiError.badRequest(message);
       }
 
+      if (payload.mimeType === "application/vnd.google-apps.shortcut") {
+        throw ApiError.badRequest("Google Drive shortcuts cannot be linked. Select the target folder or file directly.");
+      }
       const isFolder = payload.mimeType === "application/vnd.google-apps.folder";
       const isZip =
         ["application/zip", "application/x-zip", "application/x-zip-compressed"].includes(String(payload.mimeType || "")) ||
         (String(payload.mimeType || "") === "application/octet-stream" && String(payload.name || "").toLowerCase().endsWith(".zip")) ||
         String(payload.name || "").toLowerCase().endsWith(".zip");
 
-      if (!isFolder && !isZip) {
+      if (!allowAnyFile && !isFolder && !isZip) {
         throw ApiError.badRequest("Google Drive link must point to a folder or ZIP file.");
       }
 
@@ -2288,7 +2780,8 @@ export class ClientAccountsService {
 
       return {
         name: payload.name || null,
-        itemType: isZip ? "zip" : "folder",
+        itemType: isFolder ? "folder" : isZip ? "zip" : "file",
+        webViewLink: payload.webViewLink || null,
         status: "accessible",
         error: null,
         checkedAt,
@@ -2297,6 +2790,35 @@ export class ClientAccountsService {
       if (error instanceof ApiError) throw error;
       throw ApiError.serviceUnavailable("Google Drive item access could not be checked. Try again or check the Google credentials.");
     }
+  }
+
+  private async isGoogleDriveItemWithinFolder(
+    clinicId: string,
+    itemId: string,
+    rootFolderId: string,
+  ) {
+    if (itemId === rootFolderId) return true;
+
+    const accessToken = await this.getGoogleDriveAccessToken(clinicId);
+    const visited = new Set<string>();
+    let pending = [itemId];
+
+    for (let depth = 0; depth < 50 && pending.length > 0; depth += 1) {
+      const currentId = pending.shift()!;
+      if (currentId === rootFolderId) return true;
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(currentId)}?fields=id,parents,trashed&supportsAllDrives=true`,
+        { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
+      );
+      const payload: any = await response.json().catch(() => ({}));
+      if (!response.ok || payload.trashed) return false;
+      pending = [...pending, ...(Array.isArray(payload.parents) ? payload.parents.map(String) : [])];
+    }
+
+    return false;
   }
 
   private async getGoogleDriveAccessToken(clinicId: string) {
@@ -2520,12 +3042,24 @@ export class ClientAccountsService {
               (t.status <> 'completed' AND t.due_date < CURRENT_DATE) as isOverdue,
               t.client_account_profile_id as clientAccountProfileId,
               t.client_account_service_id as clientAccountServiceId,
+              t.template_key as templateKey,
               t.updated_at as updatedAt
        FROM task t
        LEFT JOIN user assignee
          ON assignee.id = t.assigned_user_id
-        AND assignee.clinic_id = t.clinic_id
         AND assignee.deleted_at IS NULL
+        AND assignee.status = 'active'
+        AND assignee.is_active = 1
+        AND (
+          assignee.clinic_id = t.clinic_id
+          OR EXISTS (
+            SELECT 1
+            FROM clinic_membership assignee_membership
+            WHERE assignee_membership.user_id = assignee.id
+              AND assignee_membership.clinic_id = t.clinic_id
+              AND assignee_membership.status = 'active'
+          )
+        )
        WHERE t.clinic_id = ?
          AND t.is_internal = 1
          AND t.deleted_at IS NULL
@@ -2550,6 +3084,7 @@ export class ClientAccountsService {
       isOverdue: Boolean(row.isOverdue),
       clientAccountProfileId: row.clientAccountProfileId || null,
       clientAccountServiceId: row.clientAccountServiceId || null,
+      templateKey: row.templateKey || null,
       updatedAt: toIsoString(row.updatedAt) || new Date().toISOString(),
     }));
   }
@@ -2672,14 +3207,57 @@ export class ClientAccountsService {
       deal.dealSource || deal.contactSource ? `Original source: ${deal.dealSource || deal.contactSource}` : null,
     ].filter(Boolean).join("\n");
     const checklist = [
-      { key: "kickoff", title: `Book onboarding kickoff: ${account.clinicName}`, due: 1, serviceType: "strategy" },
-      { key: "access", title: `Collect access and assets: ${account.clinicName}`, due: 2, serviceType: "strategy" },
-      { key: "tracking", title: `Confirm tracking and reporting setup: ${account.clinicName}`, due: 3, serviceType: "other" },
-      { key: "delivery-plan", title: `Create delivery plan: ${account.clinicName}`, due: 5, serviceType: "strategy" },
+      { key: "owner-assignment", title: `Assign client owner: ${account.clinicName}`, due: 0, serviceType: "strategy" },
+      { key: "invoice", title: `Raise first invoice: ${account.clinicName}`, due: 0, serviceType: "strategy" },
+      { key: "gocardless", title: `Confirm GoCardless setup: ${account.clinicName}`, due: 1, serviceType: "strategy" },
+      { key: "onboarding-form", title: `Send onboarding form: ${account.clinicName}`, due: 1, serviceType: "strategy" },
+      { key: "drive-folder", title: `Create or link Drive folder: ${account.clinicName}`, due: 1, serviceType: "strategy" },
+      { key: "website-access", title: `Collect website access: ${account.clinicName}`, due: 2, serviceType: "website" },
+      { key: "ga4", title: `Collect GA4 access: ${account.clinicName}`, due: 2, serviceType: "other" },
+      { key: "gsc", title: `Collect Google Search Console access: ${account.clinicName}`, due: 2, serviceType: "seo" },
+      { key: "gtm", title: `Collect Google Tag Manager access: ${account.clinicName}`, due: 2, serviceType: "other" },
+      { key: "google-ads", title: `Collect Google Ads access: ${account.clinicName}`, due: 3, serviceType: "ppc" },
+      { key: "gbp", title: `Collect Google Business Profile access: ${account.clinicName}`, due: 3, serviceType: "gbp" },
+      { key: "meta", title: `Collect Meta Business access: ${account.clinicName}`, due: 3, serviceType: "ppc" },
+      { key: "brand-assets", title: `Collect brand assets: ${account.clinicName}`, due: 4, serviceType: "website" },
+      { key: "treatment-pricing-info", title: `Collect treatment and pricing info: ${account.clinicName}`, due: 4, serviceType: "strategy" },
+      { key: "reporting-setup", title: `Set up reporting: ${account.clinicName}`, due: 5, serviceType: "other" },
+      { key: "first-review", title: `Book first client review: ${account.clinicName}`, due: 14, serviceType: "strategy" },
     ];
+    const [assigneeRows]: any = await connection.execute(
+      `SELECT u.id
+       FROM user u
+       WHERE u.id IN (?, ?)
+         AND u.deleted_at IS NULL
+         AND u.status = 'active'
+         AND u.is_active = 1
+         AND (
+           u.clinic_id = ?
+           OR EXISTS (
+             SELECT 1
+             FROM clinic_membership cm
+             WHERE cm.user_id = u.id
+               AND cm.clinic_id = ?
+               AND cm.status = 'active'
+           )
+         )
+       ORDER BY CASE WHEN u.id = ? THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [deal.ownerId || userId, userId, sourceClinicId, sourceClinicId, deal.ownerId || userId],
+    );
+    const assignedUserId = assigneeRows[0]?.id;
+    if (!assignedUserId) {
+      throw ApiError.badRequest("Onboarding tasks require an active workspace assignee.");
+    }
 
     for (const item of checklist) {
       const templateKey = `won_client_onboarding:${deal.id}:${item.key}`;
+      const description = [
+        baseDescription,
+        "",
+        `Checklist item: ${item.title}`,
+        "Created automatically when the won opportunity was converted into a client account.",
+      ].join("\n");
       const [existingRows]: any = await connection.execute(
         `SELECT id
          FROM task
@@ -2687,10 +3265,62 @@ export class ClientAccountsService {
            AND is_internal = 1
            AND template_key = ?
            AND deleted_at IS NULL
-         LIMIT 1`,
+           AND archived_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
         [sourceClinicId, templateKey],
       );
-      if (existingRows.length > 0) continue;
+      if (existingRows.length > 0) {
+        await connection.execute(
+          `UPDATE task current_task
+           SET description = CASE WHEN description IS NULL OR description = '' THEN ? ELSE description END,
+               category = 'client_onboarding',
+               board_key = 'delivery',
+               service_type = COALESCE(service_type, ?),
+               client_account_profile_id = ?,
+               contact_id = ?,
+               contact_name = CASE WHEN contact_name IS NULL OR contact_name = '' THEN ? ELSE contact_name END,
+               due_date = COALESCE(due_date, ?),
+               assigned_user_id = CASE
+                 WHEN current_task.assigned_user_id IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1
+                    FROM user current_assignee
+                    WHERE current_assignee.id = current_task.assigned_user_id
+                      AND current_assignee.deleted_at IS NULL
+                      AND current_assignee.status = 'active'
+                      AND current_assignee.is_active = 1
+                      AND (
+                        current_assignee.clinic_id = current_task.clinic_id
+                        OR EXISTS (
+                          SELECT 1
+                          FROM clinic_membership current_membership
+                          WHERE current_membership.user_id = current_assignee.id
+                            AND current_membership.clinic_id = current_task.clinic_id
+                            AND current_membership.status = 'active'
+                        )
+                      )
+                  )
+                 THEN current_task.assigned_user_id
+                 ELSE ?
+               END,
+               created_by = COALESCE(created_by, ?),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [
+            description,
+            item.serviceType,
+            account.id,
+            deal.contactId,
+            contactName,
+            dueDate(item.due),
+            assignedUserId,
+            userId,
+            existingRows[0].id,
+          ],
+        );
+        continue;
+      }
 
       await connection.execute(
         `INSERT INTO task
@@ -2698,18 +3328,18 @@ export class ClientAccountsService {
            board_key, service_type, client_account_profile_id, contact_id, contact_name,
            due_label, due_date, assigned_user_id, template_key, created_by)
          VALUES (?, ?, 1, ?, ?, 'high', 'pending', 'client_onboarding',
-           'delivery', ?, ?, ?, ?, 'Client onboarding', ?, ?, ?, ?)`,
+           'delivery', ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
         [
           uuidv4(),
           sourceClinicId,
-          item.title,
-          baseDescription,
+          item.title.slice(0, 255),
+          description,
           item.serviceType,
           account.id,
           deal.contactId,
           contactName,
           dueDate(item.due),
-          deal.ownerId || null,
+          assignedUserId,
           templateKey,
           userId,
         ],

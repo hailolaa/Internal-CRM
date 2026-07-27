@@ -1,7 +1,12 @@
 import type {
   ClientAccountListParams,
   ClientAccountCreatePayload,
+  ClientAccountAccessItemPayload,
+  ClientAccountAccessItemRecord,
   ClientAccountDriveFolderPayload,
+  ClientAccountDocumentLinkPayload,
+  ClientAccountDocumentLinkRecord,
+  ClientAccountDocumentType,
   ClientAccountContactAccountLinkRecord,
   ClientAccountFromContactPayload,
   ClientAccountWonDealConversionPayload,
@@ -221,6 +226,44 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
         const response = await apiRequest<ClientAccountLinkedRecords>(
           `/api/client-accounts/${encodeURIComponent(clinicId)}/linked-records`,
           { token },
+        );
+        return response.data!;
+      },
+      async listDocuments(token: string, clinicId: string) {
+        const response = await apiRequest<ClientAccountDocumentLinkRecord[]>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/documents`,
+          { token },
+        );
+        return response.data!;
+      },
+      async updateDocument(
+        token: string,
+        clinicId: string,
+        documentType: ClientAccountDocumentType,
+        payload: ClientAccountDocumentLinkPayload,
+      ) {
+        const response = await apiRequest<ClientAccountDocumentLinkRecord[]>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/documents/${encodeURIComponent(documentType)}`,
+          { method: "PATCH", token, body: JSON.stringify(payload) },
+        );
+        return response.data!;
+      },
+      async listAccessItems(token: string, clinicId: string) {
+        const response = await apiRequest<ClientAccountAccessItemRecord[]>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/access-items`,
+          { token },
+        );
+        return response.data!;
+      },
+      async updateAccessItem(
+        token: string,
+        clinicId: string,
+        itemType: string,
+        payload: ClientAccountAccessItemPayload,
+      ) {
+        const response = await apiRequest<ClientAccountAccessItemRecord[]>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/access-items/${encodeURIComponent(itemType)}`,
+          { method: "PATCH", token, body: JSON.stringify(payload) },
         );
         return response.data!;
       },

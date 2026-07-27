@@ -1,6 +1,8 @@
 import type {
   ContactCreatePayload,
   ContactActionResult,
+  ContactDocumentLinkPayload,
+  ContactDocumentLinkRecord,
   ContactDuplicateCandidate,
   ContactImportBatch,
   ContactImportResult,
@@ -72,6 +74,25 @@ export function createContactsApi(apiRequest: ApiRequest) {
         const response = await apiRequest<ContactLinkedActivity>(
           `/api/contacts/${contactId}/activity`,
           { token },
+        );
+        return response.data!;
+      },
+      async listDocuments(token: string, contactId: string) {
+        const response = await apiRequest<ContactDocumentLinkRecord[]>(
+          `/api/contacts/${encodeURIComponent(contactId)}/documents`,
+          { token },
+        );
+        return response.data!;
+      },
+      async updateDocument(
+        token: string,
+        contactId: string,
+        documentType: string,
+        payload: ContactDocumentLinkPayload,
+      ) {
+        const response = await apiRequest<ContactDocumentLinkRecord[]>(
+          `/api/contacts/${encodeURIComponent(contactId)}/documents/${encodeURIComponent(documentType)}`,
+          { method: "PATCH", token, body: JSON.stringify(payload) },
         );
         return response.data!;
       },

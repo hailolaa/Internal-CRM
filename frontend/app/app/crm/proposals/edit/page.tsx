@@ -398,7 +398,7 @@ export default function ProposalEditPage() {
     setError("");
     setMessage("");
     try {
-      const payload = buildPayload("draft");
+      const payload = buildPayload(savedProposalId ? form.status : "draft");
       const saved = savedProposalId
         ? await api.proposals.update(token, savedProposalId, payload)
         : await api.proposals.create(token, payload);

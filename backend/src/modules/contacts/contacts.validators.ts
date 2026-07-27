@@ -4,6 +4,28 @@ import { auditWorkflowStatuses } from "../audit-workflow/audit-workflow.constant
 import { salesLossReasons, salesObjectionTypes } from "../sales-outcomes/sales-outcomes.constants.js";
 
 const contactSortFields = ["name", "source", "status", "value", "lastContact", "createdAt", "updatedAt"];
+const contactDocumentTypes = [
+  "main_client_folder",
+  "audit",
+  "proposal",
+  "contract_admin",
+  "onboarding",
+  "website_assets",
+  "reports",
+  "strategy_looms",
+  "ads",
+  "seo_content",
+  "landing_pages",
+];
+
+function isDocumentLinkPayload(value: unknown) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    ["driveUrl", "driveItemId"].some((field) => Object.prototype.hasOwnProperty.call(value, field)),
+  );
+}
 const attributionTextFields = [
   "firstSource",
   "latestSource",
@@ -165,6 +187,33 @@ export const updateContactValidator = [
 
 export const contactIdParamValidator = [
   contactIdParam(),
+];
+
+export const updateContactDocumentLinkValidator = [
+  contactIdParam(),
+  param("documentType").isIn(contactDocumentTypes).withMessage("Document type is not supported"),
+  body()
+    .custom(isDocumentLinkPayload)
+    .withMessage("A Google Drive URL or item ID field is required"),
+  body("driveUrl")
+    .optional({ nullable: true })
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 500))
+    .withMessage("Google Drive URL must be 500 characters or fewer"),
+  body("driveItemId")
+    .optional({ nullable: true })
+    .custom((value) =>
+      value === null ||
+      (typeof value === "string" && (value.trim() === "" || /^[A-Za-z0-9_-]{5,255}$/.test(value.trim()))),
+    )
+    .withMessage("Google Drive item ID is not valid"),
+  body("displayName")
+    .optional({ nullable: true })
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 255))
+    .withMessage("Document title must be 255 characters or fewer"),
+  body("notes")
+    .optional({ nullable: true })
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 2000))
+    .withMessage("Document notes must be 2000 characters or fewer"),
 ];
 
 export const leadCallOutcomeActionValidator = [

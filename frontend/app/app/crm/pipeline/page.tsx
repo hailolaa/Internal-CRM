@@ -658,7 +658,7 @@ function AddDealModal({
                 onChange={(event) => onUpdateForm({ stageId: event.target.value })}
                 className="w-full rounded-xl border border-[rgba(0,0,0,0.06)] bg-[#FAF8F5] px-3 py-2.5 text-sm text-[#111111] outline-none focus:border-[#6E6AE8]/50"
               >
-                {stages.map((stage) => (
+                {stages.filter((stage) => stage.raw.kind !== "won" && stage.raw.kind !== "lost").map((stage) => (
                   <option key={stage.id} value={stage.id}>
                     {stage.name}
                   </option>
@@ -889,7 +889,12 @@ export default function PipelinePage() {
         return;
       }
 
-      const defaultStageId = stageId || stages[0]?.id || "";
+      const requestedStage = stages.find((stage) => stage.id === stageId);
+      const defaultStageId =
+        (requestedStage && requestedStage.raw.kind !== "won" && requestedStage.raw.kind !== "lost"
+          ? requestedStage.id
+          : stages.find((stage) => stage.raw.kind !== "won" && stage.raw.kind !== "lost")?.id) ||
+        "";
       setAddDealForm({
         ...EMPTY_ADD_DEAL_FORM,
         stageId: defaultStageId,
@@ -1645,7 +1650,7 @@ export default function PipelinePage() {
                   onCreateProposal={openProposalBuilder}
                 />
               ))}
-              {stage.deals.length === 0 && <button onClick={() => openAddDeal(stage.id)} className="flex min-h-28 w-full items-center justify-center gap-1 rounded-xl border border-dashed border-black/10 text-sm text-[#8B8580]"><Plus className="h-4 w-4" /> No opportunities · Add</button>}
+              {stage.deals.length === 0 && stage.raw.kind !== "won" && stage.raw.kind !== "lost" && <button onClick={() => openAddDeal(stage.id)} className="flex min-h-28 w-full items-center justify-center gap-1 rounded-xl border border-dashed border-black/10 text-sm text-[#8B8580]"><Plus className="h-4 w-4" /> No opportunities · Add</button>}
             </div>
           </div>
         ))}

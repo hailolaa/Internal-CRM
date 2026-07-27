@@ -166,6 +166,28 @@ export class PipelineService {
     stageId: string,
     data: UpdatePipelineStageDTO,
   ): Promise<PipelineStageResponse> {
+    const existing = await this.getStage(clinicId, stageId);
+    if (data.kind !== undefined && data.kind !== existing.kind) {
+      if (existing.isLocked) {
+        throw ApiError.conflict("Locked pipeline stages cannot change type.");
+      }
+      const [dealCountRows]: any = await pool.execute(
+        `SELECT COUNT(*) as count
+         FROM deal
+         WHERE clinic_id = ?
+           AND pipeline_id = ?
+           AND (
+             pipeline_stage_id = ?
+             OR (pipeline_stage_id IS NULL AND stage = ?)
+           )
+           AND deleted_at IS NULL`,
+        [clinicId, existing.pipelineId, stageId, existing.name],
+      );
+      if (Number(dealCountRows[0]?.count || 0) > 0) {
+        throw ApiError.conflict("Move every opportunity out of this stage before changing its type.");
+      }
+    }
+
     const fields: string[] = [];
     const values: any[] = [];
     const mapping: Record<string, string> = {
@@ -182,7 +204,7 @@ export class PipelineService {
       values.push(key === "isLocked" ? (value ? 1 : 0) : value);
     });
 
-    if (fields.length === 0) return this.getStage(clinicId, stageId);
+    if (fields.length === 0) return existing;
     values.push(stageId, clinicId);
 
     const [result]: any = await pool.execute(

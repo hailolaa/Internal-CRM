@@ -343,6 +343,113 @@ export class ClientAccountsController {
     }
   };
 
+  listDocumentLinks = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const documents = await clientAccountsService.listDocumentLinks(
+        user.clinicId,
+        String(req.params.clinicId),
+        { canManageAllClientAccounts },
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: documents,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateDocumentLink = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const documents = await clientAccountsService.updateDocumentLink(
+        user.clinicId,
+        String(req.params.clinicId),
+        user.userId,
+        req.params.documentType as any,
+        req.body,
+        { canManageAllClientAccounts, canConfigureDrive: this.canConfigureDrive(user) },
+        this.auditContext(req),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: documents,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateMainClientFolderDocumentLink = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const documents = await clientAccountsService.updateDocumentLink(
+        user.clinicId,
+        String(req.params.clinicId),
+        user.userId,
+        "main_client_folder",
+        req.body,
+        { canManageAllClientAccounts, canConfigureDrive: this.canConfigureDrive(user) },
+        this.auditContext(req),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: documents,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listAccessItems = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const accessItems = await clientAccountsService.listAccessItems(
+        user.clinicId,
+        String(req.params.clinicId),
+        { canManageAllClientAccounts },
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: accessItems,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateAccessItem = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const accessItems = await clientAccountsService.updateAccessItem(
+        user.clinicId,
+        String(req.params.clinicId),
+        user.userId,
+        req.params.itemType as any,
+        req.body,
+        { canManageAllClientAccounts },
+        this.auditContext(req),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: accessItems,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   linkContact = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;

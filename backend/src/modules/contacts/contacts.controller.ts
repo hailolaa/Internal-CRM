@@ -155,6 +155,33 @@ export class ContactsController {
     }
   };
 
+  listDocumentLinks = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const documents = await contactsService.listDocumentLinks(user.clinicId, String(req.params.id));
+      res.status(200).json({ status: "success", data: documents });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateDocumentLink = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const documents = await contactsService.updateDocumentLink(
+        user.clinicId,
+        user.userId,
+        String(req.params.id),
+        req.params.documentType as any,
+        req.body,
+        getRequestMeta(req),
+      );
+      res.status(200).json({ status: "success", data: documents });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   logLeadCallOutcome = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;

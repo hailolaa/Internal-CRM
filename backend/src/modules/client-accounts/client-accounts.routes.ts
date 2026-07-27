@@ -18,6 +18,9 @@ import {
   listClientAccountDriveFoldersValidator,
   listClientAccountServicesValidator,
   updateClientAccountDriveFolderValidator,
+  updateClientAccountAccessItemValidator,
+  updateClientAccountDocumentLinkValidator,
+  updateMainClientFolderDocumentLinkValidator,
   updateClientAccountProfileValidator,
   updateClientAccountServiceValidator,
   uploadClientAccountDriveFileValidator,
@@ -148,6 +151,46 @@ router.get(
   clientAccountClinicIdParamValidator,
   validate,
   clientAccountsController.getLinkedRecords,
+);
+
+router.get(
+  "/:clinicId/documents",
+  authorizePermission("client_accounts:read"),
+  clientAccountClinicIdParamValidator,
+  validate,
+  clientAccountsController.listDocumentLinks,
+);
+
+router.patch(
+  "/:clinicId/documents/main_client_folder",
+  authorize("SUPER_ADMIN", "ADMIN"),
+  updateMainClientFolderDocumentLinkValidator,
+  validate,
+  clientAccountsController.updateMainClientFolderDocumentLink,
+);
+
+router.patch(
+  "/:clinicId/documents/:documentType",
+  authorizePermission("client_accounts:write"),
+  updateClientAccountDocumentLinkValidator,
+  validate,
+  clientAccountsController.updateDocumentLink,
+);
+
+router.get(
+  "/:clinicId/access-items",
+  authorizePermission("client_accounts:read"),
+  clientAccountClinicIdParamValidator,
+  validate,
+  clientAccountsController.listAccessItems,
+);
+
+router.patch(
+  "/:clinicId/access-items/:itemType",
+  authorizePermission("client_accounts:write"),
+  updateClientAccountAccessItemValidator,
+  validate,
+  clientAccountsController.updateAccessItem,
 );
 
 router.post(

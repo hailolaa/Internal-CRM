@@ -117,6 +117,10 @@ function canGenerateProposalLink(proposal: ProposalRecord | null) {
   return Number.isFinite(expiryTime) && expiryTime > Date.now();
 }
 
+function isFinalProposalStatus(status: ProposalRecord["status"]) {
+  return ["accepted", "won", "lost", "expired", "archived"].includes(status);
+}
+
 function findMatchingPackage(proposal: ProposalRecord, packages: GrowthPackageRecord[]) {
   if (proposal.recommendedPackageId) {
     const selected = packages.find((item) => item.id === proposal.recommendedPackageId);
@@ -311,6 +315,10 @@ export default function ProposalPreviewPage() {
       setIsUpdatingStatus(false);
     }
   }, [acceptedAt, acceptedByEmail, acceptedByName, followUpAt, objectionType, paymentTerms, proposalId, token]);
+  const proposalIsFinal = proposal ? isFinalProposalStatus(proposal.status) : false;
+  const proposalOutcomeIsLocked = proposal
+    ? ["won", "lost", "expired", "archived"].includes(proposal.status)
+    : false;
 
   return (
     <div className="min-h-screen bg-[#f5f6f1]">
@@ -349,7 +357,7 @@ export default function ProposalPreviewPage() {
             {proposalId ? (
               <button
                 type="button"
-                disabled={isMarkingSent || isLoading}
+                disabled={isMarkingSent || isLoading || proposalIsFinal}
                 onClick={() => void markProposalSent()}
                 className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -430,7 +438,7 @@ export default function ProposalPreviewPage() {
                   </label>
                   <button
                     type="button"
-                    disabled={isMarkingSent}
+                    disabled={isMarkingSent || proposalIsFinal}
                     onClick={() => void markProposalSent()}
                     className="inline-flex items-center justify-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60"
                   >
@@ -469,7 +477,7 @@ export default function ProposalPreviewPage() {
                     </label>
                     <button
                       type="button"
-                      disabled={isUpdatingStatus || !followUpAt}
+                      disabled={isUpdatingStatus || !followUpAt || proposalIsFinal}
                       onClick={() => void updateProposalStatus("follow_up_due")}
                       className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60"
                     >
@@ -548,7 +556,7 @@ export default function ProposalPreviewPage() {
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        disabled={isUpdatingStatus}
+                        disabled={isUpdatingStatus || proposalIsFinal}
                         onClick={() => void updateProposalStatus("accepted", acceptedReason)}
                         className="inline-flex items-center justify-center gap-2 rounded-[8px] border border-[#b8d3c7] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
                       >
@@ -557,7 +565,7 @@ export default function ProposalPreviewPage() {
                       </button>
                       <button
                         type="button"
-                        disabled={isUpdatingStatus}
+                        disabled={isUpdatingStatus || proposalOutcomeIsLocked}
                         onClick={() => void updateProposalStatus("won", wonReason)}
                         className="inline-flex items-center justify-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60"
                       >
@@ -597,7 +605,7 @@ export default function ProposalPreviewPage() {
                     </label>
                     <button
                       type="button"
-                      disabled={isUpdatingStatus}
+                      disabled={isUpdatingStatus || proposalIsFinal}
                       onClick={() => void updateProposalStatus("lost", lostReason)}
                       className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-[8px] border border-[#e7c4c8] bg-white px-3 py-2 text-sm font-semibold text-[#9f3d45] hover:border-[#d89097] disabled:cursor-not-allowed disabled:opacity-60"
                     >

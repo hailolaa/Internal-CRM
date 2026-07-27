@@ -63,6 +63,42 @@ export type ClientAccountServiceStatus =
   | "ended"
   | "archived";
 
+export type ClientAccountDocumentType =
+  | "main_client_folder"
+  | "audit"
+  | "proposal"
+  | "contract_admin"
+  | "onboarding"
+  | "website_assets"
+  | "reports"
+  | "strategy_looms"
+  | "ads"
+  | "seo_content"
+  | "landing_pages";
+
+export type ClientAccountDocumentLinkStatus =
+  | "missing"
+  | "linked"
+  | "not_checked"
+  | "access_problem";
+
+export type ClientAccountAccessItemType =
+  | "website"
+  | "ga4"
+  | "gsc"
+  | "gtm"
+  | "google_ads"
+  | "gbp"
+  | "meta"
+  | "brand_assets"
+  | "treatment_pricing_info"
+  | "reporting_access";
+
+export type ClientAccountAccessItemStatus =
+  | "requested"
+  | "received"
+  | "not_needed";
+
 export type ClientAccountActionPlanStatus =
   | "draft"
   | "active"
@@ -217,6 +253,7 @@ export interface ClientAccountLinkedTaskRecord {
   isOverdue: boolean;
   clientAccountProfileId: string | null;
   clientAccountServiceId: string | null;
+  templateKey: string | null;
   updatedAt: string;
 }
 
@@ -275,6 +312,43 @@ export interface ClientAccountDriveFolderPayload {
   displayName?: string | null;
 }
 
+export interface ClientAccountDocumentLinkRecord {
+  documentType: ClientAccountDocumentType;
+  label: string;
+  driveItemId: string | null;
+  driveUrl: string | null;
+  displayName: string | null;
+  status: ClientAccountDocumentLinkStatus;
+  accessStatus: "not_checked" | "accessible" | "inaccessible";
+  accessError: string | null;
+  checkedAt: string | null;
+  notes: string | null;
+  updatedAt: string | null;
+}
+
+export interface ClientAccountDocumentLinkPayload {
+  driveUrl?: string | null;
+  driveItemId?: string | null;
+  displayName?: string | null;
+  notes?: string | null;
+}
+
+export interface ClientAccountAccessItemRecord {
+  itemType: ClientAccountAccessItemType;
+  label: string;
+  status: ClientAccountAccessItemStatus;
+  isMissing: boolean;
+  notes: string | null;
+  requestedAt: string | null;
+  receivedAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface ClientAccountAccessItemPayload {
+  status: ClientAccountAccessItemStatus;
+  notes?: string | null;
+}
+
 export interface GoogleDriveFolderRecord {
   id: string;
   name: string;
@@ -323,7 +397,7 @@ export interface ClientAccountFromContactPayload
 export interface ClientAccountWonDealConversionPayload
   extends Omit<ClientAccountFromContactPayload, "contactId"> {
   dealId: string;
-  createOnboardingTasks?: boolean;
+  createOnboardingTasks?: true;
 }
 
 export interface ClientAccountServiceRecord {
