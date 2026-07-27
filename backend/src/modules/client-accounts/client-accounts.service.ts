@@ -365,6 +365,10 @@ type WonDealConversionTransactionHooks = {
   afterConversion?: (connection: PoolConnection) => Promise<void>;
 };
 
+type ClientAccountActorContext = {
+  role: string | null;
+};
+
 function extractGoogleDriveItem(value: string): { id: string; kindHint: GoogleDriveItemKind } {
   const input = value.trim().replace(/^["'<\s]+|[>"'\s]+$/g, "");
   const validDriveId = (candidate: string | null | undefined) =>
@@ -416,6 +420,23 @@ function extractGoogleDriveItem(value: string): { id: string; kindHint: GoogleDr
 
 export class ClientAccountsService {
   private googleDriveTokenCache: GoogleDriveTokenCache | null = null;
+
+  private canAssignClientAccountOwners(actorContext: ClientAccountActorContext) {
+    const role = String(actorContext.role || "").toUpperCase();
+    return role === "SUPER_ADMIN" || role === "ADMIN";
+  }
+
+  private ensureAccountManagerAssignmentAllowed(actorContext: ClientAccountActorContext) {
+    if (!this.canAssignClientAccountOwners(actorContext)) {
+      throw ApiError.forbidden("Only an Admin can assign or change an account manager.");
+    }
+  }
+
+  private ensureIssueOwnerAssignmentAllowed(actorContext: ClientAccountActorContext) {
+    if (!this.canAssignClientAccountOwners(actorContext)) {
+      throw ApiError.forbidden("Only an Admin can assign or change an issue owner.");
+    }
+  }
 
   async listAccounts(
     clinicId: string,
@@ -673,9 +694,11 @@ export class ClientAccountsService {
   async createAccount(
     userId: string,
     data: CreateClientAccountDTO,
+    actorContext: ClientAccountActorContext,
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientAccountSummaryResponse> {
     if (data.accountManagerId) {
+      this.ensureAccountManagerAssignmentAllowed(actorContext);
       await this.ensureActiveInternalUser(data.accountManagerId);
     }
 
@@ -802,8 +825,13 @@ export class ClientAccountsService {
     sourceClinicId: string,
     userId: string,
     data: CreateClientAccountFromContactDTO,
+    actorContext: ClientAccountActorContext,
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientAccountSummaryResponse> {
+    if (data.accountManagerId) {
+      this.ensureAccountManagerAssignmentAllowed(actorContext);
+    }
+
     const [rows]: any = await pool.execute(
       `SELECT id, first_name as firstName, last_name as lastName, email, phone,
               address, city, state, postal_code as postalCode, country, value,
@@ -856,6 +884,7 @@ export class ClientAccountsService {
             .filter(Boolean)
             .join("\n\n"),
       },
+      actorContext,
       auditContext,
     );
 
@@ -902,9 +931,14 @@ export class ClientAccountsService {
     sourceClinicId: string,
     userId: string,
     data: ConvertWonDealToClientDTO,
+    actorContext: ClientAccountActorContext,
     auditContext: ClientAccountAuditContext,
     transactionHooks: WonDealConversionTransactionHooks = {},
   ): Promise<ClientAccountSummaryResponse> {
+    if (data.accountManagerId) {
+      this.ensureAccountManagerAssignmentAllowed(actorContext);
+    }
+
     const connection = await pool.getConnection();
     let existingClinicId: string | null = null;
     let createdClinicId: string | null = null;
@@ -2098,7 +2132,7 @@ export class ClientAccountsService {
     clientClinicId: string,
     userId: string,
     data: CreateClientIssueDTO,
-    access: { canManageAllClientAccounts: boolean },
+    access: { canManageAllClientAccounts: boolean; actorRole: string | null },
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientIssueResponse[]> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
@@ -2107,7 +2141,10 @@ export class ClientAccountsService {
     const ownerUserId = data.ownerUserId || null;
     const taskId = data.taskId || null;
 
-    if (ownerUserId) await this.ensureAccountManagerBelongsToClinic(sourceClinicId, ownerUserId);
+    if (ownerUserId) {
+      this.ensureIssueOwnerAssignmentAllowed({ role: access.actorRole });
+      await this.ensureAccountManagerBelongsToClinic(sourceClinicId, ownerUserId);
+    }
     if (taskId) await this.ensureIssueTaskBelongsToProfile(sourceClinicId, profileId, taskId);
 
     const issueId = uuidv4();
@@ -2152,7 +2189,7 @@ export class ClientAccountsService {
     issueId: string,
     userId: string,
     data: UpdateClientIssueDTO,
-    access: { canManageAllClientAccounts: boolean },
+    access: { canManageAllClientAccounts: boolean; actorRole: string | null },
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientIssueResponse[]> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
@@ -2183,6 +2220,7 @@ export class ClientAccountsService {
     if (ownKey(data, "priority")) add("priority", data.priority, "priority");
     if (ownKey(data, "status")) add("status", data.status, "status");
     if (ownKey(data, "ownerUserId")) {
+      this.ensureIssueOwnerAssignmentAllowed({ role: access.actorRole });
       if (data.ownerUserId) await this.ensureAccountManagerBelongsToClinic(sourceClinicId, data.ownerUserId);
       add("owner_user_id", data.ownerUserId || null, "ownerUserId");
     }
@@ -2372,17 +2410,21 @@ export class ClientAccountsService {
     clinicId: string,
     userId: string,
     data: UpdateClientAccountProfileDTO,
+    actorContext: ClientAccountActorContext,
     auditContext: ClientAccountAuditContext,
     options: {
       allowExternalAccountManager?: boolean;
       auditClinicId?: string;
     } = {},
   ): Promise<ClientAccountProfileResponse> {
-    if (ownKey(data, "accountManagerId") && data.accountManagerId) {
-      if (options.allowExternalAccountManager) {
-        await this.ensureActiveInternalUser(data.accountManagerId);
-      } else {
-        await this.ensureAccountManagerBelongsToClinic(clinicId, data.accountManagerId);
+    if (ownKey(data, "accountManagerId")) {
+      this.ensureAccountManagerAssignmentAllowed(actorContext);
+      if (data.accountManagerId) {
+        if (options.allowExternalAccountManager) {
+          await this.ensureActiveInternalUser(data.accountManagerId);
+        } else {
+          await this.ensureAccountManagerBelongsToClinic(clinicId, data.accountManagerId);
+        }
       }
     }
 
@@ -2579,11 +2621,11 @@ export class ClientAccountsService {
     clientClinicId: string,
     userId: string,
     data: UpdateClientAccountProfileDTO,
-    access: { canManageAllClientAccounts: boolean },
+    access: { canManageAllClientAccounts: boolean; actorRole: string | null },
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientAccountProfileResponse> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
-    return this.updateProfile(clientClinicId, userId, data, auditContext, {
+    return this.updateProfile(clientClinicId, userId, data, { role: access.actorRole }, auditContext, {
       allowExternalAccountManager: sourceClinicId !== clientClinicId,
       auditClinicId: sourceClinicId,
     });
@@ -3131,6 +3173,7 @@ export class ClientAccountsService {
          AND clinic_id = ?
          AND client_account_profile_id = ?
          AND is_internal = 1
+         AND status <> 'completed'
          AND deleted_at IS NULL
          AND archived_at IS NULL
        LIMIT 1`,

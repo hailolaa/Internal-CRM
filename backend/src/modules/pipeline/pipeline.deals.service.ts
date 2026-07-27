@@ -557,6 +557,7 @@ export class PipelineDealsService {
           clinicId,
           userId,
           { dealId },
+          { role: null },
           {},
         );
         return this.getDeal(clinicId, dealId);
@@ -573,6 +574,7 @@ export class PipelineDealsService {
           clinicId,
           userId,
           { dealId },
+          { role: null },
           {},
           {
             beforeConversion: async (connection) => {

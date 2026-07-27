@@ -1452,6 +1452,7 @@ export class ProposalsService {
       input.clinicId,
       input.userId,
       { dealId: input.dealId },
+      { role: null },
       {},
       {
         beforeConversion: async (connection) => {

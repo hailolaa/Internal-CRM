@@ -142,6 +142,32 @@ async function createClientAccountWriterUser(clinicId: string, prefix: string) {
   };
 }
 
+async function createDeliveryUser(clinicId: string, prefix: string) {
+  const email = uniqueEmail(`${prefix}_delivery`);
+  const password = "password123";
+  const userId = uuidv4();
+  const passwordHash = await hashPassword(password);
+
+  await pool.execute(
+    `INSERT INTO user
+      (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at)
+     VALUES (?, ?, ?, ?, ?, 'Delivery', 'DELIVERY', CURRENT_TIMESTAMP)`,
+    [userId, clinicId, email, passwordHash, prefix],
+  );
+  await pool.execute(
+    `INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary)
+     VALUES (?, ?, 'DELIVERY', 'active', 1)`,
+    [userId, clinicId],
+  );
+
+  const result = await authService.login({ email, password });
+
+  return {
+    userId: result.user.id,
+    token: result.tokens.token,
+  };
+}
+
 async function createContactWriterUser(clinicId: string, prefix: string) {
   const email = uniqueEmail(`${prefix}_contact_writer`);
   const password = "password123";
@@ -2188,6 +2214,7 @@ test("client account profile API is permission protected, updateable, audited, a
   const admin = await createClinicAndAdmin("ClientAccountProfile");
   const limitedUser = await createInternalViewerUser(admin.clinicId, "ClientAccountProfile");
   const clientAccountWriter = await createClientAccountWriterUser(admin.clinicId, "ClientAccountProfile");
+  const deliveryUser = await createDeliveryUser(admin.clinicId, "ClientAccountProfile");
   const originalAutoProvisionClinicId = config.oauth.google.autoProvisionClinicId;
   const expressModule = await import("express") as any;
   const express = expressModule.default;
@@ -2205,6 +2232,7 @@ test("client account profile API is permission protected, updateable, audited, a
 
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
   let managedClientClinicId: string | null = null;
+  let deliveryCreatedClientClinicId: string | null = null;
 
   try {
     (config as any).oauth.google.autoProvisionClinicId = admin.clinicId;
@@ -2352,6 +2380,68 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(auditChanges.lastReportAt.after, "2026-07-11 00:00:00");
     assert.equal(auditChanges.lastLoomAt.after, "2026-07-12 00:00:00");
 
+    const forbiddenDeliveryCreateAssignment = await fetchJson(
+      baseUrl,
+      "/api/client-accounts",
+      deliveryUser.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Delivery cannot assign this account",
+          accountManagerId: admin.userId,
+        }),
+      },
+    );
+    assert.equal(forbiddenDeliveryCreateAssignment.response.status, 403);
+    assert.equal(
+      forbiddenDeliveryCreateAssignment.body.message,
+      "Only an Admin can assign or change an account manager.",
+    );
+
+    const deliveryCreatedAccount = await fetchJson(
+      baseUrl,
+      "/api/client-accounts",
+      deliveryUser.token,
+      {
+        method: "POST",
+        body: JSON.stringify({ name: `Delivery-created Client ${admin.clinicId}` }),
+      },
+    );
+    assert.equal(deliveryCreatedAccount.response.status, 201);
+    deliveryCreatedClientClinicId = deliveryCreatedAccount.body.data.clinicId;
+    assert.equal(deliveryCreatedAccount.body.data.accountManager, null);
+
+    const forbiddenDeliveryManagerUpdate = await fetchJson(
+      baseUrl,
+      "/api/client-accounts/profile",
+      deliveryUser.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ accountManagerId: null }),
+      },
+    );
+    assert.equal(forbiddenDeliveryManagerUpdate.response.status, 403);
+    assert.equal(
+      forbiddenDeliveryManagerUpdate.body.message,
+      "Only an Admin can assign or change an account manager.",
+    );
+
+    const allowedDeliveryProfileUpdate = await fetchJson(
+      baseUrl,
+      "/api/client-accounts/profile",
+      deliveryUser.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ keyNotes: "Delivery can update non-assignment account fields." }),
+      },
+    );
+    assert.equal(allowedDeliveryProfileUpdate.response.status, 200);
+    assert.equal(allowedDeliveryProfileUpdate.body.data.accountManager.id, admin.userId);
+    assert.equal(
+      allowedDeliveryProfileUpdate.body.data.keyNotes,
+      "Delivery can update non-assignment account fields.",
+    );
+
     const issueTaskRes = await fetchJson(baseUrl, "/api/tasks/internal", admin.token, {
       method: "POST",
       body: JSON.stringify({
@@ -2385,6 +2475,111 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(linkedTaskRes.response.status, 201);
     const linkedTaskId = linkedTaskRes.body.data.id;
 
+    const completedTaskRes = await fetchJson(baseUrl, "/api/tasks/internal", admin.token, {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Already completed client issue task",
+        description: "A completed task cannot be linked to an active client issue",
+        priority: "medium",
+        status: "completed",
+        boardKey: "delivery",
+        serviceType: "strategy",
+        category: "client_issue",
+        clientAccountProfileId: profileRows[0].id,
+        assignedUserId: admin.userId,
+      }),
+    });
+    assert.equal(completedTaskRes.response.status, 201);
+
+    const completedTaskIssueRes = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${admin.clinicId}/issues`,
+      admin.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "Completed task bypass attempt",
+          taskId: completedTaskRes.body.data.id,
+        }),
+      },
+    );
+    assert.equal(completedTaskIssueRes.response.status, 400);
+    assert.equal(
+      completedTaskIssueRes.body.message,
+      "Linked task must be an open internal task for this client account",
+    );
+
+    const forbiddenDeliveryIssueOwnerCreate = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${admin.clinicId}/issues`,
+      deliveryUser.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "Delivery cannot assign this issue",
+          ownerUserId: admin.userId,
+        }),
+      },
+    );
+    assert.equal(forbiddenDeliveryIssueOwnerCreate.response.status, 403);
+    assert.equal(
+      forbiddenDeliveryIssueOwnerCreate.body.message,
+      "Only an Admin can assign or change an issue owner.",
+    );
+
+    const deliveryCreatedIssue = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${admin.clinicId}/issues`,
+      deliveryUser.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          title: "Delivery-created unassigned issue",
+          priority: "medium",
+        }),
+      },
+    );
+    assert.equal(deliveryCreatedIssue.response.status, 201);
+    const deliveryIssue = deliveryCreatedIssue.body.data.find(
+      (issue: any) => issue.title === "Delivery-created unassigned issue",
+    );
+    assert.ok(deliveryIssue);
+    assert.equal(deliveryIssue.owner, null);
+
+    const forbiddenDeliveryIssueOwnerUpdate = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${admin.clinicId}/issues/${deliveryIssue.id}`,
+      deliveryUser.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ ownerUserId: admin.userId }),
+      },
+    );
+    assert.equal(forbiddenDeliveryIssueOwnerUpdate.response.status, 403);
+    assert.equal(
+      forbiddenDeliveryIssueOwnerUpdate.body.message,
+      "Only an Admin can assign or change an issue owner.",
+    );
+
+    const allowedDeliveryIssueUpdate = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${admin.clinicId}/issues/${deliveryIssue.id}`,
+      deliveryUser.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "resolved",
+          notes: "Delivery can update non-assignment issue fields.",
+        }),
+      },
+    );
+    assert.equal(allowedDeliveryIssueUpdate.response.status, 200);
+    const resolvedDeliveryIssue = allowedDeliveryIssueUpdate.body.data.find(
+      (issue: any) => issue.id === deliveryIssue.id,
+    );
+    assert.equal(resolvedDeliveryIssue.status, "resolved");
+    assert.equal(resolvedDeliveryIssue.owner, null);
+
     const createIssueRes = await fetchJson(baseUrl, `/api/client-accounts/${admin.clinicId}/issues`, admin.token, {
       method: "POST",
       body: JSON.stringify({
@@ -2397,14 +2592,16 @@ test("client account profile API is permission protected, updateable, audited, a
       }),
     });
     assert.equal(createIssueRes.response.status, 201);
-    assert.equal(createIssueRes.body.data.length, 1);
-    assert.equal(createIssueRes.body.data[0].title, "Tracking outage reported by client");
-    assert.equal(createIssueRes.body.data[0].priority, "high");
-    assert.equal(createIssueRes.body.data[0].status, "open");
-    assert.equal(createIssueRes.body.data[0].owner.id, admin.userId);
-    assert.equal(createIssueRes.body.data[0].task.id, linkedTaskId);
-    assert.equal(createIssueRes.body.data[0].isOverdue, true);
-    const issueId = createIssueRes.body.data[0].id;
+    const trackingIssue = createIssueRes.body.data.find(
+      (issue: any) => issue.title === "Tracking outage reported by client",
+    );
+    assert.ok(trackingIssue);
+    assert.equal(trackingIssue.priority, "high");
+    assert.equal(trackingIssue.status, "open");
+    assert.equal(trackingIssue.owner.id, admin.userId);
+    assert.equal(trackingIssue.task.id, linkedTaskId);
+    assert.equal(trackingIssue.isOverdue, true);
+    const issueId = trackingIssue.id;
 
     const listIssuesRes = await fetchJson(baseUrl, `/api/client-accounts/${admin.clinicId}/issues`, admin.token);
     assert.equal(listIssuesRes.response.status, 200);
@@ -2746,6 +2943,11 @@ test("client account profile API is permission protected, updateable, audited, a
       await pool.execute("DELETE FROM audit_log WHERE clinic_id IN (?, ?)", [admin.clinicId, managedClientClinicId]);
       await pool.execute("DELETE FROM client_account_profile WHERE clinic_id = ?", [managedClientClinicId]);
       await pool.execute("DELETE FROM clinic WHERE id = ?", [managedClientClinicId]);
+    }
+    if (deliveryCreatedClientClinicId) {
+      await pool.execute("DELETE FROM audit_log WHERE clinic_id = ?", [deliveryCreatedClientClinicId]);
+      await pool.execute("DELETE FROM client_account_profile WHERE clinic_id = ?", [deliveryCreatedClientClinicId]);
+      await pool.execute("DELETE FROM clinic WHERE id = ?", [deliveryCreatedClientClinicId]);
     }
     await pool.execute(
       "DELETE FROM role_permission WHERE role_id IN (?, ?)",

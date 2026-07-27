@@ -83,6 +83,7 @@ test("internal tasks reject a client account service from another workspace", as
   const account = await clientAccountsService.createAccount(
     sourceUserId,
     { name: `Cross-workspace task account ${Date.now()}` },
+    { role: "SUPER_ADMIN" },
     auditContext,
   );
   const profileId = account.id;

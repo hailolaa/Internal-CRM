@@ -10,6 +10,10 @@ export class ClientAccountsController {
     return roleMatchesAllowedRoles(String(user?.role || ""), ["SUPER_ADMIN", "ADMIN"]);
   }
 
+  private actorContext(user: any) {
+    return { role: user?.role ? String(user.role) : null };
+  }
+
   private auditContext(req: Request) {
     return {
       ipAddress: req.ip || null,
@@ -65,6 +69,7 @@ export class ClientAccountsController {
       const account = await clientAccountsService.createAccount(
         user.userId,
         req.body,
+        this.actorContext(user),
         this.auditContext(req),
       );
 
@@ -84,6 +89,7 @@ export class ClientAccountsController {
         user.clinicId,
         user.userId,
         req.body,
+        this.actorContext(user),
         this.auditContext(req),
       );
 
@@ -103,6 +109,7 @@ export class ClientAccountsController {
         user.clinicId,
         user.userId,
         req.body,
+        this.actorContext(user),
         this.auditContext(req),
       );
 
@@ -153,6 +160,7 @@ export class ClientAccountsController {
         user.clinicId,
         user.userId,
         req.body,
+        this.actorContext(user),
         this.auditContext(req),
       );
 
@@ -174,7 +182,7 @@ export class ClientAccountsController {
         String(req.params.clinicId),
         user.userId,
         req.body,
-        { canManageAllClientAccounts },
+        { canManageAllClientAccounts, actorRole: this.actorContext(user).role },
         this.auditContext(req),
       );
 
@@ -478,7 +486,7 @@ export class ClientAccountsController {
         String(req.params.clinicId),
         user.userId,
         req.body,
-        { canManageAllClientAccounts },
+        { canManageAllClientAccounts, actorRole: this.actorContext(user).role },
         this.auditContext(req),
       );
 
@@ -501,7 +509,7 @@ export class ClientAccountsController {
         String(req.params.issueId),
         user.userId,
         req.body,
-        { canManageAllClientAccounts },
+        { canManageAllClientAccounts, actorRole: this.actorContext(user).role },
         this.auditContext(req),
       );
 
