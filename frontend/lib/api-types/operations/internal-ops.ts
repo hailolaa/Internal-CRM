@@ -105,6 +105,8 @@ export type ClientAccountActionPlanStatus =
   | "completed"
   | "archived";
 
+export type ClientAccountUpsellPromptSeverity = "medium" | "high";
+
 export interface ClientAccountGrowthScoreCategories {
   websiteVisibility: number | null;
   seo: number | null;
@@ -125,6 +127,14 @@ export interface ClientAccountGrowthScoreSnapshot {
   recommendedPackage: string | null;
   gapSummary: string | null;
   updatedAt: string | null;
+}
+
+export interface ClientAccountUpsellPrompt {
+  ruleKey: string;
+  fromPackage: string;
+  toPackage: string;
+  reason: string;
+  severity: ClientAccountUpsellPromptSeverity;
 }
 
 export interface ClientAccountPerson {
@@ -164,6 +174,9 @@ export interface ClientAccountProfileRecord {
   growthScoreGapSummary: string | null;
   growthScoreUpdatedAt: string | null;
   churnRisk: ClientAccountChurnRisk;
+  lastContactAt: string | null;
+  lastReportAt: string | null;
+  lastLoomAt: string | null;
   renewalDate: string | null;
   contractStatus: ClientAccountContractStatus;
   contractStartDate: string | null;
@@ -178,6 +191,7 @@ export interface ClientAccountProfileRecord {
   googleDriveFolderAccessStatus: "not_checked" | "accessible" | "inaccessible";
   googleDriveFolderError: string | null;
   googleDriveFolderCheckedAt: string | null;
+  upsellPrompts: ClientAccountUpsellPrompt[];
   updatedAt: string | null;
 }
 
@@ -295,6 +309,9 @@ export interface ClientAccountProfilePayload {
   growthScoreGapSummary?: string | null;
   growthScoreUpdatedAt?: string | null;
   churnRisk?: ClientAccountChurnRisk;
+  lastContactAt?: string | null;
+  lastReportAt?: string | null;
+  lastLoomAt?: string | null;
   renewalDate?: string | null;
   contractStatus?: ClientAccountContractStatus;
   contractStartDate?: string | null;

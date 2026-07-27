@@ -81,6 +81,10 @@ function formatMoney(value: number | null | undefined, currency = "GBP") {
   }).format(Number(value));
 }
 
+function dateInputValue(value?: string | null) {
+  return value ? value.slice(0, 10) : "";
+}
+
 function personName(person: TeamMember) {
   return [person.firstName, person.lastName].filter(Boolean).join(" ") || person.email;
 }
@@ -98,6 +102,9 @@ function toPayload(profile: ClientAccountProfileRecord): ClientAccountProfilePay
     recommendedNextPackage: profile.recommendedNextPackage,
     upsellOpportunity: profile.upsellOpportunity,
     churnRisk: profile.churnRisk,
+    lastContactAt: profile.lastContactAt,
+    lastReportAt: profile.lastReportAt,
+    lastLoomAt: profile.lastLoomAt,
     renewalDate: profile.renewalDate,
     contractStatus: profile.contractStatus,
     contractStartDate: profile.contractStartDate,
@@ -348,6 +355,18 @@ export default function ClientPackagePage() {
                 <select value={draft?.churnRisk || "low"} disabled={isLoading || !draft} onChange={(event) => updateDraft("churnRisk", event.target.value as ClientAccountChurnRisk)} className={fieldClass}>
                   {CHURN_RISKS.map((risk) => <option key={risk} value={risk}>{formatLabel(risk)}</option>)}
                 </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Last contact</span>
+                <input type="date" value={dateInputValue(draft?.lastContactAt)} disabled={isLoading || !draft} onChange={(event) => updateDraft("lastContactAt", event.target.value || null)} className={fieldClass} />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Last report</span>
+                <input type="date" value={dateInputValue(draft?.lastReportAt)} disabled={isLoading || !draft} onChange={(event) => updateDraft("lastReportAt", event.target.value || null)} className={fieldClass} />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Last Loom / strategy call</span>
+                <input type="date" value={dateInputValue(draft?.lastLoomAt)} disabled={isLoading || !draft} onChange={(event) => updateDraft("lastLoomAt", event.target.value || null)} className={fieldClass} />
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Payment status</span>

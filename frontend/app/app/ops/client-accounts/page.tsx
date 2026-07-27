@@ -212,6 +212,7 @@ export default function ClientAccountsPage() {
           account.currentPackage || "",
           account.recommendedNextPackage || "",
           account.upsellOpportunity || "",
+          account.upsellPrompts.map((prompt) => `${prompt.toPackage} ${prompt.reason}`).join(" "),
           accountPersonName(account.accountManager),
           account.activeServices.join(" "),
         ].some((value) => value.toLowerCase().includes(search));
@@ -383,7 +384,7 @@ export default function ClientAccountsPage() {
               overdueTaskCount: account.overdueTaskCount,
               recommendedNextPackage: account.recommendedNextPackage,
               renewalDate: account.renewalDate,
-              upsellOpportunity: account.upsellOpportunity,
+              upsellOpportunity: account.upsellOpportunity || account.upsellPrompts[0]?.reason,
             });
             return (
             <TableRow key={account.clinicId}>
@@ -418,6 +419,11 @@ export default function ClientAccountsPage() {
                   {account.recommendedNextPackage ? (
                     <p className="max-w-[220px] truncate text-xs font-medium text-[#315f62]">
                       Next: {account.recommendedNextPackage}
+                    </p>
+                  ) : null}
+                  {account.upsellPrompts.length > 0 ? (
+                    <p className="max-w-[220px] truncate text-xs font-medium text-amber-700">
+                      Prompt: {account.upsellPrompts[0].toPackage}
                     </p>
                   ) : null}
                 </div>

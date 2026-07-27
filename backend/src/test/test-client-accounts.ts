@@ -1036,7 +1036,25 @@ test("client account profile API is permission protected, updateable, audited, a
       paymentStatus: "pending",
       invoiceStatus: "sent",
       paymentNotes: "Manual invoice raised in QuickBooks sandbox notes.",
+      currentPackage: "Growth Diagnostic",
+      recommendedNextPackage: "Lead Concierge",
+      growthScoreCategories: {
+        websiteVisibility: 74,
+        seo: 68,
+        gbp: 72,
+        tracking: 80,
+        conversion: 65,
+        leadHandling: 45,
+        responseSpeed: 52,
+        enquiryVisibility: 70,
+        treatmentPerformance: 66,
+        revenueLeakage: 62,
+        growthOpportunity: 71,
+      },
       churnRisk: "low",
+      lastContactAt: "2026-07-10",
+      lastReportAt: "2026-07-11",
+      lastLoomAt: "2026-07-12",
       renewalDate: "2026-12-31",
       contractStatus: "active",
       keyNotes: "Quarterly review scheduled",
@@ -1081,7 +1099,15 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(updated.body.data.paymentStatus, "pending");
     assert.equal(updated.body.data.invoiceStatus, "sent");
     assert.equal(updated.body.data.paymentNotes, "Manual invoice raised in QuickBooks sandbox notes.");
+    assert.equal(updated.body.data.currentPackage, "Growth Diagnostic");
+    assert.equal(updated.body.data.recommendedNextPackage, "Lead Concierge");
     assert.equal(updated.body.data.churnRisk, "low");
+    assert.equal(updated.body.data.lastContactAt.slice(0, 10), "2026-07-10");
+    assert.equal(updated.body.data.lastReportAt.slice(0, 10), "2026-07-11");
+    assert.equal(updated.body.data.lastLoomAt.slice(0, 10), "2026-07-12");
+    assert.equal(updated.body.data.upsellPrompts.length, 1);
+    assert.equal(updated.body.data.upsellPrompts[0].ruleKey, "growth_diagnostic_to_lead_concierge");
+    assert.equal(updated.body.data.upsellPrompts[0].toPackage, "Lead Concierge");
     assert.equal(updated.body.data.renewalDate, "2026-12-31");
     assert.equal(updated.body.data.contractStatus, "active");
     assert.equal(updated.body.data.keyNotes, "Quarterly review scheduled");
@@ -1117,6 +1143,9 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(auditChanges.monthlyPrice.after, "3495.00");
     assert.equal(auditChanges.paymentStatus.after, "pending");
     assert.equal(auditChanges.invoiceStatus.after, "sent");
+    assert.equal(auditChanges.lastContactAt.after, "2026-07-10 00:00:00");
+    assert.equal(auditChanges.lastReportAt.after, "2026-07-11 00:00:00");
+    assert.equal(auditChanges.lastLoomAt.after, "2026-07-12 00:00:00");
 
     console.log("[client-accounts] profile API integration test passed");
 

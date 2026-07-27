@@ -19,6 +19,7 @@ import type {
   ClientAccountServiceListQuery,
   ClientAccountServiceResponse,
   ClientAccountSummaryResponse,
+  ClientAccountUpsellPrompt,
   ClientAccessItemType,
   CreateClientAccountDTO,
   CreateClientAccountFromContactDTO,
@@ -49,6 +50,9 @@ const DEFAULT_PROFILE = {
   recommendedNextPackage: null as string | null,
   upsellOpportunity: null as string | null,
   churnRisk: "low",
+  lastContactAt: null as string | null,
+  lastReportAt: null as string | null,
+  lastLoomAt: null as string | null,
   contractStatus: "pending",
   contractStartDate: null as string | null,
   noticeDate: null as string | null,
@@ -239,6 +243,102 @@ function normalizeServices(services: string[]) {
   return Array.from(new Set(services.map((service) => service.trim()).filter(Boolean)));
 }
 
+function normalizePackageName(value: unknown) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function scoreIsWeak(value: number | null | undefined, threshold = 60) {
+  return typeof value === "number" && value <= threshold;
+}
+
+function scoreIsStrong(value: number | null | undefined, threshold = 70) {
+  return typeof value === "number" && value >= threshold;
+}
+
+function buildUpsellPrompts(row: {
+  currentPackage?: string | null;
+  recommendedNextPackage?: string | null;
+  growthScoreOverall?: number | null;
+  growthScoreCategories?: GrowthScoreCategories;
+  growthScoreGapSummary?: string | null;
+}): ClientAccountUpsellPrompt[] {
+  const current = normalizePackageName(row.currentPackage);
+  const recommended = normalizePackageName(row.recommendedNextPackage);
+  const categories = row.growthScoreCategories || emptyGrowthScoreCategories;
+  const prompts: ClientAccountUpsellPrompt[] = [];
+
+  const addPrompt = (prompt: ClientAccountUpsellPrompt) => {
+    if (prompts.some((item) => item.ruleKey === prompt.ruleKey)) return;
+    prompts.push(prompt);
+  };
+
+  if (
+    current.includes("growth diagnostic") &&
+    (scoreIsWeak(categories.leadHandling) || scoreIsWeak(categories.responseSpeed) || recommended.includes("lead concierge"))
+  ) {
+    addPrompt({
+      ruleKey: "growth_diagnostic_to_lead_concierge",
+      fromPackage: "Growth Diagnostic",
+      toPackage: "Lead Concierge",
+      reason: "Lead handling or response speed is weak, so Lead Concierge should be reviewed.",
+      severity: "high",
+    });
+  }
+
+  if (
+    current.includes("lead concierge") &&
+    (
+      scoreIsWeak(categories.websiteVisibility) ||
+      scoreIsWeak(categories.seo) ||
+      scoreIsWeak(categories.gbp) ||
+      scoreIsWeak(categories.tracking) ||
+      scoreIsWeak(categories.enquiryVisibility) ||
+      recommended.includes("performance os")
+    )
+  ) {
+    addPrompt({
+      ruleKey: "lead_concierge_to_performance_os",
+      fromPackage: "Lead Concierge",
+      toPackage: "Performance OS",
+      reason: "Visibility, tracking or accountability gaps suggest Performance OS.",
+      severity: "medium",
+    });
+  }
+
+  if (
+    current.includes("performance os") &&
+    (
+      scoreIsWeak(categories.conversion) ||
+      scoreIsWeak(categories.revenueLeakage) ||
+      scoreIsStrong(categories.growthOpportunity) ||
+      recommended.includes("growth engine")
+    )
+  ) {
+    addPrompt({
+      ruleKey: "performance_os_to_growth_engine",
+      fromPackage: "Performance OS",
+      toPackage: "Growth Engine",
+      reason: "Conversion, revenue leakage or growth-opportunity signals point to managed growth.",
+      severity: "medium",
+    });
+  }
+
+  if (
+    current.includes("growth engine") &&
+    (scoreIsStrong(categories.growthOpportunity) || scoreIsStrong(row.growthScoreOverall) || recommended.includes("market leader"))
+  ) {
+    addPrompt({
+      ruleKey: "growth_engine_to_market_leader",
+      fromPackage: "Growth Engine",
+      toPackage: "Market Leader",
+      reason: "High growth opportunity or strong current performance suggests Market Leader should be considered.",
+      severity: "medium",
+    });
+  }
+
+  return prompts;
+}
+
 function contactDisplayName(row: any) {
   return [row.firstName, row.lastName].filter(Boolean).join(" ").trim() ||
     row.email ||
@@ -377,6 +477,9 @@ export class ClientAccountsService {
           cap.growth_score_gap_summary as growthScoreGapSummary,
           cap.growth_score_updated_at as growthScoreUpdatedAt,
           cap.churn_risk as churnRisk,
+          cap.last_contact_at as lastContactAt,
+          cap.last_report_at as lastReportAt,
+          cap.last_loom_at as lastLoomAt,
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
           cap.contract_start_date as contractStartDate,
@@ -535,10 +638,10 @@ export class ClientAccountsService {
            growth_score_tracking, growth_score_conversion, growth_score_lead_handling, growth_score_response_speed,
            growth_score_enquiry_visibility, growth_score_treatment_performance, growth_score_revenue_leakage,
            growth_score_growth_opportunity, growth_score_recommended_package, growth_score_gap_summary, growth_score_updated_at,
-           churn_risk, renewal_date, contract_status, contract_start_date, notice_date,
+           churn_risk, last_contact_at, last_report_at, last_loom_at, renewal_date, contract_status, contract_start_date, notice_date,
            payment_status, invoice_status, payment_notes, key_notes,
            created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           profileId,
           clinicId,
@@ -570,6 +673,9 @@ export class ClientAccountsService {
           payload.growthScoreGapSummary,
           payload.growthScoreUpdatedAt,
           payload.churnRisk,
+          payload.lastContactAt,
+          payload.lastReportAt,
+          payload.lastLoomAt,
           payload.renewalDate,
           payload.contractStatus,
           payload.contractStartDate,
@@ -1071,6 +1177,9 @@ export class ClientAccountsService {
           cap.growth_score_gap_summary as growthScoreGapSummary,
           cap.growth_score_updated_at as growthScoreUpdatedAt,
           cap.churn_risk as churnRisk,
+          cap.last_contact_at as lastContactAt,
+          cap.last_report_at as lastReportAt,
+          cap.last_loom_at as lastLoomAt,
           cap.renewal_date as renewalDate,
           cap.contract_status as contractStatus,
           cap.contract_start_date as contractStartDate,
@@ -1135,6 +1244,9 @@ export class ClientAccountsService {
       upsellOpportunity: row.upsellOpportunity || DEFAULT_PROFILE.upsellOpportunity,
       ...growthScore,
       churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
+      lastContactAt: toIsoString(row.lastContactAt),
+      lastReportAt: toIsoString(row.lastReportAt),
+      lastLoomAt: toIsoString(row.lastLoomAt),
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
       contractStartDate: toDateString(row.contractStartDate),
@@ -1149,6 +1261,13 @@ export class ClientAccountsService {
       googleDriveFolderAccessStatus: row.googleDriveFolderAccessStatus || "not_checked",
       googleDriveFolderError: row.googleDriveFolderError || null,
       googleDriveFolderCheckedAt: toIsoString(row.googleDriveFolderCheckedAt),
+      upsellPrompts: buildUpsellPrompts({
+        currentPackage: row.currentPackage,
+        recommendedNextPackage: row.recommendedNextPackage || growthScore.growthScoreRecommendedPackage,
+        growthScoreOverall: growthScore.growthScoreOverall,
+        growthScoreCategories: growthScore.growthScoreCategories,
+        growthScoreGapSummary: growthScore.growthScoreGapSummary,
+      }),
       updatedAt: toIsoString(row.updatedAt),
     };
   }
@@ -1856,6 +1975,18 @@ export class ClientAccountsService {
       addChange("churnRisk", "churn_risk", before.churnRisk, data.churnRisk);
     }
 
+    if (ownKey(data, "lastContactAt")) {
+      addChange("lastContactAt", "last_contact_at", before.lastContactAt, toDateTimeString(data.lastContactAt));
+    }
+
+    if (ownKey(data, "lastReportAt")) {
+      addChange("lastReportAt", "last_report_at", before.lastReportAt, toDateTimeString(data.lastReportAt));
+    }
+
+    if (ownKey(data, "lastLoomAt")) {
+      addChange("lastLoomAt", "last_loom_at", before.lastLoomAt, toDateTimeString(data.lastLoomAt));
+    }
+
     if (ownKey(data, "renewalDate")) {
       addChange("renewalDate", "renewal_date", before.renewalDate, toDateString(data.renewalDate));
     }
@@ -2304,6 +2435,9 @@ export class ClientAccountsService {
       upsellOpportunity: row.upsellOpportunity || DEFAULT_PROFILE.upsellOpportunity,
       ...growthScore,
       churnRisk: row.churnRisk || DEFAULT_PROFILE.churnRisk,
+      lastContactAt: toIsoString(row.lastContactAt),
+      lastReportAt: toIsoString(row.lastReportAt),
+      lastLoomAt: toIsoString(row.lastLoomAt),
       renewalDate: toDateString(row.renewalDate),
       contractStatus: row.contractStatus || DEFAULT_PROFILE.contractStatus,
       contractStartDate: toDateString(row.contractStartDate),
@@ -2318,6 +2452,13 @@ export class ClientAccountsService {
       googleDriveFolderAccessStatus: row.googleDriveFolderAccessStatus || "not_checked",
       googleDriveFolderError: row.googleDriveFolderError || null,
       googleDriveFolderCheckedAt: toIsoString(row.googleDriveFolderCheckedAt),
+      upsellPrompts: buildUpsellPrompts({
+        currentPackage: row.currentPackage,
+        recommendedNextPackage: row.recommendedNextPackage || growthScore.growthScoreRecommendedPackage,
+        growthScoreOverall: growthScore.growthScoreOverall,
+        growthScoreCategories: growthScore.growthScoreCategories,
+        growthScoreGapSummary: growthScore.growthScoreGapSummary,
+      }),
       updatedAt: toIsoString(row.updatedAt || row.clinicUpdatedAt),
       activeServiceCount: Number(row.activeServiceCount || 0),
       renewalRiskCount: Number(row.renewalRiskCount || 0),
@@ -2424,6 +2565,9 @@ export class ClientAccountsService {
       growthScoreGapSummary: growthScore.gapSummary,
       growthScoreUpdatedAt: growthScore.updatedAt,
       churnRisk: data.churnRisk || DEFAULT_PROFILE.churnRisk,
+      lastContactAt: toDateTimeString(data.lastContactAt),
+      lastReportAt: toDateTimeString(data.lastReportAt),
+      lastLoomAt: toDateTimeString(data.lastLoomAt),
       renewalDate: toDateString(data.renewalDate),
       contractStatus: data.contractStatus || DEFAULT_PROFILE.contractStatus,
       contractStartDate: toDateString(data.contractStartDate),

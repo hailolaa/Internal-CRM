@@ -8,6 +8,7 @@ export type ClientStatus = "prospect" | "onboarding" | "active" | "paused" | "at
 export type ClientServiceType = "ppc" | "seo" | "gbp" | "website" | "landing_pages" | "cro" | "strategy" | "other";
 export type ClientServiceStatus = "onboarding" | "active" | "paused" | "ended" | "archived";
 export type MonthlyActionPlanStatus = "draft" | "active" | "completed" | "archived";
+export type ClientUpsellPromptSeverity = "medium" | "high";
 export type ClientDocumentType =
   | "main_client_folder"
   | "audit"
@@ -56,6 +57,14 @@ export interface GrowthScoreSnapshot {
   updatedAt: string | null;
 }
 
+export interface ClientAccountUpsellPrompt {
+  ruleKey: string;
+  fromPackage: string;
+  toPackage: string;
+  reason: string;
+  severity: ClientUpsellPromptSeverity;
+}
+
 export interface UpdateClientAccountProfileDTO {
   accountManagerId?: string | null;
   activeServices?: string[];
@@ -75,6 +84,9 @@ export interface UpdateClientAccountProfileDTO {
   growthScoreGapSummary?: string | null;
   growthScoreUpdatedAt?: string | null;
   churnRisk?: ChurnRisk;
+  lastContactAt?: string | null;
+  lastReportAt?: string | null;
+  lastLoomAt?: string | null;
   renewalDate?: string | null;
   contractStatus?: ContractStatus;
   contractStartDate?: string | null;
@@ -171,6 +183,9 @@ export interface ClientAccountProfileResponse {
   growthScoreGapSummary: string | null;
   growthScoreUpdatedAt: string | null;
   churnRisk: ChurnRisk;
+  lastContactAt: string | null;
+  lastReportAt: string | null;
+  lastLoomAt: string | null;
   renewalDate: string | null;
   contractStatus: ContractStatus;
   contractStartDate: string | null;
@@ -185,6 +200,7 @@ export interface ClientAccountProfileResponse {
   googleDriveFolderAccessStatus: "not_checked" | "accessible" | "inaccessible";
   googleDriveFolderError: string | null;
   googleDriveFolderCheckedAt: string | null;
+  upsellPrompts: ClientAccountUpsellPrompt[];
   updatedAt: string | null;
 }
 

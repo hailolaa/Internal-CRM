@@ -80,6 +80,12 @@ const accountCommercialValidators = [
   body("paymentNotes").optional({ nullable: true }).trim().isLength({ max: 5000 }).withMessage("Payment notes must be 5000 characters or fewer"),
 ];
 
+const accountRecencyValidators = [
+  body("lastContactAt").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Last contact date must be valid"),
+  body("lastReportAt").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Last report date must be valid"),
+  body("lastLoomAt").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Last Loom/strategy date must be valid"),
+];
+
 function userIdentifier(field: "accountManagerId" | "ownerId", label: string) {
   return body(field)
     .optional({ nullable: true })
@@ -119,6 +125,7 @@ export const createClientAccountValidator = [
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
   ...growthScoreValidators,
   body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
+  ...accountRecencyValidators,
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),
   body("keyNotes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Key notes must be 10000 characters or fewer"),
@@ -139,6 +146,7 @@ export const createClientAccountFromContactValidator = [
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
   ...growthScoreValidators,
   body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
+  ...accountRecencyValidators,
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),
   body("keyNotes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Key notes must be 10000 characters or fewer"),
@@ -159,6 +167,7 @@ export const convertWonDealToClientValidator = [
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
   ...growthScoreValidators,
   body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
+  ...accountRecencyValidators,
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),
   body("keyNotes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Key notes must be 10000 characters or fewer"),
@@ -289,6 +298,7 @@ export const updateClientAccountProfileValidator = [
   body("upsellOpportunity").optional({ nullable: true }).trim().isLength({ max: 255 }).withMessage("Upsell opportunity must be 255 characters or fewer"),
   ...growthScoreValidators,
   body("churnRisk").optional().isIn(["low", "medium", "high", "critical"]),
+  ...accountRecencyValidators,
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),
   body("keyNotes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Key notes must be 10000 characters or fewer"),

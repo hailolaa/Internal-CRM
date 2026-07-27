@@ -50,6 +50,9 @@ const emptyAccountForm: ClientAccountCreatePayload = {
   healthStatus: "attention_needed",
   contractStatus: "pending",
   churnRisk: "low",
+  lastContactAt: null,
+  lastReportAt: null,
+  lastLoomAt: null,
   currentPackage: "",
   recommendedNextPackage: "",
   upsellOpportunity: "",
@@ -156,6 +159,9 @@ export default function NewClientAccountPage() {
         currency: form.currency?.trim().toUpperCase() || "GBP",
         contractStartDate: form.contractStartDate || null,
         noticeDate: form.noticeDate || null,
+        lastContactAt: form.lastContactAt || null,
+        lastReportAt: form.lastReportAt || null,
+        lastLoomAt: form.lastLoomAt || null,
         paymentNotes: form.paymentNotes || null,
         recommendedNextPackage: form.recommendedNextPackage || null,
         upsellOpportunity: form.upsellOpportunity || null,
@@ -377,6 +383,18 @@ export default function NewClientAccountPage() {
                   className={fieldClass}
                   placeholder="e.g. Move to Growth Engine after tracking QA"
                 />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Last contact</span>
+                <input type="date" value={form.lastContactAt || ""} onChange={(event) => setForm((current) => ({ ...current, lastContactAt: event.target.value || null }))} className={fieldClass} />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Last report</span>
+                <input type="date" value={form.lastReportAt || ""} onChange={(event) => setForm((current) => ({ ...current, lastReportAt: event.target.value || null }))} className={fieldClass} />
+              </label>
+              <label className="space-y-1.5">
+                <span className="text-sm font-semibold text-[#344446]">Last Loom / strategy call</span>
+                <input type="date" value={form.lastLoomAt || ""} onChange={(event) => setForm((current) => ({ ...current, lastLoomAt: event.target.value || null }))} className={fieldClass} />
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Payment status</span>

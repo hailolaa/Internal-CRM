@@ -375,7 +375,7 @@ export default function ClientAccountDetailPage() {
     overdueTaskCount: openTasks.filter((task) => task.isOverdue).length || account.overdueTaskCount,
     recommendedNextPackage: account.recommendedNextPackage,
     renewalDate: account.renewalDate,
-    upsellOpportunity: account.upsellOpportunity,
+    upsellOpportunity: account.upsellOpportunity || account.upsellPrompts[0]?.reason,
   });
 
   return (
@@ -415,6 +415,27 @@ export default function ClientAccountDetailPage() {
         </div>
       </Card>
 
+      {account.upsellPrompts.length > 0 ? (
+        <Card padding="p-5 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5e8a8d]">
+                Internal Upsell Prompt
+              </p>
+              <h2 className="mt-1 text-lg font-semibold text-[#151f21]">
+                {account.upsellPrompts[0].fromPackage} to {account.upsellPrompts[0].toPackage}
+              </h2>
+              <p className="mt-1 text-sm text-[#7A746A]">
+                {account.upsellPrompts[0].reason}
+              </p>
+            </div>
+            <Badge variant={account.upsellPrompts[0].severity === "high" ? "warning" : "info"}>
+              Internal only
+            </Badge>
+          </div>
+        </Card>
+      ) : null}
+
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-6">
           <Card padding="p-5 sm:p-6">
@@ -429,6 +450,9 @@ export default function ClientAccountDetailPage() {
                 [FileCheck2, "Setup fee", formatMoney(account.setupFee, account.currency)],
                 [ShieldCheck, "Recommended next", account.recommendedNextPackage || "Not set"],
                 [BriefcaseBusiness, "Upsell opportunity", account.upsellOpportunity || "Not set"],
+                [Phone, "Last contact", formatDate(account.lastContactAt)],
+                [FileCheck2, "Last report", formatDate(account.lastReportAt)],
+                [Gauge, "Last Loom / strategy call", formatDate(account.lastLoomAt || account.lastStrategyLogAt)],
                 [Users, "Owner", personName(account)],
                 [FileCheck2, "Contract start", formatDate(account.contractStartDate)],
                 [FileCheck2, "Renewal date", formatDate(account.renewalDate)],
