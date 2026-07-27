@@ -136,11 +136,34 @@ export interface ProposalStatusUpdatePayload {
   paymentTerms?: string | null;
 }
 
+export type ProposalPublicRecord = Pick<
+  ProposalRecord,
+  | "proposalName"
+  | "templateKey"
+  | "packageName"
+  | "valueCents"
+  | "monthlyFeeCents"
+  | "setupFeeCents"
+  | "currency"
+  | "adSpendNote"
+  | "vatStatus"
+  | "minimumTermMonths"
+  | "noticePeriodDays"
+  | "startDate"
+  | "expiresAt"
+  | "addOns"
+  | "discounts"
+  | "sectionContent"
+  | "contactName"
+  | "accountName"
+  | "clientAccountName"
+>;
+
 export interface ProposalPublicPreviewRecord {
-  proposal: ProposalRecord;
+  proposal: ProposalPublicRecord;
   packageRecord: Pick<
     GrowthPackageRecord,
-    "id" | "name" | "priceCents" | "setupFeeCents" | "currency" | "billingFrequency" | "includedFeatures" | "proposalWording"
+    "name" | "priceCents" | "setupFeeCents" | "currency" | "billingFrequency" | "includedFeatures" | "proposalWording"
   > | null;
 }
 

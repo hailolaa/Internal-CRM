@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
 import { ApiError } from "../../utils/ApiError.js";
+import { csvCell } from "../../utils/csv.js";
 import { buildTimelineMetadata, logTimelineActivity, type ActivityType } from "../../utils/activity.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { phase1TimelineActions } from "../events/phase1-events.js";
@@ -161,12 +162,6 @@ const importHeaderAliases: Record<string, keyof ContactImportRow | "tags"> = {
   auditfollowupdue: "auditFollowUpDueAt",
   auditfollowupdueat: "auditFollowUpDueAt",
 };
-
-function csvCell(value: unknown) {
-  if (value == null) return "";
-  const text = Array.isArray(value) ? value.join("; ") : String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
 
 function contactAttemptActivityType(channel: RecordContactAttemptDTO["channel"]): ActivityType {
   if (channel === "call") return "Call";
@@ -2269,19 +2264,27 @@ function toIsoString(value: unknown) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+const googleDriveHosts = new Set(["drive.google.com", "docs.google.com"]);
+const googleDriveItemIdPattern = /^[A-Za-z0-9_-]{5,255}$/;
+
 function normalizeDriveItemId(input: string) {
   const value = input.trim().replace(/^["'<\s]+|[>"'\s]+$/g, "");
-  if (/^[A-Za-z0-9_-]{5,255}$/.test(value) && !value.includes(".")) return value;
+  if (googleDriveItemIdPattern.test(value) && !value.includes(".")) return value;
+
   try {
     const url = new URL(value);
+    if (url.protocol !== "https:" || !googleDriveHosts.has(url.hostname.toLowerCase())) return null;
+
     const path = decodeURIComponent(url.pathname);
-    return (
+    const itemId =
       path.match(/\/file\/d\/([^/?#]+)/)?.[1] ||
       path.match(/\/drive\/(?:u\/\d+\/)?(?:mobile\/)?folders\/([^/?#]+)/)?.[1] ||
       path.match(/\/folders\/([^/?#]+)/)?.[1] ||
+      path.match(/\/(?:document|spreadsheets|presentation|forms|drawings)\/(?:u\/\d+\/)?d\/([^/?#]+)/)?.[1] ||
       url.searchParams.get("id") ||
-      null
-    );
+      null;
+
+    return itemId && googleDriveItemIdPattern.test(itemId) ? itemId : null;
   } catch {
     return null;
   }
@@ -2289,11 +2292,15 @@ function normalizeDriveItemId(input: string) {
 
 function normalizeDriveUrl(input: string, driveItemId: string | null) {
   const value = input.trim().replace(/^["'<\s]+|[>"'\s]+$/g, "");
+
   try {
     const url = new URL(value);
-    if (url.hostname.toLowerCase().endsWith("drive.google.com")) return url.toString();
+    if (url.protocol === "https:" && googleDriveHosts.has(url.hostname.toLowerCase())) return url.toString();
   } catch {
     // IDs are accepted for manual lead document links.
   }
-  return driveItemId ? `https://drive.google.com/drive/folders/${driveItemId}` : value;
+
+  return driveItemId
+    ? `https://drive.google.com/open?id=${encodeURIComponent(driveItemId)}`
+    : value;
 }

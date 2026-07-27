@@ -128,6 +128,24 @@ export class ClientAccountsController {
     }
   };
 
+  getManagedProfile = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const profile = await clientAccountsService.getManagedProfile(
+        user.clinicId,
+        String(req.params.clinicId),
+        { canManageAllClientAccounts },
+      );
+      res.status(200).json({
+        status: "success",
+        data: profile,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   updateProfile = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
@@ -135,6 +153,28 @@ export class ClientAccountsController {
         user.clinicId,
         user.userId,
         req.body,
+        this.auditContext(req),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: profile,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateManagedProfile = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const profile = await clientAccountsService.updateManagedProfile(
+        user.clinicId,
+        String(req.params.clinicId),
+        user.userId,
+        req.body,
+        { canManageAllClientAccounts },
         this.auditContext(req),
       );
 
@@ -332,7 +372,30 @@ export class ClientAccountsController {
         user.userId,
         req.params.documentType as any,
         req.body,
-        { canManageAllClientAccounts },
+        { canManageAllClientAccounts, canConfigureDrive: this.canConfigureDrive(user) },
+        this.auditContext(req),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: documents,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateMainClientFolderDocumentLink = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const documents = await clientAccountsService.updateDocumentLink(
+        user.clinicId,
+        String(req.params.clinicId),
+        user.userId,
+        "main_client_folder",
+        req.body,
+        { canManageAllClientAccounts, canConfigureDrive: this.canConfigureDrive(user) },
         this.auditContext(req),
       );
 

@@ -23,9 +23,12 @@ import {
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import {
+  getDashboardTaskDetailHref,
   getDashboardKpiCards,
+  hasActionableSyncedProposalFollowUpTask,
   isDashboardActiveProjectStatus,
   isDashboardNewProspect,
+  isDashboardUpcomingTask,
 } from "@/lib/dashboard-cards";
 import {
   getClientNextBestAction,
@@ -37,6 +40,12 @@ import {
   calculateLeadPriority,
   leadPriorityBadgeClass,
 } from "@/lib/lead-priority";
+import {
+  DASHBOARD_DUE_TASKS_HREF,
+  getClientAccountDrilldownHref,
+  isOpenClientAccount,
+  isTaskDueByToday,
+} from "@/lib/operations-drilldowns";
 import { DashboardKpiCardLink } from "@/components/dashboard-kpi-card-link";
 import type {
   ClientAccountServiceRecord,
@@ -139,10 +148,6 @@ function isNewLead(deal: PipelineDealRecord) {
   });
 }
 
-function isOpenClient(account: ClientAccountSummaryRecord) {
-  return ["active", "trial", "pending"].includes(account.contractStatus);
-}
-
 function isActiveProject(service: ClientAccountServiceRecord) {
   return isDashboardActiveProjectStatus(service.status);
 }
@@ -152,18 +157,6 @@ function isTaskOverdue(task: InternalTaskRecord) {
   if (task.isOverdue) return true;
   const days = daysFromToday(task.dueDate);
   return days !== null && days < 0;
-}
-
-function isUpcomingTask(task: InternalTaskRecord) {
-  if (task.status === "completed") return false;
-  const days = daysFromToday(task.dueDate);
-  return days !== null && days >= 0 && days <= 14;
-}
-
-function isTaskDue(task: InternalTaskRecord) {
-  if (task.status === "completed") return false;
-  const days = daysFromToday(task.dueDate);
-  return days !== null && days <= 0;
 }
 
 function isUpcomingService(service: ClientAccountServiceRecord) {
@@ -300,6 +293,11 @@ export default function AppPage() {
     );
   }, [clientAccounts]);
 
+  const openClientAccounts = useMemo(
+    () => clientAccounts.filter(isOpenClientAccount),
+    [clientAccounts],
+  );
+
   const metrics = useMemo(() => {
     const wonDeals = deals.filter(
       (deal) => deal.status === "won" || deal.stageKind === "won",
@@ -328,15 +326,15 @@ export default function AppPage() {
       newLeads: deals.filter(isNewLead),
       wonDeals,
       lostDeals,
-      openClients: clientAccounts.filter(isOpenClient),
+      openClients: openClientAccounts,
       activeProjects: services.filter(isActiveProject),
       overdueTasks: tasks.filter(isTaskOverdue),
-      tasksDue: tasks.filter(isTaskDue),
+      tasksDue: tasks.filter((task) => isTaskDueByToday(task)),
       auditsDue: auditItems.filter((item) => isAuditDue(item.status, item.dueAt)),
       auditsInProgress: auditItems.filter((item) => isAuditInProgress(item.status)),
       auditsCompleted: auditItems.filter((item) => isAuditCompleted(item.status)),
     };
-  }, [clientAccounts, contacts, deals, services, tasks]);
+  }, [contacts, deals, openClientAccounts, services, tasks]);
 
   const leadAttentionRows = useMemo(() => {
     const contactRows = contacts
@@ -430,8 +428,7 @@ export default function AppPage() {
   }, [contacts, leadAttentionRows, metrics.newLeads.length]);
 
   const clientBlockerRows = useMemo<ClientBlockerRow[]>(() => {
-    return clientAccounts
-      .filter((account) => isOpenClient(account))
+    return openClientAccounts
       .map((account) => {
         const missingAccess = account.missingAccessCount || 0;
         const missingDocuments = account.missingDocumentCount || 0;
@@ -461,7 +458,7 @@ export default function AppPage() {
       .filter((row): row is ClientBlockerRow => Boolean(row))
       .sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title))
       .slice(0, 8);
-  }, [clientAccounts]);
+  }, [openClientAccounts]);
 
   const stageRows = useMemo(() => {
     const rows = stages
@@ -512,14 +509,17 @@ export default function AppPage() {
   }, [deals, stages]);
 
   const upcomingDeadlines = useMemo<DeadlineRow[]>(() => {
-    const taskRows = tasks.filter(isUpcomingTask).map((task) => ({
-      id: task.id,
-      title: task.title,
-      owner: task.assignedTo || "Unassigned",
-      date: task.dueDate,
-      href: `/app/crm/tasks?taskId=${task.id}`,
-      type: "Task" as const,
-    }));
+    const deadlineNow = new Date();
+    const taskRows = tasks
+      .filter((task) => isDashboardUpcomingTask(task, deadlineNow))
+      .map((task) => ({
+        id: task.id,
+        title: task.title,
+        owner: task.assignedTo || "Unassigned",
+        date: task.dueDate,
+        href: getDashboardTaskDetailHref(task.id),
+        type: "Task" as const,
+      }));
 
     const serviceRows = services.filter(isUpcomingService).map((service) => ({
       id: service.id,
@@ -534,14 +534,24 @@ export default function AppPage() {
       type: "Service" as const,
     }));
 
-    const proposalRows = proposals.filter(isActionableProposalFollowUp).map((proposal) => ({
-      id: proposal.id,
-      title: proposal.proposalName,
-      owner: proposal.ownerName || proposal.contactName || proposal.accountName || "Unassigned",
-      date: proposal.followUpAt,
-      href: `/app/crm/proposals/preview?id=${encodeURIComponent(proposal.id)}`,
-      type: "Proposal" as const,
-    }));
+    const proposalRows = proposals
+      .filter(isActionableProposalFollowUp)
+      .filter(
+        (proposal) =>
+          !hasActionableSyncedProposalFollowUpTask(
+            proposal.id,
+            tasks,
+            deadlineNow,
+          ),
+      )
+      .map((proposal) => ({
+        id: proposal.id,
+        title: proposal.proposalName,
+        owner: proposal.ownerName || proposal.contactName || proposal.accountName || "Unassigned",
+        date: proposal.followUpAt,
+        href: `/app/crm/proposals/preview?id=${encodeURIComponent(proposal.id)}`,
+        type: "Proposal" as const,
+      }));
 
     return [...taskRows, ...serviceRows, ...proposalRows]
       .sort((a, b) => {
@@ -607,8 +617,8 @@ export default function AppPage() {
         };
       });
 
-    const clientIssueRows = clientAccounts
-      .filter((account) => isOpenClient(account) && account.openIssueCount > 0)
+    const clientIssueRows = openClientAccounts
+      .filter((account) => account.openIssueCount > 0)
       .map((account) => {
         const href = `/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}#account-issues`;
         const isOverdue = account.overdueIssueCount > 0;
@@ -630,41 +640,44 @@ export default function AppPage() {
         };
       });
 
-    const clientRows = clientAccounts
-      .filter(isOpenClient)
-      .map((account) => {
-        const href = `/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}`;
-        const action = getClientNextBestAction({
-          churnRisk: account.churnRisk,
-          contractStatus: account.contractStatus,
-          currentPackage: account.currentPackage,
-          googleDriveFolderAccessStatus: account.googleDriveFolderAccessStatus,
-          googleDriveFolderId: account.googleDriveFolderId,
-          healthStatus: account.healthStatus,
-          href,
-          onboardingStatus: account.onboardingStatus,
-          overdueTaskCount: account.overdueTaskCount,
-          recommendedNextPackage: account.recommendedNextPackage,
-          renewalDate: account.renewalDate,
-          upsellOpportunity: account.upsellOpportunity || account.upsellPrompts[0]?.reason,
-        });
-        return {
-          id: `client-${account.clinicId}`,
-          title: account.clinicName,
-          owner: account.accountManager
-            ? [account.accountManager.firstName, account.accountManager.lastName].filter(Boolean).join(" ") || account.accountManager.email || "Unassigned"
-            : "Unassigned",
-          action,
-          href,
-          sort: actionUrgencySort(action),
-        };
+    const clientRows = openClientAccounts.map((account) => {
+      const href = `/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}`;
+      const action = getClientNextBestAction({
+        churnRisk: account.churnRisk,
+        contractStatus: account.contractStatus,
+        currentPackage: account.currentPackage,
+        googleDriveFolderAccessStatus: account.googleDriveFolderAccessStatus,
+        googleDriveFolderId: account.googleDriveFolderId,
+        healthStatus: account.healthStatus,
+        href,
+        onboardingStatus: account.onboardingStatus,
+        overdueTaskCount: account.overdueTaskCount,
+        recommendedNextPackage: account.recommendedNextPackage,
+        renewalDate: account.renewalDate,
+        upsellOpportunity:
+          account.upsellOpportunity || account.upsellPrompts[0]?.reason,
       });
+      return {
+        id: `client-${account.clinicId}`,
+        title: account.clinicName,
+        owner: account.accountManager
+          ? [account.accountManager.firstName, account.accountManager.lastName]
+              .filter(Boolean)
+              .join(" ") ||
+            account.accountManager.email ||
+            "Unassigned"
+          : "Unassigned",
+        action,
+        href,
+        sort: actionUrgencySort(action),
+      };
+    });
 
     return [...clientIssueRows, ...contactRows, ...dealRows, ...clientRows]
       .filter((row) => row.action.urgency !== "low")
       .sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title))
       .slice(0, 8);
-  }, [clientAccounts, contacts, deals]);
+  }, [contacts, deals, openClientAccounts]);
 
   const maxStageCount = Math.max(1, ...stageRows.map((row) => row.count));
   const topActiveProjects = metrics.activeProjects.slice(0, 6);
@@ -974,7 +987,7 @@ export default function AppPage() {
             </p>
           </div>
           <Link
-            href="/app/ops/client-accounts?clientStatus=onboarding&from=dashboard"
+            href={getClientAccountDrilldownHref("onboarding")}
             className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
           >
             Onboarding Clients
@@ -984,23 +997,32 @@ export default function AppPage() {
           {[
             {
               label: "Onboarding clients",
-              value: clientAccounts.filter((account) => account.onboardingStatus !== "completed" && isOpenClient(account)).length,
-              href: "/app/ops/client-accounts?clientStatus=onboarding&from=dashboard",
+              value: openClientAccounts.filter(
+                (account) => account.onboardingStatus !== "completed",
+              ).length,
+              href: getClientAccountDrilldownHref("onboarding"),
             },
             {
               label: "Missing access",
-              value: clientAccounts.reduce((total, account) => total + (account.missingAccessCount || 0), 0),
-              href: "/app/ops/client-accounts?search=missing%20access&from=dashboard",
+              value: openClientAccounts.reduce(
+                (total, account) => total + (account.missingAccessCount || 0),
+                0,
+              ),
+              href: getClientAccountDrilldownHref("missing-access"),
             },
             {
               label: "Missing file links",
-              value: clientAccounts.reduce((total, account) => total + (account.missingDocumentCount || 0), 0),
-              href: "/app/ops/client-accounts?search=missing%20files&from=dashboard",
+              value: openClientAccounts.reduce(
+                (total, account) =>
+                  total + (account.missingDocumentCount || 0),
+                0,
+              ),
+              href: getClientAccountDrilldownHref("missing-files"),
             },
             {
               label: "Tasks due",
               value: metrics.tasksDue.length,
-              href: "/app/crm/tasks?due=today&from=dashboard",
+              href: DASHBOARD_DUE_TASKS_HREF,
             },
           ].map((item) => (
             <Link
@@ -1232,7 +1254,7 @@ export default function AppPage() {
               overdueTasks.map((task) => (
                 <Link
                   key={task.id}
-                  href={`/app/crm/tasks?taskId=${task.id}`}
+                  href={getDashboardTaskDetailHref(task.id)}
                   className="block p-5 transition-colors hover:bg-[rgba(96,180,175,0.03)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#315f62]"
                 >
                   <div className="flex items-center justify-between gap-3">

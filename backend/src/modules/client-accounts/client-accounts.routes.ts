@@ -22,6 +22,7 @@ import {
   updateClientAccountAccessItemValidator,
   updateClientAccountDocumentLinkValidator,
   updateClientAccountIssueValidator,
+  updateMainClientFolderDocumentLinkValidator,
   updateClientAccountProfileValidator,
   updateClientAccountServiceValidator,
   uploadClientAccountDriveFileValidator,
@@ -163,6 +164,14 @@ router.get(
 );
 
 router.patch(
+  "/:clinicId/documents/main_client_folder",
+  authorize("SUPER_ADMIN", "ADMIN"),
+  updateMainClientFolderDocumentLinkValidator,
+  validate,
+  clientAccountsController.updateMainClientFolderDocumentLink,
+);
+
+router.patch(
   "/:clinicId/documents/:documentType",
   authorizePermission("client_accounts:write"),
   updateClientAccountDocumentLinkValidator,
@@ -232,12 +241,30 @@ router.get(
   clientAccountsController.getProfile,
 );
 
+router.get(
+  "/:clinicId/profile",
+  authorizePermission("client_accounts:read"),
+  authorizePermission("sensitive:read"),
+  clientAccountClinicIdParamValidator,
+  validate,
+  clientAccountsController.getManagedProfile,
+);
+
 router.patch(
   "/profile",
   authorizePermission("client_accounts:write"),
   updateClientAccountProfileValidator,
   validate,
   clientAccountsController.updateProfile,
+);
+
+router.patch(
+  "/:clinicId/profile",
+  authorizePermission("client_accounts:write"),
+  authorizePermission("sensitive:read"),
+  [...clientAccountClinicIdParamValidator, ...updateClientAccountProfileValidator],
+  validate,
+  clientAccountsController.updateManagedProfile,
 );
 
 router.get(

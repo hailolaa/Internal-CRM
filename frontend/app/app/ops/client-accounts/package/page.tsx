@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
@@ -85,8 +86,16 @@ function dateInputValue(value?: string | null) {
   return value ? value.slice(0, 10) : "";
 }
 
-function personName(person: TeamMember) {
-  return [person.firstName, person.lastName].filter(Boolean).join(" ") || person.email;
+function personName(person: {
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+}) {
+  return (
+    [person.firstName, person.lastName].filter(Boolean).join(" ") ||
+    person.email ||
+    "Unassigned"
+  );
 }
 
 function toPayload(profile: ClientAccountProfileRecord): ClientAccountProfilePayload {
@@ -117,9 +126,13 @@ function toPayload(profile: ClientAccountProfileRecord): ClientAccountProfilePay
 }
 
 export default function ClientPackagePage() {
+  const searchParams = useSearchParams();
+  const targetClinicId = searchParams.get("id") || undefined;
   const { session } = useAuth();
   const { addToast } = useToast();
   const token = session?.token;
+  const canLoadTeamMembers =
+    session?.role === "SUPER_ADMIN" || session?.role === "ADMIN";
   const [profile, setProfile] = useState<ClientAccountProfileRecord | null>(null);
   const [draft, setDraft] = useState<ClientAccountProfilePayload | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -130,7 +143,12 @@ export default function ClientPackagePage() {
 
   useEffect(() => {
     if (!token) return;
-    Promise.all([api.clientAccounts.getProfile(token), api.team.getMembers(token)])
+    Promise.all([
+      api.clientAccounts.getProfile(token, targetClinicId),
+      canLoadTeamMembers
+        ? api.team.getMembers(token).catch((): TeamMember[] => [])
+        : Promise.resolve([] as TeamMember[]),
+    ])
       .then(([profileRow, members]) => {
         setProfile(profileRow);
         setDraft(toPayload(profileRow));
@@ -141,7 +159,7 @@ export default function ClientPackagePage() {
         addToast("Package profile could not be loaded.", "error");
       })
       .finally(() => setIsLoading(false));
-  }, [addToast, token]);
+  }, [addToast, canLoadTeamMembers, targetClinicId, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -179,7 +197,11 @@ export default function ClientPackagePage() {
     if (!token || !draft) return;
     setIsSaving(true);
     try {
-      const updated = await api.clientAccounts.updateProfile(token, draft);
+      const updated = await api.clientAccounts.updateProfile(
+        token,
+        draft,
+        targetClinicId,
+      );
       setProfile(updated);
       setDraft(toPayload(updated));
       addToast("Package profile updated.", "success");
@@ -190,7 +212,10 @@ export default function ClientPackagePage() {
     }
   };
 
-  const selectedManager = teamMembers.find((member) => member.id === draft?.accountManagerId);
+  const selectedManager =
+    teamMembers.find((member) => member.id === draft?.accountManagerId) ||
+    profile?.accountManager ||
+    null;
   const serviceCoverage = Math.round(((draft?.activeServices?.length || 0) / SERVICE_TYPES.length) * 100);
 
   return (
@@ -220,8 +245,12 @@ export default function ClientPackagePage() {
             <div className="mt-6 grid gap-5 md:grid-cols-2">
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Account manager</span>
-                <select value={draft?.accountManagerId || ""} disabled={isLoading || !draft} onChange={(event) => updateDraft("accountManagerId", event.target.value || null)} className={fieldClass}>
+                <select value={draft?.accountManagerId || ""} disabled={isLoading || !draft || !canLoadTeamMembers} onChange={(event) => updateDraft("accountManagerId", event.target.value || null)} className={fieldClass}>
                   <option value="">Unassigned</option>
+                  {selectedManager &&
+                    !teamMembers.some((member) => member.id === selectedManager.id) && (
+                      <option value={selectedManager.id}>{personName(selectedManager)}</option>
+                    )}
                   {teamMembers.map((member) => <option key={member.id} value={member.id}>{personName(member)}</option>)}
                 </select>
               </label>

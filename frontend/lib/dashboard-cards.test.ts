@@ -5,10 +5,13 @@ import { DashboardReturnLink } from "../components/dashboard-return-link";
 import { DashboardKpiCardLink } from "../components/dashboard-kpi-card-link";
 
 import {
+  getDashboardTaskDetailHref,
   getDashboardKeyboardTargetIndex,
   getDashboardKpiCards,
+  hasActionableSyncedProposalFollowUpTask,
   isDashboardActiveProjectStatus,
   isDashboardNewProspect,
+  isDashboardUpcomingTask,
 } from "./dashboard-cards";
 
 describe("dashboard KPI cards", () => {
@@ -57,6 +60,67 @@ describe("dashboard KPI cards", () => {
     expect(isDashboardActiveProjectStatus("active")).toBe(true);
     expect(isDashboardActiveProjectStatus("onboarding")).toBe(true);
     expect(isDashboardActiveProjectStatus("paused")).toBe(false);
+  });
+
+  it("deduplicates proposal deadlines when the synced follow-up task is actionable", () => {
+    const now = new Date("2026-07-24T12:00:00Z");
+    const tasks = [
+      {
+        templateKey: "proposal_follow_up:proposal-123",
+        status: "pending",
+        dueDate: "2026-07-30T09:00:00Z",
+      },
+      {
+        templateKey: "won_client_onboarding:deal-1:kickoff",
+        status: "pending",
+        dueDate: "2026-07-30T09:00:00Z",
+      },
+    ];
+
+    expect(isDashboardUpcomingTask(tasks[0], now)).toBe(true);
+    expect(
+      hasActionableSyncedProposalFollowUpTask("proposal-123", tasks, now),
+    ).toBe(true);
+    expect(
+      hasActionableSyncedProposalFollowUpTask("proposal-456", tasks, now),
+    ).toBe(false);
+  });
+
+  it("keeps proposal deadlines when their synced task is overdue or completed", () => {
+    const now = new Date("2026-07-24T12:00:00Z");
+    const overdueTask = {
+      templateKey: "proposal_follow_up:proposal-overdue",
+      status: "pending",
+      dueDate: "2026-07-23T09:00:00Z",
+    };
+    const completedTask = {
+      templateKey: "proposal_follow_up:proposal-completed",
+      status: "completed",
+      dueDate: "2026-07-30T09:00:00Z",
+    };
+
+    expect(isDashboardUpcomingTask(overdueTask, now)).toBe(false);
+    expect(isDashboardUpcomingTask(completedTask, now)).toBe(false);
+    expect(
+      hasActionableSyncedProposalFollowUpTask(
+        "proposal-overdue",
+        [overdueTask],
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      hasActionableSyncedProposalFollowUpTask(
+        "proposal-completed",
+        [completedTask],
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it("links dashboard task rows directly to task detail with return context", () => {
+    expect(getDashboardTaskDetailHref("task/123")).toBe(
+      "/app/crm/tasks/detail?id=task%2F123&from=dashboard",
+    );
   });
 
   it("exposes count-specific accessible names", () => {

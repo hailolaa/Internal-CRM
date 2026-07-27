@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import type { PoolConnection } from "mysql2/promise";
 import pool from "../config/database.js";
 import logger from "./logger.js";
 
@@ -28,24 +29,31 @@ export interface TimelineActivityPayload {
 
 export interface ContactActivityPayload extends TimelineActivityPayload {}
 
+export async function insertTimelineActivity(
+  executor: Pick<PoolConnection, "execute">,
+  payload: TimelineActivityPayload,
+) {
+  const timestamp = payload.timestamp ? new Date(payload.timestamp) : null;
+  const timestampValue = timestamp && !Number.isNaN(timestamp.getTime()) ? timestamp : null;
+  await executor.execute(
+    `INSERT INTO activity
+      (id, clinic_id, contact_id, type, user_id, metadata, timestamp)
+     VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+    [
+      uuidv4(),
+      payload.clinicId,
+      payload.contactId,
+      payload.type,
+      payload.userId || null,
+      payload.metadata ? JSON.stringify(payload.metadata) : null,
+      timestampValue,
+    ],
+  );
+}
+
 export async function logTimelineActivity(payload: TimelineActivityPayload) {
   try {
-    const timestamp = payload.timestamp ? new Date(payload.timestamp) : null;
-    const timestampValue = timestamp && !Number.isNaN(timestamp.getTime()) ? timestamp : null;
-    await pool.execute(
-      `INSERT INTO activity
-        (id, clinic_id, contact_id, type, user_id, metadata, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
-      [
-        uuidv4(),
-        payload.clinicId,
-        payload.contactId,
-        payload.type,
-        payload.userId || null,
-        payload.metadata ? JSON.stringify(payload.metadata) : null,
-        timestampValue,
-      ],
-    );
+    await insertTimelineActivity(pool, payload);
   } catch (error) {
     logger.warn("Timeline activity insert failed", {
       contactId: payload.contactId,

@@ -6,6 +6,7 @@ export class ProposalsController {
   getSharedProposal = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const preview = await proposalsService.getSharedProposal(String(req.params.token || ""));
+      res.setHeader("Cache-Control", "no-store");
       res.status(200).json({ status: "success", data: preview });
     } catch (error) {
       next(error);

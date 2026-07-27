@@ -25,10 +25,11 @@
     "seed:staging-demo": "node scripts/seed-staging-demo.mjs",
     "test": "npm run build && npm run test:smoke",
     "db:migrate": "node scripts/db-migrate.mjs",
-    "test:smoke": "NODE_ENV=test node --test --test-force-exit dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js",
+    "test:smoke": "NODE_ENV=test node --test --test-force-exit --test-concurrency=1 dist/test/test-csv.js dist/test/test-command-palette.js dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js dist/test/test-client-accounts.js dist/test/test-lead-hub.js dist/test/test-proposals-public.js dist/test/test-proposals.js",
     "test:client-accounts": "npm run build && node --test dist/test/test-client-accounts.js",
     "test:integration": "npm run build && node --test dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js dist/test/test-client-accounts.js dist/test/test-performance-os-chain.js",
     "test:whatsapp-ai": "npm run build && node --test dist/test/test-whatsapp-ai.js",
+    "test:proposals-public": "npm run build && node --test dist/test/test-proposals-public.js",
     "test:proposals": "npm run build && node --test dist/test/test-proposals.js",
     "qa:phase1": "node scripts/phase1-browser-qa.mjs"
   },

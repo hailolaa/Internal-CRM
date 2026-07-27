@@ -33,6 +33,11 @@ import {
   getClientNextBestAction,
   nextBestActionBadgeClass,
 } from "@/lib/next-best-action";
+import {
+  getClientAccountDrilldownView,
+  matchesClientAccountDrilldown,
+  type ClientAccountDrilldownView,
+} from "@/lib/operations-drilldowns";
 import type {
   ClientAccountContractStatus,
   ClientAccountProfileRecord,
@@ -116,9 +121,19 @@ function taskDueBadge(task?: InternalTaskRecord | null) {
   return <Badge variant="success">{days}d</Badge>;
 }
 
+const clientAccountDrilldownLabels: Record<
+  ClientAccountDrilldownView,
+  string
+> = {
+  onboarding: "onboarding clients",
+  "missing-access": "clients missing access",
+  "missing-files": "clients missing file links",
+};
+
 export default function ClientAccountsPage() {
   const searchParams = useSearchParams();
   const requestedContractStatus = searchParams.get("contractStatus");
+  const requestedView = getClientAccountDrilldownView(searchParams.get("view"));
   const { session } = useAuth();
   const token = session?.token;
   const [accounts, setAccounts] = useState<ClientAccountSummaryRecord[]>([]);
@@ -200,6 +215,10 @@ export default function ClientAccountsPage() {
       const statusMatches =
         requestedContractStatus !== "open" ||
         ["active", "trial", "pending"].includes(account.contractStatus);
+      const viewMatches = matchesClientAccountDrilldown(
+        account,
+        requestedView,
+      );
       const searchMatches =
         !search ||
         [
@@ -218,9 +237,14 @@ export default function ClientAccountsPage() {
           account.activeServices.join(" "),
         ].some((value) => value.toLowerCase().includes(search));
 
-      return statusMatches && searchMatches;
+      return statusMatches && viewMatches && searchMatches;
     });
-  }, [accounts, accountQuery, requestedContractStatus]);
+  }, [
+    accounts,
+    accountQuery,
+    requestedContractStatus,
+    requestedView,
+  ]);
 
 
   return (
@@ -331,7 +355,19 @@ export default function ClientAccountsPage() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5e8a8d]">Portfolio</p>
             <h2 className="mt-1 text-xl font-semibold text-[#151f21]">Client accounts</h2>
-            <p className="mt-1 text-sm text-[#7A746A]">Start here to understand ownership, risk and next actions.</p>
+            <p className="mt-1 text-sm text-[#7A746A]">
+              {requestedView
+                ? `Showing ${clientAccountDrilldownLabels[requestedView]} from the active/open account population.`
+                : "Start here to understand ownership, risk and next actions."}
+            </p>
+            {requestedView ? (
+              <Link
+                href="/app/ops/client-accounts"
+                className="mt-2 inline-flex text-sm font-semibold text-[#315f62] hover:underline"
+              >
+                Clear dashboard filter
+              </Link>
+            ) : null}
           </div>
           <Badge variant="info">
             {isLoading ? "Loading" : `${filteredAccounts.length} accounts`}
@@ -365,6 +401,8 @@ export default function ClientAccountsPage() {
               <td colSpan={8} className="px-6 py-10 text-center text-sm text-[#5e8a8d]">
                 {accountQuery
                   ? "No client accounts match that search."
+                  : requestedView
+                    ? `No ${clientAccountDrilldownLabels[requestedView]} were found.`
                   : "No client accounts are available for this user."}
               </td>
             </tr>
@@ -397,7 +435,7 @@ export default function ClientAccountsPage() {
                     </Link>
                   </p>
                   <p className="text-xs text-[#7A746A]">
-                    {formatLabel(account.healthStatus)} - {formatLabel(account.churnRisk)} risk
+                    {formatLabel(account.clientStatus)} · {formatLabel(account.healthStatus)} · {formatLabel(account.churnRisk)} risk
                   </p>
                   {account.openIssueCount > 0 ? (
                     <p className="mt-1 text-xs font-medium text-amber-700">
@@ -418,10 +456,10 @@ export default function ClientAccountsPage() {
                     {account.currentPackage || "No current package"}
                   </p>
                   <p className="text-xs text-[#7A746A]">
-                    MRR: {account.monthlyPrice ? formatMoney(account.monthlyPrice, account.currency) : "Not set"}
+                    MRR: {account.monthlyPrice === null || account.monthlyPrice === undefined ? "Not set" : formatMoney(account.monthlyPrice, account.currency)}
                   </p>
                   <p className="text-xs text-[#7A746A]">
-                    Setup: {account.setupFee ? formatMoney(account.setupFee, account.currency) : "Not set"}
+                    Setup: {account.setupFee === null || account.setupFee === undefined ? "Not set" : formatMoney(account.setupFee, account.currency)}
                   </p>
                   {account.recommendedNextPackage ? (
                     <p className="max-w-[220px] truncate text-xs font-medium text-[#315f62]">
@@ -457,7 +495,14 @@ export default function ClientAccountsPage() {
                   </p>
                 </div>
               </TableCell>
-              <TableCell>{contractBadge(account.contractStatus)}</TableCell>
+              <TableCell>
+                <div className="space-y-1">
+                  {contractBadge(account.contractStatus)}
+                  <p className="text-xs text-[#7A746A]">
+                    Start: {formatDate(account.contractStartDate)}
+                  </p>
+                </div>
+              </TableCell>
               <TableCell>
                 <div className="space-y-1">
                   {renewalBadge(account.renewalDate)}

@@ -91,6 +91,8 @@ export default function NewClientAccountPage() {
   const { session } = useAuth();
   const { addToast } = useToast();
   const token = session?.token;
+  const canChooseAccountManager =
+    session?.role === "SUPER_ADMIN" || session?.role === "ADMIN";
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [packageOptions, setPackageOptions] = useState<string[]>([]);
   const [isBespokePackage, setIsBespokePackage] = useState(false);
@@ -99,7 +101,7 @@ export default function NewClientAccountPage() {
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !canChooseAccountManager) return;
     void api.team
       .getMembers(token)
       .then((members) => setTeamMembers(members.filter((member) => !member.isInvitation)))
@@ -107,7 +109,7 @@ export default function NewClientAccountPage() {
         console.error("Failed to load account managers", error);
         addToast("Account managers could not be loaded.", "error");
       });
-  }, [addToast, token]);
+  }, [addToast, canChooseAccountManager, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -268,13 +270,19 @@ export default function NewClientAccountPage() {
                 <select
                   value={form.accountManagerId || ""}
                   onChange={(event) => setForm((current) => ({ ...current, accountManagerId: event.target.value || null }))}
-                  className={fieldClass}
+                  disabled={!canChooseAccountManager}
+                  className={`${fieldClass} disabled:cursor-not-allowed disabled:bg-[#f1efeb] disabled:text-[#7A746A]`}
                 >
                   <option value="">Unassigned</option>
                   {teamMembers.map((member) => (
                     <option key={member.id} value={member.id}>{personName(member)}</option>
                   ))}
                 </select>
+                {!canChooseAccountManager ? (
+                  <span className="block text-xs text-[#7A746A]">
+                    The account will be unassigned. An Admin can add a manager later.
+                  </span>
+                ) : null}
               </label>
               <label className="space-y-1.5">
                 <span className="text-sm font-semibold text-[#344446]">Client stage</span>

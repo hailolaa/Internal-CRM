@@ -46,6 +46,7 @@ import {
   getClientNextBestAction,
   nextBestActionBadgeClass,
 } from "@/lib/next-best-action";
+import { isCanonicalWonClientOnboardingTask } from "@/lib/won-client-onboarding";
 
 function formatLabel(value: string) {
   return value.split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
@@ -77,12 +78,13 @@ function driveStatusLabel(account: ClientAccountSummaryRecord) {
 }
 
 function taskDueLabel(task: ClientAccountLinkedTaskRecord) {
-  if (task.due) return task.due;
-  if (!task.dueDate) return "No due date";
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-  }).format(new Date(task.dueDate));
+  if (task.dueDate) {
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "short",
+    }).format(new Date(task.dueDate));
+  }
+  return task.due || "No due date";
 }
 
 function formatDate(value?: string | null) {
@@ -139,6 +141,16 @@ const emptyIssueForm = {
   taskId: "",
 };
 
+const clientAccountRecordTabs = [
+  { id: "files", label: "Files/Documents", panelId: "account-files" },
+  { id: "access", label: "Access/assets", panelId: "account-access-assets" },
+  { id: "onboarding", label: "Onboarding", panelId: "account-onboarding" },
+  { id: "tasks", label: "Tasks", panelId: "account-tasks" },
+  { id: "issues", label: "Issues/Support", panelId: "account-issues" },
+] as const;
+
+type ClientAccountRecordTab = (typeof clientAccountRecordTabs)[number]["id"];
+
 function formatScore(value: number | null | undefined) {
   return value === null || value === undefined ? "Not scored" : `${Math.round(value)} / 100`;
 }
@@ -147,8 +159,13 @@ export default function ClientAccountDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const clinicId = searchParams.get("id") || "";
-  const { session } = useAuth();
+  const { hasPermission, session, user } = useAuth();
   const token = session?.token;
+  const canWriteClientAccounts = hasPermission("client_accounts:write");
+  const canWriteInternalTasks = hasPermission("internal_tasks:write");
+  const isInternalAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN";
+  const canConfigureDrive = isInternalAdmin;
+  const canAssignIssueOwners = canWriteClientAccounts && isInternalAdmin;
   const missingAccountId = !clinicId;
   const [account, setAccount] = useState<ClientAccountSummaryRecord | null>(null);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
@@ -172,11 +189,30 @@ export default function ClientAccountDetailPage() {
   const [documentActionType, setDocumentActionType] = useState<string | null>(null);
   const [accessActionType, setAccessActionType] = useState<string | null>(null);
   const [filesStatusMessage, setFilesStatusMessage] = useState("");
+  const [accessStatusMessage, setAccessStatusMessage] = useState("");
+  const [activeRecordTab, setActiveRecordTab] = useState<ClientAccountRecordTab>("files");
   const [isLoading, setIsLoading] = useState(!missingAccountId);
   const [loadError, setLoadError] = useState(missingAccountId ? "No client account id was provided." : "");
 
   useEffect(() => {
+    const selectTabFromHash = () => {
+      const selectedTab = clientAccountRecordTabs.find(
+        (tab) => `#${tab.panelId}` === window.location.hash,
+      );
+      if (selectedTab) setActiveRecordTab(selectedTab.id);
+    };
+
+    selectTabFromHash();
+    window.addEventListener("hashchange", selectTabFromHash);
+    return () => window.removeEventListener("hashchange", selectTabFromHash);
+  }, []);
+
+  useEffect(() => {
     if (!token || !clinicId) return;
+
+    const teamMembersRequest = canAssignIssueOwners
+      ? api.team.getMembers(token).catch((): TeamMember[] => [])
+      : Promise.resolve<TeamMember[]>([]);
 
     Promise.all([
       api.clientAccounts.list(token),
@@ -185,7 +221,7 @@ export default function ClientAccountDetailPage() {
       api.clientAccounts.listDocuments(token, clinicId),
       api.clientAccounts.listAccessItems(token, clinicId),
       api.clientAccounts.listIssues(token, clinicId),
-      api.team.getMembers(token),
+      teamMembersRequest,
     ])
       .then(([accounts, allServices, records, documentLinks, accessList, issueRows, members]) => {
         const selected = accounts.find((item) => item.clinicId === clinicId) || null;
@@ -218,7 +254,7 @@ export default function ClientAccountDetailPage() {
       })
       .catch((error) => setLoadError(error instanceof Error ? error.message : "Unable to load this client account."))
       .finally(() => setIsLoading(false));
-  }, [clinicId, token]);
+  }, [canAssignIssueOwners, clinicId, token]);
 
   const activeServices = useMemo(() => services.filter((service) => service.status === "active"), [services]);
   const linkedContacts = useMemo(() => linkedRecords?.contacts || [], [linkedRecords?.contacts]);
@@ -229,11 +265,11 @@ export default function ClientAccountDetailPage() {
   const openTasks = useMemo(() => linkedRecords?.openTasks || [], [linkedRecords?.openTasks]);
   const completedTasks = useMemo(() => linkedRecords?.completedTasks || [], [linkedRecords?.completedTasks]);
   const onboardingOpenTasks = useMemo(
-    () => openTasks.filter((task) => task.category === "client_onboarding"),
+    () => openTasks.filter(isCanonicalWonClientOnboardingTask),
     [openTasks],
   );
   const onboardingCompletedTasks = useMemo(
-    () => completedTasks.filter((task) => task.category === "client_onboarding"),
+    () => completedTasks.filter(isCanonicalWonClientOnboardingTask),
     [completedTasks],
   );
   const onboardingChecklistTasks = useMemo(
@@ -268,7 +304,7 @@ export default function ClientAccountDetailPage() {
 
   const handleSearchContacts = async () => {
     const search = contactSearch.trim();
-    if (!token || !search) return;
+    if (!token || !search || !canWriteClientAccounts) return;
     setIsSearchingContacts(true);
     setContactSearchTerm(search);
     setLinkStatusMessage("");
@@ -284,7 +320,7 @@ export default function ClientAccountDetailPage() {
   };
 
   const handleLinkContact = async (contactId: string) => {
-    if (!token || !account || linkActionContactId) return;
+    if (!token || !account || linkActionContactId || !canWriteClientAccounts) return;
     setLinkActionContactId(contactId);
     setLinkStatusMessage("");
     try {
@@ -310,7 +346,7 @@ export default function ClientAccountDetailPage() {
       const nextDocuments = await api.clientAccounts.updateDocument(token, account.clinicId, document.documentType, {
         driveUrl: draft.driveUrl,
         displayName: draft.displayName,
-        notes: draft.notes,
+        notes: document.documentType === "main_client_folder" ? null : draft.notes,
       });
       setDocuments(nextDocuments);
       setDocumentDrafts(Object.fromEntries(nextDocuments.map((item) => [
@@ -349,10 +385,14 @@ export default function ClientAccountDetailPage() {
     }
   };
 
-  const handleUpdateAccessItem = async (item: ClientAccountAccessItemRecord, status: ClientAccountAccessItemRecord["status"]) => {
+  const handleUpdateAccessItem = async (
+    item: ClientAccountAccessItemRecord,
+    status: ClientAccountAccessItemRecord["status"],
+    successMessage = `${item.label} status updated.`,
+  ) => {
     if (!token || !account || accessActionType) return;
     setAccessActionType(item.itemType);
-    setFilesStatusMessage("");
+    setAccessStatusMessage("");
     try {
       const nextAccessItems = await api.clientAccounts.updateAccessItem(token, account.clinicId, item.itemType, {
         status,
@@ -360,9 +400,9 @@ export default function ClientAccountDetailPage() {
       });
       setAccessItems(nextAccessItems);
       setAccessDrafts(Object.fromEntries(nextAccessItems.map((nextItem) => [nextItem.itemType, nextItem.notes || ""])));
-      setFilesStatusMessage(`${item.label} status updated.`);
+      setAccessStatusMessage(successMessage);
     } catch (error) {
-      setFilesStatusMessage(error instanceof Error ? error.message : "Could not update this access item.");
+      setAccessStatusMessage(error instanceof Error ? error.message : "Could not update this access item.");
     } finally {
       setAccessActionType(null);
     }
@@ -370,7 +410,7 @@ export default function ClientAccountDetailPage() {
 
   const handleCreateIssue = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!token || !account || issueActionId) return;
+    if (!token || !account || issueActionId || !canWriteClientAccounts) return;
     if (!issueForm.title.trim()) {
       setIssueStatusMessage("Issue title is required.");
       return;
@@ -398,7 +438,7 @@ export default function ClientAccountDetailPage() {
   };
 
   const handleUpdateIssueStatus = async (issue: ClientIssueRecord, status: ClientIssueStatus) => {
-    if (!token || !account || issueActionId) return;
+    if (!token || !account || issueActionId || !canWriteClientAccounts) return;
     setIssueActionId(issue.id);
     setIssueStatusMessage("");
     try {
@@ -413,7 +453,7 @@ export default function ClientAccountDetailPage() {
   };
 
   const handleUnlinkContact = async (contactId: string) => {
-    if (!token || !account || linkActionContactId) return;
+    if (!token || !account || linkActionContactId || !canWriteClientAccounts) return;
     setLinkActionContactId(contactId);
     setLinkStatusMessage("");
     try {
@@ -440,7 +480,6 @@ export default function ClientAccountDetailPage() {
     );
   }
 
-  const canEditProfile = session?.clinicId === account.clinicId;
   const nextBestAction = getClientNextBestAction({
     churnRisk: account.churnRisk,
     contractStatus: account.contractStatus,
@@ -456,6 +495,20 @@ export default function ClientAccountDetailPage() {
     renewalDate: account.renewalDate,
     upsellOpportunity: account.upsellOpportunity || account.upsellPrompts[0]?.reason,
   });
+  const canEditProfile =
+    hasPermission("client_accounts:write") &&
+    (session?.clinicId === account.clinicId || hasPermission("sensitive:read"));
+  const editProfileHref =
+    session?.clinicId === account.clinicId
+      ? "/app/ops/client-accounts/package"
+      : `/app/ops/client-accounts/package?id=${encodeURIComponent(account.clinicId)}`;
+  const selectRecordTab = (tab: ClientAccountRecordTab) => {
+    const selectedTab = clientAccountRecordTabs.find((item) => item.id === tab);
+    setActiveRecordTab(tab);
+    if (selectedTab) {
+      window.history.replaceState(null, "", `#${selectedTab.panelId}`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -469,10 +522,52 @@ export default function ClientAccountDetailPage() {
           </div>
         </div>
         {canEditProfile ? (
-          <Link href="/app/ops/client-accounts/package" className="inline-flex items-center gap-2 rounded-full bg-[#5e8a8d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#507b7e]"><Pencil className="h-4 w-4" />Edit account</Link>
+          <Link href={editProfileHref} className="inline-flex items-center gap-2 rounded-full bg-[#5e8a8d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#507b7e]"><Pencil className="h-4 w-4" />Edit account</Link>
         ) : (
-          <span className="rounded-full border border-[#d8ddda] px-4 py-2 text-sm font-medium text-[#7A746A]">Switch to this workspace to edit</span>
+          <span className="rounded-full border border-[#d8ddda] px-4 py-2 text-sm font-medium text-[#7A746A]">Read-only account</span>
         )}
+      </div>
+
+      <div
+        role="tablist"
+        aria-label="Client account sections"
+        className="flex flex-wrap gap-2 rounded-2xl border border-[#E7E1DA] bg-white p-2"
+      >
+        {clientAccountRecordTabs.map((tab, index) => {
+          const isActive = activeRecordTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              id={`${tab.panelId}-tab`}
+              type="button"
+              role="tab"
+              aria-controls={tab.panelId}
+              aria-selected={isActive}
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => selectRecordTab(tab.id)}
+              onKeyDown={(event) => {
+                let nextIndex: number | null = null;
+                if (event.key === "ArrowRight") nextIndex = (index + 1) % clientAccountRecordTabs.length;
+                if (event.key === "ArrowLeft") nextIndex = (index - 1 + clientAccountRecordTabs.length) % clientAccountRecordTabs.length;
+                if (event.key === "Home") nextIndex = 0;
+                if (event.key === "End") nextIndex = clientAccountRecordTabs.length - 1;
+                if (nextIndex === null) return;
+
+                event.preventDefault();
+                const nextTab = clientAccountRecordTabs[nextIndex];
+                selectRecordTab(nextTab.id);
+                document.getElementById(`${nextTab.panelId}-tab`)?.focus();
+              }}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#75aaa7] ${
+                isActive
+                  ? "bg-[#edf5f3] text-[#315f62]"
+                  : "text-[#6F6A66] hover:bg-[#FAF8F5] hover:text-[#315f62]"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       <Card padding="p-5 sm:p-6">
@@ -676,62 +771,71 @@ export default function ClientAccountDetailPage() {
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="info">{linkedContacts.length}</Badge>
-                <Link
-                  href={`/app/crm/contacts/new?clientId=${encodeURIComponent(account.clinicId)}`}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#315f62] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#264f51]"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add contact
-                </Link>
+                {canWriteClientAccounts ? (
+                  <Link
+                    href={`/app/crm/contacts/new?clientId=${encodeURIComponent(account.clinicId)}`}
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#315f62] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#264f51]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add contact
+                  </Link>
+                ) : null}
               </div>
             </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b9694]" />
-                <input
-                  value={contactSearch}
-                  onChange={(event) => setContactSearch(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void handleSearchContacts();
-                    }
-                  }}
-                  placeholder="Search contacts by name, email, phone, or account"
-                  className="w-full rounded-xl border border-[#d8ddda] bg-white py-2.5 pl-10 pr-3.5 text-sm text-[#151f21] outline-none transition focus:border-[#75aaa7] focus:ring-4 focus:ring-[rgba(96,180,175,0.1)]"
-                />
-              </div>
-              <button type="button" onClick={() => void handleSearchContacts()} disabled={isSearchingContacts || !contactSearch.trim()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#315f62] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#264f51] disabled:opacity-60">
-                {isSearchingContacts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                Search
-              </button>
-            </div>
-            {contactSearchTerm ? (
-              <p className="mt-3 text-xs font-medium text-[#6F6A66]">
-                Results for &quot;{contactSearchTerm}&quot;
-              </p>
-            ) : null}
-            {availableContactSearchResults.length > 0 && (
-              <div className="mt-3 space-y-2 rounded-xl border border-[#E7E1DA] bg-white p-3">
-                {availableContactSearchResults.map((contact) => (
-                    <div key={contact.id} className="flex flex-col gap-3 rounded-lg bg-[#FAF8F5] p-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="font-semibold text-[#151f21]">{contact.name}</p>
-                        <p className="text-sm text-[#7A746A]">{contact.accountName || "No account"} - {contact.email || contact.phone || "No contact method"}</p>
-                      </div>
-                      <button type="button" onClick={() => void handleLinkContact(contact.id)} disabled={linkActionContactId === contact.id} className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#cbded9] bg-white px-3 py-2 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3] disabled:opacity-60">
-                        {linkActionContactId === contact.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-                        Link
-                      </button>
-                    </div>
-                  ))}
-              </div>
+            {canWriteClientAccounts ? (
+              <>
+                <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b9694]" />
+                    <input
+                      name="contactSearch"
+                      value={contactSearch}
+                      onChange={(event) => setContactSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleSearchContacts();
+                        }
+                      }}
+                      placeholder="Search contacts by name, email, phone, or account"
+                      className="w-full rounded-xl border border-[#d8ddda] bg-white py-2.5 pl-10 pr-3.5 text-sm text-[#151f21] outline-none transition focus:border-[#75aaa7] focus:ring-4 focus:ring-[rgba(96,180,175,0.1)]"
+                    />
+                  </div>
+                  <button type="button" onClick={() => void handleSearchContacts()} disabled={isSearchingContacts || !contactSearch.trim()} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#315f62] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#264f51] disabled:opacity-60">
+                    {isSearchingContacts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    Search
+                  </button>
+                </div>
+                {contactSearchTerm ? (
+                  <p className="mt-3 text-xs font-medium text-[#6F6A66]">
+                    Results for &quot;{contactSearchTerm}&quot;
+                  </p>
+                ) : null}
+                {availableContactSearchResults.length > 0 && (
+                  <div className="mt-3 space-y-2 rounded-xl border border-[#E7E1DA] bg-white p-3">
+                    {availableContactSearchResults.map((contact) => (
+                        <div key={contact.id} className="flex flex-col gap-3 rounded-lg bg-[#FAF8F5] p-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="font-semibold text-[#151f21]">{contact.name}</p>
+                            <p className="text-sm text-[#7A746A]">{contact.accountName || "No account"} - {contact.email || contact.phone || "No contact method"}</p>
+                          </div>
+                          <button type="button" onClick={() => void handleLinkContact(contact.id)} disabled={linkActionContactId === contact.id} className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#cbded9] bg-white px-3 py-2 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3] disabled:opacity-60">
+                            {linkActionContactId === contact.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                            Link
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                {contactSearchTerm && !isSearchingContacts && availableContactSearchResults.length === 0 ? (
+                  <p className="mt-3 rounded-xl border border-dashed border-[#E7E1DA] bg-white p-4 text-sm text-[#7A746A]">
+                    No unlinked contacts found for &quot;{contactSearchTerm}&quot;. The matching contacts may already be linked, or no contact matched that search.
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="mt-4 text-sm text-[#7A746A]">You have read-only access to client contacts.</p>
             )}
-            {contactSearchTerm && !isSearchingContacts && availableContactSearchResults.length === 0 ? (
-              <p className="mt-3 rounded-xl border border-dashed border-[#E7E1DA] bg-white p-4 text-sm text-[#7A746A]">
-                No unlinked contacts found for &quot;{contactSearchTerm}&quot;. The matching contacts may already be linked, or no contact matched that search.
-              </p>
-            ) : null}
             {linkStatusMessage ? <p className="mt-3 text-sm text-[#315f62]">{linkStatusMessage}</p> : null}
             <div className="mt-5 space-y-3">
               {linkedContacts.map((contact) => (
@@ -752,10 +856,12 @@ export default function ClientAccountDetailPage() {
                     <Link href={`/app/crm/contacts/detail?id=${contact.id}`} className="inline-flex items-center gap-2 rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3]">
                       Open<ExternalLink className="h-4 w-4" />
                     </Link>
-                    <button type="button" onClick={() => void handleUnlinkContact(contact.id)} disabled={linkActionContactId === contact.id} className="inline-flex items-center gap-2 rounded-lg border border-[#ead4cb] bg-white px-3 py-2 text-sm font-semibold text-[#9a5524] hover:bg-[#fff4f0] disabled:opacity-60">
-                      {linkActionContactId === contact.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
-                      Unlink
-                    </button>
+                    {canWriteClientAccounts ? (
+                      <button type="button" onClick={() => void handleUnlinkContact(contact.id)} disabled={linkActionContactId === contact.id} className="inline-flex items-center gap-2 rounded-lg border border-[#ead4cb] bg-white px-3 py-2 text-sm font-semibold text-[#9a5524] hover:bg-[#fff4f0] disabled:opacity-60">
+                        {linkActionContactId === contact.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
+                        Unlink
+                      </button>
+                    ) : null}
                   </div>
                   </div>
                 </div>
@@ -769,7 +875,14 @@ export default function ClientAccountDetailPage() {
             <div className="mt-5 flex flex-wrap gap-2">{activeServices.map((service) => <Badge key={service.id} variant="success">{service.name}</Badge>)}{activeServices.length === 0 && <Badge variant="warning">No active services</Badge>}</div>
           </Card>
 
-          <div id="account-issues" className="scroll-mt-24">
+          {activeRecordTab === "issues" ? (
+          <div
+            id="account-issues"
+            role="tabpanel"
+            aria-labelledby="account-issues-tab"
+            tabIndex={0}
+            className="scroll-mt-24"
+          >
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -786,14 +899,23 @@ export default function ClientAccountDetailPage() {
             </div>
 
             {issueStatusMessage ? (
-              <p className="mt-4 rounded-xl border border-[#d8ddda] bg-[#FAF8F5] px-4 py-3 text-sm font-medium text-[#315f62]">{issueStatusMessage}</p>
+              <p
+                role="status"
+                aria-live="polite"
+                className="mt-4 rounded-xl border border-[#d8ddda] bg-[#FAF8F5] px-4 py-3 text-sm font-medium text-[#315f62]"
+              >
+                {issueStatusMessage}
+              </p>
             ) : null}
 
+            {canWriteClientAccounts ? (
             <form onSubmit={handleCreateIssue} className="mt-5 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="space-y-1.5 md:col-span-2">
                   <span className="text-sm font-semibold text-[#344446]">Issue title</span>
                   <input
+                    name="issueTitle"
+                    required
                     value={issueForm.title}
                     onChange={(event) => setIssueForm((current) => ({ ...current, title: event.target.value }))}
                     placeholder="e.g. Ads tracking dropped after website update"
@@ -802,32 +924,41 @@ export default function ClientAccountDetailPage() {
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-sm font-semibold text-[#344446]">Priority</span>
-                  <select value={issueForm.priority} onChange={(event) => setIssueForm((current) => ({ ...current, priority: event.target.value as ClientIssuePriority }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
+                  <select name="issuePriority" value={issueForm.priority} onChange={(event) => setIssueForm((current) => ({ ...current, priority: event.target.value as ClientIssuePriority }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
                     {ISSUE_PRIORITIES.map((priority) => <option key={priority} value={priority}>{formatLabel(priority)}</option>)}
                   </select>
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-sm font-semibold text-[#344446]">Status</span>
-                  <select value={issueForm.status} onChange={(event) => setIssueForm((current) => ({ ...current, status: event.target.value as ClientIssueStatus }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
+                  <select name="issueStatus" value={issueForm.status} onChange={(event) => setIssueForm((current) => ({ ...current, status: event.target.value as ClientIssueStatus }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
                     {ISSUE_STATUSES.map((status) => <option key={status} value={status}>{formatLabel(status)}</option>)}
                   </select>
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-sm font-semibold text-[#344446]">Owner</span>
-                  <select value={issueForm.ownerUserId} onChange={(event) => setIssueForm((current) => ({ ...current, ownerUserId: event.target.value }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
+                  <select
+                    name="issueOwnerUserId"
+                    value={issueForm.ownerUserId}
+                    onChange={(event) => setIssueForm((current) => ({ ...current, ownerUserId: event.target.value }))}
+                    disabled={!canAssignIssueOwners}
+                    className="min-h-10 w-full rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] disabled:cursor-not-allowed disabled:bg-[#f1efeb] disabled:text-[#7A746A]"
+                  >
                     <option value="">Unassigned</option>
                     {teamMembers.map((member) => (
                       <option key={member.id} value={member.id}>{[member.firstName, member.lastName].filter(Boolean).join(" ") || member.email}</option>
                     ))}
                   </select>
+                  {!canAssignIssueOwners ? (
+                    <span className="block text-xs text-[#7A746A]">Admin access is required to assign an issue owner.</span>
+                  ) : null}
                 </label>
                 <label className="space-y-1.5">
                   <span className="text-sm font-semibold text-[#344446]">Due date</span>
-                  <input type="date" value={issueForm.dueDate} onChange={(event) => setIssueForm((current) => ({ ...current, dueDate: event.target.value }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full" />
+                  <input name="issueDueDate" type="date" value={issueForm.dueDate} onChange={(event) => setIssueForm((current) => ({ ...current, dueDate: event.target.value }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full" />
                 </label>
                 <label className="space-y-1.5 md:col-span-2">
                   <span className="text-sm font-semibold text-[#344446]">Linked task</span>
-                  <select value={issueForm.taskId} onChange={(event) => setIssueForm((current) => ({ ...current, taskId: event.target.value }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
+                  <select name="issueTaskId" value={issueForm.taskId} onChange={(event) => setIssueForm((current) => ({ ...current, taskId: event.target.value }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
                     <option value="">No linked task</option>
                     {openTasks.map((task) => (
                       <option key={task.id} value={task.id}>{task.title}</option>
@@ -836,7 +967,7 @@ export default function ClientAccountDetailPage() {
                 </label>
                 <label className="space-y-1.5 md:col-span-2">
                   <span className="text-sm font-semibold text-[#344446]">Notes</span>
-                  <textarea value={issueForm.notes} onChange={(event) => setIssueForm((current) => ({ ...current, notes: event.target.value }))} rows={3} placeholder="What happened, where it was reported, and what needs to happen next..." className="rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full" />
+                  <textarea name="issueNotes" value={issueForm.notes} onChange={(event) => setIssueForm((current) => ({ ...current, notes: event.target.value }))} rows={3} placeholder="What happened, where it was reported, and what needs to happen next..." className="rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full" />
                 </label>
               </div>
               <button type="submit" disabled={issueActionId === "new"} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#315f62] px-4 text-sm font-semibold text-white hover:bg-[#264f51] disabled:opacity-60">
@@ -844,6 +975,11 @@ export default function ClientAccountDetailPage() {
                 Create issue
               </button>
             </form>
+            ) : (
+              <p className="mt-5 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 text-sm text-[#7A746A]">
+                You have read-only access to client issues.
+              </p>
+            )}
 
             <div className="mt-5 grid gap-3">
               {issues.map((issue) => (
@@ -867,6 +1003,7 @@ export default function ClientAccountDetailPage() {
                       <Badge variant={issue.status === "resolved" || issue.status === "closed" ? "success" : issue.isOverdue ? "error" : "warning"}>{formatLabel(issue.status)}</Badge>
                     </div>
                   </div>
+                  {canWriteClientAccounts ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {(["open", "in_progress", "waiting", "resolved"] as ClientIssueStatus[]).map((status) => (
                       <button key={status} type="button" onClick={() => void handleUpdateIssueStatus(issue, status)} disabled={issueActionId === issue.id || issue.status === status} className="inline-flex min-h-9 items-center rounded-lg border border-[#d8ddda] bg-white px-3 text-xs font-semibold text-[#315f62] hover:bg-[#edf5f3] disabled:opacity-60">
@@ -874,6 +1011,7 @@ export default function ClientAccountDetailPage() {
                       </button>
                     ))}
                   </div>
+                  ) : null}
                 </div>
               ))}
               {issues.length === 0 ? (
@@ -882,8 +1020,16 @@ export default function ClientAccountDetailPage() {
             </div>
           </Card>
           </div>
+          ) : null}
 
-          <div id="account-files" className="scroll-mt-24">
+          {activeRecordTab === "files" ? (
+          <div
+            id="account-files"
+            role="tabpanel"
+            aria-labelledby="account-files-tab"
+            tabIndex={0}
+            className="scroll-mt-24"
+          >
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -902,6 +1048,9 @@ export default function ClientAccountDetailPage() {
               {documents.map((document) => {
                 const draft = documentDrafts[document.documentType] || { driveUrl: "", displayName: "", notes: "" };
                 const isBusy = documentActionType === document.documentType;
+                const canEditDocument =
+                  canWriteClientAccounts &&
+                  (document.documentType !== "main_client_folder" || canConfigureDrive);
                 const badgeVariant = document.status === "linked" ? "success" : document.status === "access_problem" ? "error" : "warning";
                 return (
                   <div key={document.documentType} className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
@@ -922,29 +1071,44 @@ export default function ClientAccountDetailPage() {
                       <input
                         value={draft.driveUrl}
                         onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.documentType]: { ...draft, driveUrl: event.target.value } }))}
-                        placeholder="Google Drive folder, file, or ZIP URL/ID"
-                        className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                        disabled={!canEditDocument}
+                        placeholder={document.documentType === "main_client_folder"
+                          ? "Google Drive folder URL/ID"
+                          : "Google Drive folder or file URL/ID"}
+                        className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] disabled:cursor-not-allowed disabled:bg-[#f1efeb] disabled:text-[#7A746A]"
                       />
                       <input
                         value={draft.displayName}
                         onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.documentType]: { ...draft, displayName: event.target.value } }))}
+                        disabled={!canEditDocument}
                         placeholder="Display title"
-                        className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                        className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] disabled:cursor-not-allowed disabled:bg-[#f1efeb] disabled:text-[#7A746A]"
                       />
-                      <textarea
-                        value={draft.notes}
-                        onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.documentType]: { ...draft, notes: event.target.value } }))}
-                        placeholder="Notes"
-                        rows={2}
-                        className="rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
-                      />
+                      {document.documentType !== "main_client_folder" ? (
+                        <textarea
+                          value={draft.notes}
+                          onChange={(event) => setDocumentDrafts((current) => ({ ...current, [document.documentType]: { ...draft, notes: event.target.value } }))}
+                          disabled={!canEditDocument}
+                          placeholder="Notes"
+                          rows={2}
+                          maxLength={2000}
+                          className="rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] disabled:cursor-not-allowed disabled:bg-[#f1efeb] disabled:text-[#7A746A]"
+                        />
+                      ) : null}
                     </div>
+                    {!canEditDocument ? (
+                      <p className="mt-3 text-xs text-[#7A746A]">
+                        {document.documentType === "main_client_folder" && canWriteClientAccounts
+                          ? "Only an Admin can change the main client folder."
+                          : "You have read-only access to client documents."}
+                      </p>
+                    ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <button type="button" onClick={() => void handleSaveDocument(document)} disabled={isBusy || !draft.driveUrl.trim()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#315f62] px-3 text-sm font-semibold text-white hover:bg-[#264f51] disabled:opacity-60">
+                      <button type="button" onClick={() => void handleSaveDocument(document)} disabled={!canEditDocument || isBusy || !draft.driveUrl.trim()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#315f62] px-3 text-sm font-semibold text-white hover:bg-[#264f51] disabled:opacity-60">
                         {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                         Save link
                       </button>
-                      <button type="button" onClick={() => void handleRemoveDocument(document)} disabled={isBusy || !document.driveUrl} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#ead4cb] bg-white px-3 text-sm font-semibold text-[#9a5524] hover:bg-[#fff4f0] disabled:opacity-60">
+                      <button type="button" onClick={() => void handleRemoveDocument(document)} disabled={!canEditDocument || isBusy || !document.driveUrl} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#ead4cb] bg-white px-3 text-sm font-semibold text-[#9a5524] hover:bg-[#fff4f0] disabled:opacity-60">
                         Remove
                       </button>
                     </div>
@@ -954,8 +1118,16 @@ export default function ClientAccountDetailPage() {
             </div>
           </Card>
           </div>
+          ) : null}
 
-          <div id="account-access-assets" className="scroll-mt-24">
+          {activeRecordTab === "access" ? (
+          <div
+            id="account-access-assets"
+            role="tabpanel"
+            aria-labelledby="account-access-assets-tab"
+            tabIndex={0}
+            className="scroll-mt-24"
+          >
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -967,6 +1139,11 @@ export default function ClientAccountDetailPage() {
               </div>
               <Badge variant={missingAccessCount > 0 ? "warning" : "success"}>{missingAccessCount} requested</Badge>
             </div>
+            {accessStatusMessage ? (
+              <p className="mt-4 rounded-xl border border-[#d8ddda] bg-[#FAF8F5] px-4 py-3 text-sm font-medium text-[#315f62]">
+                {accessStatusMessage}
+              </p>
+            ) : null}
             <div className="mt-5 grid gap-3 lg:grid-cols-2">
               {accessItems.map((item) => {
                 const isBusy = accessActionType === item.itemType;
@@ -979,13 +1156,28 @@ export default function ClientAccountDetailPage() {
                     <textarea
                       value={accessDrafts[item.itemType] || ""}
                       onChange={(event) => setAccessDrafts((current) => ({ ...current, [item.itemType]: event.target.value }))}
+                      disabled={!canWriteClientAccounts}
                       placeholder="Access notes"
                       rows={2}
-                      className="mt-3 w-full rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                      maxLength={2000}
+                      className="mt-3 w-full rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] disabled:cursor-not-allowed disabled:bg-[#f1efeb] disabled:text-[#7A746A]"
                     />
+                    <button
+                      type="button"
+                      onClick={() => void handleUpdateAccessItem(item, item.status, `${item.label} notes saved.`)}
+                      disabled={
+                        !canWriteClientAccounts ||
+                        isBusy ||
+                        (accessDrafts[item.itemType] || "").trim() === (item.notes || "").trim()
+                      }
+                      className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-[#315f62] px-3 text-sm font-semibold text-white hover:bg-[#264f51] disabled:opacity-60"
+                    >
+                      {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      Save notes
+                    </button>
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       {(["requested", "received", "not_needed"] as const).map((status) => (
-                        <button key={status} type="button" onClick={() => void handleUpdateAccessItem(item, status)} disabled={isBusy || item.status === status} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-[#d8ddda] bg-white px-3 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3] disabled:opacity-60">
+                        <button key={status} type="button" onClick={() => void handleUpdateAccessItem(item, status)} disabled={!canWriteClientAccounts || isBusy || item.status === status} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-[#d8ddda] bg-white px-3 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3] disabled:opacity-60">
                           {formatLabel(status)}
                         </button>
                       ))}
@@ -996,7 +1188,16 @@ export default function ClientAccountDetailPage() {
             </div>
           </Card>
           </div>
+          ) : null}
 
+          {activeRecordTab === "onboarding" ? (
+          <div
+            id="account-onboarding"
+            role="tabpanel"
+            aria-labelledby="account-onboarding-tab"
+            tabIndex={0}
+            className="scroll-mt-24"
+          >
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -1039,15 +1240,24 @@ export default function ClientAccountDetailPage() {
               </p>
             )}
           </Card>
+          </div>
+          ) : null}
 
-          <div id="account-tasks" className="scroll-mt-24">
+          {activeRecordTab === "tasks" ? (
+          <div
+            id="account-tasks"
+            role="tabpanel"
+            aria-labelledby="account-tasks-tab"
+            tabIndex={0}
+            className="scroll-mt-24"
+          >
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-[#151f21]">Client tasks</h2>
                 <p className="mt-1 text-sm text-[#7A746A]">Open and completed internal delivery work linked to this account.</p>
               </div>
-              {account.id ? (
+              {account.id && canWriteInternalTasks ? (
                 <Link href={`/app/crm/tasks/new?mode=delivery&clientAccountProfileId=${account.id}`} className="inline-flex items-center gap-2 rounded-xl bg-[#315f62] px-4 py-2 text-sm font-semibold text-white hover:bg-[#264f51]">
                   <Plus className="h-4 w-4" />New task
                 </Link>
@@ -1087,6 +1297,7 @@ export default function ClientAccountDetailPage() {
             </div>
           </Card>
           </div>
+          ) : null}
         </div>
 
         <aside className="space-y-6 xl:sticky xl:top-20 xl:self-start">
@@ -1138,7 +1349,8 @@ export default function ClientAccountDetailPage() {
                 [FileCheck2, "Proposals", `/app/crm/pipeline?account=${encodeURIComponent(account.clinicName)}&view=proposals`],
               ].map(([Icon, label, href]) => {
                 const RecordIcon = Icon as typeof Users;
-                return <Link key={String(label)} href={String(href)} className="flex items-center justify-between rounded-xl bg-[#FAF8F5] px-4 py-3 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3]"><span className="flex items-center gap-2"><RecordIcon className="h-4 w-4" />{String(label)}</span><ExternalLink className="h-4 w-4" /></Link>;
+                const targetTab = clientAccountRecordTabs.find((tab) => `#${tab.panelId}` === href);
+                return <Link key={String(label)} href={String(href)} onClick={() => { if (targetTab) setActiveRecordTab(targetTab.id); }} className="flex items-center justify-between rounded-xl bg-[#FAF8F5] px-4 py-3 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3]"><span className="flex items-center gap-2"><RecordIcon className="h-4 w-4" />{String(label)}</span><ExternalLink className="h-4 w-4" /></Link>;
               })}
             </div>
           </Card>

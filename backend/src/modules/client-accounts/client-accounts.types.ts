@@ -185,7 +185,7 @@ export interface CreateClientAccountFromContactDTO
 export interface ConvertWonDealToClientDTO
   extends Omit<CreateClientAccountFromContactDTO, "contactId"> {
   dealId: string;
-  createOnboardingTasks?: boolean;
+  createOnboardingTasks?: true;
 }
 
 export interface ClientAccountProfileResponse {
@@ -306,6 +306,7 @@ export interface ClientAccountLinkedTaskResponse {
   isOverdue: boolean;
   clientAccountProfileId: string | null;
   clientAccountServiceId: string | null;
+  templateKey: string | null;
   updatedAt: string;
 }
 

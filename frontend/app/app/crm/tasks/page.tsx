@@ -30,6 +30,7 @@ import type {
 import { useAuth } from "@/lib/auth-context";
 import { AlertBanner, PageHeader, SkeletonLine } from "@/components/ui";
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
+import { isTaskDueByToday } from "@/lib/operations-drilldowns";
 
 type TaskRow = {
   id: string;
@@ -54,7 +55,7 @@ type TaskRow = {
 };
 
 type PriorityFilter = "all" | TaskRow["priority"];
-type DueFilter = "all" | "overdue" | "today" | "no-date";
+type DueFilter = "all" | "due" | "overdue" | "today" | "no-date";
 type WorkFilter =
   | "all"
   | "delivery"
@@ -84,7 +85,13 @@ const workFilters: Array<{ value: WorkFilter; label: string }> = [
   { value: "unlinked", label: "Unlinked" },
 ];
 
-const dueFilterValues: DueFilter[] = ["all", "overdue", "today", "no-date"];
+const dueFilterValues: DueFilter[] = [
+  "all",
+  "due",
+  "overdue",
+  "today",
+  "no-date",
+];
 const workFilterValues = workFilters.map((filter) => filter.value);
 
 function getInitialDueFilter(value: string | null): DueFilter {
@@ -249,9 +256,7 @@ export default function TasksPage() {
         if (taskResult.status === "rejected") throw taskResult.reason;
 
         setTasks(
-          taskResult.value
-            .map(toTaskRow)
-            .filter((task) => !task.clientAccountProfileId && !task.clientAccountServiceId),
+          taskResult.value.map(toTaskRow),
         );
         setClientAccounts(
           accountResult.status === "fulfilled" ? accountResult.value : [],
@@ -306,8 +311,11 @@ export default function TasksPage() {
         priorityFilter === "all" || task.priority === priorityFilter;
       const matchesDue =
         dueFilter === "all" ||
+        (dueFilter === "due" && isTaskDueByToday(task)) ||
         (dueFilter === "overdue" && isOverdue(task)) ||
-        (dueFilter === "today" && isDueToday(task.dueDate)) ||
+        (dueFilter === "today" &&
+          task.status !== "completed" &&
+          isDueToday(task.dueDate)) ||
         (dueFilter === "no-date" && !task.dueDate);
       const matchesWork =
         workFilter === "all" ||
@@ -458,7 +466,7 @@ export default function TasksPage() {
     <div className="space-y-6">
       <PageHeader
         title="Internal Tasks"
-        subtitle="Plan and track work for The Growth Group team. Client work belongs in Delivery Work."
+        subtitle="Plan and track internal and client-linked work for The Growth Group team."
         icon={CheckSquare}
         right={
           <Link
@@ -557,6 +565,7 @@ export default function TasksPage() {
               className="bg-transparent text-sm focus:outline-none"
             >
               <option value="all">All due dates</option>
+              <option value="due">Due or overdue</option>
               <option value="overdue">Overdue</option>
               <option value="today">Due today</option>
               <option value="no-date">No due date</option>

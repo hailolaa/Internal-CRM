@@ -5,6 +5,7 @@ import type { Server } from "node:http";
 import { v4 as uuidv4 } from "uuid";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
+import { pipelineDealsService } from "../modules/pipeline/pipeline.deals.service.js";
 import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 const CALL_TABLE = "`\u00A0call\u00A0`";
@@ -89,6 +90,9 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
   const smsId = uuidv4();
   const callId = uuidv4();
   const templateId = uuidv4();
+  const convertedClientClinicId = uuidv4();
+  const convertedClientProfileId = uuidv4();
+  const convertedClientContactLinkId = uuidv4();
   let drawerAppointmentId = "";
   let drawerDepositId = "";
   let drawerTaskId = "";
@@ -417,7 +421,309 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
     assert.equal(lostMove.body.data.status, "lost");
     assert.equal(lostMove.body.data.lostReason, "budget");
     assert.equal(lostMove.body.data.objectionType, "budget");
-    console.log("[lead-hub] stage moves and sales loss fields passed");
+
+    const reopenedMove = await fetchJson(baseUrl, `/api/pipeline/deals/${dealId}/move`, primary.token, {
+      method: "PATCH",
+      body: JSON.stringify({ stageId: auditStage.id }),
+    });
+    assert.equal(reopenedMove.response.status, 200);
+    assert.equal(reopenedMove.body.data.status, "open");
+    assert.equal(reopenedMove.body.data.lostReason, "budget");
+    assert.equal(reopenedMove.body.data.objectionType, "budget");
+
+    const [reopenedRows]: any = await pool.execute(
+      `SELECT d.status,
+              d.lost_reason as dealLostReason,
+              d.objection_type as dealObjectionType,
+              c.lead_status as contactLeadStatus,
+              c.lost_reason as contactLostReason,
+              c.objection_type as contactObjectionType
+       FROM deal d
+       JOIN contact c
+         ON c.id = d.contact_id
+        AND c.clinic_id = d.clinic_id
+       WHERE d.clinic_id = ?
+         AND d.id = ?`,
+      [primary.clinicId, dealId],
+    );
+    assert.equal(reopenedRows[0]?.status, "open");
+    assert.equal(reopenedRows[0]?.dealLostReason, "budget");
+    assert.equal(reopenedRows[0]?.dealObjectionType, "budget");
+    assert.equal(
+      reopenedRows[0]?.contactLeadStatus,
+      "lost",
+      "reopening preserves the contact's Lost classification until a separate lead update",
+    );
+    assert.equal(reopenedRows[0]?.contactLostReason, "budget");
+    assert.equal(reopenedRows[0]?.contactObjectionType, "budget");
+
+    await pool.execute(
+      `INSERT INTO clinic
+        (id, name, email, phone, timezone, subscription_plan, subscription_status, max_users)
+       VALUES (?, ?, ?, '555-0199', 'Europe/London', 'professional', 'active', 5)`,
+      [
+        convertedClientClinicId,
+        `Lead Hub Converted Client ${convertedClientClinicId}`,
+        uniqueEmail("lead_hub_converted_client"),
+      ],
+    );
+    await pool.execute(
+      `INSERT INTO client_account_profile
+        (id, clinic_id, client_status, current_package, created_by, updated_by)
+       VALUES (?, ?, 'active', 'Dental Implants Growth', ?, ?)`,
+      [
+        convertedClientProfileId,
+        convertedClientClinicId,
+        primary.userId,
+        primary.userId,
+      ],
+    );
+    await pool.execute(
+      `INSERT INTO client_account_contact
+        (id, clinic_id, client_account_profile_id, contact_id, created_by)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        convertedClientContactLinkId,
+        primary.clinicId,
+        convertedClientProfileId,
+        contactId,
+        primary.userId,
+      ],
+    );
+    await pool.execute(
+      `UPDATE deal
+       SET client_account_profile_id = ?,
+           client_converted_at = CURRENT_TIMESTAMP
+       WHERE clinic_id = ?
+         AND id = ?`,
+      [convertedClientProfileId, primary.clinicId, dealId],
+    );
+    await pool.execute(
+      `UPDATE contact
+       SET status = 'active',
+           lead_status = 'qualified'
+       WHERE clinic_id = ?
+         AND id = ?`,
+      [primary.clinicId, contactId],
+    );
+
+    const lostReentry = await fetchJson(baseUrl, `/api/pipeline/deals/${dealId}/move`, primary.token, {
+      method: "PATCH",
+      body: JSON.stringify({ stageId: lostStage.id }),
+    });
+    assert.equal(lostReentry.response.status, 200);
+    assert.equal(lostReentry.body.data.status, "lost");
+    assert.equal(lostReentry.body.data.lostReason, "budget");
+    assert.equal(lostReentry.body.data.objectionType, "budget");
+
+    const [convertedContactRows]: any = await pool.execute(
+      `SELECT c.status,
+              c.lead_status as leadStatus,
+              c.lost_reason as lostReason,
+              c.objection_type as objectionType,
+              d.client_account_profile_id as dealProfileId,
+              cap.id as profileId,
+              cac.id as contactLinkId
+       FROM contact c
+       JOIN deal d
+         ON d.contact_id = c.id
+        AND d.clinic_id = c.clinic_id
+       JOIN client_account_profile cap
+         ON cap.id = d.client_account_profile_id
+       JOIN client_account_contact cac
+         ON cac.clinic_id = c.clinic_id
+        AND cac.client_account_profile_id = cap.id
+        AND cac.contact_id = c.id
+       WHERE c.clinic_id = ?
+         AND c.id = ?`,
+      [primary.clinicId, contactId],
+    );
+    assert.equal(convertedContactRows[0]?.status, "active");
+    assert.equal(convertedContactRows[0]?.leadStatus, "converted");
+    assert.equal(convertedContactRows[0]?.lostReason, "budget");
+    assert.equal(convertedContactRows[0]?.objectionType, "budget");
+    assert.equal(convertedContactRows[0]?.dealProfileId, convertedClientProfileId);
+    assert.equal(convertedContactRows[0]?.profileId, convertedClientProfileId);
+    assert.equal(convertedContactRows[0]?.contactLinkId, convertedClientContactLinkId);
+
+    const [lostMovementRows]: any = await pool.execute(
+      `SELECT JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.lostReason')) as lostReason,
+              JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.objectionType')) as objectionType
+       FROM pipeline_deal_movement
+       WHERE clinic_id = ?
+         AND deal_id = ?
+         AND to_stage_id = ?
+       ORDER BY moved_at ASC, created_at ASC`,
+      [primary.clinicId, dealId, lostStage.id],
+    );
+    assert.equal(lostMovementRows.length, 2);
+    assert.equal(
+      lostMovementRows.every((row: any) => row.lostReason === "budget" && row.objectionType === "budget"),
+      true,
+    );
+    const [lostTimelineRows]: any = await pool.execute(
+      `SELECT JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.lostReason')) as lostReason,
+              JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.objectionType')) as objectionType
+       FROM activity
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.recordId')) = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.toStage')) = ?`,
+      [
+        primary.clinicId,
+        contactId,
+        "lead_stage_changed",
+        dealId,
+        lostStage.name,
+      ],
+    );
+    assert.equal(lostTimelineRows.length, 2);
+    assert.equal(
+      lostTimelineRows.every((row: any) => row.lostReason === "budget" && row.objectionType === "budget"),
+      true,
+    );
+    const [lostAuditRows]: any = await pool.execute(
+      `SELECT JSON_UNQUOTE(JSON_EXTRACT(changes, '$.lostReason')) as lostReason,
+              JSON_UNQUOTE(JSON_EXTRACT(changes, '$.objectionType')) as objectionType
+       FROM audit_log
+       WHERE clinic_id = ?
+         AND entity_type = 'deal'
+         AND entity_id = ?
+         AND action = 'PIPELINE_DEAL_MOVED'
+         AND JSON_UNQUOTE(JSON_EXTRACT(changes, '$.toStage')) = ?`,
+      [primary.clinicId, dealId, lostStage.name],
+    );
+    assert.equal(lostAuditRows.length, 2);
+    assert.equal(
+      lostAuditRows.every((row: any) => row.lostReason === "budget" && row.objectionType === "budget"),
+      true,
+    );
+
+    const reopenedForRollback = await fetchJson(
+      baseUrl,
+      `/api/pipeline/deals/${dealId}/move`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ stageId: auditStage.id }),
+      },
+    );
+    assert.equal(reopenedForRollback.response.status, 200);
+    assert.equal(reopenedForRollback.body.data.status, "open");
+
+    const [rollbackBaselineRows]: any = await pool.execute(
+      `SELECT d.pipeline_stage_id as stageId,
+              d.status,
+              DATE_FORMAT(d.stage_changed_at, '%Y-%m-%d %H:%i:%s') as stageChangedAt,
+              DATE_FORMAT(d.lost_at, '%Y-%m-%d %H:%i:%s') as lostAt,
+              d.lost_reason as dealLostReason,
+              d.objection_type as dealObjectionType,
+              c.lead_status as contactLeadStatus,
+              c.lost_reason as contactLostReason,
+              c.objection_type as contactObjectionType,
+              (
+                SELECT COUNT(*)
+                FROM pipeline_deal_movement movement
+                WHERE movement.clinic_id = d.clinic_id
+                  AND movement.deal_id = d.id
+              ) as movementCount,
+              (
+                SELECT COUNT(*)
+                FROM activity event
+                WHERE event.clinic_id = d.clinic_id
+                  AND event.contact_id = d.contact_id
+                  AND JSON_UNQUOTE(JSON_EXTRACT(event.metadata, '$.recordId')) = d.id
+                  AND JSON_UNQUOTE(JSON_EXTRACT(event.metadata, '$.action')) = 'lead_stage_changed'
+              ) as timelineCount,
+              (
+                SELECT COUNT(*)
+                FROM audit_log audit
+                WHERE audit.clinic_id = d.clinic_id
+                  AND audit.entity_type = 'deal'
+                  AND audit.entity_id = d.id
+                  AND audit.action = 'PIPELINE_DEAL_MOVED'
+              ) as auditCount
+       FROM deal d
+       JOIN contact c
+         ON c.id = d.contact_id
+        AND c.clinic_id = d.clinic_id
+       WHERE d.clinic_id = ?
+         AND d.id = ?`,
+      [primary.clinicId, dealId],
+    );
+    assert.equal(rollbackBaselineRows[0]?.stageId, auditStage.id);
+    assert.equal(rollbackBaselineRows[0]?.status, "open");
+
+    const pipelineWithPrivateHooks = pipelineDealsService as any;
+    const originalLostMoveEventsInserter = pipelineWithPrivateHooks.insertLostMoveEvents;
+    pipelineWithPrivateHooks.insertLostMoveEvents = async (...args: any[]) => {
+      await originalLostMoveEventsInserter.apply(pipelineDealsService, args);
+      throw new Error("Injected Lost movement history failure");
+    };
+    let failedLostMove: Awaited<ReturnType<typeof fetchJson>> | null = null;
+    try {
+      failedLostMove = await fetchJson(
+        baseUrl,
+        `/api/pipeline/deals/${dealId}/move`,
+        primary.token,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            stageId: lostStage.id,
+            lostReason: "timing",
+            objectionType: "competitor",
+            notes: "This transaction must roll back",
+          }),
+        },
+      );
+    } finally {
+      pipelineWithPrivateHooks.insertLostMoveEvents = originalLostMoveEventsInserter;
+    }
+    assert.equal(failedLostMove?.response.status, 500);
+
+    const [rolledBackLostRows]: any = await pool.execute(
+      `SELECT d.pipeline_stage_id as stageId,
+              d.status,
+              DATE_FORMAT(d.stage_changed_at, '%Y-%m-%d %H:%i:%s') as stageChangedAt,
+              DATE_FORMAT(d.lost_at, '%Y-%m-%d %H:%i:%s') as lostAt,
+              d.lost_reason as dealLostReason,
+              d.objection_type as dealObjectionType,
+              c.lead_status as contactLeadStatus,
+              c.lost_reason as contactLostReason,
+              c.objection_type as contactObjectionType,
+              (
+                SELECT COUNT(*)
+                FROM pipeline_deal_movement movement
+                WHERE movement.clinic_id = d.clinic_id
+                  AND movement.deal_id = d.id
+              ) as movementCount,
+              (
+                SELECT COUNT(*)
+                FROM activity event
+                WHERE event.clinic_id = d.clinic_id
+                  AND event.contact_id = d.contact_id
+                  AND JSON_UNQUOTE(JSON_EXTRACT(event.metadata, '$.recordId')) = d.id
+                  AND JSON_UNQUOTE(JSON_EXTRACT(event.metadata, '$.action')) = 'lead_stage_changed'
+              ) as timelineCount,
+              (
+                SELECT COUNT(*)
+                FROM audit_log audit
+                WHERE audit.clinic_id = d.clinic_id
+                  AND audit.entity_type = 'deal'
+                  AND audit.entity_id = d.id
+                  AND audit.action = 'PIPELINE_DEAL_MOVED'
+              ) as auditCount
+       FROM deal d
+       JOIN contact c
+         ON c.id = d.contact_id
+        AND c.clinic_id = d.clinic_id
+       WHERE d.clinic_id = ?
+         AND d.id = ?`,
+      [primary.clinicId, dealId],
+    );
+    assert.deepEqual(rolledBackLostRows[0], rollbackBaselineRows[0]);
+    console.log("[lead-hub] atomic Lost moves, reopen policy and converted-account protection passed");
 
     const timeline = await fetchJson(baseUrl, `/api/contacts/${contactId}/timeline`, primary.token);
     assert.equal(timeline.response.status, 200);
@@ -439,6 +745,20 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
     if (dealId) {
       await pool.execute(`UPDATE deal SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id = ? AND deleted_at IS NULL`, [primary.clinicId, dealId]);
     }
+    await pool.execute(
+      `DELETE FROM client_account_contact
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [convertedClientContactLinkId, primary.clinicId],
+    );
+    await pool.execute(
+      "DELETE FROM client_account_profile WHERE id = ?",
+      [convertedClientProfileId],
+    );
+    await pool.execute(
+      "DELETE FROM clinic WHERE id = ?",
+      [convertedClientClinicId],
+    );
     if (drawerTaskId) {
       await pool.execute(`UPDATE task SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id = ? AND deleted_at IS NULL`, [primary.clinicId, drawerTaskId]);
     }

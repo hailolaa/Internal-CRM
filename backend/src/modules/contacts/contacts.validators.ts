@@ -17,6 +17,15 @@ const contactDocumentTypes = [
   "seo_content",
   "landing_pages",
 ];
+
+function isDocumentLinkPayload(value: unknown) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    ["driveUrl", "driveItemId"].some((field) => Object.prototype.hasOwnProperty.call(value, field)),
+  );
+}
 const attributionTextFields = [
   "firstSource",
   "latestSource",
@@ -183,21 +192,27 @@ export const contactIdParamValidator = [
 export const updateContactDocumentLinkValidator = [
   contactIdParam(),
   param("documentType").isIn(contactDocumentTypes).withMessage("Document type is not supported"),
+  body()
+    .custom(isDocumentLinkPayload)
+    .withMessage("A Google Drive URL or item ID field is required"),
   body("driveUrl")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim().length <= 500)
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 500))
     .withMessage("Google Drive URL must be 500 characters or fewer"),
   body("driveItemId")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim() === "" || /^[A-Za-z0-9_-]{5,255}$/.test(String(value).trim()))
+    .custom((value) =>
+      value === null ||
+      (typeof value === "string" && (value.trim() === "" || /^[A-Za-z0-9_-]{5,255}$/.test(value.trim()))),
+    )
     .withMessage("Google Drive item ID is not valid"),
   body("displayName")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim().length <= 255)
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 255))
     .withMessage("Document title must be 255 characters or fewer"),
   body("notes")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim().length <= 2000)
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 2000))
     .withMessage("Document notes must be 2000 characters or fewer"),
 ];
 

@@ -1,4 +1,5 @@
 import pool from "../../config/database.js";
+import type { PoolConnection } from "mysql2/promise";
 import type { PipelineDealStatus, PipelineStageKind } from "./pipeline.types.js";
 
 export interface PipelineDealContactRow {
@@ -330,6 +331,8 @@ export async function movePipelineDealStage(
   clinicId: string,
   dealId: string,
   values: PipelineDealMoveValues,
+  expectedStageId?: string | null,
+  executor: Pick<PoolConnection, "execute"> = pool,
 ) {
   const fields = [
     "pipeline_stage_id = ?",
@@ -369,18 +372,27 @@ export async function movePipelineDealStage(
     params.push(values.objectionType);
   }
 
-  await pool.execute(
+  const expectedStageClause = expectedStageId === undefined
+    ? ""
+    : expectedStageId === null
+      ? "\n       AND pipeline_stage_id IS NULL"
+      : "\n       AND pipeline_stage_id = ?";
+  const [result]: any = await executor.execute(
     `UPDATE deal
      SET ${fields.join(", ")}
      WHERE id = ?
        AND clinic_id = ?
-       AND deleted_at IS NULL`,
-    [...params, dealId, clinicId],
+       AND deleted_at IS NULL${expectedStageClause}`,
+    [...params, dealId, clinicId, ...(typeof expectedStageId === "string" ? [expectedStageId] : [])],
   );
+  return Number(result.affectedRows || 0);
 }
 
-export async function insertPipelineDealMovement(values: PipelineDealMovementValues) {
-  await pool.execute(
+export async function insertPipelineDealMovement(
+  values: PipelineDealMovementValues,
+  executor: Pick<PoolConnection, "execute"> = pool,
+) {
+  await executor.execute(
     `INSERT INTO pipeline_deal_movement
       (id, clinic_id, deal_id, pipeline_id, from_stage_id, to_stage_id,
        from_stage, to_stage, moved_by, metadata)

@@ -304,6 +304,7 @@ export interface ClientAccountLinkedTaskRecord {
   isOverdue: boolean;
   clientAccountProfileId: string | null;
   clientAccountServiceId: string | null;
+  templateKey: string | null;
   updatedAt: string;
 }
 
@@ -450,7 +451,7 @@ export interface ClientAccountFromContactPayload
 export interface ClientAccountWonDealConversionPayload
   extends Omit<ClientAccountFromContactPayload, "contactId"> {
   dealId: string;
-  createOnboardingTasks?: boolean;
+  createOnboardingTasks?: true;
 }
 
 export interface ClientAccountServiceRecord {

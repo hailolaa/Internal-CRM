@@ -6,6 +6,7 @@ import type {
   ClientAccountDriveFolderPayload,
   ClientAccountDocumentLinkPayload,
   ClientAccountDocumentLinkRecord,
+  ClientAccountDocumentType,
   ClientAccountContactAccountLinkRecord,
   ClientAccountFromContactPayload,
   ClientAccountWonDealConversionPayload,
@@ -59,6 +60,13 @@ function buildQuery(params: object = {}) {
 
   const query = searchParams.toString();
   return query ? `?${query}` : "";
+}
+
+export function buildClientAccountProfilePath(targetClinicId?: string | null) {
+  const clinicId = targetClinicId?.trim();
+  return clinicId
+    ? `/api/client-accounts/${encodeURIComponent(clinicId)}/profile`
+    : "/api/client-accounts/profile";
 }
 
 export function createInternalOpsApi(apiRequest: ApiRequest) {
@@ -118,16 +126,20 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
         );
         return response.data!;
       },
-      async getProfile(token: string) {
+      async getProfile(token: string, targetClinicId?: string) {
         const response = await apiRequest<ClientAccountProfileRecord>(
-          "/api/client-accounts/profile",
+          buildClientAccountProfilePath(targetClinicId),
           { token },
         );
         return response.data!;
       },
-      async updateProfile(token: string, payload: ClientAccountProfilePayload) {
+      async updateProfile(
+        token: string,
+        payload: ClientAccountProfilePayload,
+        targetClinicId?: string,
+      ) {
         const response = await apiRequest<ClientAccountProfileRecord>(
-          "/api/client-accounts/profile",
+          buildClientAccountProfilePath(targetClinicId),
           {
             method: "PATCH",
             token,
@@ -229,7 +241,7 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
       async updateDocument(
         token: string,
         clinicId: string,
-        documentType: string,
+        documentType: ClientAccountDocumentType,
         payload: ClientAccountDocumentLinkPayload,
       ) {
         const response = await apiRequest<ClientAccountDocumentLinkRecord[]>(

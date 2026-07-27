@@ -658,7 +658,7 @@ function AddDealModal({
                 onChange={(event) => onUpdateForm({ stageId: event.target.value })}
                 className="w-full rounded-xl border border-[rgba(0,0,0,0.06)] bg-[#FAF8F5] px-3 py-2.5 text-sm text-[#111111] outline-none focus:border-[#6E6AE8]/50"
               >
-                {stages.map((stage) => (
+                {stages.filter((stage) => stage.raw.kind !== "won" && stage.raw.kind !== "lost").map((stage) => (
                   <option key={stage.id} value={stage.id}>
                     {stage.name}
                   </option>
@@ -822,6 +822,9 @@ export default function PipelinePage() {
   const [pendingLostMove, setPendingLostMove] = useState<PendingLostMove | null>(null);
   const [lostReason, setLostReason] = useState<string>(DEFAULT_LOST_REASON);
   const [objectionType, setObjectionType] = useState<string>(DEFAULT_OBJECTION_TYPE);
+  const lostDialogRef = useRef<HTMLDivElement | null>(null);
+  const lostReasonRef = useRef<HTMLSelectElement | null>(null);
+  const lostTriggerRef = useRef<HTMLElement | null>(null);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
   const autoScrollSpeedRef = useRef(0);
@@ -881,6 +884,67 @@ export default function PipelinePage() {
     return () => window.clearTimeout(timer);
   }, [token]);
 
+  useEffect(() => {
+    if (!pendingLostMove) return;
+
+    lostTriggerRef.current =
+      document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+        ? document.activeElement
+        : null;
+    const dialogElement = lostDialogRef.current;
+    const boardElement = boardScrollRef.current;
+    const focusTimer = window.setTimeout(() => lostReasonRef.current?.focus(), 0);
+
+    const handleLostDialogKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setPendingLostMove(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const dialog = dialogElement;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.getAttribute("aria-hidden") !== "true");
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement;
+      if (!dialog.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleLostDialogKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleLostDialogKeyDown);
+      const returnTarget = lostTriggerRef.current;
+      window.requestAnimationFrame(() => {
+        if (dialogElement?.isConnected) return;
+        if (returnTarget?.isConnected) {
+          returnTarget.focus();
+        } else {
+          boardElement?.focus();
+        }
+      });
+    };
+  }, [pendingLostMove]);
+
   const openAddDeal = useCallback(
     (stageId?: string) => {
       if (!canWriteContacts) {
@@ -889,7 +953,12 @@ export default function PipelinePage() {
         return;
       }
 
-      const defaultStageId = stageId || stages[0]?.id || "";
+      const requestedStage = stages.find((stage) => stage.id === stageId);
+      const defaultStageId =
+        (requestedStage && requestedStage.raw.kind !== "won" && requestedStage.raw.kind !== "lost"
+          ? requestedStage.id
+          : stages.find((stage) => stage.raw.kind !== "won" && stage.raw.kind !== "lost")?.id) ||
+        "";
       setAddDealForm({
         ...EMPTY_ADD_DEAL_FORM,
         stageId: defaultStageId,
@@ -1441,12 +1510,25 @@ export default function PipelinePage() {
       )}
 
       {pendingLostMove && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-6">
-          <div className="w-full max-w-md rounded-2xl border border-black/[0.08] bg-[#FFFCF9] p-5 shadow-2xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-6"
+          role="presentation"
+        >
+          <div
+            ref={lostDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="lost-outcome-dialog-title"
+            aria-describedby="lost-outcome-dialog-description"
+            tabIndex={-1}
+            className="w-full max-w-md rounded-2xl border border-black/[0.08] bg-[#FFFCF9] p-5 shadow-2xl"
+          >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-[#1B1D22]">Mark opportunity lost</h2>
-                <p className="mt-1 text-sm text-[#6B7280]">
+                <h2 id="lost-outcome-dialog-title" className="text-lg font-semibold text-[#1B1D22]">
+                  Mark opportunity lost
+                </h2>
+                <p id="lost-outcome-dialog-description" className="mt-1 text-sm text-[#6B7280]">
                   {pendingLostMove.deal.name} will move to {pendingLostMove.targetStage.name}.
                 </p>
               </div>
@@ -1463,6 +1545,7 @@ export default function PipelinePage() {
               <label className="block text-sm font-medium text-[#354943]">
                 Lost reason
                 <select
+                  ref={lostReasonRef}
                   value={lostReason}
                   onChange={(event) => setLostReason(event.target.value)}
                   className="mt-1 w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-sm text-[#1B1D22] outline-none focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/15"
@@ -1569,7 +1652,7 @@ export default function PipelinePage() {
         <PipelineSkeleton columns={5} />
       ) : (
       <>
-      {boardView === "kanban" ? <div ref={boardScrollRef} className="flex gap-3 overflow-x-auto pb-5 [scrollbar-color:#C9C3D8_transparent] [scrollbar-width:thin]">
+      {boardView === "kanban" ? <div ref={boardScrollRef} tabIndex={-1} className="flex gap-3 overflow-x-auto pb-5 [scrollbar-color:#C9C3D8_transparent] [scrollbar-width:thin]">
         {filteredStages.map((stage) => (
           <div
             key={stage.id}
@@ -1645,7 +1728,7 @@ export default function PipelinePage() {
                   onCreateProposal={openProposalBuilder}
                 />
               ))}
-              {stage.deals.length === 0 && <button onClick={() => openAddDeal(stage.id)} className="flex min-h-28 w-full items-center justify-center gap-1 rounded-xl border border-dashed border-black/10 text-sm text-[#8B8580]"><Plus className="h-4 w-4" /> No opportunities · Add</button>}
+              {stage.deals.length === 0 && stage.raw.kind !== "won" && stage.raw.kind !== "lost" && <button onClick={() => openAddDeal(stage.id)} className="flex min-h-28 w-full items-center justify-center gap-1 rounded-xl border border-dashed border-black/10 text-sm text-[#8B8580]"><Plus className="h-4 w-4" /> No opportunities · Add</button>}
             </div>
           </div>
         ))}

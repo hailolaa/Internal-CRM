@@ -24,6 +24,15 @@ const clientDocumentTypes = [
   "seo_content",
   "landing_pages",
 ];
+
+function isObjectPayloadWithAnyField(value: unknown, fields: string[]) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    fields.some((field) => Object.prototype.hasOwnProperty.call(value, field)),
+  );
+}
 const clientAccessItemTypes = [
   "website",
   "ga4",
@@ -173,22 +182,28 @@ export const convertWonDealToClientValidator = [
   body("renewalDate").optional({ nullable: true }).isISO8601().withMessage("Renewal date must be a valid date"),
   body("contractStatus").optional().isIn(["active", "trial", "pending", "paused", "cancelled", "expired"]),
   body("keyNotes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Key notes must be 10000 characters or fewer"),
-  body("createOnboardingTasks").optional().isBoolean().withMessage("createOnboardingTasks must be true or false"),
+  body("createOnboardingTasks")
+    .optional()
+    .custom((value) => value === true)
+    .withMessage("Won conversion always creates onboarding tasks"),
 ];
 
 export const updateClientAccountDriveFolderValidator = [
   param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  body()
+    .custom((value) => isObjectPayloadWithAnyField(value, ["folderUrl", "folderId"]))
+    .withMessage("A Google Drive folder URL or ID field is required"),
   body("folderUrl")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim().length <= 500)
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 500))
     .withMessage("Google Drive folder or ZIP URL must be 500 characters or fewer"),
   body("folderId")
     .optional({ nullable: true })
-    .custom((value) => value === null || /^[A-Za-z0-9_-]{10,255}$/.test(String(value).trim()))
+    .custom((value) => value === null || (typeof value === "string" && /^[A-Za-z0-9_-]{10,255}$/.test(value.trim())))
     .withMessage("Google Drive item ID is not valid"),
   body("displayName")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim().length <= 255)
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 255))
     .withMessage("Google Drive title must be 255 characters or fewer"),
 ];
 
@@ -197,24 +212,39 @@ export const clientAccountDocumentTypeParamValidator = [
   param("documentType").isIn(clientDocumentTypes).withMessage("Document type is not supported"),
 ];
 
-export const updateClientAccountDocumentLinkValidator = [
-  ...clientAccountDocumentTypeParamValidator,
+const updateClientAccountDocumentLinkBodyValidator = [
+  body()
+    .custom((value) => isObjectPayloadWithAnyField(value, ["driveUrl", "driveItemId"]))
+    .withMessage("A Google Drive URL or item ID field is required"),
   body("driveUrl")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim().length <= 500)
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 500))
     .withMessage("Google Drive URL must be 500 characters or fewer"),
   body("driveItemId")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim() === "" || /^[A-Za-z0-9_-]{5,255}$/.test(String(value).trim()))
+    .custom((value) =>
+      value === null ||
+      (typeof value === "string" && (value.trim() === "" || /^[A-Za-z0-9_-]{5,255}$/.test(value.trim()))),
+    )
     .withMessage("Google Drive item ID is not valid"),
   body("displayName")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim().length <= 255)
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 255))
     .withMessage("Document title must be 255 characters or fewer"),
   body("notes")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim().length <= 2000)
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 2000))
     .withMessage("Document notes must be 2000 characters or fewer"),
+];
+
+export const updateClientAccountDocumentLinkValidator = [
+  ...clientAccountDocumentTypeParamValidator,
+  ...updateClientAccountDocumentLinkBodyValidator,
+];
+
+export const updateMainClientFolderDocumentLinkValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  ...updateClientAccountDocumentLinkBodyValidator,
 ];
 
 export const clientAccountAccessItemTypeParamValidator = [
@@ -227,7 +257,7 @@ export const updateClientAccountAccessItemValidator = [
   body("status").isIn(clientAccessItemStatuses).withMessage("Access status must be requested, received, or not needed"),
   body("notes")
     .optional({ nullable: true })
-    .custom((value) => value === null || String(value).trim().length <= 2000)
+    .custom((value) => value === null || (typeof value === "string" && value.trim().length <= 2000))
     .withMessage("Access notes must be 2000 characters or fewer"),
 ];
 

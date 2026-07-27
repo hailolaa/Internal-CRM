@@ -9,6 +9,9 @@ import { authService } from "../modules/auth/auth.service.js";
 import { generateToken, hashPassword } from "../utils/helpers.js";
 import clientAccountsRoutes from "../modules/client-accounts/client-accounts.routes.js";
 import { clientAccountsService } from "../modules/client-accounts/client-accounts.service.js";
+import pipelineRoutes from "../modules/pipeline/pipeline.routes.js";
+import { pipelineDealsService } from "../modules/pipeline/pipeline.deals.service.js";
+import { defaultPipelineName } from "../modules/pipeline/pipeline.constants.js";
 import tasksRoutes from "../modules/tasks/tasks.routes.js";
 import errorHandler from "../middleware/errorHandler.js";
 import { validate } from "../middleware/validate.js";
@@ -131,6 +134,41 @@ async function createClientAccountWriterUser(clinicId: string, prefix: string) {
 
   const result = await authService.login({ email, password });
 
+  return {
+    userId: result.user.id,
+    token: result.tokens.token,
+    roleId,
+    roleName,
+  };
+}
+
+async function createContactWriterUser(clinicId: string, prefix: string) {
+  const email = uniqueEmail(`${prefix}_contact_writer`);
+  const password = "password123";
+  const userId = uuidv4();
+  const roleId = uuidv4();
+  const roleName = `${prefix.toUpperCase()}_CONTACT_WRITER_${Math.floor(Math.random() * 100000)}`;
+  const passwordHash = await hashPassword(password);
+
+  await pool.execute(
+    "INSERT INTO role (id, clinic_id, name, display_name, is_system) VALUES (?, ?, ?, ?, 0)",
+    [roleId, clinicId, roleName, "Contact Writer"],
+  );
+  await pool.execute(
+    `INSERT INTO role_permission (role_id, permission_id)
+     SELECT ?, id FROM permission WHERE key_name IN ('contacts:read', 'contacts:write')`,
+    [roleId],
+  );
+  await pool.execute(
+    "INSERT INTO user (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+    [userId, clinicId, email, passwordHash, prefix, "ContactWriter", roleName],
+  );
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
+    [userId, clinicId, roleName],
+  );
+
+  const result = await authService.login({ email, password });
   return {
     userId: result.user.id,
     token: result.tokens.token,
@@ -273,7 +311,7 @@ test("client account Drive links require validated Google access and tenant avai
   const primary = await createClinicAndAdmin("ClientDrivePrimary");
   const secondary = await createClinicAndAdmin("ClientDriveSecondary");
   const primaryWriter = await createClientAccountWriterUser(primary.clinicId, "ClientDrivePrimary");
-  await createClientAccountProfile(primary.clinicId, primary.userId);
+  const primaryProfileId = await createClientAccountProfile(primary.clinicId, primary.userId);
   await createClientAccountProfile(secondary.clinicId, secondary.userId);
 
   const expressModule = await import("express") as any;
@@ -381,6 +419,81 @@ test("client account Drive links require validated Google access and tenant avai
   };
 
   try {
+    const freshProfile = await fetchJson(
+      baseUrl,
+      "/api/client-accounts/profile",
+      primary.token,
+    );
+    assert.equal(freshProfile.response.status, 200);
+    assert.equal(freshProfile.body.data.missingDocumentCount, 11);
+    assert.equal(freshProfile.body.data.missingAccessCount, 10);
+
+    const freshAccountList = await fetchJson(baseUrl, "/api/client-accounts", primary.token);
+    assert.equal(freshAccountList.response.status, 200);
+    const freshAccountSummary = freshAccountList.body.data.find(
+      (account: any) => account.clinicId === primary.clinicId,
+    );
+    assert.ok(freshAccountSummary);
+    assert.equal(freshAccountSummary.missingDocumentCount, 11);
+    assert.equal(freshAccountSummary.missingAccessCount, 10);
+
+    const freshDocuments = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents`,
+      primary.token,
+    );
+    assert.equal(freshDocuments.response.status, 200);
+    assert.equal(freshDocuments.body.data.length, 11);
+    assert.equal(
+      freshDocuments.body.data.filter((item: any) => item.status === "missing").length,
+      11,
+    );
+
+    const freshAccessItems = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/access-items`,
+      primary.token,
+    );
+    assert.equal(freshAccessItems.response.status, 200);
+    assert.equal(freshAccessItems.body.data.length, 10);
+    assert.equal(
+      freshAccessItems.body.data.filter((item: any) => item.isMissing).length,
+      10,
+    );
+
+    const requestsBeforeInvalidLegacyFolder = driveRequests.length;
+    const invalidLegacyFolderPayload = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/drive-folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ folderUrl: { value: "invalid" }, displayName: 42 }),
+      },
+    );
+    assert.equal(invalidLegacyFolderPayload.response.status, 400);
+    assert.equal(driveRequests.length, requestsBeforeInvalidLegacyFolder);
+
+    for (const unsafeDriveUrl of [
+      "javascript://drive.google.com/drive/folders/unsafe-folder",
+      "data://drive.google.com/drive/folders/unsafe-folder",
+      "https://drive.google.com.evil.example/drive/folders/unsafe-folder",
+    ]) {
+      const requestsBeforeUnsafeLink = driveRequests.length;
+      const unsafeLink = await fetchJson(
+        baseUrl,
+        `/api/client-accounts/${primary.clinicId}/drive-folder`,
+        primary.token,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ folderUrl: unsafeDriveUrl }),
+        },
+      );
+      assert.equal(unsafeLink.response.status, 400);
+      assert.match(unsafeLink.body.message, /Only HTTPS Google Drive and Google Docs links/i);
+      assert.equal(driveRequests.length, requestsBeforeUnsafeLink);
+    }
+
     const inaccessible = await fetchJson(
       baseUrl,
       `/api/client-accounts/${primary.clinicId}/drive-folder`,
@@ -501,16 +614,124 @@ test("client account Drive links require validated Google access and tenant avai
     assert.equal(initialDocuments.body.data.find((item: any) => item.documentType === "main_client_folder").status, "linked");
     assert.equal(initialDocuments.body.data.find((item: any) => item.documentType === "contract_admin").status, "missing");
 
+    const requestsBeforeWriterMainFolder = driveRequests.length;
+    const rejectedWriterMainFolder = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/main_client_folder`,
+      primaryWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ driveUrl: "https://drive.google.com/drive/folders/valid-folder" }),
+      },
+    );
+    assert.equal(rejectedWriterMainFolder.response.status, 403);
+    assert.equal(
+      driveRequests.length,
+      requestsBeforeWriterMainFolder,
+      "Main-folder permission rejection should happen before Google Drive validation",
+    );
+
+    const requestsBeforeInvalidMainFolder = driveRequests.length;
+    const invalidMainFolderPayload = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/main_client_folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ driveUrl: { value: "https://drive.google.com/drive/folders/valid-folder" } }),
+      },
+    );
+    assert.equal(invalidMainFolderPayload.response.status, 400);
+    assert.equal(driveRequests.length, requestsBeforeInvalidMainFolder);
+
+    const restoredFolder = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/main_client_folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ driveUrl: "https://drive.google.com/drive/folders/valid-folder" }),
+      },
+    );
+    assert.equal(restoredFolder.response.status, 200);
+    assert.equal(
+      restoredFolder.body.data.find((item: any) => item.documentType === "main_client_folder").driveItemId,
+      "valid-folder",
+    );
+
+    for (const malformedPayload of [null, [], {}, "invalid"]) {
+      const malformedMainFolder = await fetchJson(
+        baseUrl,
+        `/api/client-accounts/${primary.clinicId}/documents/main_client_folder`,
+        primary.token,
+        {
+          method: "PATCH",
+          body: JSON.stringify(malformedPayload),
+        },
+      );
+      assert.equal(malformedMainFolder.response.status, 400);
+    }
+    const documentsAfterMalformedPayloads = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents`,
+      primary.token,
+    );
+    assert.equal(
+      documentsAfterMalformedPayloads.body.data.find(
+        (item: any) => item.documentType === "main_client_folder",
+      ).driveItemId,
+      "valid-folder",
+    );
+
+    const crossWorkspaceDocumentId = uuidv4();
+    await pool.execute(
+      `INSERT INTO client_account_document_link
+        (id, clinic_id, client_account_profile_id, document_type, drive_item_id, drive_url,
+         display_name, access_status, created_by, updated_by)
+       VALUES (?, ?, ?, 'audit', 'cross-workspace-audit', ?, 'Cross-workspace audit',
+         'accessible', ?, ?)`,
+      [
+        crossWorkspaceDocumentId,
+        secondary.clinicId,
+        primaryProfileId,
+        "https://drive.google.com/file/d/cross-workspace-audit/view",
+        secondary.userId,
+        secondary.userId,
+      ],
+    );
+    setDriveItem("cross-source-replacement-root", 200, {
+      id: "cross-source-replacement-root",
+      name: "Cross-source Replacement",
+      mimeType: "application/vnd.google-apps.folder",
+      trashed: false,
+    });
+    const blockedCrossWorkspaceRootChange = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/main_client_folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          driveUrl: "https://drive.google.com/drive/folders/cross-source-replacement-root",
+        }),
+      },
+    );
+    assert.equal(blockedCrossWorkspaceRootChange.response.status, 409);
+    await pool.execute("DELETE FROM client_account_document_link WHERE id = ?", [crossWorkspaceDocumentId]);
+
     setDriveItem("proposal-folder", 200, {
       id: "proposal-folder",
       name: "Proposal Docs",
       mimeType: "application/vnd.google-apps.folder",
       trashed: false,
+      parents: ["valid-folder"],
+      webViewLink: "https://drive.google.com/drive/folders/proposal-folder",
     });
+    (config as any).googleDrive.databaseOAuthEnabled = false;
     const savedProposalDocument = await fetchJson(
       baseUrl,
       `/api/client-accounts/${primary.clinicId}/documents/proposal`,
-      primary.token,
+      primaryWriter.token,
       {
         method: "PATCH",
         body: JSON.stringify({
@@ -524,6 +745,196 @@ test("client account Drive links require validated Google access and tenant avai
     assert.equal(proposalDocument.status, "linked");
     assert.equal(proposalDocument.displayName, "Proposal Docs");
     assert.equal(proposalDocument.notes, "Proposal working folder");
+    (config as any).googleDrive.databaseOAuthEnabled = true;
+
+    const malformedDocument = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/contract_admin`,
+      primaryWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify([]),
+      },
+    );
+    assert.equal(malformedDocument.response.status, 400);
+
+    setDriveItem("client-shortcut", 200, {
+      id: "client-shortcut",
+      name: "Outside contract shortcut",
+      mimeType: "application/vnd.google-apps.shortcut",
+      trashed: false,
+      parents: ["valid-folder"],
+      webViewLink: "https://drive.google.com/file/d/client-shortcut/view",
+      shortcutDetails: { targetId: "outside-client-root", targetMimeType: "application/pdf" },
+    });
+    const rejectedShortcut = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/contract_admin`,
+      primaryWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ driveUrl: "https://drive.google.com/file/d/client-shortcut/view" }),
+      },
+    );
+    assert.equal(rejectedShortcut.response.status, 400);
+    assert.match(rejectedShortcut.body.message, /shortcuts cannot be linked/i);
+
+    setDriveItem("outside-client-root", 200, {
+      id: "outside-client-root",
+      name: "Another Client Contract.pdf",
+      mimeType: "application/pdf",
+      trashed: false,
+      parents: ["other-client-root"],
+      webViewLink: "https://drive.google.com/file/d/outside-client-root/view",
+    });
+    const outsideClientRoot = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/contract_admin`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ driveUrl: "https://drive.google.com/file/d/outside-client-root/view" }),
+      },
+    );
+    assert.equal(outsideClientRoot.response.status, 403);
+    assert.match(outsideClientRoot.body.message, /outside the selected client folder/i);
+
+    setDriveItem("client-contract-pdf", 200, {
+      id: "client-contract-pdf",
+      name: "Signed Contract.pdf",
+      mimeType: "application/pdf",
+      trashed: false,
+      parents: ["valid-folder"],
+      webViewLink: "https://drive.google.com/file/d/client-contract-pdf/view?usp=drive_link",
+    });
+    const savedPdf = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/contract_admin`,
+      primaryWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ driveUrl: "https://drive.google.com/file/d/client-contract-pdf/view" }),
+      },
+    );
+    assert.equal(savedPdf.response.status, 200);
+    assert.equal(
+      savedPdf.body.data.find((item: any) => item.documentType === "contract_admin").driveUrl,
+      "https://drive.google.com/file/d/client-contract-pdf/view?usp=drive_link",
+    );
+
+    for (const [itemType, status] of [
+      ["ga4", "received"],
+      ["website", "received"],
+      ["gbp", "not_needed"],
+    ] as const) {
+      const accessUpdate = await fetchJson(
+        baseUrl,
+        `/api/client-accounts/${primary.clinicId}/access-items/${itemType}`,
+        primary.token,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ status }),
+        },
+      );
+      assert.equal(accessUpdate.response.status, 200);
+    }
+
+    const partiallyCompletedDocuments = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents`,
+      primary.token,
+    );
+    assert.equal(partiallyCompletedDocuments.response.status, 200);
+    assert.equal(
+      partiallyCompletedDocuments.body.data.filter((item: any) => item.status === "missing").length,
+      8,
+    );
+
+    const partiallyCompletedAccessItems = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/access-items`,
+      primary.token,
+    );
+    assert.equal(partiallyCompletedAccessItems.response.status, 200);
+    assert.equal(
+      partiallyCompletedAccessItems.body.data.filter((item: any) => item.isMissing).length,
+      7,
+    );
+
+    const partiallyCompletedProfile = await fetchJson(
+      baseUrl,
+      "/api/client-accounts/profile",
+      primary.token,
+    );
+    assert.equal(partiallyCompletedProfile.response.status, 200);
+    assert.equal(partiallyCompletedProfile.body.data.missingDocumentCount, 8);
+    assert.equal(partiallyCompletedProfile.body.data.missingAccessCount, 7);
+
+    const partiallyCompletedAccountList = await fetchJson(
+      baseUrl,
+      "/api/client-accounts",
+      primary.token,
+    );
+    assert.equal(partiallyCompletedAccountList.response.status, 200);
+    const partiallyCompletedAccount = partiallyCompletedAccountList.body.data.find(
+      (account: any) => account.clinicId === primary.clinicId,
+    );
+    assert.ok(partiallyCompletedAccount);
+    assert.equal(partiallyCompletedAccount.missingDocumentCount, 8);
+    assert.equal(partiallyCompletedAccount.missingAccessCount, 7);
+
+    setDriveItem("client-google-doc", 200, {
+      id: "client-google-doc",
+      name: "Reporting Setup",
+      mimeType: "application/vnd.google-apps.document",
+      trashed: false,
+      parents: ["valid-folder"],
+      webViewLink: "https://docs.google.com/document/d/client-google-doc/edit",
+    });
+    const savedGoogleDoc = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/reports`,
+      primaryWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ driveUrl: "https://docs.google.com/document/d/client-google-doc/edit" }),
+      },
+    );
+    assert.equal(savedGoogleDoc.response.status, 200);
+    assert.equal(
+      savedGoogleDoc.body.data.find((item: any) => item.documentType === "reports").driveUrl,
+      "https://docs.google.com/document/d/client-google-doc/edit",
+    );
+
+    setDriveItem("replacement-root", 200, {
+      id: "replacement-root",
+      name: "Replacement Client Folder",
+      mimeType: "application/vnd.google-apps.folder",
+      trashed: false,
+    });
+    const blockedRootChange = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/main_client_folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ driveUrl: "https://drive.google.com/drive/folders/replacement-root" }),
+      },
+    );
+    assert.equal(blockedRootChange.response.status, 409);
+    assert.match(blockedRootChange.body.message, /remove the client document links/i);
+
+    const blockedRootRemoval = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/documents/main_client_folder`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ driveUrl: null, driveItemId: null }),
+      },
+    );
+    assert.equal(blockedRootRemoval.response.status, 409);
+    assert.match(blockedRootRemoval.body.message, /remove the client document links/i);
 
     const initialAccessItems = await fetchJson(
       baseUrl,
@@ -532,7 +943,7 @@ test("client account Drive links require validated Google access and tenant avai
     );
     assert.equal(initialAccessItems.response.status, 200);
     assert.equal(initialAccessItems.body.data.length, 10);
-    assert.equal(initialAccessItems.body.data.filter((item: any) => item.isMissing).length, 10);
+    assert.equal(initialAccessItems.body.data.filter((item: any) => item.isMissing).length, 7);
 
     const updatedAccessItem = await fetchJson(
       baseUrl,
@@ -549,6 +960,47 @@ test("client account Drive links require validated Google access and tenant avai
     assert.equal(ga4.isMissing, false);
     assert.equal(ga4.notes, "GA4 admin access confirmed");
 
+    const invalidAccessNotes = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/access-items/ga4`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status: "received", notes: 42 }),
+      },
+    );
+    assert.equal(invalidAccessNotes.response.status, 400);
+
+    await pool.execute(
+      `UPDATE client_account_access_item
+       SET received_at = '2026-07-25 10:00:00'
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?
+         AND item_type = 'ga4'`,
+      [primary.clinicId, primaryProfileId],
+    );
+    const accessBeforeNotesSave = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/access-items`,
+      primary.token,
+    );
+    const ga4BeforeNotesSave = accessBeforeNotesSave.body.data.find((item: any) => item.itemType === "ga4");
+    const savedAccessNotes = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${primary.clinicId}/access-items/ga4`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status: "received", notes: "GA4 access confirmed and documented" }),
+      },
+    );
+    assert.equal(savedAccessNotes.response.status, 200);
+    const ga4AfterNotesSave = savedAccessNotes.body.data.find((item: any) => item.itemType === "ga4");
+    assert.equal(ga4AfterNotesSave.status, "received");
+    assert.equal(ga4AfterNotesSave.isMissing, false);
+    assert.equal(ga4AfterNotesSave.notes, "GA4 access confirmed and documented");
+    assert.equal(ga4AfterNotesSave.receivedAt, ga4BeforeNotesSave.receivedAt);
+
     const requestsBeforeCrossWorkspace = driveRequests.length;
     const crossWorkspace = await fetchJson(
       baseUrl,
@@ -561,6 +1013,19 @@ test("client account Drive links require validated Google access and tenant avai
     );
     assert.equal(crossWorkspace.response.status, 403);
     assert.equal(driveRequests.length, requestsBeforeCrossWorkspace, "Cross-workspace rejection should happen before Google Drive validation");
+
+    for (const documentType of ["proposal", "contract_admin", "reports"]) {
+      const removedDocument = await fetchJson(
+        baseUrl,
+        `/api/client-accounts/${primary.clinicId}/documents/${documentType}`,
+        primaryWriter.token,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ driveUrl: null, driveItemId: null }),
+        },
+      );
+      assert.equal(removedDocument.response.status, 200);
+    }
 
     const removed = await fetchJson(
       baseUrl,
@@ -751,6 +1216,9 @@ test("won opportunities convert into client accounts with preserved history and 
   const proposalId = uuidv4();
   const acceptanceId = uuidv4();
   const growthScoreSnapshotId = uuidv4();
+  const secondaryAssigneeId = uuidv4();
+  const rollbackAccountName = `Rollback Won Conversion ${dealId}`;
+  const convertedAccountName = `${`Won Conversion Client ${dealId} `}${"X".repeat(255)}`.slice(0, 255);
 
   await pool.execute(
     `UPDATE contact
@@ -833,20 +1301,228 @@ test("won opportunities convert into client accounts with preserved history and 
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
 
   try {
-    const converted = await fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
-      method: "POST",
-      body: JSON.stringify({
+    const serviceWithPrivateHooks = clientAccountsService as any;
+    const originalConversionEventInserter = serviceWithPrivateHooks.insertConversionEvents;
+    let rolledBackClientClinicId: string | null = null;
+    serviceWithPrivateHooks.insertConversionEvents = async (...args: any[]) => {
+      rolledBackClientClinicId = args[1].createdClinicId;
+      await originalConversionEventInserter.apply(clientAccountsService, args);
+      throw new Error("Injected conversion event failure");
+    };
+
+    let rolledBackConversion: any;
+    try {
+      rolledBackConversion = await fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
+        method: "POST",
+        body: JSON.stringify({
+          dealId,
+          accountName: rollbackAccountName,
+          clientStatus: "onboarding",
+          onboardingStatus: "in_progress",
+          createOnboardingTasks: true,
+        }),
+      });
+    } finally {
+      serviceWithPrivateHooks.insertConversionEvents = originalConversionEventInserter;
+    }
+
+    assert.equal(rolledBackConversion.response.status, 500);
+    assert.ok(rolledBackClientClinicId);
+
+    const [rolledBackDealRows]: any = await pool.execute(
+      `SELECT client_account_profile_id as clientAccountProfileId, client_converted_at as clientConvertedAt
+       FROM deal
+       WHERE id = ? AND clinic_id = ?`,
+      [dealId, primary.clinicId],
+    );
+    assert.equal(rolledBackDealRows[0].clientAccountProfileId, null);
+    assert.equal(rolledBackDealRows[0].clientConvertedAt, null);
+
+    const [rolledBackHistoryRows]: any = await pool.execute(
+      `SELECT
+         (SELECT client_account_profile_id FROM proposal WHERE id = ?) as proposalProfileId,
+         (SELECT client_account_profile_id FROM proposal_acceptance_record WHERE id = ?) as acceptanceProfileId,
+         (SELECT client_account_profile_id FROM growth_score_snapshot WHERE id = ?) as growthScoreProfileId,
+         (SELECT COUNT(*) FROM client_account_contact WHERE clinic_id = ? AND contact_id = ?) as relationCount,
+         (SELECT COUNT(*) FROM task WHERE clinic_id = ? AND template_key LIKE ?) as taskCount,
+         (SELECT COUNT(*) FROM clinic WHERE name = ? AND deleted_at IS NULL) as accountCount`,
+      [
+        proposalId,
+        acceptanceId,
+        growthScoreSnapshotId,
+        primary.clinicId,
+        contactId,
+        primary.clinicId,
+        `won_client_onboarding:${dealId}:%`,
+        rollbackAccountName,
+      ],
+    );
+    assert.equal(rolledBackHistoryRows[0].proposalProfileId, null);
+    assert.equal(rolledBackHistoryRows[0].acceptanceProfileId, null);
+    assert.equal(rolledBackHistoryRows[0].growthScoreProfileId, null);
+    assert.equal(Number(rolledBackHistoryRows[0].relationCount), 0);
+    assert.equal(Number(rolledBackHistoryRows[0].taskCount), 0);
+    assert.equal(Number(rolledBackHistoryRows[0].accountCount), 0);
+
+    const [rolledBackEventRows]: any = await pool.execute(
+      `SELECT
+         (SELECT COUNT(*)
+          FROM audit_log
+          WHERE clinic_id = ?
+            AND action = 'CLIENT_ACCOUNT_CREATED') as accountCreatedAuditCount,
+         (SELECT COUNT(*)
+          FROM audit_log
+          WHERE clinic_id = ?
+            AND action = 'WON_DEAL_CONVERTED_TO_CLIENT_ACCOUNT'
+            AND entity_id = ?) as conversionAuditCount,
+         (SELECT COUNT(*)
+          FROM activity
+          WHERE clinic_id = ?
+            AND contact_id = ?
+            AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = 'won_deal_converted_to_client'
+            AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.dealId')) = ?) as conversionActivityCount`,
+      [
+        rolledBackClientClinicId,
+        primary.clinicId,
         dealId,
-        accountName: "Won Conversion Client",
-        clientStatus: "onboarding",
-        onboardingStatus: "in_progress",
-        createOnboardingTasks: true,
-      }),
+        primary.clinicId,
+        contactId,
+        dealId,
+      ],
+    );
+    assert.equal(Number(rolledBackEventRows[0].accountCreatedAuditCount), 0);
+    assert.equal(Number(rolledBackEventRows[0].conversionAuditCount), 0);
+    assert.equal(Number(rolledBackEventRows[0].conversionActivityCount), 0);
+
+    const [rolledBackContactRows]: any = await pool.execute(
+      `SELECT status, lead_status as leadStatus, notes
+       FROM contact
+       WHERE id = ? AND clinic_id = ?`,
+      [contactId, primary.clinicId],
+    );
+    assert.equal(rolledBackContactRows[0].status, "lead");
+    assert.equal(rolledBackContactRows[0].leadStatus, "new");
+    assert.equal(rolledBackContactRows[0].notes, "Original sales notes stay on the contact.");
+
+    const conversionPayload = {
+      dealId,
+      accountName: convertedAccountName,
+      clientStatus: "onboarding",
+      onboardingStatus: "in_progress",
+      createOnboardingTasks: true,
+    };
+    const convert = () => fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
+      method: "POST",
+      body: JSON.stringify(conversionPayload),
     });
+    const originalAccountInserter = serviceWithPrivateHooks.insertAccountRows;
+    let signalAccountInsertReached!: () => void;
+    let releaseAccountInsert!: () => void;
+    const accountInsertReached = new Promise<void>((resolve) => {
+      signalAccountInsertReached = resolve;
+    });
+    const accountInsertRelease = new Promise<void>((resolve) => {
+      releaseAccountInsert = resolve;
+    });
+    let pauseNextAccountInsert = true;
+    serviceWithPrivateHooks.insertAccountRows = async (...args: any[]) => {
+      if (pauseNextAccountInsert) {
+        pauseNextAccountInsert = false;
+        signalAccountInsertReached();
+        await accountInsertRelease;
+      }
+      return originalAccountInserter.apply(clientAccountsService, args);
+    };
+
+    let firstConversionPromise: Promise<any> | null = null;
+    let concurrentConversionPromise: Promise<any> | null = null;
+    let contactEditPromise: Promise<any> | null = null;
+    const earlierContactEditor = await pool.getConnection();
+    let earlierContactEditCommitted = false;
+    let converted: any;
+    let concurrentConversion: any;
+    try {
+      await earlierContactEditor.beginTransaction();
+      await earlierContactEditor.execute(
+        `SELECT id
+         FROM contact
+         WHERE id = ? AND clinic_id = ?
+         FOR UPDATE`,
+        [contactId, primary.clinicId],
+      );
+      await earlierContactEditor.execute(
+        `UPDATE contact
+         SET notes = 'Editor note committed before conversion.',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ?`,
+        [contactId, primary.clinicId],
+      );
+
+      firstConversionPromise = convert();
+      const conversionWhileContactLocked = await Promise.race([
+        firstConversionPromise.then(() => "completed"),
+        new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 100)),
+      ]);
+      assert.equal(
+        conversionWhileContactLocked,
+        "blocked",
+        "Conversion should wait for a contact edit that already owns the row lock",
+      );
+
+      await earlierContactEditor.commit();
+      earlierContactEditCommitted = true;
+      await accountInsertReached;
+
+      contactEditPromise = pool.execute(
+        `UPDATE contact
+         SET notes = 'Concurrent editor note is preserved.',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ?`,
+        [contactId, primary.clinicId],
+      );
+      const contactEditState = await Promise.race([
+        contactEditPromise.then(() => "completed"),
+        new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 100)),
+      ]);
+      assert.equal(contactEditState, "blocked", "Contact edits should wait for the conversion transaction");
+
+      concurrentConversionPromise = convert();
+      const concurrentConversionState = await Promise.race([
+        concurrentConversionPromise.then(() => "completed"),
+        new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 100)),
+      ]);
+      assert.equal(
+        concurrentConversionState,
+        "blocked",
+        "A concurrent conversion should wait for the locked deal",
+      );
+
+      releaseAccountInsert();
+      [converted, concurrentConversion] = await Promise.all([
+        firstConversionPromise,
+        concurrentConversionPromise,
+      ]);
+      await contactEditPromise;
+    } finally {
+      if (!earlierContactEditCommitted) {
+        await earlierContactEditor.rollback();
+      }
+      earlierContactEditor.release();
+      releaseAccountInsert();
+      serviceWithPrivateHooks.insertAccountRows = originalAccountInserter;
+      await Promise.allSettled(
+        [firstConversionPromise, concurrentConversionPromise, contactEditPromise]
+          .filter((promise): promise is Promise<any> => promise !== null),
+      );
+    }
 
     assert.equal(converted.response.status, 201);
+    assert.equal(concurrentConversion.response.status, 201);
     assert.equal(converted.body.status, "success");
+    assert.equal(concurrentConversion.body.status, "success");
     assert.ok(converted.body.data.id, "Converted client account should return a stable profile id");
+    assert.equal(concurrentConversion.body.data.id, converted.body.data.id);
+    assert.equal(concurrentConversion.body.data.clinicId, converted.body.data.clinicId);
     assert.notEqual(converted.body.data.clinicId, primary.clinicId, "Client status must live on the new client account, not the sales workspace");
     assert.equal(converted.body.data.clientStatus, "onboarding");
     assert.equal(converted.body.data.onboardingStatus, "in_progress");
@@ -862,6 +1538,27 @@ test("won opportunities convert into client accounts with preserved history and 
 
     const clientAccountProfileId = converted.body.data.id;
     const clientClinicId = converted.body.data.clinicId;
+    const [convertedProfileRows]: any = await pool.execute(
+      `SELECT key_notes as keyNotes
+       FROM client_account_profile
+       WHERE id = ? AND clinic_id = ?`,
+      [clientAccountProfileId, clientClinicId],
+    );
+    assert.match(
+      convertedProfileRows[0].keyNotes,
+      /Editor note committed before conversion\./,
+      "Conversion should read the contact notes committed before it acquired the contact lock",
+    );
+
+    const [createdAccountRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM clinic c
+       JOIN client_account_profile cap ON cap.clinic_id = c.id
+       WHERE c.name = ?
+         AND c.deleted_at IS NULL`,
+      [convertedAccountName],
+    );
+    assert.equal(Number(createdAccountRows[0].count), 1, "Concurrent conversion should create one client account");
 
     const [dealRows]: any = await pool.execute(
       `SELECT status, client_account_profile_id as clientAccountProfileId, client_converted_at as clientConvertedAt
@@ -873,13 +1570,14 @@ test("won opportunities convert into client accounts with preserved history and 
     assert.ok(dealRows[0].clientConvertedAt);
 
     const [contactRows]: any = await pool.execute(
-      `SELECT lead_status as leadStatus, status, account_name as accountName
+      `SELECT lead_status as leadStatus, status, account_name as accountName, notes
        FROM contact WHERE id = ? AND clinic_id = ?`,
       [contactId, primary.clinicId],
     );
     assert.equal(contactRows[0].leadStatus, "converted");
     assert.equal(contactRows[0].status, "active");
     assert.equal(contactRows[0].accountName, "Won Conversion Account");
+    assert.equal(contactRows[0].notes, "Concurrent editor note is preserved.");
 
     const [relationRows]: any = await pool.execute(
       `SELECT id, client_account_profile_id as clientAccountProfileId
@@ -923,6 +1621,7 @@ test("won opportunities convert into client accounts with preserved history and 
     assert.equal(taskRows.every((task: any) => task.status === "pending"), true);
     assert.equal(taskRows.every((task: any) => task.assignedUserId === primary.userId), true);
     assert.equal(taskRows.every((task: any) => task.dueDate), true);
+    assert.equal(taskRows.every((task: any) => String(task.title).length <= 255), true);
     assert.equal(taskRows.every((task: any) => String(task.templateKey).startsWith(`won_client_onboarding:${dealId}:`)), true);
     const onboardingTemplateKeys = taskRows.map((task: any) => String(task.templateKey));
     for (const key of [
@@ -946,9 +1645,55 @@ test("won opportunities convert into client accounts with preserved history and 
       assert.ok(onboardingTemplateKeys.includes(`won_client_onboarding:${dealId}:${key}`), `Missing onboarding checklist item ${key}`);
     }
 
+    await pool.execute(
+      `INSERT INTO user
+        (id, clinic_id, email, password_hash, first_name, last_name, role,
+         email_verified_at, status, is_active)
+       VALUES (?, ?, ?, ?, 'Secondary', 'Assignee', 'STAFF',
+         CURRENT_TIMESTAMP, 'active', 1)`,
+      [
+        secondaryAssigneeId,
+        clientClinicId,
+        uniqueEmail("won_secondary_assignee"),
+        await hashPassword("password123"),
+      ],
+    );
+    await pool.execute(
+      `INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary)
+       VALUES (?, ?, 'STAFF', 'active', 0)`,
+      [secondaryAssigneeId, primary.clinicId],
+    );
+    await pool.execute(
+      `UPDATE task
+       SET assigned_user_id = ?
+       WHERE clinic_id = ?
+         AND template_key = ?`,
+      [secondaryAssigneeId, primary.clinicId, `won_client_onboarding:${dealId}:invoice`],
+    );
+    const linkedWithSecondaryAssignee = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${clientClinicId}/linked-records`,
+      primary.token,
+    );
+    assert.equal(linkedWithSecondaryAssignee.response.status, 200);
+    assert.equal(
+      linkedWithSecondaryAssignee.body.data.openTasks.find(
+        (task: any) => task.templateKey === `won_client_onboarding:${dealId}:invoice`,
+      ).assignedTo,
+      "Secondary Assignee",
+    );
+    await pool.execute(
+      "UPDATE clinic_membership SET status = 'inactive' WHERE user_id = ? AND clinic_id = ?",
+      [secondaryAssigneeId, primary.clinicId],
+    );
+
     const secondConversion = await fetchJson(baseUrl, "/api/client-accounts/convert-won", primary.token, {
       method: "POST",
-      body: JSON.stringify({ dealId, accountName: "Duplicate Conversion Attempt" }),
+      body: JSON.stringify({
+        dealId,
+        accountName: "Duplicate Conversion Attempt",
+        accountManagerId: uuidv4(),
+      }),
     });
     assert.equal(secondConversion.response.status, 201);
     assert.equal(secondConversion.body.data.id, clientAccountProfileId);
@@ -964,14 +1709,82 @@ test("won opportunities convert into client accounts with preserved history and 
       [primary.clinicId, clientAccountProfileId],
     );
     assert.equal(Number(taskRowsAfterRetry[0].count), 16, "Retrying conversion should not duplicate onboarding tasks");
+    const [repairedAssigneeRows]: any = await pool.execute(
+      `SELECT assigned_user_id as assignedUserId
+       FROM task
+       WHERE clinic_id = ?
+         AND template_key = ?`,
+      [primary.clinicId, `won_client_onboarding:${dealId}:invoice`],
+    );
+    assert.equal(repairedAssigneeRows[0].assignedUserId, primary.userId);
 
     const linkedRecords = await fetchJson(baseUrl, `/api/client-accounts/${clientClinicId}/linked-records`, primary.token);
     assert.equal(linkedRecords.response.status, 200);
     assert.equal(linkedRecords.body.data.contacts.some((contact: any) => contact.id === contactId), true);
     assert.equal(linkedRecords.body.data.openTasks.length, 16);
+    assert.equal(
+      linkedRecords.body.data.openTasks.every((task: any) => task.assignedTo === "WonDealConversion Admin"),
+      true,
+    );
+
+    const [accountCreatedAuditRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM audit_log
+       WHERE clinic_id = ?
+         AND action = 'CLIENT_ACCOUNT_CREATED'
+         AND entity_type = 'client_account_profile'
+         AND entity_id = ?
+         AND deleted_at IS NULL`,
+      [clientClinicId, clientAccountProfileId],
+    );
+    assert.equal(Number(accountCreatedAuditRows[0].count), 1, "Concurrent conversion should emit one account-created audit");
+
+    const [conversionAuditRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM audit_log
+       WHERE clinic_id = ?
+         AND action = 'WON_DEAL_CONVERTED_TO_CLIENT_ACCOUNT'
+         AND entity_type = 'deal'
+         AND entity_id = ?
+         AND deleted_at IS NULL`,
+      [primary.clinicId, dealId],
+    );
+    assert.equal(Number(conversionAuditRows[0].count), 1, "Concurrent conversion should emit one conversion audit");
+
+    const [conversionActivityRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM activity
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = 'won_deal_converted_to_client'
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.dealId')) = ?
+         AND deleted_at IS NULL`,
+      [primary.clinicId, contactId, dealId],
+    );
+    assert.equal(Number(conversionActivityRows[0].count), 1, "Concurrent conversion should emit one timeline event");
 
     console.log("[client-accounts] won deal conversion, history links, and onboarding tasks passed");
   } finally {
+    const [createdClientRows]: any = await pool.execute(
+      `SELECT c.id as clinicId
+       FROM clinic c
+       JOIN client_account_profile cap ON cap.clinic_id = c.id
+       WHERE c.name IN (?, ?)`,
+      [rollbackAccountName, convertedAccountName],
+    );
+
+    await pool.execute(
+      `DELETE FROM activity
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.action')) = 'won_deal_converted_to_client'
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.dealId')) = ?`,
+      [primary.clinicId, contactId, dealId],
+    );
+    await pool.execute(
+      "DELETE FROM audit_log WHERE clinic_id = ? AND action = 'WON_DEAL_CONVERTED_TO_CLIENT_ACCOUNT' AND entity_id = ?",
+      [primary.clinicId, dealId],
+    );
     await pool.execute("DELETE FROM task WHERE clinic_id = ? AND template_key LIKE ?", [primary.clinicId, `won_client_onboarding:${dealId}:%`]);
     await pool.execute("DELETE FROM proposal_acceptance_record WHERE id = ?", [acceptanceId]);
     await pool.execute("DELETE FROM proposal WHERE id = ?", [proposalId]);
@@ -981,6 +1794,351 @@ test("won opportunities convert into client accounts with preserved history and 
     await pool.execute("DELETE FROM pipeline WHERE id = ?", [pipelineId]);
     await pool.execute("DELETE FROM client_account_contact WHERE clinic_id = ? AND contact_id = ?", [primary.clinicId, contactId]);
     await pool.execute("UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND clinic_id = ?", [contactId, primary.clinicId]);
+    await pool.execute("DELETE FROM clinic_membership WHERE user_id = ?", [secondaryAssigneeId]);
+    await pool.execute("DELETE FROM user WHERE id = ?", [secondaryAssigneeId]);
+    for (const createdClient of createdClientRows) {
+      await pool.execute("DELETE FROM audit_log WHERE clinic_id = ?", [createdClient.clinicId]);
+      await pool.execute("DELETE FROM client_account_profile WHERE clinic_id = ?", [createdClient.clinicId]);
+      await pool.execute("DELETE FROM clinic WHERE id = ?", [createdClient.clinicId]);
+    }
+    await closeTestServer(server);
+  }
+});
+
+test("moving an opportunity to Won automatically and safely creates the onboarding checklist", async () => {
+  await testConnection();
+
+  const primary = await createClinicAndAdmin("PipelineWonAutomation");
+  const contactWriter = await createContactWriterUser(primary.clinicId, "PipelineWonAutomation");
+  const pipelineId = uuidv4();
+  const openStageId = uuidv4();
+  const wonStageId = uuidv4();
+  const automaticDealId = uuidv4();
+  const failedDealId = uuidv4();
+  const automaticContactId = await createTestContact(
+    primary.clinicId,
+    "AutomaticWon",
+    `Automatic Won Client ${automaticDealId}`,
+  );
+  const failedContactId = await createTestContact(
+    primary.clinicId,
+    "FailedAutomaticWon",
+    `Failed Automatic Won Client ${failedDealId}`,
+  );
+
+  await pool.execute(
+    "INSERT INTO pipeline (id, clinic_id, name, description, stages) VALUES (?, ?, ?, ?, JSON_ARRAY('Open', 'Won'))",
+    [pipelineId, primary.clinicId, defaultPipelineName, "MC-043 automatic conversion test"],
+  );
+  await pool.execute(
+    `INSERT INTO pipeline_stage
+      (id, clinic_id, pipeline_id, name, color, position, kind, is_locked, created_by)
+     VALUES
+      (?, ?, ?, 'Open', 'bg-slate-500', 1, 'open', 0, ?),
+      (?, ?, ?, 'Won', 'bg-emerald-500', 2, 'won', 1, ?)`,
+    [
+      openStageId,
+      primary.clinicId,
+      pipelineId,
+      primary.userId,
+      wonStageId,
+      primary.clinicId,
+      pipelineId,
+      primary.userId,
+    ],
+  );
+  const automationDeals: Array<[string, string]> = [
+    [automaticDealId, automaticContactId],
+    [failedDealId, failedContactId],
+  ];
+  for (const [dealId, contactId] of automationDeals) {
+    await pool.execute(
+      `INSERT INTO deal
+        (id, clinic_id, contact_id, pipeline_id, pipeline_stage_id, title, value, stage,
+         probability, owner_id, source, treatment, status, stage_changed_at, created_by)
+       VALUES (?, ?, ?, ?, ?, 'Growth delivery opportunity', 1750.00, 'Open',
+         50, ?, 'referral', 'Growth Engine', 'open', '2026-07-20 09:00:00', ?)`,
+      [dealId, primary.clinicId, contactId, pipelineId, openStageId, primary.userId, primary.userId],
+    );
+  }
+
+  const expressModule = await import("express") as any;
+  const express = expressModule.default;
+  const testApp = express();
+  testApp.use(express.json());
+  testApp.use("/api/pipeline", pipelineRoutes);
+  testApp.use(errorHandler);
+
+  const server = testApp.listen(0);
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to start pipeline won automation test server");
+  }
+  const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
+
+  try {
+    const rejectedWonCreation = await fetchJson(
+      baseUrl,
+      "/api/pipeline/deals",
+      primary.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          contactId: automaticContactId,
+          stageId: wonStageId,
+          title: "Direct Won bypass attempt",
+          valueCents: 175000,
+          treatment: "Growth Engine",
+        }),
+      },
+    );
+    assert.equal(rejectedWonCreation.response.status, 400);
+    assert.match(rejectedWonCreation.body.message, /open stage.*move it to Won/i);
+
+    const rejectedDirectWonStatus = await fetchJson(
+      baseUrl,
+      `/api/pipeline/deals/${failedDealId}`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status: "won" }),
+      },
+    );
+    assert.equal(rejectedDirectWonStatus.response.status, 400);
+    assert.match(rejectedDirectWonStatus.body.message, /controlled by its pipeline stage/i);
+
+    const rejectedOccupiedStageKindChange = await fetchJson(
+      baseUrl,
+      `/api/pipeline/stages/${openStageId}`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ kind: "won" }),
+      },
+    );
+    assert.equal(rejectedOccupiedStageKindChange.response.status, 409);
+    assert.match(rejectedOccupiedStageKindChange.body.message, /move every opportunity out/i);
+
+    const denied = await fetchJson(
+      baseUrl,
+      `/api/pipeline/deals/${automaticDealId}/move`,
+      contactWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ stageId: wonStageId }),
+      },
+    );
+    assert.equal(denied.response.status, 403);
+    const [afterDeniedRows]: any = await pool.execute(
+      `SELECT pipeline_stage_id as stageId, status, client_account_profile_id as profileId
+       FROM deal
+       WHERE id = ? AND clinic_id = ?`,
+      [automaticDealId, primary.clinicId],
+    );
+    assert.equal(afterDeniedRows[0].stageId, openStageId);
+    assert.equal(afterDeniedRows[0].status, "open");
+    assert.equal(afterDeniedRows[0].profileId, null);
+
+    const automatic = await fetchJson(
+      baseUrl,
+      `/api/pipeline/deals/${automaticDealId}/move`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ stageId: wonStageId }),
+      },
+    );
+    assert.equal(automatic.response.status, 200);
+    assert.equal(automatic.body.data.status, "won");
+    assert.ok(automatic.body.data.clientAccountProfileId);
+
+    const [automaticTaskRows]: any = await pool.execute(
+      `SELECT assigned_user_id as assignedUserId, due_date as dueDate
+       FROM task
+       WHERE clinic_id = ?
+         AND template_key LIKE ?
+         AND deleted_at IS NULL
+         AND archived_at IS NULL`,
+      [primary.clinicId, `won_client_onboarding:${automaticDealId}:%`],
+    );
+    assert.equal(automaticTaskRows.length, 16);
+    assert.equal(automaticTaskRows.every((row: any) => row.assignedUserId === primary.userId), true);
+    assert.equal(automaticTaskRows.every((row: any) => row.dueDate), true);
+
+    const sameStageRetry = await fetchJson(
+      baseUrl,
+      `/api/pipeline/deals/${automaticDealId}/move`,
+      primary.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ stageId: wonStageId }),
+      },
+    );
+    assert.equal(sameStageRetry.response.status, 200);
+    const [retryCountRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM task
+       WHERE clinic_id = ?
+         AND template_key LIKE ?
+         AND deleted_at IS NULL
+         AND archived_at IS NULL`,
+      [primary.clinicId, `won_client_onboarding:${automaticDealId}:%`],
+    );
+    assert.equal(Number(retryCountRows[0].count), 16);
+
+    const serviceWithPrivateHooks = clientAccountsService as any;
+    const originalConversionEventInserter = serviceWithPrivateHooks.insertConversionEvents;
+    serviceWithPrivateHooks.insertConversionEvents = async (...args: any[]) => {
+      await originalConversionEventInserter.apply(clientAccountsService, args);
+      throw new Error("Injected automatic conversion failure");
+    };
+    let failedMove: any;
+    try {
+      failedMove = await fetchJson(
+        baseUrl,
+        `/api/pipeline/deals/${failedDealId}/move`,
+        primary.token,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ stageId: wonStageId }),
+        },
+      );
+    } finally {
+      serviceWithPrivateHooks.insertConversionEvents = originalConversionEventInserter;
+    }
+    assert.equal(failedMove.response.status, 500);
+    const [failedDealRows]: any = await pool.execute(
+      `SELECT pipeline_stage_id as stageId,
+              stage,
+              status,
+              sold_at as soldAt,
+              client_account_profile_id as profileId,
+              DATE_FORMAT(stage_changed_at, '%Y-%m-%d %H:%i:%s') as stageChangedAt
+       FROM deal
+       WHERE id = ? AND clinic_id = ?`,
+      [failedDealId, primary.clinicId],
+    );
+    assert.equal(failedDealRows[0].stageId, openStageId);
+    assert.equal(failedDealRows[0].stage, "Open");
+    assert.equal(failedDealRows[0].status, "open");
+    assert.equal(failedDealRows[0].soldAt, null);
+    assert.equal(failedDealRows[0].profileId, null);
+    assert.equal(failedDealRows[0].stageChangedAt, "2026-07-20 09:00:00");
+    const [failedTaskRows]: any = await pool.execute(
+      "SELECT COUNT(*) as count FROM task WHERE clinic_id = ? AND template_key LIKE ?",
+      [primary.clinicId, `won_client_onboarding:${failedDealId}:%`],
+    );
+    assert.equal(Number(failedTaskRows[0].count), 0);
+
+    const pipelineWithPrivateHooks = pipelineDealsService as any;
+    const originalWonMoveEventsInserter = pipelineWithPrivateHooks.insertWonMoveEvents;
+    pipelineWithPrivateHooks.insertWonMoveEvents = async (...args: any[]) => {
+      await originalWonMoveEventsInserter.apply(pipelineDealsService, args);
+      throw new Error("Injected Won movement history failure");
+    };
+    let failedHistoryMove: any;
+    try {
+      failedHistoryMove = await fetchJson(
+        baseUrl,
+        `/api/pipeline/deals/${failedDealId}/move`,
+        primary.token,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ stageId: wonStageId }),
+        },
+      );
+    } finally {
+      pipelineWithPrivateHooks.insertWonMoveEvents = originalWonMoveEventsInserter;
+    }
+    assert.equal(failedHistoryMove.response.status, 500);
+
+    const [failedHistoryRows]: any = await pool.execute(
+      `SELECT
+         (SELECT pipeline_stage_id FROM deal WHERE id = ?) as stageId,
+         (SELECT status FROM deal WHERE id = ?) as status,
+         (SELECT client_account_profile_id FROM deal WHERE id = ?) as profileId,
+         (SELECT COUNT(*) FROM pipeline_deal_movement WHERE clinic_id = ? AND deal_id = ?) as movementCount,
+         (SELECT COUNT(*) FROM audit_log
+          WHERE clinic_id = ? AND entity_id = ? AND action IN (
+            'CLIENT_ACCOUNT_CREATED',
+            'WON_DEAL_CONVERTED_TO_CLIENT_ACCOUNT',
+            'PIPELINE_DEAL_MOVED'
+          )) as auditCount,
+         (SELECT COUNT(*) FROM activity
+          WHERE clinic_id = ?
+            AND contact_id = ?
+            AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.recordId')) = ?) as activityCount,
+         (SELECT COUNT(*) FROM task WHERE clinic_id = ? AND template_key LIKE ?) as taskCount,
+         (SELECT COUNT(*) FROM clinic WHERE name = ? AND deleted_at IS NULL) as clientCount`,
+      [
+        failedDealId,
+        failedDealId,
+        failedDealId,
+        primary.clinicId,
+        failedDealId,
+        primary.clinicId,
+        failedContactId,
+        failedDealId,
+        primary.clinicId,
+        failedDealId,
+        primary.clinicId,
+        `won_client_onboarding:${failedDealId}:%`,
+        `Failed Automatic Won Client ${failedDealId}`,
+      ],
+    );
+    assert.equal(failedHistoryRows[0].stageId, openStageId);
+    assert.equal(failedHistoryRows[0].status, "open");
+    assert.equal(failedHistoryRows[0].profileId, null);
+    assert.equal(Number(failedHistoryRows[0].movementCount), 0);
+    assert.equal(Number(failedHistoryRows[0].auditCount), 0);
+    assert.equal(Number(failedHistoryRows[0].activityCount), 0);
+    assert.equal(Number(failedHistoryRows[0].taskCount), 0);
+    assert.equal(Number(failedHistoryRows[0].clientCount), 0);
+
+    console.log("[client-accounts] pipeline Won automation, RBAC, idempotency and atomic rollback passed");
+  } finally {
+    const [createdClientRows]: any = await pool.execute(
+      `SELECT DISTINCT cap.clinic_id as clinicId
+       FROM deal d
+       JOIN client_account_profile cap ON cap.id = d.client_account_profile_id
+       WHERE d.id IN (?, ?)`,
+      [automaticDealId, failedDealId],
+    );
+    await pool.execute(
+      "DELETE FROM activity WHERE clinic_id = ? AND contact_id IN (?, ?)",
+      [primary.clinicId, automaticContactId, failedContactId],
+    );
+    await pool.execute(
+      "DELETE FROM audit_log WHERE clinic_id = ? AND entity_id IN (?, ?)",
+      [primary.clinicId, automaticDealId, failedDealId],
+    );
+    await pool.execute(
+      "DELETE FROM task WHERE clinic_id = ? AND (template_key LIKE ? OR template_key LIKE ?)",
+      [
+        primary.clinicId,
+        `won_client_onboarding:${automaticDealId}:%`,
+        `won_client_onboarding:${failedDealId}:%`,
+      ],
+    );
+    await pool.execute(
+      "DELETE FROM client_account_contact WHERE clinic_id = ? AND contact_id IN (?, ?)",
+      [primary.clinicId, automaticContactId, failedContactId],
+    );
+    await pool.execute(
+      "DELETE FROM pipeline_deal_movement WHERE clinic_id = ? AND deal_id IN (?, ?)",
+      [primary.clinicId, automaticDealId, failedDealId],
+    );
+    await pool.execute("DELETE FROM deal WHERE id IN (?, ?)", [automaticDealId, failedDealId]);
+    await pool.execute("DELETE FROM pipeline_stage WHERE id IN (?, ?)", [openStageId, wonStageId]);
+    await pool.execute("DELETE FROM pipeline WHERE id = ?", [pipelineId]);
+    await pool.execute("DELETE FROM contact WHERE id IN (?, ?)", [automaticContactId, failedContactId]);
+    for (const createdClient of createdClientRows) {
+      await pool.execute("DELETE FROM audit_log WHERE clinic_id = ?", [createdClient.clinicId]);
+      await pool.execute("DELETE FROM client_account_profile WHERE clinic_id = ?", [createdClient.clinicId]);
+      await pool.execute("DELETE FROM clinic WHERE id = ?", [createdClient.clinicId]);
+    }
+    await pool.execute("DELETE FROM role_permission WHERE role_id = ?", [contactWriter.roleId]);
+    await pool.execute("DELETE FROM role WHERE id = ?", [contactWriter.roleId]);
     await closeTestServer(server);
   }
 });
@@ -990,6 +2148,8 @@ test("client account profile API is permission protected, updateable, audited, a
 
   const admin = await createClinicAndAdmin("ClientAccountProfile");
   const limitedUser = await createInternalViewerUser(admin.clinicId, "ClientAccountProfile");
+  const clientAccountWriter = await createClientAccountWriterUser(admin.clinicId, "ClientAccountProfile");
+  const originalAutoProvisionClinicId = config.oauth.google.autoProvisionClinicId;
   const expressModule = await import("express") as any;
   const express = expressModule.default;
   const testApp = express();
@@ -1005,8 +2165,11 @@ test("client account profile API is permission protected, updateable, audited, a
   }
 
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
+  let managedClientClinicId: string | null = null;
 
   try {
+    (config as any).oauth.google.autoProvisionClinicId = admin.clinicId;
+
     const forbidden = await fetchJson(baseUrl, "/api/client-accounts/profile", limitedUser.token);
     assert.equal(forbidden.response.status, 403);
 
@@ -1240,6 +2403,132 @@ test("client account profile API is permission protected, updateable, audited, a
 
     console.log("[client-accounts] issue/support tracker integration test passed");
 
+    const writerSelfProfile = await fetchJson(
+      baseUrl,
+      "/api/client-accounts/profile",
+      clientAccountWriter.token,
+    );
+    assert.equal(writerSelfProfile.response.status, 200);
+
+    const writerSelfUpdate = await fetchJson(
+      baseUrl,
+      "/api/client-accounts/profile",
+      clientAccountWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ keyNotes: "Quarterly review scheduled by client account writer" }),
+      },
+    );
+    assert.equal(writerSelfUpdate.response.status, 200);
+    assert.equal(
+      writerSelfUpdate.body.data.keyNotes,
+      "Quarterly review scheduled by client account writer",
+    );
+
+    const createdManagedClient = await fetchJson(baseUrl, "/api/client-accounts", admin.token, {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Managed Client ${admin.clinicId}`,
+        currentPackage: "Growth Engine",
+        monthlyPrice: 1995,
+      }),
+    });
+    assert.equal(createdManagedClient.response.status, 201);
+    managedClientClinicId = createdManagedClient.body.data.clinicId;
+    assert.equal(createdManagedClient.body.data.missingDocumentCount, 11);
+    assert.equal(createdManagedClient.body.data.missingAccessCount, 10);
+
+    const managedAccountList = await fetchJson(baseUrl, "/api/client-accounts", admin.token);
+    assert.equal(managedAccountList.response.status, 200);
+    const managedAccountSummary = managedAccountList.body.data.find(
+      (account: any) => account.clinicId === managedClientClinicId,
+    );
+    assert.ok(managedAccountSummary);
+    assert.equal(managedAccountSummary.missingDocumentCount, 11);
+    assert.equal(managedAccountSummary.missingAccessCount, 10);
+
+    const writerManagedProfile = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${managedClientClinicId}/profile`,
+      clientAccountWriter.token,
+    );
+    assert.equal(writerManagedProfile.response.status, 403);
+
+    const writerManagedUpdate = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${managedClientClinicId}/profile`,
+      clientAccountWriter.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          monthlyPrice: 1,
+          paymentStatus: "paid",
+          invoiceStatus: "paid",
+        }),
+      },
+    );
+    assert.equal(writerManagedUpdate.response.status, 403);
+
+    const managedProfile = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${managedClientClinicId}/profile`,
+      admin.token,
+    );
+    assert.equal(managedProfile.response.status, 200);
+    assert.equal(managedProfile.body.data.clinicId, managedClientClinicId);
+    assert.equal(managedProfile.body.data.currentPackage, "Growth Engine");
+    assert.equal(managedProfile.body.data.missingDocumentCount, 11);
+    assert.equal(managedProfile.body.data.missingAccessCount, 10);
+    assert.equal(
+      managedProfile.body.data.monthlyPrice,
+      1995,
+      "Forbidden managed update must not change commercial fields",
+    );
+
+    const managedDocuments = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${managedClientClinicId}/documents`,
+      admin.token,
+    );
+    assert.equal(managedDocuments.response.status, 200);
+    assert.equal(managedDocuments.body.data.length, 11);
+    assert.equal(
+      managedDocuments.body.data.filter((item: any) => item.status === "missing").length,
+      managedProfile.body.data.missingDocumentCount,
+    );
+
+    const managedAccessItems = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${managedClientClinicId}/access-items`,
+      admin.token,
+    );
+    assert.equal(managedAccessItems.response.status, 200);
+    assert.equal(managedAccessItems.body.data.length, 10);
+    assert.equal(
+      managedAccessItems.body.data.filter((item: any) => item.isMissing).length,
+      managedProfile.body.data.missingAccessCount,
+    );
+
+    const managedUpdate = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${managedClientClinicId}/profile`,
+      admin.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          accountManagerId: admin.userId,
+          monthlyPrice: 2495,
+          paymentStatus: "paid",
+          invoiceStatus: "paid",
+        }),
+      },
+    );
+    assert.equal(managedUpdate.response.status, 200);
+    assert.equal(managedUpdate.body.data.accountManager.id, admin.userId);
+    assert.equal(managedUpdate.body.data.monthlyPrice, 2495);
+    assert.equal(managedUpdate.body.data.paymentStatus, "paid");
+    assert.equal(managedUpdate.body.data.invoiceStatus, "paid");
+
     console.log("[client-accounts] profile API integration test passed");
 
     // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
@@ -1413,8 +2702,20 @@ test("client account profile API is permission protected, updateable, audited, a
 
     console.log("[client-accounts] service CRUD integration test passed");
   } finally {
-    await pool.execute("DELETE FROM role_permission WHERE role_id = ?", [limitedUser.roleId]);
-    await pool.execute("DELETE FROM role WHERE id = ?", [limitedUser.roleId]);
+    (config as any).oauth.google.autoProvisionClinicId = originalAutoProvisionClinicId;
+    if (managedClientClinicId) {
+      await pool.execute("DELETE FROM audit_log WHERE clinic_id IN (?, ?)", [admin.clinicId, managedClientClinicId]);
+      await pool.execute("DELETE FROM client_account_profile WHERE clinic_id = ?", [managedClientClinicId]);
+      await pool.execute("DELETE FROM clinic WHERE id = ?", [managedClientClinicId]);
+    }
+    await pool.execute(
+      "DELETE FROM role_permission WHERE role_id IN (?, ?)",
+      [limitedUser.roleId, clientAccountWriter.roleId],
+    );
+    await pool.execute(
+      "DELETE FROM role WHERE id IN (?, ?)",
+      [limitedUser.roleId, clientAccountWriter.roleId],
+    );
 
     // Clean up service records before profile/contact cleanup
     await pool.execute(`DELETE FROM audit_log WHERE clinic_id = ? AND entity_type = 'client_account_service'`, [admin.clinicId]);

@@ -97,9 +97,18 @@ export default function TaskDetailPage() {
     () => clientAccounts.find((account) => account.id === task?.clientAccountProfileId) || null,
     [clientAccounts, task?.clientAccountProfileId],
   );
+  const isDashboardJourney = searchParams.get("from") === "dashboard";
   const isDeliveryTask = searchParams.get("from") === "delivery" || Boolean(task?.clientAccountProfileId || task?.clientAccountServiceId);
-  const backHref = isDeliveryTask ? "/app/ops/delivery" : "/app/crm/tasks";
-  const backLabel = isDeliveryTask ? "Back to delivery work" : "Back to internal tasks";
+  const backHref = isDashboardJourney
+    ? "/app"
+    : isDeliveryTask
+      ? "/app/ops/delivery"
+      : "/app/crm/tasks";
+  const backLabel = isDashboardJourney
+    ? "Back to Mission Control"
+    : isDeliveryTask
+      ? "Back to delivery work"
+      : "Back to internal tasks";
 
   async function toggleStatus() {
     if (!token || !task) return;

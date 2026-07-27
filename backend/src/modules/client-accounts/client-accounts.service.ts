@@ -1,10 +1,11 @@
 import { v4 as uuidv4 } from "uuid";
 import crypto from "node:crypto";
+import type { PoolConnection } from "mysql2/promise";
 import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
-import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
-import { logAuditEvent } from "../../utils/audit.js";
+import { buildTimelineMetadata, insertTimelineActivity } from "../../utils/activity.js";
+import { insertAuditEvent, logAuditEvent } from "../../utils/audit.js";
 import { googleDriveOAuthService } from "./google-drive-oauth.service.js";
 import type {
   ClientAccountAuditContext,
@@ -104,6 +105,9 @@ const clientAccessItemTypes = [
   { type: "treatment_pricing_info", label: "Treatment/pricing information" },
   { type: "reporting_access", label: "Reporting access" },
 ] as const satisfies ReadonlyArray<{ type: ClientAccessItemType; label: string }>;
+
+const expectedClientDocumentLinkCount = clientDocumentTypes.length - 1;
+const expectedClientAccessItemCount = clientAccessItemTypes.length;
 
 function parseServices(value: unknown): string[] {
   if (!value) return [];
@@ -350,10 +354,15 @@ function contactDisplayName(row: any) {
     "Unnamed contact";
 }
 
-type GoogleDriveItemKind = "folder" | "zip" | "unknown";
+type GoogleDriveItemKind = "folder" | "file" | "unknown";
 type GoogleDriveTokenCache = {
   token: string;
   expiresAt: number;
+};
+
+type WonDealConversionTransactionHooks = {
+  beforeConversion?: (connection: PoolConnection) => Promise<void>;
+  afterConversion?: (connection: PoolConnection) => Promise<void>;
 };
 
 function extractGoogleDriveItem(value: string): { id: string; kindHint: GoogleDriveItemKind } {
@@ -367,27 +376,39 @@ function extractGoogleDriveItem(value: string): { id: string; kindHint: GoogleDr
   try {
     url = new URL(input);
   } catch {
-    throw ApiError.badRequest("Enter a valid Google Drive folder or ZIP file URL or ID.");
+    throw ApiError.badRequest("Enter a valid Google Drive item URL or ID.");
   }
 
   const host = url.hostname.toLowerCase();
-  if (!host.endsWith("drive.google.com")) {
-    throw ApiError.badRequest("Only Google Drive folder or ZIP file links are supported.");
+  if (
+    url.protocol !== "https:" ||
+    (host !== "drive.google.com" && host !== "docs.google.com")
+  ) {
+    throw ApiError.badRequest("Only HTTPS Google Drive and Google Docs links are supported.");
   }
 
-  const path = decodeURIComponent(url.pathname);
+  let path: string;
+  try {
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    throw ApiError.badRequest("Google Drive link contains invalid URL encoding.");
+  }
   const fileId = path.match(/\/file\/d\/([^/?#]+)/)?.[1];
+  const googleEditorId = path.match(
+    /\/(?:document|spreadsheets|presentation|forms|drawings)\/(?:u\/\d+\/)?d\/([^/?#]+)/,
+  )?.[1];
   const folderId =
     path.match(/\/drive\/(?:u\/\d+\/)?(?:mobile\/)?folders\/([^/?#]+)/)?.[1] ||
     path.match(/\/folders\/([^/?#]+)/)?.[1];
   const driveId =
     folderId ||
     fileId ||
+    googleEditorId ||
     url.searchParams.get("id");
-  const kindHint: GoogleDriveItemKind = folderId ? "folder" : fileId ? "zip" : "unknown";
+  const kindHint: GoogleDriveItemKind = folderId ? "folder" : fileId || googleEditorId ? "file" : "unknown";
 
   if (!validDriveId(driveId)) {
-    throw ApiError.badRequest("Google Drive link must include a valid folder or ZIP file ID.");
+    throw ApiError.badRequest("Google Drive link must include a valid item ID.");
   }
 
   return { id: String(driveId), kindHint };
@@ -511,8 +532,23 @@ export class ClientAccountsService {
           COALESCE(task_summary.escalatedTaskCount, 0) as escalatedTaskCount,
           COALESCE(issue_summary.openIssueCount, 0) as openIssueCount,
           COALESCE(issue_summary.overdueIssueCount, 0) as overdueIssueCount,
-          COALESCE(document_summary.missingDocumentCount, 0) as missingDocumentCount,
-          COALESCE(access_summary.missingAccessCount, 0) as missingAccessCount,
+          (
+            CASE
+              WHEN cap.google_drive_folder_url IS NULL
+                OR cap.google_drive_folder_url = ''
+                OR cap.google_drive_folder_access_status = 'inaccessible'
+              THEN 1
+              ELSE 0
+            END
+            + GREATEST(
+                0,
+                ${expectedClientDocumentLinkCount} - COALESCE(document_summary.availableDocumentCount, 0)
+              )
+          ) as missingDocumentCount,
+          GREATEST(
+            0,
+            ${expectedClientAccessItemCount} - COALESCE(access_summary.completedAccessCount, 0)
+          ) as missingAccessCount,
           strategy_summary.lastStrategyLogAt as lastStrategyLogAt,
           action_plan_summary.actionPlanId as actionPlanId,
           action_plan_summary.actionPlanMonth as actionPlanMonth,
@@ -571,19 +607,21 @@ export class ClientAccountsService {
        LEFT JOIN (
           SELECT
             client_account_profile_id,
-            COUNT(*) as missingDocumentCount
+            COUNT(*) as availableDocumentCount
           FROM client_account_document_link
           WHERE clinic_id = ?
-            AND (drive_url IS NULL OR drive_url = '' OR access_status = 'inaccessible')
+            AND drive_url IS NOT NULL
+            AND drive_url <> ''
+            AND access_status <> 'inaccessible'
           GROUP BY client_account_profile_id
        ) document_summary ON document_summary.client_account_profile_id = cap.id
        LEFT JOIN (
           SELECT
             client_account_profile_id,
-            COUNT(*) as missingAccessCount
+            COUNT(*) as completedAccessCount
           FROM client_account_access_item
           WHERE clinic_id = ?
-            AND status = 'requested'
+            AND status IN ('received', 'not_needed')
           GROUP BY client_account_profile_id
        ) access_summary ON access_summary.client_account_profile_id = cap.id
        LEFT JOIN (
@@ -642,88 +680,9 @@ export class ClientAccountsService {
     const payload = this.normalizeAccountPayload(data);
 
     const connection = await pool.getConnection();
-    await connection.beginTransaction();
-
     try {
-      await connection.execute(
-        `INSERT INTO clinic
-          (id, name, email, website, phone, address, city, state, postal_code, country,
-           timezone, subscription_plan, subscription_status, max_users)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Europe/London', 'professional', 'active', 20)`,
-        [
-          clinicId,
-          payload.name,
-          payload.email,
-          payload.website,
-          payload.phone,
-          payload.address,
-          payload.city,
-          payload.state,
-          payload.postalCode,
-          payload.country,
-        ],
-      );
-
-      await connection.execute(
-        `INSERT INTO client_account_profile
-          (id, clinic_id, account_manager_id, active_services, onboarding_status, health_status,
-           client_status, current_package, monthly_price, setup_fee, currency,
-           recommended_next_package, upsell_opportunity,
-           growth_score_overall, growth_score_categories, growth_score_website_visibility, growth_score_seo, growth_score_gbp,
-           growth_score_tracking, growth_score_conversion, growth_score_lead_handling, growth_score_response_speed,
-           growth_score_enquiry_visibility, growth_score_treatment_performance, growth_score_revenue_leakage,
-           growth_score_growth_opportunity, growth_score_recommended_package, growth_score_gap_summary, growth_score_updated_at,
-           churn_risk, last_contact_at, last_report_at, last_loom_at, renewal_date, contract_status, contract_start_date, notice_date,
-           payment_status, invoice_status, payment_notes, key_notes,
-           created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          profileId,
-          clinicId,
-          payload.accountManagerId,
-          JSON.stringify(payload.activeServices),
-          payload.onboardingStatus,
-          payload.healthStatus,
-          payload.clientStatus,
-          payload.currentPackage,
-          payload.monthlyPrice,
-          payload.setupFee,
-          payload.currency,
-          payload.recommendedNextPackage,
-          payload.upsellOpportunity,
-          payload.growthScoreOverall,
-          JSON.stringify(payload.growthScoreCategories),
-          payload.growthScoreCategories.websiteVisibility,
-          payload.growthScoreCategories.seo,
-          payload.growthScoreCategories.gbp,
-          payload.growthScoreCategories.tracking,
-          payload.growthScoreCategories.conversion,
-          payload.growthScoreCategories.leadHandling,
-          payload.growthScoreCategories.responseSpeed,
-          payload.growthScoreCategories.enquiryVisibility,
-          payload.growthScoreCategories.treatmentPerformance,
-          payload.growthScoreCategories.revenueLeakage,
-          payload.growthScoreCategories.growthOpportunity,
-          payload.growthScoreRecommendedPackage,
-          payload.growthScoreGapSummary,
-          payload.growthScoreUpdatedAt,
-          payload.churnRisk,
-          payload.lastContactAt,
-          payload.lastReportAt,
-          payload.lastLoomAt,
-          payload.renewalDate,
-          payload.contractStatus,
-          payload.contractStartDate,
-          payload.noticeDate,
-          payload.paymentStatus,
-          payload.invoiceStatus,
-          payload.paymentNotes,
-          payload.keyNotes,
-          userId,
-          userId,
-        ],
-      );
-
+      await connection.beginTransaction();
+      await this.insertAccountRows(connection, userId, clinicId, profileId, data);
       await connection.commit();
     } catch (error) {
       await connection.rollback();
@@ -744,6 +703,95 @@ export class ClientAccountsService {
     });
 
     return this.getAccountSummary(clinicId);
+  }
+
+  private async insertAccountRows(
+    connection: PoolConnection,
+    userId: string,
+    clinicId: string,
+    profileId: string,
+    data: CreateClientAccountDTO,
+  ) {
+    const payload = this.normalizeAccountPayload(data);
+
+    await connection.execute(
+      `INSERT INTO clinic
+        (id, name, email, website, phone, address, city, state, postal_code, country,
+         timezone, subscription_plan, subscription_status, max_users)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Europe/London', 'professional', 'active', 20)`,
+      [
+        clinicId,
+        payload.name,
+        payload.email,
+        payload.website,
+        payload.phone,
+        payload.address,
+        payload.city,
+        payload.state,
+        payload.postalCode,
+        payload.country,
+      ],
+    );
+
+    await connection.execute(
+      `INSERT INTO client_account_profile
+        (id, clinic_id, account_manager_id, active_services, onboarding_status, health_status,
+         client_status, current_package, monthly_price, setup_fee, currency,
+         recommended_next_package, upsell_opportunity,
+         growth_score_overall, growth_score_categories, growth_score_website_visibility, growth_score_seo, growth_score_gbp,
+         growth_score_tracking, growth_score_conversion, growth_score_lead_handling, growth_score_response_speed,
+         growth_score_enquiry_visibility, growth_score_treatment_performance, growth_score_revenue_leakage,
+         growth_score_growth_opportunity, growth_score_recommended_package, growth_score_gap_summary, growth_score_updated_at,
+         churn_risk, last_contact_at, last_report_at, last_loom_at, renewal_date, contract_status, contract_start_date, notice_date,
+         payment_status, invoice_status, payment_notes, key_notes,
+         created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        profileId,
+        clinicId,
+        payload.accountManagerId,
+        JSON.stringify(payload.activeServices),
+        payload.onboardingStatus,
+        payload.healthStatus,
+        payload.clientStatus,
+        payload.currentPackage,
+        payload.monthlyPrice,
+        payload.setupFee,
+        payload.currency,
+        payload.recommendedNextPackage,
+        payload.upsellOpportunity,
+        payload.growthScoreOverall,
+        JSON.stringify(payload.growthScoreCategories),
+        payload.growthScoreCategories.websiteVisibility,
+        payload.growthScoreCategories.seo,
+        payload.growthScoreCategories.gbp,
+        payload.growthScoreCategories.tracking,
+        payload.growthScoreCategories.conversion,
+        payload.growthScoreCategories.leadHandling,
+        payload.growthScoreCategories.responseSpeed,
+        payload.growthScoreCategories.enquiryVisibility,
+        payload.growthScoreCategories.treatmentPerformance,
+        payload.growthScoreCategories.revenueLeakage,
+        payload.growthScoreCategories.growthOpportunity,
+        payload.growthScoreRecommendedPackage,
+        payload.growthScoreGapSummary,
+        payload.growthScoreUpdatedAt,
+        payload.churnRisk,
+        payload.lastContactAt,
+        payload.lastReportAt,
+        payload.lastLoomAt,
+        payload.renewalDate,
+        payload.contractStatus,
+        payload.contractStartDate,
+        payload.noticeDate,
+        payload.paymentStatus,
+        payload.invoiceStatus,
+        payload.paymentNotes,
+        payload.keyNotes,
+        userId,
+        userId,
+      ],
+    );
   }
 
   async createAccountFromContact(
@@ -851,326 +899,410 @@ export class ClientAccountsService {
     userId: string,
     data: ConvertWonDealToClientDTO,
     auditContext: ClientAccountAuditContext,
+    transactionHooks: WonDealConversionTransactionHooks = {},
   ): Promise<ClientAccountSummaryResponse> {
-    const [dealRows]: any = await pool.execute(
-      `SELECT d.id,
-              d.contact_id as contactId,
-              d.client_account_profile_id as clientAccountProfileId,
-              d.title,
-              d.value,
-              d.source as dealSource,
-              d.treatment,
-              d.owner_id as ownerId,
-              d.status,
-              d.sold_at as soldAt,
-              d.audit_status as auditStatus,
-              d.audit_assigned_to as auditAssignedTo,
-              d.audit_follow_up_due_at as auditFollowUpDueAt,
-              d.audit_status_updated_at as auditStatusUpdatedAt,
-              ps.kind as stageKind,
-              c.first_name as firstName,
-              c.last_name as lastName,
-              c.email,
-              c.phone,
-              c.website,
-              c.account_name as accountName,
-              c.address,
-              c.city,
-              c.state,
-              c.postal_code as postalCode,
-              c.country,
-              c.source as contactSource,
-              c.value as contactValue,
-              c.treatment_interests as treatmentInterests,
-              c.package_interest as packageInterest,
-              c.recommended_package as recommendedPackage,
-              c.notes,
-              c.growth_score_overall as growthScoreOverall,
-              c.growth_score_categories as growthScoreCategories,
-              c.growth_score_website_visibility as growthScoreWebsiteVisibility,
-              c.growth_score_seo as growthScoreSeo,
-              c.growth_score_gbp as growthScoreGbp,
-              c.growth_score_tracking as growthScoreTracking,
-              c.growth_score_conversion as growthScoreConversion,
-              c.growth_score_lead_handling as growthScoreLeadHandling,
-              c.growth_score_response_speed as growthScoreResponseSpeed,
-              c.growth_score_enquiry_visibility as growthScoreEnquiryVisibility,
-              c.growth_score_treatment_performance as growthScoreTreatmentPerformance,
-              c.growth_score_revenue_leakage as growthScoreRevenueLeakage,
-              c.growth_score_growth_opportunity as growthScoreGrowthOpportunity,
-              c.growth_score_recommended_package as growthScoreRecommendedPackage,
-              c.growth_score_gap_summary as growthScoreGapSummary,
-              c.growth_score_updated_at as growthScoreUpdatedAt,
-              (
-                SELECT par.monthly_fee_cents
-                FROM proposal_acceptance_record par
-                WHERE par.clinic_id = d.clinic_id
-                  AND par.deleted_at IS NULL
-                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
-                ORDER BY par.accepted_at DESC
-                LIMIT 1
-              ) as acceptedMonthlyFeeCents,
-              (
-                SELECT par.setup_fee_cents
-                FROM proposal_acceptance_record par
-                WHERE par.clinic_id = d.clinic_id
-                  AND par.deleted_at IS NULL
-                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
-                ORDER BY par.accepted_at DESC
-                LIMIT 1
-              ) as acceptedSetupFeeCents,
-              (
-                SELECT par.currency
-                FROM proposal_acceptance_record par
-                WHERE par.clinic_id = d.clinic_id
-                  AND par.deleted_at IS NULL
-                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
-                ORDER BY par.accepted_at DESC
-                LIMIT 1
-              ) as acceptedCurrency,
-              (
-                SELECT par.start_date
-                FROM proposal_acceptance_record par
-                WHERE par.clinic_id = d.clinic_id
-                  AND par.deleted_at IS NULL
-                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
-                ORDER BY par.accepted_at DESC
-                LIMIT 1
-              ) as acceptedStartDate,
-              (
-                SELECT par.minimum_term_months
-                FROM proposal_acceptance_record par
-                WHERE par.clinic_id = d.clinic_id
-                  AND par.deleted_at IS NULL
-                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
-                ORDER BY par.accepted_at DESC
-                LIMIT 1
-              ) as acceptedMinimumTermMonths,
-              (
-                SELECT par.notice_period_days
-                FROM proposal_acceptance_record par
-                WHERE par.clinic_id = d.clinic_id
-                  AND par.deleted_at IS NULL
-                  AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
-                ORDER BY par.accepted_at DESC
-                LIMIT 1
-              ) as acceptedNoticePeriodDays
-       FROM deal d
-       JOIN contact c
-         ON c.id = d.contact_id
-        AND c.clinic_id = d.clinic_id
-        AND c.deleted_at IS NULL
-       LEFT JOIN pipeline_stage ps
-         ON ps.id = d.pipeline_stage_id
-        AND ps.clinic_id = d.clinic_id
-        AND ps.deleted_at IS NULL
-       WHERE d.id = ?
-         AND d.clinic_id = ?
-         AND d.deleted_at IS NULL
-       LIMIT 1`,
-      [data.dealId, sourceClinicId],
-    );
+    const connection = await pool.getConnection();
+    let existingClinicId: string | null = null;
+    let createdClinicId: string | null = null;
+    let createdProfileId: string | null = null;
+    let accountPayload: CreateClientAccountDTO | null = null;
+    let deal: any = null;
 
-    const deal = dealRows[0];
-    if (!deal) throw ApiError.notFound("Won opportunity not found");
-    if (deal.status !== "won" && deal.stageKind !== "won") {
-      throw ApiError.badRequest("Only won opportunities can be converted to client accounts");
-    }
+    try {
+      await connection.beginTransaction();
+      await transactionHooks.beforeConversion?.(connection);
 
-    if (deal.clientAccountProfileId) {
-      const [profileRows]: any = await pool.execute(
-        "SELECT clinic_id as clinicId FROM client_account_profile WHERE id = ? LIMIT 1",
-        [deal.clientAccountProfileId],
+      const [lockedDealRows]: any = await connection.execute(
+        `SELECT contact_id as contactId,
+                client_account_profile_id as clientAccountProfileId
+         FROM deal
+         WHERE id = ?
+           AND clinic_id = ?
+           AND deleted_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+        [data.dealId, sourceClinicId],
       );
-      if (profileRows[0]?.clinicId) {
-        return this.getAccountSummary(profileRows[0].clinicId);
+      const lockedDeal = lockedDealRows[0];
+      if (!lockedDeal) throw ApiError.notFound("Won opportunity not found");
+
+      if (lockedDeal.clientAccountProfileId) {
+        const [profileRows]: any = await connection.execute(
+          `SELECT cap.clinic_id as clinicId,
+                  c.name as clinicName
+           FROM client_account_profile cap
+           JOIN clinic c
+             ON c.id = cap.clinic_id
+            AND c.deleted_at IS NULL
+           WHERE cap.id = ?
+           LIMIT 1`,
+          [lockedDeal.clientAccountProfileId],
+        );
+        if (!profileRows[0]?.clinicId) {
+          throw ApiError.conflict("Converted client account link is invalid");
+        }
+        existingClinicId = profileRows[0].clinicId;
+
+        const [existingDealRows]: any = await connection.execute(
+          `SELECT d.id,
+                  d.contact_id as contactId,
+                  d.title,
+                  d.treatment,
+                  d.source as dealSource,
+                  d.owner_id as ownerId,
+                  c.first_name as firstName,
+                  c.last_name as lastName,
+                  c.email,
+                  c.source as contactSource
+           FROM deal d
+           JOIN contact c
+             ON c.id = d.contact_id
+            AND c.clinic_id = d.clinic_id
+            AND c.deleted_at IS NULL
+           WHERE d.id = ?
+             AND d.clinic_id = ?
+             AND d.deleted_at IS NULL
+           LIMIT 1`,
+          [data.dealId, sourceClinicId],
+        );
+        deal = existingDealRows[0];
+        if (!deal) throw ApiError.notFound("Won opportunity not found");
+
+        await this.createConversionOnboardingTasks(
+          sourceClinicId,
+          userId,
+          {
+            id: lockedDeal.clientAccountProfileId,
+            clinicName: profileRows[0].clinicName,
+          },
+          deal,
+          connection,
+        );
+      } else {
+        const [lockedContactRows]: any = await connection.execute(
+          `SELECT id
+           FROM contact
+           WHERE id = ?
+             AND clinic_id = ?
+             AND deleted_at IS NULL
+           LIMIT 1
+           FOR UPDATE`,
+          [lockedDeal.contactId, sourceClinicId],
+        );
+        if (!lockedContactRows[0]) {
+          throw ApiError.notFound("Won opportunity contact not found");
+        }
+
+        if (data.accountManagerId) {
+          await this.ensureActiveInternalUser(data.accountManagerId, connection);
+        }
+
+        const [dealRows]: any = await connection.execute(
+          `SELECT d.id,
+                  d.contact_id as contactId,
+                  d.client_account_profile_id as clientAccountProfileId,
+                  d.title,
+                  d.value,
+                  d.source as dealSource,
+                  d.treatment,
+                  d.owner_id as ownerId,
+                  d.status,
+                  d.sold_at as soldAt,
+                  d.audit_status as auditStatus,
+                  d.audit_assigned_to as auditAssignedTo,
+                  d.audit_follow_up_due_at as auditFollowUpDueAt,
+                  d.audit_status_updated_at as auditStatusUpdatedAt,
+                  ps.kind as stageKind,
+                  c.first_name as firstName,
+                  c.last_name as lastName,
+                  c.email,
+                  c.phone,
+                  c.website,
+                  c.account_name as accountName,
+                  c.address,
+                  c.city,
+                  c.state,
+                  c.postal_code as postalCode,
+                  c.country,
+                  c.source as contactSource,
+                  c.value as contactValue,
+                  c.treatment_interests as treatmentInterests,
+                  c.package_interest as packageInterest,
+                  c.recommended_package as recommendedPackage,
+                  c.notes,
+                  c.growth_score_overall as growthScoreOverall,
+                  c.growth_score_categories as growthScoreCategories,
+                  c.growth_score_website_visibility as growthScoreWebsiteVisibility,
+                  c.growth_score_seo as growthScoreSeo,
+                  c.growth_score_gbp as growthScoreGbp,
+                  c.growth_score_tracking as growthScoreTracking,
+                  c.growth_score_conversion as growthScoreConversion,
+                  c.growth_score_lead_handling as growthScoreLeadHandling,
+                  c.growth_score_response_speed as growthScoreResponseSpeed,
+                  c.growth_score_enquiry_visibility as growthScoreEnquiryVisibility,
+                  c.growth_score_treatment_performance as growthScoreTreatmentPerformance,
+                  c.growth_score_revenue_leakage as growthScoreRevenueLeakage,
+                  c.growth_score_growth_opportunity as growthScoreGrowthOpportunity,
+                  c.growth_score_recommended_package as growthScoreRecommendedPackage,
+                  c.growth_score_gap_summary as growthScoreGapSummary,
+                  c.growth_score_updated_at as growthScoreUpdatedAt,
+                  (
+                    SELECT par.monthly_fee_cents
+                    FROM proposal_acceptance_record par
+                    WHERE par.clinic_id = d.clinic_id
+                      AND par.deleted_at IS NULL
+                      AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                    ORDER BY par.accepted_at DESC
+                    LIMIT 1
+                  ) as acceptedMonthlyFeeCents,
+                  (
+                    SELECT par.setup_fee_cents
+                    FROM proposal_acceptance_record par
+                    WHERE par.clinic_id = d.clinic_id
+                      AND par.deleted_at IS NULL
+                      AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                    ORDER BY par.accepted_at DESC
+                    LIMIT 1
+                  ) as acceptedSetupFeeCents,
+                  (
+                    SELECT par.currency
+                    FROM proposal_acceptance_record par
+                    WHERE par.clinic_id = d.clinic_id
+                      AND par.deleted_at IS NULL
+                      AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                    ORDER BY par.accepted_at DESC
+                    LIMIT 1
+                  ) as acceptedCurrency,
+                  (
+                    SELECT par.start_date
+                    FROM proposal_acceptance_record par
+                    WHERE par.clinic_id = d.clinic_id
+                      AND par.deleted_at IS NULL
+                      AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                    ORDER BY par.accepted_at DESC
+                    LIMIT 1
+                  ) as acceptedStartDate,
+                  (
+                    SELECT par.minimum_term_months
+                    FROM proposal_acceptance_record par
+                    WHERE par.clinic_id = d.clinic_id
+                      AND par.deleted_at IS NULL
+                      AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                    ORDER BY par.accepted_at DESC
+                    LIMIT 1
+                  ) as acceptedMinimumTermMonths,
+                  (
+                    SELECT par.notice_period_days
+                    FROM proposal_acceptance_record par
+                    WHERE par.clinic_id = d.clinic_id
+                      AND par.deleted_at IS NULL
+                      AND (par.deal_id = d.id OR par.contact_id = d.contact_id)
+                    ORDER BY par.accepted_at DESC
+                    LIMIT 1
+                  ) as acceptedNoticePeriodDays
+           FROM deal d
+           JOIN contact c
+             ON c.id = d.contact_id
+            AND c.clinic_id = d.clinic_id
+            AND c.deleted_at IS NULL
+           LEFT JOIN pipeline_stage ps
+             ON ps.id = d.pipeline_stage_id
+            AND ps.clinic_id = d.clinic_id
+            AND ps.deleted_at IS NULL
+           WHERE d.id = ?
+             AND d.clinic_id = ?
+             AND d.deleted_at IS NULL
+           LIMIT 1`,
+          [data.dealId, sourceClinicId],
+        );
+
+        deal = dealRows[0];
+        if (!deal) throw ApiError.notFound("Won opportunity not found");
+        if (deal.status !== "won" && deal.stageKind !== "won") {
+          throw ApiError.badRequest("Only won opportunities can be converted to client accounts");
+        }
+
+        const contactName = [deal.firstName, deal.lastName].filter(Boolean).join(" ").trim();
+        const treatmentInterests = parseServices(deal.treatmentInterests);
+        const activeServices = (
+          data.activeServices?.length
+            ? data.activeServices
+            : [deal.treatment, deal.packageInterest, ...treatmentInterests].filter(Boolean)
+        ).map(String);
+        const currentPackage =
+          data.currentPackage ||
+          deal.treatment ||
+          deal.recommendedPackage ||
+          deal.packageInterest ||
+          treatmentInterests[0] ||
+          null;
+        const parsedGrowthScoreCategories = parseJsonObject(deal.growthScoreCategories) as
+          | Partial<GrowthScoreCategories>
+          | null;
+        const acceptedMonthlyPrice = deal.acceptedMonthlyFeeCents === null || deal.acceptedMonthlyFeeCents === undefined
+          ? null
+          : Number(deal.acceptedMonthlyFeeCents) / 100;
+        const acceptedSetupFee = deal.acceptedSetupFeeCents === null || deal.acceptedSetupFeeCents === undefined
+          ? null
+          : Number(deal.acceptedSetupFeeCents) / 100;
+        const contractStartDate = data.contractStartDate || toDateString(deal.acceptedStartDate);
+        const noticeDate =
+          data.noticeDate ||
+          calculateNoticeDate(deal.acceptedStartDate, deal.acceptedMinimumTermMonths, deal.acceptedNoticePeriodDays);
+        accountPayload = {
+          name: data.accountName || deal.accountName || contactName || deal.email || "New Client Account",
+          email: deal.email || null,
+          phone: deal.phone || null,
+          website: deal.website || null,
+          address: deal.address || null,
+          city: deal.city || null,
+          state: deal.state || null,
+          postalCode: deal.postalCode || null,
+          country: deal.country || null,
+          activeServices,
+          clientStatus: data.clientStatus || "onboarding",
+          onboardingStatus: data.onboardingStatus || "in_progress",
+          healthStatus: data.healthStatus || "attention_needed",
+          contractStatus: data.contractStatus || "pending",
+          currentPackage,
+          monthlyPrice: data.monthlyPrice ?? acceptedMonthlyPrice,
+          setupFee: data.setupFee ?? acceptedSetupFee,
+          currency: data.currency || deal.acceptedCurrency || DEFAULT_PROFILE.currency,
+          contractStartDate,
+          noticeDate,
+          paymentStatus: data.paymentStatus || (acceptedMonthlyPrice !== null ? "pending" : DEFAULT_PROFILE.paymentStatus) as PaymentStatus,
+          invoiceStatus: data.invoiceStatus || (acceptedMonthlyPrice !== null ? "not_sent" : DEFAULT_PROFILE.invoiceStatus) as InvoiceStatus,
+          paymentNotes: data.paymentNotes || null,
+          recommendedNextPackage: data.recommendedNextPackage || deal.recommendedPackage || deal.growthScoreRecommendedPackage || null,
+          growthScoreOverall: data.growthScoreOverall ?? deal.growthScoreOverall ?? null,
+          growthScoreCategories: data.growthScoreCategories || parsedGrowthScoreCategories,
+          growthScoreRecommendedPackage: data.growthScoreRecommendedPackage || deal.growthScoreRecommendedPackage || null,
+          growthScoreGapSummary: data.growthScoreGapSummary || deal.growthScoreGapSummary || null,
+          growthScoreUpdatedAt: data.growthScoreUpdatedAt || deal.growthScoreUpdatedAt || null,
+          keyNotes:
+            data.keyNotes ||
+            [
+              deal.notes,
+              `Converted from won opportunity: ${deal.title || data.dealId}.`,
+              deal.dealSource || deal.contactSource ? `Original source: ${deal.dealSource || deal.contactSource}.` : null,
+            ]
+              .filter(Boolean)
+              .join("\n\n"),
+        };
+        if (data.accountManagerId !== undefined) accountPayload.accountManagerId = data.accountManagerId;
+        if (data.upsellOpportunity !== undefined) accountPayload.upsellOpportunity = data.upsellOpportunity;
+        if (data.renewalDate !== undefined) accountPayload.renewalDate = data.renewalDate;
+        if (data.churnRisk !== undefined) accountPayload.churnRisk = data.churnRisk;
+
+        createdClinicId = uuidv4();
+        createdProfileId = uuidv4();
+        const normalizedAccount = this.normalizeAccountPayload(accountPayload);
+        await this.insertAccountRows(connection, userId, createdClinicId, createdProfileId, accountPayload);
+
+        const [dealUpdate]: any = await connection.execute(
+          `UPDATE deal
+           SET client_account_profile_id = ?,
+               client_converted_at = COALESCE(client_converted_at, CURRENT_TIMESTAMP),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?
+             AND clinic_id = ?
+             AND client_account_profile_id IS NULL
+             AND deleted_at IS NULL`,
+          [createdProfileId, data.dealId, sourceClinicId],
+        );
+        if (dealUpdate.affectedRows !== 1) {
+          throw ApiError.conflict("Won opportunity was already converted");
+        }
+
+        await connection.execute(
+          `UPDATE proposal
+           SET client_account_profile_id = COALESCE(client_account_profile_id, ?),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE clinic_id = ?
+             AND deleted_at IS NULL
+             AND (deal_id = ? OR contact_id = ?)`,
+          [createdProfileId, sourceClinicId, data.dealId, deal.contactId],
+        );
+
+        await connection.execute(
+          `UPDATE proposal_acceptance_record
+           SET client_account_profile_id = COALESCE(client_account_profile_id, ?)
+           WHERE clinic_id = ?
+             AND (deal_id = ? OR contact_id = ?)`,
+          [createdProfileId, sourceClinicId, data.dealId, deal.contactId],
+        );
+
+        await connection.execute(
+          `UPDATE growth_score_snapshot
+           SET client_account_profile_id = COALESCE(client_account_profile_id, ?)
+           WHERE clinic_id = ?
+             AND contact_id = ?`,
+          [createdProfileId, sourceClinicId, deal.contactId],
+        );
+
+        await connection.execute(
+          `UPDATE contact
+           SET status = 'active',
+               lead_status = 'converted',
+               account_name = COALESCE(account_name, ?),
+               notes = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?
+             AND clinic_id = ?
+             AND deleted_at IS NULL`,
+          [
+            normalizedAccount.name,
+            [deal.notes, `Converted to client account from won opportunity: ${normalizedAccount.name}.`].filter(Boolean).join("\n\n"),
+            deal.contactId,
+            sourceClinicId,
+          ],
+        );
+
+        await this.linkContactRelation(sourceClinicId, createdProfileId, deal.contactId, userId, connection);
+
+        await this.createConversionOnboardingTasks(
+          sourceClinicId,
+          userId,
+          { id: createdProfileId, clinicName: normalizedAccount.name },
+          deal,
+          connection,
+        );
+
+        await this.insertConversionEvents(connection, {
+          sourceClinicId,
+          userId,
+          data,
+          auditContext,
+          deal,
+          createdClinicId,
+          createdProfileId,
+          accountPayload,
+        });
       }
+
+      await transactionHooks.afterConversion?.(connection);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
     }
 
-    const contactName = [deal.firstName, deal.lastName].filter(Boolean).join(" ").trim();
-    const treatmentInterests = parseServices(deal.treatmentInterests);
-    const activeServices = (
-      data.activeServices?.length
-        ? data.activeServices
-        : [deal.treatment, deal.packageInterest, ...treatmentInterests].filter(Boolean)
-    ).map(String);
-    const currentPackage =
-      data.currentPackage ||
-      deal.treatment ||
-      deal.recommendedPackage ||
-      deal.packageInterest ||
-      treatmentInterests[0] ||
-      null;
-    const parsedGrowthScoreCategories = parseJsonObject(deal.growthScoreCategories) as
-      | Partial<GrowthScoreCategories>
-      | null;
-    const acceptedMonthlyPrice = deal.acceptedMonthlyFeeCents === null || deal.acceptedMonthlyFeeCents === undefined
-      ? null
-      : Number(deal.acceptedMonthlyFeeCents) / 100;
-    const acceptedSetupFee = deal.acceptedSetupFeeCents === null || deal.acceptedSetupFeeCents === undefined
-      ? null
-      : Number(deal.acceptedSetupFeeCents) / 100;
-    const contractStartDate = data.contractStartDate || toDateString(deal.acceptedStartDate);
-    const noticeDate =
-      data.noticeDate ||
-      calculateNoticeDate(deal.acceptedStartDate, deal.acceptedMinimumTermMonths, deal.acceptedNoticePeriodDays);
-    const accountPayload: CreateClientAccountDTO = {
-      name: data.accountName || deal.accountName || contactName || deal.email || "New Client Account",
-      email: deal.email || null,
-      phone: deal.phone || null,
-      website: deal.website || null,
-      address: deal.address || null,
-      city: deal.city || null,
-      state: deal.state || null,
-      postalCode: deal.postalCode || null,
-      country: deal.country || null,
-      activeServices,
-      clientStatus: data.clientStatus || "onboarding",
-      onboardingStatus: data.onboardingStatus || "in_progress",
-      healthStatus: data.healthStatus || "attention_needed",
-      contractStatus: data.contractStatus || "pending",
-      currentPackage,
-      monthlyPrice: data.monthlyPrice ?? acceptedMonthlyPrice,
-      setupFee: data.setupFee ?? acceptedSetupFee,
-      currency: data.currency || deal.acceptedCurrency || DEFAULT_PROFILE.currency,
-      contractStartDate,
-      noticeDate,
-      paymentStatus: data.paymentStatus || (acceptedMonthlyPrice !== null ? "pending" : DEFAULT_PROFILE.paymentStatus) as PaymentStatus,
-      invoiceStatus: data.invoiceStatus || (acceptedMonthlyPrice !== null ? "not_sent" : DEFAULT_PROFILE.invoiceStatus) as InvoiceStatus,
-      paymentNotes: data.paymentNotes || null,
-      recommendedNextPackage: data.recommendedNextPackage || deal.recommendedPackage || deal.growthScoreRecommendedPackage || null,
-      growthScoreOverall: data.growthScoreOverall ?? deal.growthScoreOverall ?? null,
-      growthScoreCategories: data.growthScoreCategories || parsedGrowthScoreCategories,
-      growthScoreRecommendedPackage: data.growthScoreRecommendedPackage || deal.growthScoreRecommendedPackage || null,
-      growthScoreGapSummary: data.growthScoreGapSummary || deal.growthScoreGapSummary || null,
-      growthScoreUpdatedAt: data.growthScoreUpdatedAt || deal.growthScoreUpdatedAt || null,
-      keyNotes:
-        data.keyNotes ||
-        [
-          deal.notes,
-          `Converted from won opportunity: ${deal.title || data.dealId}.`,
-          deal.dealSource || deal.contactSource ? `Original source: ${deal.dealSource || deal.contactSource}.` : null,
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
-    };
-    if (data.accountManagerId !== undefined) accountPayload.accountManagerId = data.accountManagerId;
-    if (data.upsellOpportunity !== undefined) accountPayload.upsellOpportunity = data.upsellOpportunity;
-    if (data.renewalDate !== undefined) accountPayload.renewalDate = data.renewalDate;
-    if (data.churnRisk !== undefined) accountPayload.churnRisk = data.churnRisk;
-    const account = await this.createAccount(
-      userId,
-      accountPayload,
-      auditContext,
-    );
-
-    if (!account.id) {
-      throw ApiError.badRequest("Client account profile could not be created");
+    if (existingClinicId) {
+      return this.getAccountSummary(existingClinicId, sourceClinicId);
+    }
+    if (!createdClinicId || !createdProfileId || !accountPayload || !deal) {
+      throw ApiError.internal("Client account conversion did not complete");
     }
 
-    await pool.execute(
-      `UPDATE deal
-       SET client_account_profile_id = ?,
-           client_converted_at = COALESCE(client_converted_at, CURRENT_TIMESTAMP),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?
-         AND clinic_id = ?
-         AND deleted_at IS NULL`,
-      [account.id, data.dealId, sourceClinicId],
-    );
-
-    await pool.execute(
-      `UPDATE proposal
-       SET client_account_profile_id = COALESCE(client_account_profile_id, ?),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE clinic_id = ?
-         AND deleted_at IS NULL
-         AND (deal_id = ? OR contact_id = ?)`,
-      [account.id, sourceClinicId, data.dealId, deal.contactId],
-    );
-
-    await pool.execute(
-      `UPDATE proposal_acceptance_record
-       SET client_account_profile_id = COALESCE(client_account_profile_id, ?)
-       WHERE clinic_id = ?
-         AND (deal_id = ? OR contact_id = ?)`,
-      [account.id, sourceClinicId, data.dealId, deal.contactId],
-    );
-
-    await pool.execute(
-      `UPDATE growth_score_snapshot
-       SET client_account_profile_id = COALESCE(client_account_profile_id, ?)
-       WHERE clinic_id = ?
-         AND contact_id = ?`,
-      [account.id, sourceClinicId, deal.contactId],
-    );
-
-    await pool.execute(
-      `UPDATE contact
-       SET status = 'active',
-           lead_status = 'converted',
-           account_name = COALESCE(account_name, ?),
-           notes = ?,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?
-         AND clinic_id = ?
-         AND deleted_at IS NULL`,
-      [
-        account.clinicName,
-        [deal.notes, `Converted to client account from won opportunity: ${account.clinicName}.`].filter(Boolean).join("\n\n"),
-        deal.contactId,
-        sourceClinicId,
-      ],
-    );
-
-    await this.linkContactRelation(sourceClinicId, account.id, deal.contactId, userId);
-
-    if (data.createOnboardingTasks !== false) {
-      await this.createConversionOnboardingTasks(sourceClinicId, userId, account, deal);
-    }
-
-    await logTimelineActivity({
-      clinicId: sourceClinicId,
-      contactId: deal.contactId,
-      userId,
-      type: "Note",
-      metadata: buildTimelineMetadata({
-        action: "won_deal_converted_to_client",
-        source: "pipeline",
-        recordId: account.id,
-        title: "Won opportunity converted to client account",
-        changes: {
-          dealId: data.dealId,
-          clientAccountProfileId: account.id,
-          clientAccountClinicId: account.clinicId,
-          clientStatus: account.clientStatus,
-          onboardingStatus: account.onboardingStatus,
-        },
-      }),
-    });
-
-    await logAuditEvent({
-      clinicId: sourceClinicId,
-      userId,
-      action: "WON_DEAL_CONVERTED_TO_CLIENT_ACCOUNT",
-      entityType: "deal",
-      entityId: data.dealId,
-      changes: {
-        contactId: deal.contactId,
-        clientAccountProfileId: account.id,
-        clientAccountClinicId: account.clinicId,
-        clientAccountName: account.clinicName,
-        dealStatus: deal.status,
-        clientStatus: account.clientStatus,
-      },
-      ipAddress: auditContext.ipAddress || null,
-      userAgent: auditContext.userAgent || null,
-    });
-
-    return this.getAccountSummary(account.clinicId);
+    return this.getAccountSummary(createdClinicId, sourceClinicId);
   }
 
-  async getProfile(clinicId: string): Promise<ClientAccountProfileResponse> {
+  async getProfile(
+    clinicId: string,
+    workspaceClinicId = clinicId,
+  ): Promise<ClientAccountProfileResponse> {
     const [rows]: any = await pool.execute(
       `SELECT
           c.id as clinicId,
@@ -1230,31 +1362,48 @@ export class ClientAccountsService {
           cap.google_drive_folder_error as googleDriveFolderError,
           cap.google_drive_folder_checked_at as googleDriveFolderCheckedAt,
           (
-            SELECT COUNT(*)
-            FROM client_account_document_link cdl
-            WHERE cdl.client_account_profile_id = cap.id
-              AND cdl.clinic_id = c.id
-              AND (cdl.drive_url IS NULL OR cdl.drive_url = '' OR cdl.access_status = 'inaccessible')
+            CASE
+              WHEN cap.google_drive_folder_url IS NULL
+                OR cap.google_drive_folder_url = ''
+                OR cap.google_drive_folder_access_status = 'inaccessible'
+              THEN 1
+              ELSE 0
+            END
+            + GREATEST(
+                0,
+                ${expectedClientDocumentLinkCount} - (
+                  SELECT COUNT(*)
+                  FROM client_account_document_link cdl
+                  WHERE cdl.client_account_profile_id = cap.id
+                    AND cdl.clinic_id = ?
+                    AND cdl.drive_url IS NOT NULL
+                    AND cdl.drive_url <> ''
+                    AND cdl.access_status <> 'inaccessible'
+                )
+              )
           ) as missingDocumentCount,
-          (
-            SELECT COUNT(*)
-            FROM client_account_access_item cai
-            WHERE cai.client_account_profile_id = cap.id
-              AND cai.clinic_id = c.id
-              AND cai.status = 'requested'
+          GREATEST(
+            0,
+            ${expectedClientAccessItemCount} - (
+              SELECT COUNT(*)
+              FROM client_account_access_item cai
+              WHERE cai.client_account_profile_id = cap.id
+                AND cai.clinic_id = ?
+                AND cai.status IN ('received', 'not_needed')
+            )
           ) as missingAccessCount,
           (
             SELECT COUNT(*)
             FROM client_account_issue ci
             WHERE ci.client_account_profile_id = cap.id
-              AND ci.clinic_id = c.id
+              AND ci.clinic_id = ?
               AND ci.status NOT IN ('resolved', 'closed')
           ) as openIssueCount,
           (
             SELECT COUNT(*)
             FROM client_account_issue ci
             WHERE ci.client_account_profile_id = cap.id
-              AND ci.clinic_id = c.id
+              AND ci.clinic_id = ?
               AND ci.status NOT IN ('resolved', 'closed')
               AND ci.due_date IS NOT NULL
               AND ci.due_date < CURDATE()
@@ -1268,7 +1417,7 @@ export class ClientAccountsService {
        LEFT JOIN user u ON u.id = cap.account_manager_id AND u.deleted_at IS NULL
        WHERE c.id = ? AND c.deleted_at IS NULL
        LIMIT 1`,
-      [clinicId],
+      [workspaceClinicId, workspaceClinicId, workspaceClinicId, workspaceClinicId, clinicId],
     );
 
     if (rows.length === 0) {
@@ -1347,7 +1496,7 @@ export class ClientAccountsService {
     access: { canManageAllClientAccounts: boolean } = { canManageAllClientAccounts: false },
   ): Promise<ClientAccountLinkedRecordsResponse> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
-    const account = await this.getProfile(clientClinicId);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
     const [contacts, tasks] = await Promise.all([
       account.id ? this.listLinkedContacts(sourceClinicId, account.id) : Promise.resolve([]),
       account.id ? this.listLinkedTasks(sourceClinicId, account.id) : Promise.resolve([]),
@@ -1378,7 +1527,7 @@ export class ClientAccountsService {
   ): Promise<ClientAccountLinkedRecordsResponse> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
     const profileId = await this.ensureProfileRow(clientClinicId, userId);
-    const account = await this.getProfile(clientClinicId);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
     const contact = await this.getWorkspaceContact(sourceClinicId, contactId);
     const relationId = await this.linkContactRelation(sourceClinicId, profileId, contactId, userId);
 
@@ -1415,7 +1564,7 @@ export class ClientAccountsService {
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientAccountLinkedRecordsResponse> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
-    const account = await this.getProfile(clientClinicId);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
     const contact = await this.getWorkspaceContact(sourceClinicId, contactId);
 
     if (!account.id) {
@@ -1458,29 +1607,101 @@ export class ClientAccountsService {
     data: UpdateClientAccountDriveFolderDTO,
     access: { canManageAllClientAccounts: boolean },
     auditContext: ClientAccountAuditContext,
+    requireFolder = false,
   ): Promise<ClientAccountProfileResponse> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
 
-    const before = await this.getProfile(clientClinicId);
+    const before = await this.getProfile(clientClinicId, sourceClinicId);
     const profileId = before.id || await this.ensureProfileRow(clientClinicId, userId);
     const input = (data.folderId || data.folderUrl || "").trim();
     const displayName = data.displayName?.trim() || null;
+    const driveItem = input ? extractGoogleDriveItem(input) : null;
+    const accessCheck = driveItem
+      ? await this.checkGoogleDriveItemAccess(sourceClinicId, driveItem.id, driveItem.kindHint)
+      : null;
+    if (requireFolder && accessCheck && accessCheck.itemType !== "folder") {
+      throw ApiError.badRequest("The main client Drive link must point to a folder.");
+    }
+    const folderId = driveItem?.id || null;
+    const folderUrl = accessCheck
+      ? accessCheck.itemType === "zip"
+        ? `https://drive.google.com/file/d/${folderId}/view`
+        : `https://drive.google.com/drive/folders/${folderId}`
+      : null;
+    const driveItemName = accessCheck
+      ? displayName ||
+        accessCheck.name ||
+        (accessCheck.itemType === "zip" ? "Google Drive ZIP archive" : "Google Drive folder")
+      : null;
 
-    if (!input) {
-      await pool.execute(
+    let previousFolderId = before.googleDriveFolderId;
+    let previousFolderUrl = before.googleDriveFolderUrl;
+    let previousAccessStatus = before.googleDriveFolderAccessStatus;
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [profileRows]: any = await connection.execute(
+        `SELECT google_drive_folder_id as folderId,
+                google_drive_folder_url as folderUrl,
+                google_drive_folder_access_status as accessStatus
+         FROM client_account_profile
+         WHERE id = ?
+           AND clinic_id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [profileId, clientClinicId],
+      );
+      if (!profileRows[0]) throw ApiError.notFound("Client account profile not found");
+      previousFolderId = profileRows[0].folderId || null;
+      previousFolderUrl = profileRows[0].folderUrl || null;
+      previousAccessStatus = profileRows[0].accessStatus || "not_checked";
+
+      const [documentCountRows]: any = await connection.execute(
+        `SELECT COUNT(*) as count
+         FROM client_account_document_link
+         WHERE client_account_profile_id = ?`,
+        [profileId],
+      );
+      const hasLinkedDocuments = Number(documentCountRows[0]?.count || 0) > 0;
+      if (hasLinkedDocuments && !folderId) {
+        throw ApiError.conflict("Remove the client document links before clearing the main Drive folder.");
+      }
+      if (hasLinkedDocuments && folderId !== previousFolderId) {
+        throw ApiError.conflict("Remove the client document links before changing the main Drive folder.");
+      }
+
+      await connection.execute(
         `UPDATE client_account_profile
-         SET google_drive_folder_id = NULL,
-             google_drive_folder_url = NULL,
-             google_drive_folder_name = NULL,
-             google_drive_folder_access_status = 'not_checked',
-             google_drive_folder_error = NULL,
-             google_drive_folder_checked_at = NULL,
+         SET google_drive_folder_id = ?,
+             google_drive_folder_url = ?,
+             google_drive_folder_name = ?,
+             google_drive_folder_access_status = ?,
+             google_drive_folder_error = ?,
+             google_drive_folder_checked_at = ?,
              updated_by = ?,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND clinic_id = ?`,
-        [userId, profileId, clientClinicId],
+        [
+          folderId,
+          folderUrl,
+          driveItemName,
+          accessCheck?.status || "not_checked",
+          accessCheck?.error || null,
+          accessCheck?.checkedAt || null,
+          userId,
+          profileId,
+          clientClinicId,
+        ],
       );
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
 
+    if (!folderId) {
       await logAuditEvent({
         clinicId: clientClinicId,
         userId,
@@ -1488,52 +1709,15 @@ export class ClientAccountsService {
         entityType: "client_account_profile",
         entityId: profileId,
         changes: {
-          googleDriveFolderId: { before: before.googleDriveFolderId, after: null },
-          googleDriveFolderUrl: { before: before.googleDriveFolderUrl, after: null },
+          googleDriveFolderId: { before: previousFolderId, after: null },
+          googleDriveFolderUrl: { before: previousFolderUrl, after: null },
         },
         ipAddress: auditContext.ipAddress || null,
         userAgent: auditContext.userAgent || null,
       });
 
-      return this.getProfile(clientClinicId);
+      return this.getProfile(clientClinicId, sourceClinicId);
     }
-
-    const driveItem = extractGoogleDriveItem(input);
-    const accessCheck = await this.checkGoogleDriveItemAccess(sourceClinicId, driveItem.id, driveItem.kindHint);
-    const folderId = driveItem.id;
-    const folderUrl =
-      accessCheck.itemType === "zip" || driveItem.kindHint === "zip"
-        ? `https://drive.google.com/file/d/${folderId}/view`
-        : `https://drive.google.com/drive/folders/${folderId}`;
-
-    const driveItemName =
-      displayName ||
-      accessCheck.name ||
-      (accessCheck.itemType === "zip" ? "Google Drive ZIP archive" : "Google Drive folder");
-
-    await pool.execute(
-      `UPDATE client_account_profile
-       SET google_drive_folder_id = ?,
-           google_drive_folder_url = ?,
-           google_drive_folder_name = ?,
-           google_drive_folder_access_status = ?,
-           google_drive_folder_error = ?,
-           google_drive_folder_checked_at = ?,
-           updated_by = ?,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND clinic_id = ?`,
-      [
-        folderId,
-        folderUrl,
-        driveItemName,
-        accessCheck.status,
-        accessCheck.error,
-        accessCheck.checkedAt,
-        userId,
-        profileId,
-        clientClinicId,
-      ],
-    );
 
     await logAuditEvent({
       clinicId: clientClinicId,
@@ -1542,15 +1726,15 @@ export class ClientAccountsService {
       entityType: "client_account_profile",
       entityId: profileId,
       changes: {
-        googleDriveFolderId: { before: before.googleDriveFolderId, after: folderId },
-        googleDriveFolderUrl: { before: before.googleDriveFolderUrl, after: folderUrl },
-        googleDriveFolderAccessStatus: { before: before.googleDriveFolderAccessStatus, after: accessCheck.status },
+        googleDriveFolderId: { before: previousFolderId, after: folderId },
+        googleDriveFolderUrl: { before: previousFolderUrl, after: folderUrl },
+        googleDriveFolderAccessStatus: { before: previousAccessStatus, after: accessCheck?.status },
       },
       ipAddress: auditContext.ipAddress || null,
       userAgent: auditContext.userAgent || null,
     });
 
-    return this.getProfile(clientClinicId);
+    return this.getProfile(clientClinicId, sourceClinicId);
   }
 
   async listDocumentLinks(
@@ -1559,7 +1743,7 @@ export class ClientAccountsService {
     access: { canManageAllClientAccounts: boolean },
   ): Promise<ClientAccountDocumentLinkResponse[]> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
-    const account = await this.getProfile(clientClinicId);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
 
     const rows = account.id
       ? await this.getClientDocumentRows(sourceClinicId, account.id)
@@ -1606,12 +1790,15 @@ export class ClientAccountsService {
     userId: string,
     documentType: ClientDocumentType,
     data: UpdateClientAccountDocumentLinkDTO,
-    access: { canManageAllClientAccounts: boolean },
+    access: { canManageAllClientAccounts: boolean; canConfigureDrive: boolean },
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientAccountDocumentLinkResponse[]> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
 
     if (documentType === "main_client_folder") {
+      if (!access.canConfigureDrive) {
+        throw ApiError.forbidden("Only an Admin can change the main client Drive folder.");
+      }
       await this.updateDriveFolder(
         sourceClinicId,
         clientClinicId,
@@ -1623,22 +1810,42 @@ export class ClientAccountsService {
         },
         access,
         auditContext,
+        true,
       );
       return this.listDocumentLinks(sourceClinicId, clientClinicId, access);
     }
 
-    const account = await this.getProfile(clientClinicId);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
     const profileId = account.id || await this.ensureProfileRow(clientClinicId, userId);
     const input = (data.driveItemId || data.driveUrl || "").trim();
 
     if (!input) {
-      await pool.execute(
-        `DELETE FROM client_account_document_link
-         WHERE clinic_id = ?
-           AND client_account_profile_id = ?
-           AND document_type = ?`,
-        [sourceClinicId, profileId, documentType],
-      );
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        await connection.execute(
+          `SELECT id
+           FROM client_account_profile
+           WHERE id = ?
+             AND clinic_id = ?
+           LIMIT 1
+           FOR UPDATE`,
+          [profileId, clientClinicId],
+        );
+        await connection.execute(
+          `DELETE FROM client_account_document_link
+           WHERE clinic_id = ?
+             AND client_account_profile_id = ?
+             AND document_type = ?`,
+          [sourceClinicId, profileId, documentType],
+        );
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
 
       await logAuditEvent({
         clinicId: sourceClinicId,
@@ -1655,48 +1862,95 @@ export class ClientAccountsService {
     }
 
     const driveItem = extractGoogleDriveItem(input);
-    const accessCheck = await this.checkGoogleDriveItemAccess(sourceClinicId, driveItem.id, driveItem.kindHint);
+    if (!account.googleDriveFolderId) {
+      throw ApiError.badRequest("An Admin must select a main Google Drive folder for this client first.");
+    }
+    if (account.googleDriveFolderUrl?.includes("/file/d/")) {
+      throw ApiError.badRequest("The main client Drive link must be a folder before document links can be added.");
+    }
+    if (!await this.isGoogleDriveItemWithinFolder(
+      sourceClinicId,
+      driveItem.id,
+      account.googleDriveFolderId,
+    )) {
+      throw ApiError.forbidden("This Google Drive item is outside the selected client folder.");
+    }
+    const accessCheck = await this.checkGoogleDriveItemAccess(
+      sourceClinicId,
+      driveItem.id,
+      driveItem.kindHint,
+      true,
+    );
     const driveUrl =
-      accessCheck.itemType === "zip" || driveItem.kindHint === "zip"
-        ? `https://drive.google.com/file/d/${driveItem.id}/view`
-        : `https://drive.google.com/drive/folders/${driveItem.id}`;
+      accessCheck.webViewLink ||
+      (accessCheck.itemType === "folder"
+        ? `https://drive.google.com/drive/folders/${driveItem.id}`
+        : `https://drive.google.com/file/d/${driveItem.id}/view`);
     const displayName =
       data.displayName?.trim() ||
       accessCheck.name ||
       clientDocumentTypes.find((item) => item.type === documentType)?.label ||
       "Google Drive item";
 
-    await pool.execute(
-      `INSERT INTO client_account_document_link
-        (id, clinic_id, client_account_profile_id, document_type, drive_item_id, drive_url,
-         display_name, access_status, access_error, checked_at, notes, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         drive_item_id = VALUES(drive_item_id),
-         drive_url = VALUES(drive_url),
-         display_name = VALUES(display_name),
-         access_status = VALUES(access_status),
-         access_error = VALUES(access_error),
-         checked_at = VALUES(checked_at),
-         notes = VALUES(notes),
-         updated_by = VALUES(updated_by),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        uuidv4(),
-        sourceClinicId,
-        profileId,
-        documentType,
-        driveItem.id,
-        driveUrl,
-        displayName,
-        accessCheck.status,
-        accessCheck.error,
-        accessCheck.checkedAt,
-        data.notes?.trim() || null,
-        userId,
-        userId,
-      ],
-    );
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [lockedProfileRows]: any = await connection.execute(
+        `SELECT google_drive_folder_id as folderId,
+                google_drive_folder_url as folderUrl
+         FROM client_account_profile
+         WHERE id = ?
+           AND clinic_id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [profileId, clientClinicId],
+      );
+      if (!lockedProfileRows[0]) throw ApiError.notFound("Client account profile not found");
+      if (lockedProfileRows[0].folderId !== account.googleDriveFolderId) {
+        throw ApiError.conflict("The main client Drive folder changed. Check the document link and try again.");
+      }
+      if (!lockedProfileRows[0].folderId || String(lockedProfileRows[0].folderUrl || "").includes("/file/d/")) {
+        throw ApiError.conflict("The main client Drive folder is no longer available.");
+      }
+
+      await connection.execute(
+        `INSERT INTO client_account_document_link
+          (id, clinic_id, client_account_profile_id, document_type, drive_item_id, drive_url,
+           display_name, access_status, access_error, checked_at, notes, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           drive_item_id = VALUES(drive_item_id),
+           drive_url = VALUES(drive_url),
+           display_name = VALUES(display_name),
+           access_status = VALUES(access_status),
+           access_error = VALUES(access_error),
+           checked_at = VALUES(checked_at),
+           notes = VALUES(notes),
+           updated_by = VALUES(updated_by),
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          uuidv4(),
+          sourceClinicId,
+          profileId,
+          documentType,
+          driveItem.id,
+          driveUrl,
+          displayName,
+          accessCheck.status,
+          accessCheck.error,
+          accessCheck.checkedAt,
+          data.notes?.trim() || null,
+          userId,
+          userId,
+        ],
+      );
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
 
     await logAuditEvent({
       clinicId: sourceClinicId,
@@ -1718,7 +1972,7 @@ export class ClientAccountsService {
     access: { canManageAllClientAccounts: boolean },
   ): Promise<ClientAccountAccessItemResponse[]> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
-    const account = await this.getProfile(clientClinicId);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
     const rows = account.id ? await this.getClientAccessRows(sourceClinicId, account.id) : [];
     const byType = new Map(rows.map((row: any) => [String(row.itemType), row]));
 
@@ -1748,7 +2002,7 @@ export class ClientAccountsService {
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientAccountAccessItemResponse[]> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
-    const account = await this.getProfile(clientClinicId);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
     const profileId = account.id || await this.ensureProfileRow(clientClinicId, userId);
     const status = data.status;
     const nowExpression = "CURRENT_TIMESTAMP";
@@ -1761,7 +2015,10 @@ export class ClientAccountsService {
          status = VALUES(status),
          notes = VALUES(notes),
          requested_at = CASE WHEN VALUES(status) = 'requested' THEN COALESCE(requested_at, CURRENT_TIMESTAMP) ELSE requested_at END,
-         received_at = CASE WHEN VALUES(status) = 'received' THEN CURRENT_TIMESTAMP ELSE NULL END,
+         received_at = CASE
+           WHEN VALUES(status) = 'received' THEN COALESCE(received_at, CURRENT_TIMESTAMP)
+           ELSE NULL
+         END,
          updated_by = VALUES(updated_by),
          updated_at = CURRENT_TIMESTAMP`,
       [
@@ -1795,7 +2052,7 @@ export class ClientAccountsService {
     access: { canManageAllClientAccounts: boolean },
   ): Promise<ClientIssueResponse[]> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
-    const account = await this.getProfile(clientClinicId);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
     if (!account.id) return [];
     const [rows]: any = await pool.execute(
       `SELECT ${this.issueSelectColumns()}
@@ -1824,7 +2081,9 @@ export class ClientAccountsService {
          END,
          issue.due_date IS NULL ASC,
          issue.due_date ASC,
-         issue.updated_at DESC`,
+         issue.updated_at DESC,
+         issue.created_at DESC,
+         issue.id ASC`,
       [sourceClinicId, account.id],
     );
     return rows.map((row: any) => this.mapIssueRow(row));
@@ -1839,7 +2098,7 @@ export class ClientAccountsService {
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientIssueResponse[]> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
-    const account = await this.getProfile(clientClinicId);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
     const profileId = account.id || await this.ensureProfileRow(clientClinicId, userId);
     const ownerUserId = data.ownerUserId || null;
     const taskId = data.taskId || null;
@@ -1893,7 +2152,7 @@ export class ClientAccountsService {
     auditContext: ClientAccountAuditContext,
   ): Promise<ClientIssueResponse[]> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
-    const account = await this.getProfile(clientClinicId);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
     if (!account.id) throw ApiError.notFound("Client account profile not found");
 
     const [existingRows]: any = await pool.execute(
@@ -2110,12 +2369,20 @@ export class ClientAccountsService {
     userId: string,
     data: UpdateClientAccountProfileDTO,
     auditContext: ClientAccountAuditContext,
+    options: {
+      allowExternalAccountManager?: boolean;
+      auditClinicId?: string;
+    } = {},
   ): Promise<ClientAccountProfileResponse> {
     if (ownKey(data, "accountManagerId") && data.accountManagerId) {
-      await this.ensureAccountManagerBelongsToClinic(clinicId, data.accountManagerId);
+      if (options.allowExternalAccountManager) {
+        await this.ensureActiveInternalUser(data.accountManagerId);
+      } else {
+        await this.ensureAccountManagerBelongsToClinic(clinicId, data.accountManagerId);
+      }
     }
 
-    const before = await this.getProfile(clinicId);
+    const before = await this.getProfile(clinicId, options.auditClinicId || clinicId);
     const profileId = before.id || uuidv4();
     const fields: string[] = [];
     const values: any[] = [];
@@ -2281,7 +2548,7 @@ export class ClientAccountsService {
     }
 
     await logAuditEvent({
-      clinicId,
+      clinicId: options.auditClinicId || clinicId,
       userId,
       action: "CLIENT_ACCOUNT_PROFILE_UPDATED",
       entityType: "client_account_profile",
@@ -2291,7 +2558,31 @@ export class ClientAccountsService {
       userAgent: auditContext.userAgent || null,
     });
 
-    return this.getProfile(clinicId);
+    return this.getProfile(clinicId, options.auditClinicId || clinicId);
+  }
+
+  async getManagedProfile(
+    sourceClinicId: string,
+    clientClinicId: string,
+    access: { canManageAllClientAccounts: boolean },
+  ): Promise<ClientAccountProfileResponse> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    return this.getProfile(clientClinicId, sourceClinicId);
+  }
+
+  async updateManagedProfile(
+    sourceClinicId: string,
+    clientClinicId: string,
+    userId: string,
+    data: UpdateClientAccountProfileDTO,
+    access: { canManageAllClientAccounts: boolean },
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientAccountProfileResponse> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    return this.updateProfile(clientClinicId, userId, data, auditContext, {
+      allowExternalAccountManager: sourceClinicId !== clientClinicId,
+      auditClinicId: sourceClinicId,
+    });
   }
 
   async listServices(
@@ -2662,8 +2953,11 @@ export class ClientAccountsService {
     };
   }
 
-  private async getAccountSummary(clinicId: string): Promise<ClientAccountSummaryResponse> {
-    const profile = await this.getProfile(clinicId);
+  private async getAccountSummary(
+    clinicId: string,
+    workspaceClinicId = clinicId,
+  ): Promise<ClientAccountSummaryResponse> {
+    const profile = await this.getProfile(clinicId, workspaceClinicId);
     return {
       ...profile,
       activeServiceCount: 0,
@@ -2920,21 +3214,27 @@ export class ClientAccountsService {
     canConfigureDrive: boolean,
   ) {
     if (canConfigureDrive) return itemId;
-    const profile = await this.getProfile(clientClinicId);
+    const profile = await this.getProfile(clientClinicId, sourceClinicId);
     const rootFolderId = profile.googleDriveFolderId;
     if (!rootFolderId) {
       throw ApiError.badRequest("An Admin must select a Google Drive folder for this client first.");
     }
     const resolvedItemId = itemId === "root" ? rootFolderId : itemId;
-    if (!await googleDriveOAuthService.isItemWithinFolder(sourceClinicId, resolvedItemId, rootFolderId)) {
+    if (!await this.isGoogleDriveItemWithinFolder(sourceClinicId, resolvedItemId, rootFolderId)) {
       throw ApiError.forbidden("This Google Drive item is outside the selected client folder.");
     }
     return resolvedItemId;
   }
 
-  private async checkGoogleDriveItemAccess(clinicId: string, folderId: string, kindHint: GoogleDriveItemKind): Promise<{
+  private async checkGoogleDriveItemAccess(
+    clinicId: string,
+    folderId: string,
+    kindHint: GoogleDriveItemKind,
+    allowAnyFile = false,
+  ): Promise<{
     name: string | null;
-    itemType: "folder" | "zip" | null;
+    itemType: "folder" | "zip" | "file" | null;
+    webViewLink: string | null;
     status: "not_checked" | "accessible" | "inaccessible";
     error: string | null;
     checkedAt: string | null;
@@ -2947,7 +3247,7 @@ export class ClientAccountsService {
     const checkedAt = new Date().toISOString().slice(0, 19).replace("T", " ");
     try {
       const response = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed&supportsAllDrives=true`,
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed,webViewLink,shortcutDetails&supportsAllDrives=true`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -2962,13 +3262,16 @@ export class ClientAccountsService {
         throw ApiError.badRequest(message);
       }
 
+      if (payload.mimeType === "application/vnd.google-apps.shortcut") {
+        throw ApiError.badRequest("Google Drive shortcuts cannot be linked. Select the target folder or file directly.");
+      }
       const isFolder = payload.mimeType === "application/vnd.google-apps.folder";
       const isZip =
         ["application/zip", "application/x-zip", "application/x-zip-compressed"].includes(String(payload.mimeType || "")) ||
         (String(payload.mimeType || "") === "application/octet-stream" && String(payload.name || "").toLowerCase().endsWith(".zip")) ||
         String(payload.name || "").toLowerCase().endsWith(".zip");
 
-      if (!isFolder && !isZip) {
+      if (!allowAnyFile && !isFolder && !isZip) {
         throw ApiError.badRequest("Google Drive link must point to a folder or ZIP file.");
       }
 
@@ -2978,7 +3281,8 @@ export class ClientAccountsService {
 
       return {
         name: payload.name || null,
-        itemType: isZip ? "zip" : "folder",
+        itemType: isFolder ? "folder" : isZip ? "zip" : "file",
+        webViewLink: payload.webViewLink || null,
         status: "accessible",
         error: null,
         checkedAt,
@@ -2987,6 +3291,35 @@ export class ClientAccountsService {
       if (error instanceof ApiError) throw error;
       throw ApiError.serviceUnavailable("Google Drive item access could not be checked. Try again or check the Google credentials.");
     }
+  }
+
+  private async isGoogleDriveItemWithinFolder(
+    clinicId: string,
+    itemId: string,
+    rootFolderId: string,
+  ) {
+    if (itemId === rootFolderId) return true;
+
+    const accessToken = await this.getGoogleDriveAccessToken(clinicId);
+    const visited = new Set<string>();
+    let pending = [itemId];
+
+    for (let depth = 0; depth < 50 && pending.length > 0; depth += 1) {
+      const currentId = pending.shift()!;
+      if (currentId === rootFolderId) return true;
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(currentId)}?fields=id,parents,trashed&supportsAllDrives=true`,
+        { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
+      );
+      const payload: any = await response.json().catch(() => ({}));
+      if (!response.ok || payload.trashed) return false;
+      pending = [...pending, ...(Array.isArray(payload.parents) ? payload.parents.map(String) : [])];
+    }
+
+    return false;
   }
 
   private async getGoogleDriveAccessToken(clinicId: string) {
@@ -3168,16 +3501,17 @@ export class ClientAccountsService {
     clientAccountProfileId: string,
     contactId: string,
     userId: string | null,
+    executor: Pick<PoolConnection, "execute"> = pool,
   ) {
     const relationId = uuidv4();
-    await pool.execute(
+    await executor.execute(
       `INSERT IGNORE INTO client_account_contact
         (id, clinic_id, client_account_profile_id, contact_id, created_by)
        VALUES (?, ?, ?, ?, ?)`,
       [relationId, sourceClinicId, clientAccountProfileId, contactId, userId],
     );
 
-    const [rows]: any = await pool.execute(
+    const [rows]: any = await executor.execute(
       `SELECT id
        FROM client_account_contact
        WHERE clinic_id = ?
@@ -3192,27 +3526,47 @@ export class ClientAccountsService {
 
   private async listLinkedTasks(sourceClinicId: string, clientAccountProfileId: string): Promise<ClientAccountLinkedTaskResponse[]> {
     const [rows]: any = await pool.execute(
-      `SELECT id,
-              title,
-              status,
-              priority,
-              category,
-              contact_id as contactId,
-              contact_name as contact,
-              due_label as due,
-              DATE_FORMAT(due_date, '%Y-%m-%d') as dueDate,
-              assigned_to as assignedTo,
-              (status <> 'completed' AND due_date < CURRENT_DATE) as isOverdue,
-              client_account_profile_id as clientAccountProfileId,
-              client_account_service_id as clientAccountServiceId,
-              updated_at as updatedAt
-       FROM task
-       WHERE clinic_id = ?
-         AND is_internal = 1
-         AND deleted_at IS NULL
-         AND archived_at IS NULL
-         AND client_account_profile_id = ?
-       ORDER BY status ASC, due_date IS NULL ASC, due_date ASC, updated_at DESC
+      `SELECT t.id,
+              t.title,
+              t.status,
+              t.priority,
+              t.category,
+              t.contact_id as contactId,
+              t.contact_name as contact,
+              t.due_label as due,
+              DATE_FORMAT(t.due_date, '%Y-%m-%d') as dueDate,
+              COALESCE(
+                NULLIF(t.assigned_to, ''),
+                NULLIF(TRIM(CONCAT_WS(' ', assignee.first_name, assignee.last_name)), ''),
+                assignee.email
+              ) as assignedTo,
+              (t.status <> 'completed' AND t.due_date < CURRENT_DATE) as isOverdue,
+              t.client_account_profile_id as clientAccountProfileId,
+              t.client_account_service_id as clientAccountServiceId,
+              t.template_key as templateKey,
+              t.updated_at as updatedAt
+       FROM task t
+       LEFT JOIN user assignee
+         ON assignee.id = t.assigned_user_id
+        AND assignee.deleted_at IS NULL
+        AND assignee.status = 'active'
+        AND assignee.is_active = 1
+        AND (
+          assignee.clinic_id = t.clinic_id
+          OR EXISTS (
+            SELECT 1
+            FROM clinic_membership assignee_membership
+            WHERE assignee_membership.user_id = assignee.id
+              AND assignee_membership.clinic_id = t.clinic_id
+              AND assignee_membership.status = 'active'
+          )
+        )
+       WHERE t.clinic_id = ?
+         AND t.is_internal = 1
+         AND t.deleted_at IS NULL
+         AND t.archived_at IS NULL
+         AND t.client_account_profile_id = ?
+       ORDER BY t.status ASC, t.due_date IS NULL ASC, t.due_date ASC, t.updated_at DESC
        LIMIT 200`,
       [sourceClinicId, clientAccountProfileId],
     );
@@ -3231,6 +3585,7 @@ export class ClientAccountsService {
       isOverdue: Boolean(row.isOverdue),
       clientAccountProfileId: row.clientAccountProfileId || null,
       clientAccountServiceId: row.clientAccountServiceId || null,
+      templateKey: row.templateKey || null,
       updatedAt: toIsoString(row.updatedAt) || new Date().toISOString(),
     }));
   }
@@ -3257,14 +3612,88 @@ export class ClientAccountsService {
     };
   }
 
+  private async insertConversionEvents(
+    connection: PoolConnection,
+    context: {
+      sourceClinicId: string;
+      userId: string;
+      data: ConvertWonDealToClientDTO;
+      auditContext: ClientAccountAuditContext;
+      deal: any;
+      createdClinicId: string;
+      createdProfileId: string;
+      accountPayload: CreateClientAccountDTO;
+    },
+  ) {
+    const {
+      sourceClinicId,
+      userId,
+      data,
+      auditContext,
+      deal,
+      createdClinicId,
+      createdProfileId,
+      accountPayload,
+    } = context;
+    const normalizedAccount = this.normalizeAccountPayload(accountPayload);
+
+    await insertAuditEvent(connection, {
+      clinicId: createdClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_CREATED",
+      entityType: "client_account_profile",
+      entityId: createdProfileId,
+      changes: normalizedAccount,
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    await insertTimelineActivity(connection, {
+      clinicId: sourceClinicId,
+      contactId: deal.contactId,
+      userId,
+      type: "Note",
+      metadata: buildTimelineMetadata({
+        action: "won_deal_converted_to_client",
+        source: "pipeline",
+        recordId: createdProfileId,
+        title: "Won opportunity converted to client account",
+        changes: {
+          dealId: data.dealId,
+          clientAccountProfileId: createdProfileId,
+          clientAccountClinicId: createdClinicId,
+          clientStatus: normalizedAccount.clientStatus,
+          onboardingStatus: normalizedAccount.onboardingStatus,
+        },
+      }),
+    });
+
+    await insertAuditEvent(connection, {
+      clinicId: sourceClinicId,
+      userId,
+      action: "WON_DEAL_CONVERTED_TO_CLIENT_ACCOUNT",
+      entityType: "deal",
+      entityId: data.dealId,
+      changes: {
+        contactId: deal.contactId,
+        clientAccountProfileId: createdProfileId,
+        clientAccountClinicId: createdClinicId,
+        clientAccountName: normalizedAccount.name,
+        dealStatus: deal.status,
+        clientStatus: normalizedAccount.clientStatus,
+      },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+  }
+
   private async createConversionOnboardingTasks(
     sourceClinicId: string,
     userId: string,
-    account: ClientAccountSummaryResponse,
+    account: { id: string; clinicName: string },
     deal: any,
+    connection: PoolConnection,
   ) {
-    if (!account.id) return;
-
     const today = new Date();
     const dueDate = (daysFromNow: number) => {
       const date = new Date(today);
@@ -3296,46 +3725,122 @@ export class ClientAccountsService {
       { key: "reporting-setup", title: `Set up reporting: ${account.clinicName}`, due: 5, serviceType: "other" },
       { key: "first-review", title: `Book first client review: ${account.clinicName}`, due: 14, serviceType: "strategy" },
     ];
+    const [assigneeRows]: any = await connection.execute(
+      `SELECT u.id
+       FROM user u
+       WHERE u.id IN (?, ?)
+         AND u.deleted_at IS NULL
+         AND u.status = 'active'
+         AND u.is_active = 1
+         AND (
+           u.clinic_id = ?
+           OR EXISTS (
+             SELECT 1
+             FROM clinic_membership cm
+             WHERE cm.user_id = u.id
+               AND cm.clinic_id = ?
+               AND cm.status = 'active'
+           )
+         )
+       ORDER BY CASE WHEN u.id = ? THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [deal.ownerId || userId, userId, sourceClinicId, sourceClinicId, deal.ownerId || userId],
+    );
+    const assignedUserId = assigneeRows[0]?.id;
+    if (!assignedUserId) {
+      throw ApiError.badRequest("Onboarding tasks require an active workspace assignee.");
+    }
 
     for (const item of checklist) {
       const templateKey = `won_client_onboarding:${deal.id}:${item.key}`;
-      const [existingRows]: any = await pool.execute(
-        `SELECT id
-         FROM task
-         WHERE clinic_id = ?
-           AND is_internal = 1
-           AND template_key = ?
-           AND deleted_at IS NULL
-         LIMIT 1`,
-        [sourceClinicId, templateKey],
-      );
-      if (existingRows.length > 0) continue;
-
       const description = [
         baseDescription,
         "",
         `Checklist item: ${item.title}`,
         "Created automatically when the won opportunity was converted into a client account.",
       ].join("\n");
+      const [existingRows]: any = await connection.execute(
+        `SELECT id
+         FROM task
+         WHERE clinic_id = ?
+           AND is_internal = 1
+           AND template_key = ?
+           AND deleted_at IS NULL
+           AND archived_at IS NULL
+         LIMIT 1
+         FOR UPDATE`,
+        [sourceClinicId, templateKey],
+      );
+      if (existingRows.length > 0) {
+        await connection.execute(
+          `UPDATE task current_task
+           SET description = CASE WHEN description IS NULL OR description = '' THEN ? ELSE description END,
+               category = 'client_onboarding',
+               board_key = 'delivery',
+               service_type = COALESCE(service_type, ?),
+               client_account_profile_id = ?,
+               contact_id = ?,
+               contact_name = CASE WHEN contact_name IS NULL OR contact_name = '' THEN ? ELSE contact_name END,
+               due_date = COALESCE(due_date, ?),
+               assigned_user_id = CASE
+                 WHEN current_task.assigned_user_id IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1
+                    FROM user current_assignee
+                    WHERE current_assignee.id = current_task.assigned_user_id
+                      AND current_assignee.deleted_at IS NULL
+                      AND current_assignee.status = 'active'
+                      AND current_assignee.is_active = 1
+                      AND (
+                        current_assignee.clinic_id = current_task.clinic_id
+                        OR EXISTS (
+                          SELECT 1
+                          FROM clinic_membership current_membership
+                          WHERE current_membership.user_id = current_assignee.id
+                            AND current_membership.clinic_id = current_task.clinic_id
+                            AND current_membership.status = 'active'
+                        )
+                      )
+                  )
+                 THEN current_task.assigned_user_id
+                 ELSE ?
+               END,
+               created_by = COALESCE(created_by, ?),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [
+            description,
+            item.serviceType,
+            account.id,
+            deal.contactId,
+            contactName,
+            dueDate(item.due),
+            assignedUserId,
+            userId,
+            existingRows[0].id,
+          ],
+        );
+        continue;
+      }
 
-      await pool.execute(
+      await connection.execute(
         `INSERT INTO task
           (id, clinic_id, is_internal, title, description, priority, status, category,
            board_key, service_type, client_account_profile_id, contact_id, contact_name,
            due_label, due_date, assigned_user_id, template_key, created_by)
          VALUES (?, ?, 1, ?, ?, 'high', 'pending', 'client_onboarding',
-           'delivery', ?, ?, ?, ?, 'Client onboarding', ?, ?, ?, ?)`,
+           'delivery', ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
         [
           uuidv4(),
           sourceClinicId,
-          item.title,
+          item.title.slice(0, 255),
           description,
           item.serviceType,
           account.id,
           deal.contactId,
           contactName,
           dueDate(item.due),
-          deal.ownerId || null,
+          assignedUserId,
           templateKey,
           userId,
         ],
@@ -3375,8 +3880,11 @@ export class ClientAccountsService {
     }
   }
 
-  private async ensureActiveInternalUser(userId: string) {
-    const [rows]: any = await pool.execute(
+  private async ensureActiveInternalUser(
+    userId: string,
+    executor: Pick<PoolConnection, "execute"> = pool,
+  ) {
+    const [rows]: any = await executor.execute(
       `SELECT id
        FROM user
        WHERE id = ?

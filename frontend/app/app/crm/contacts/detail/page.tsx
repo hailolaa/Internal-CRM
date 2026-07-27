@@ -20,7 +20,13 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   AlertBanner,
   Avatar,
@@ -180,6 +186,27 @@ function formatScore(value: number | null | undefined) {
   return value === null || value === undefined ? "Not scored" : `${Math.round(value)} / 100`;
 }
 
+const contactRecordTabs = [
+  { id: "overview", label: "Overview" },
+  { id: "files", label: "Files/Documents" },
+  { id: "notes", label: "Notes" },
+] as const;
+
+type ContactRecordTab = (typeof contactRecordTabs)[number]["id"];
+
+function contactRecordTabFromHash(hash: string): ContactRecordTab | null {
+  switch (hash) {
+    case "#contact-overview":
+      return "overview";
+    case "#contact-files":
+      return "files";
+    case "#contact-notes":
+      return "notes";
+    default:
+      return null;
+  }
+}
+
 export default function ContactDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -202,6 +229,7 @@ export default function ContactDetailPage() {
   const [documentDrafts, setDocumentDrafts] = useState<Record<string, { driveUrl: string; displayName: string; notes: string }>>({});
   const [documentActionType, setDocumentActionType] = useState<string | null>(null);
   const [actionName, setActionName] = useState<"contacted" | "pipeline" | "convert" | "note" | "attempt" | "call-demo" | "audit" | "delete" | null>(null);
+  const [activeRecordTab, setActiveRecordTab] = useState<ContactRecordTab>("overview");
   const [noteDraft, setNoteDraft] = useState("");
   const [auditDraft, setAuditDraft] = useState({
     status: "" as AuditWorkflowStatus | "",
@@ -225,6 +253,25 @@ export default function ContactDetailPage() {
     nextStep: "",
     notes: "",
   });
+
+  useEffect(() => {
+    const syncRecordTabFromHash = () => {
+      setActiveRecordTab(contactRecordTabFromHash(window.location.hash) || "overview");
+    };
+
+    syncRecordTabFromHash();
+    window.addEventListener("hashchange", syncRecordTabFromHash);
+    return () => window.removeEventListener("hashchange", syncRecordTabFromHash);
+  }, [contactId]);
+
+  useEffect(() => {
+    if (isLoading || contactRecordTabFromHash(window.location.hash) !== activeRecordTab) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      document.getElementById(`contact-${activeRecordTab}`)?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeRecordTab, contactId, isLoading]);
 
   const loadContact = useCallback(async () => {
     if (!contactId) {
@@ -382,6 +429,46 @@ export default function ContactDetailPage() {
     () => documents.filter((document) => document.status === "missing" || document.status === "access_problem").length,
     [documents],
   );
+
+  const selectRecordTab = (tab: ContactRecordTab) => {
+    setActiveRecordTab(tab);
+    const hash = `#contact-${tab}`;
+    if (window.location.hash !== hash) {
+      window.history.replaceState(window.history.state, "", hash);
+    }
+  };
+
+  const handleRecordTabKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    currentTab: ContactRecordTab,
+  ) => {
+    const currentIndex = contactRecordTabs.findIndex((tab) => tab.id === currentTab);
+    let nextIndex: number;
+
+    switch (event.key) {
+      case "ArrowRight":
+        nextIndex = (currentIndex + 1) % contactRecordTabs.length;
+        break;
+      case "ArrowLeft":
+        nextIndex = (currentIndex - 1 + contactRecordTabs.length) % contactRecordTabs.length;
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = contactRecordTabs.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    const nextTab = contactRecordTabs[nextIndex].id;
+    selectRecordTab(nextTab);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`contact-${nextTab}-tab`)?.focus();
+    });
+  };
 
   const handleMarkContacted = useCallback(async () => {
     if (!token || !contact || !canWriteContacts) return;
@@ -809,6 +896,47 @@ export default function ContactDetailPage() {
         </div>
       </div>
 
+      <nav
+        role="tablist"
+        aria-label="Lead record sections"
+        className="overflow-x-auto rounded-2xl border border-[#d8ddda] bg-[#FFFCF9] p-1.5 shadow-[0_1px_6px_rgba(21,31,33,0.03)]"
+      >
+        <div className="flex min-w-max items-center gap-1">
+          {contactRecordTabs.map((tab) => {
+            const isActive = activeRecordTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                id={`contact-${tab.id}-tab`}
+                type="button"
+                role="tab"
+                aria-controls={`contact-${tab.id}`}
+                aria-selected={isActive}
+                tabIndex={isActive ? 0 : -1}
+                onClick={() => selectRecordTab(tab.id)}
+                onKeyDown={(event) => handleRecordTabKeyDown(event, tab.id)}
+                className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-4 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-[#75aaa7] focus:ring-offset-2 ${
+                  isActive
+                    ? "bg-[#edf5f3] text-[#315f62] hover:bg-[#dcece8]"
+                    : "text-[#6F6A66] hover:bg-[#FAF8F5] hover:text-[#315f62]"
+                }`}
+              >
+                {tab.id === "files" ? <FolderOpen className="h-4 w-4" /> : null}
+                {tab.label}
+                {tab.id === "files" ? (
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex min-w-6 items-center justify-center rounded-full bg-white px-1.5 py-0.5 text-xs font-bold text-[#315f62] ring-1 ring-[#cbded9]"
+                  >
+                    {missingDocumentCount}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
       {actionMessage && (
         <AlertBanner icon={CheckCircle} title={actionMessage} variant="success" />
       )}
@@ -827,67 +955,20 @@ export default function ContactDetailPage() {
         />
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <Card padding="p-5 sm:p-6">
-            <h2 className="text-base font-semibold text-[#151f21]">
-              Contact details
-            </h2>
-            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {contactMethods.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div
-                    key={item.label}
-                    className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4"
-                  >
-                    <div className="flex items-center gap-2 text-xs font-medium text-[#6F6A66]">
-                      <Icon className="h-4 w-4" />
-                      {item.label}
-                    </div>
-                    <p className="mt-2 text-sm font-semibold text-[#151f21]">
-                      {item.value}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-
-          <Card padding="p-5 sm:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-[#151f21]">Companies</h2>
-                <p className="mt-1 text-sm text-[#6F6A66]">Client companies linked to this person.</p>
-              </div>
-              <span className="rounded-full bg-[#edf5f3] px-2.5 py-1 text-xs font-semibold text-[#315f62]">
-                {visibleLinkedAccountLinks.length}
-              </span>
-            </div>
-            {visibleLinkedAccountLinks.length > 0 ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {visibleLinkedAccountLinks.map((accountLink) => (
-                  <Link
-                    key={accountLink.relationId}
-                    href={`/app/ops/client-accounts/detail?id=${encodeURIComponent(accountLink.clientClinicId)}`}
-                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-semibold text-[#315f62] transition hover:border-[#a9c7c4] hover:bg-[#edf5f3] focus:outline-none focus:ring-2 focus:ring-[#75aaa7]"
-                  >
-                    <span className="min-w-0 break-words">{accountLink.clientName}</span>
-                    <ExternalLink className="h-4 w-4 shrink-0" />
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4">
-                <EmptyState label="No client companies are linked to this person." />
-              </div>
-            )}
-          </Card>
-
+      {activeRecordTab === "files" ? (
+        <section
+          id="contact-files"
+          role="tabpanel"
+          aria-labelledby="contact-files-tab"
+          tabIndex={0}
+          className="scroll-mt-24"
+        >
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2">
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h2 className="flex items-center gap-2 text-base font-semibold text-[#151f21]">
+                <h2 id="contact-files-title" className="flex items-center gap-2 text-base font-semibold text-[#151f21]">
                   <FolderOpen className="h-5 w-5 text-[#315f62]" />
                   Files/Documents
                 </h2>
@@ -945,6 +1026,123 @@ export default function ContactDetailPage() {
               })}
             </div>
           </Card>
+          </div>
+          </div>
+        </section>
+      ) : null}
+
+      {activeRecordTab === "notes" ? (
+        <section
+          id="contact-notes"
+          role="tabpanel"
+          aria-labelledby="contact-notes-tab"
+          tabIndex={0}
+          className="scroll-mt-24"
+        >
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+          <Card padding="p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-[#151f21]">Notes</h2>
+              <span className="text-xs text-[#6F6A66]">
+                Internal prospect notes
+              </span>
+            </div>
+            <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-[#6F6A66]">
+              {contact.notes || "No notes recorded."}
+            </p>
+            <div className="mt-5 space-y-3">
+              <textarea
+                value={noteDraft}
+                onChange={(event) => setNoteDraft(event.target.value)}
+                disabled={!canWriteContacts || actionName === "note"}
+                rows={4}
+                className="w-full resize-none rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
+                placeholder="Add a sales follow-up note, context from a call, objection, next step, or handoff detail..."
+              />
+              <button
+                onClick={handleAddNote}
+                disabled={!canWriteContacts || actionName === "note" || !noteDraft.trim()}
+                className="btn-primary text-sm disabled:opacity-60"
+              >
+                {actionName === "note" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <MessageSquare className="h-4 w-4" />
+                )}
+                Add Note
+              </button>
+            </div>
+          </Card>
+          </div>
+          </div>
+        </section>
+      ) : null}
+
+      {activeRecordTab === "overview" ? (
+      <section
+        id="contact-overview"
+        role="tabpanel"
+        aria-labelledby="contact-overview-tab"
+        tabIndex={0}
+        className="scroll-mt-24"
+      >
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <Card padding="p-5 sm:p-6">
+            <h2 id="contact-overview-title" className="text-base font-semibold text-[#151f21]">
+              Contact details
+            </h2>
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {contactMethods.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div
+                    key={item.label}
+                    className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4"
+                  >
+                    <div className="flex items-center gap-2 text-xs font-medium text-[#6F6A66]">
+                      <Icon className="h-4 w-4" />
+                      {item.label}
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-[#151f21]">
+                      {item.value}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-[#151f21]">Companies</h2>
+                <p className="mt-1 text-sm text-[#6F6A66]">Client companies linked to this person.</p>
+              </div>
+              <span className="rounded-full bg-[#edf5f3] px-2.5 py-1 text-xs font-semibold text-[#315f62]">
+                {visibleLinkedAccountLinks.length}
+              </span>
+            </div>
+            {visibleLinkedAccountLinks.length > 0 ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {visibleLinkedAccountLinks.map((accountLink) => (
+                  <Link
+                    key={accountLink.relationId}
+                    href={`/app/ops/client-accounts/detail?id=${encodeURIComponent(accountLink.clientClinicId)}`}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-semibold text-[#315f62] transition hover:border-[#a9c7c4] hover:bg-[#edf5f3] focus:outline-none focus:ring-2 focus:ring-[#75aaa7]"
+                  >
+                    <span className="min-w-0 break-words">{accountLink.clientName}</span>
+                    <ExternalLink className="h-4 w-4 shrink-0" />
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4">
+                <EmptyState label="No client companies are linked to this person." />
+              </div>
+            )}
+          </Card>
 
           <Card padding="p-5 sm:p-6">
             <h2 className="text-base font-semibold text-[#151f21]">
@@ -955,6 +1153,7 @@ export default function ContactDetailPage() {
                 <Link
                   key={item.label}
                   href={item.href}
+                  onClick={item.label === "Notes" ? () => selectRecordTab("notes") : undefined}
                   className="flex items-center justify-between rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-medium text-[#151f21] transition hover:border-[#6E6AE8]/30 hover:text-[#6E6AE8]"
                 >
                   {item.label}
@@ -1039,7 +1238,12 @@ export default function ContactDetailPage() {
                 ["Audits", `/app/admin?entityId=${contact.id}`],
                 ["Proposals", `/app/crm/proposals/edit?contactId=${contact.id}&accountName=${encodeURIComponent(contact.accountName || contact.name)}&packageName=${encodeURIComponent(contact.recommendedPackage || contact.packageInterest || contact.treatmentInterests[0] || "")}`],
               ].map(([label, href]) => (
-                <Link key={label} href={href} className="flex items-center justify-between rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-semibold text-[#315f62] transition hover:border-[#a9c7c4] hover:bg-[#edf5f3]">
+                <Link
+                  key={label}
+                  href={href}
+                  onClick={label === "Notes" ? () => selectRecordTab("notes") : undefined}
+                  className="flex items-center justify-between rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm font-semibold text-[#315f62] transition hover:border-[#a9c7c4] hover:bg-[#edf5f3]"
+                >
                   {label}
                   <ExternalLink className="h-4 w-4" />
                 </Link>
@@ -1585,42 +1789,6 @@ export default function ContactDetailPage() {
             </div>
           </Card>
 
-          <div id="contact-notes">
-          <Card padding="p-5 sm:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-[#151f21]">Notes</h2>
-              <span className="text-xs text-[#6F6A66]">
-                Internal prospect notes
-              </span>
-            </div>
-            <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-[#6F6A66]">
-              {contact.notes || "No notes recorded."}
-            </p>
-            <div className="mt-5 space-y-3">
-              <textarea
-                value={noteDraft}
-                onChange={(event) => setNoteDraft(event.target.value)}
-                disabled={!canWriteContacts || actionName === "note"}
-                rows={4}
-                className="w-full resize-none rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] px-4 py-3 text-sm text-[#151f21] outline-none transition focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/10 disabled:opacity-60"
-                placeholder="Add a sales follow-up note, context from a call, objection, next step, or handoff detail..."
-              />
-              <button
-                onClick={handleAddNote}
-                disabled={!canWriteContacts || actionName === "note" || !noteDraft.trim()}
-                className="btn-primary text-sm disabled:opacity-60"
-              >
-                {actionName === "note" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <MessageSquare className="h-4 w-4" />
-                )}
-                Add Note
-              </button>
-            </div>
-          </Card>
-          </div>
-
           <Card padding="p-5 sm:p-6">
             <h2 className="mb-4 text-base font-semibold text-[#151f21]">
               Linked messages
@@ -1647,6 +1815,8 @@ export default function ContactDetailPage() {
           </Card>
         </div>
       </div>
+      </section>
+      ) : null}
     </div>
   );
 }
