@@ -91,6 +91,125 @@ function validateRecipient(channel: "email" | "sms", recipient: string) {
   return trimmed;
 }
 
+const DEFAULT_NURTURE_TEMPLATES: Array<{
+  name: string;
+  channel: "email";
+  subject: string;
+  body: string;
+}> = [
+  {
+    name: "MC-046 Free guide follow-up",
+    channel: "email",
+    subject: "Next step after {{guide_name}}",
+    body: `Hi {{first_name}},
+
+Thanks for downloading {{guide_name}}.
+
+The useful next step is to run or request the Clinic Growth Score so we can see where {{account_name}} is losing visibility, enquiries, or follow-up speed.
+
+Current Clinic Growth Score: {{clinic_growth_score}}
+Recommended next package: {{recommended_next_package}}
+
+Would you like me to help arrange the Growth Score review?`,
+  },
+  {
+    name: "MC-046 New lead follow-up",
+    channel: "email",
+    subject: "Quick follow-up from ClinicGrower",
+    body: `Hi {{first_name}},
+
+Thanks for getting in touch with ClinicGrower.
+
+Based on your interest in {{package_interest}}, the next useful step is to review your Clinic Growth Score and identify the fastest improvement area.
+
+Current Clinic Growth Score: {{clinic_growth_score}}
+Recommended next package: {{recommended_next_package}}
+
+Would a short discovery call work this week?`,
+  },
+  {
+    name: "MC-046 Audit completed",
+    channel: "email",
+    subject: "Your Clinic Growth Score is ready",
+    body: `Hi {{first_name}},
+
+The audit is complete and your Clinic Growth Score is ready to review.
+
+Clinic Growth Score: {{clinic_growth_score}}
+Recommended next package: {{recommended_next_package}}
+
+The score shows the strongest gaps around visibility, tracking, conversion, and lead handling. The next step is to walk through the findings and agree what should happen first.`,
+  },
+  {
+    name: "MC-046 Dashboard access given",
+    channel: "email",
+    subject: "Dashboard access is ready",
+    body: `Hi {{first_name}},
+
+Dashboard access has been set up so you can review the Clinic Growth Score and the audit findings for {{account_name}}.
+
+Clinic Growth Score: {{clinic_growth_score}}
+Recommended next package: {{recommended_next_package}}
+
+Please check access when you can, and I will follow up with the next recommended action.`,
+  },
+  {
+    name: "MC-046 Proposal follow-up",
+    channel: "email",
+    subject: "Following up on the proposal",
+    body: `Hi {{first_name}},
+
+I wanted to follow up on the proposal for {{account_name}}.
+
+Proposal link: {{proposal_link}}
+Clinic Growth Score: {{clinic_growth_score}}
+Recommended next package: {{recommended_next_package}}
+
+The recommendation is based on the gaps we found in the Growth Score. Is there anything you want me to clarify before the next decision?`,
+  },
+  {
+    name: "MC-046 No-show follow-up",
+    channel: "email",
+    subject: "Should we reschedule?",
+    body: `Hi {{first_name}},
+
+Sorry we missed each other.
+
+The reason I wanted to connect was to talk through the Clinic Growth Score and the best next package for {{account_name}}.
+
+Clinic Growth Score: {{clinic_growth_score}}
+Recommended next package: {{recommended_next_package}}
+
+Would you like to reschedule for another time this week?`,
+  },
+  {
+    name: "MC-046 Lost lead reactivation",
+    channel: "email",
+    subject: "Worth revisiting growth now?",
+    body: `Hi {{first_name}},
+
+I know the timing was not right previously, but it may be worth revisiting the Growth Score for {{account_name}}.
+
+Clinic Growth Score: {{clinic_growth_score}}
+Recommended next package: {{recommended_next_package}}
+
+If growth, enquiries, tracking, or response speed are still priorities, I can help identify the simplest next step.`,
+  },
+  {
+    name: "MC-046 Existing client upsell",
+    channel: "email",
+    subject: "Recommended next growth step",
+    body: `Hi {{first_name}},
+
+Based on the current Clinic Growth Score and account context, there may be a clear next growth step for {{account_name}}.
+
+Clinic Growth Score: {{clinic_growth_score}}
+Recommended next package: {{recommended_next_package}}
+
+The aim is to build on what is already working and close the next visible gap without overcomplicating delivery.`,
+  },
+];
+
 export function renderMessageTemplateText(input: string, variables: RenderMessageTemplateVariables) {
   return input.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, rawKey) => {
     const key = String(rawKey).toLowerCase();
@@ -108,6 +227,8 @@ export function validateRenderedTemplateBody(body: string) {
 export class MessageTemplatesService {
   // List reusable communication templates
   async listTemplates(clinicId: string, filters: MessageTemplateFilters = {}) {
+    await this.ensureDefaultNurtureTemplates(clinicId);
+
     const whereClauses = ["clinic_id = ?", "deleted_at IS NULL"];
     const values: any[] = [clinicId];
 
@@ -129,6 +250,24 @@ export class MessageTemplatesService {
       values,
     );
     return rows.map((row: any) => normalizeTemplateRow(row));
+  }
+
+  private async ensureDefaultNurtureTemplates(clinicId: string) {
+    for (const template of DEFAULT_NURTURE_TEMPLATES) {
+      await pool.execute(
+        `INSERT IGNORE INTO message_template
+          (id, clinic_id, name, channel, subject, body, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, 'active', NULL)`,
+        [
+          uuidv4(),
+          clinicId,
+          template.name,
+          template.channel,
+          template.subject,
+          template.body,
+        ],
+      );
+    }
   }
 
   // Fetch one template for editing or flow usage.

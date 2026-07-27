@@ -39,6 +39,12 @@ const DEFAULT_VARIABLE_VALUES: Record<string, string> = {
   first_name: "Test",
   last_name: "Prospect",
   workspace_name: "The Growth Group",
+  account_name: "Harley Street Dental",
+  clinic_growth_score: "62 / 100",
+  recommended_next_package: "Growth Diagnostic",
+  package_interest: "Performance OS",
+  guide_name: "Clinic Growth Score guide",
+  proposal_link: "https://missioncontrol.example/proposals/demo",
   meeting_date: "June 1, 2026",
   meeting_time: "10:00 AM",
   service_package: "Website build",
@@ -210,7 +216,7 @@ export default function TemplatesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Templates"
-        subtitle="Reusable message templates for quick replies."
+        subtitle="Internal nurture and follow-up prompts for manual copy/use. Check contact permissions before sending."
         right={
           <button
             onClick={() => router.push("/app/comms/templates/new")}
@@ -232,7 +238,7 @@ export default function TemplatesPage() {
           { label: "Template" },
           { label: "Category" },
           { label: "Channel" },
-          { label: "Usage" },
+          { label: "Use" },
           { label: "Updated" },
           { label: "Actions" },
         ]}
@@ -267,7 +273,7 @@ export default function TemplatesPage() {
                 {template.channel}
               </span>
             </TableCell>
-            <TableCell className="text-[#6B7280] text-sm">Test enabled</TableCell>
+            <TableCell className="text-[#6B7280] text-sm">Copy/use manually</TableCell>
             <TableCell className="text-[#6B7280] text-sm">
               {template.updatedAt}
             </TableCell>
@@ -284,9 +290,9 @@ export default function TemplatesPage() {
                 <button
                   onClick={() => handleCopyTemplate(template)}
                   aria-label={`Copy ${template.name}`}
-                  className="p-1.5 rounded-[10px] hover:bg-[rgba(110,106,232,0.06)] transition-colors"
+                  className="px-2.5 py-1 rounded-[10px] text-xs font-medium transition-colors flex items-center gap-1 bg-white text-[#315f62] border border-[#d8ddda] hover:bg-[#edf5f3]"
                 >
-                  <Copy className="w-4 h-4 text-[#6B7280]" />
+                  <Copy className="w-3 h-3" /> Copy / Use
                 </button>
                 <MoreButton
                   label={`Archive ${template.name}`}

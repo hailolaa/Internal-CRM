@@ -1,29 +1,43 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
+import { v4 as uuidv4 } from "uuid";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
 import { messageTemplatesService } from "../modules/message-templates/message-templates.service.js";
+import { generateToken, hashPassword } from "../utils/helpers.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
+  const clinicId = uuidv4();
+  const userId = uuidv4();
+  const email = uniqueEmail(`${prefix}_admin`);
+  const passwordHash = await hashPassword("password123");
+
+  await pool.execute(
+    `INSERT INTO clinic (id, name, email, phone, subscription_plan, subscription_status, max_users)
+     VALUES (?, ?, ?, '555-0100', 'professional', 'active', 20)`,
+    [clinicId, `${prefix} Clinic`, email],
+  );
+  await pool.execute(
+    `INSERT INTO user
+      (id, clinic_id, email, password_hash, first_name, last_name, phone, role, email_verified_at, status)
+     VALUES (?, ?, ?, ?, ?, 'Admin', '555-0100', 'SUPER_ADMIN', CURRENT_TIMESTAMP, 'active')`,
+    [userId, clinicId, email, passwordHash, prefix],
+  );
+  await pool.execute(
+    `INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary)
+     VALUES (?, ?, 'SUPER_ADMIN', 'active', 1)`,
+    [userId, clinicId],
+  );
 
   return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
+    clinicId,
+    userId,
+    token: generateToken({ userId, clinicId, role: "SUPER_ADMIN", email }),
   };
 }
 
@@ -71,6 +85,30 @@ test("message templates support filters, archiving, and rendering", async () => 
     assert.equal(listResponse.ok, true);
     assert.equal(listBody.data.some((item: any) => item.id === templateId), true);
     assert.equal(listBody.meta.availablePlaceholders.length > 0, true);
+    assert.equal(listBody.meta.availablePlaceholders.some((item: any) => item.key === "clinic_growth_score"), true);
+    assert.equal(listBody.meta.availablePlaceholders.some((item: any) => item.key === "recommended_next_package"), true);
+
+    const emailTemplates = await messageTemplatesService.listTemplates(clinic.clinicId, {
+      channel: "email",
+      status: "active",
+    });
+    const defaultTemplates = emailTemplates.filter((item: any) => item.name.startsWith("MC-046 "));
+    assert.equal(defaultTemplates.length, 8);
+    for (const expectedName of [
+      "MC-046 Free guide follow-up",
+      "MC-046 New lead follow-up",
+      "MC-046 Audit completed",
+      "MC-046 Dashboard access given",
+      "MC-046 Proposal follow-up",
+      "MC-046 No-show follow-up",
+      "MC-046 Lost lead reactivation",
+      "MC-046 Existing client upsell",
+    ]) {
+      const template = defaultTemplates.find((item: any) => item.name === expectedName);
+      assert.ok(template, `Missing default template ${expectedName}`);
+      assert.match(template.body, /Clinic Growth Score/);
+      assert.match(template.body, /Recommended next package/);
+    }
 
     const detailResponse = await fetch(`${baseUrl}/api/message-templates/${templateId}`, {
       headers: { Authorization: `Bearer ${clinic.token}` },

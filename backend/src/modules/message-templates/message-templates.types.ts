@@ -4,15 +4,57 @@ export const MESSAGE_TEMPLATE_STATUSES = ["draft", "active", "archived"] as cons
 export const MESSAGE_TEMPLATE_PLACEHOLDERS = [
   {
     key: "patient_name",
-    label: "Patient name",
-    description: "The contact's full name.",
+    label: "Contact name",
+    description: "The lead or client contact's full name.",
     example: "{{patient_name}}",
   },
   {
     key: "clinic_name",
-    label: "Clinic name",
-    description: "Your clinic display name.",
+    label: "Account name",
+    description: "The lead or client account name.",
     example: "{{clinic_name}}",
+  },
+  {
+    key: "first_name",
+    label: "First name",
+    description: "The contact's first name.",
+    example: "{{first_name}}",
+  },
+  {
+    key: "account_name",
+    label: "Account name",
+    description: "The lead or client account name.",
+    example: "{{account_name}}",
+  },
+  {
+    key: "clinic_growth_score",
+    label: "Clinic Growth Score",
+    description: "The current or proposed Clinic Growth Score value.",
+    example: "{{clinic_growth_score}}",
+  },
+  {
+    key: "recommended_next_package",
+    label: "Recommended next package",
+    description: "The package Mission Control recommends next.",
+    example: "{{recommended_next_package}}",
+  },
+  {
+    key: "package_interest",
+    label: "Package interest",
+    description: "The package or service the lead is interested in.",
+    example: "{{package_interest}}",
+  },
+  {
+    key: "guide_name",
+    label: "Guide name",
+    description: "The free guide or lead magnet downloaded.",
+    example: "{{guide_name}}",
+  },
+  {
+    key: "proposal_link",
+    label: "Proposal link",
+    description: "The proposal URL to share with the contact.",
+    example: "{{proposal_link}}",
   },
   {
     key: "appointment_date",
