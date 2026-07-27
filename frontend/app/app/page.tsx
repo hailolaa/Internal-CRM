@@ -33,6 +33,10 @@ import {
   nextBestActionBadgeClass,
   type NextBestActionResult,
 } from "@/lib/next-best-action";
+import {
+  calculateLeadPriority,
+  leadPriorityBadgeClass,
+} from "@/lib/lead-priority";
 import { DashboardKpiCardLink } from "@/components/dashboard-kpi-card-link";
 import type {
   ClientAccountServiceRecord,
@@ -59,6 +63,27 @@ type DashboardActionRow = {
   owner: string;
   action: NextBestActionResult;
   href: string;
+  sort: number;
+};
+
+type LeadAttentionRow = {
+  id: string;
+  title: string;
+  meta: string;
+  detail: string;
+  href: string;
+  badge: string;
+  badgeClass: string;
+  sort: number;
+};
+
+type ClientBlockerRow = {
+  id: string;
+  title: string;
+  owner: string;
+  detail: string;
+  href: string;
+  severity: "high" | "medium";
   sort: number;
 };
 
@@ -135,6 +160,12 @@ function isUpcomingTask(task: InternalTaskRecord) {
   return days !== null && days >= 0 && days <= 14;
 }
 
+function isTaskDue(task: InternalTaskRecord) {
+  if (task.status === "completed") return false;
+  const days = daysFromToday(task.dueDate);
+  return days !== null && days <= 0;
+}
+
 function isUpcomingService(service: ClientAccountServiceRecord) {
   if (!isActiveProject(service)) return false;
   const days = daysFromToday(service.renewalDate);
@@ -164,6 +195,20 @@ function isAuditDue(status?: string | null, dueAt?: string | null) {
 function isLeadContact(contact: ContactRecord) {
   const status = `${contact.status || ""} ${contact.leadStatus || ""}`.toLowerCase();
   return ["lead", "prospect", "new", "contacted", "proposal", "audit", "discovery"].some((term) => status.includes(term));
+}
+
+function isLeadNotContacted(contact: ContactRecord) {
+  return isLeadContact(contact) && !contact.lastContactAt && contact.contactAttemptCount === 0;
+}
+
+function isLeadFollowUpDue(contact: ContactRecord) {
+  if (!isLeadContact(contact)) return false;
+  const days = daysFromToday(contact.nextFollowUpAt);
+  return days !== null && days <= 0;
+}
+
+function contactTitle(contact: ContactRecord) {
+  return contact.accountName || contact.name || contact.email || contact.phone || "Untitled lead";
 }
 
 function actionUrgencySort(action: NextBestActionResult) {
@@ -286,11 +331,137 @@ export default function AppPage() {
       openClients: clientAccounts.filter(isOpenClient),
       activeProjects: services.filter(isActiveProject),
       overdueTasks: tasks.filter(isTaskOverdue),
+      tasksDue: tasks.filter(isTaskDue),
       auditsDue: auditItems.filter((item) => isAuditDue(item.status, item.dueAt)),
       auditsInProgress: auditItems.filter((item) => isAuditInProgress(item.status)),
       auditsCompleted: auditItems.filter((item) => isAuditCompleted(item.status)),
     };
   }, [clientAccounts, contacts, deals, services, tasks]);
+
+  const leadAttentionRows = useMemo(() => {
+    const contactRows = contacts
+      .filter(isLeadContact)
+      .map<LeadAttentionRow>((contact) => {
+        const followUpDays = daysFromToday(contact.nextFollowUpAt);
+        const priority = calculateLeadPriority({
+          accountName: contact.accountName || contact.name,
+          auditOverdue: isAuditDue(contact.auditStatus, contact.auditFollowUpDueAt),
+          auditStatus: contact.auditStatus,
+          attemptCount: contact.contactAttemptCount,
+          ctaClicked: contact.ctaClicked,
+          followUpOverdue: followUpDays !== null && followUpDays < 0,
+          formSubmitted: contact.formSubmitted,
+          landingPage: contact.landingPage,
+          lastContactAt: contact.lastContactAt,
+          packageInterest: contact.packageInterest,
+          recommendedPackage: contact.recommendedPackage,
+          source: contact.source,
+          stage: contact.leadStatus || contact.status,
+          status: isLeadNotContacted(contact)
+            ? "uncontacted"
+            : followUpDays !== null && followUpDays < 0
+              ? "overdue"
+              : "ok",
+          tags: contact.tags,
+        });
+        const signals = [
+          isLeadNotContacted(contact) ? "Not contacted" : null,
+          followUpDays !== null && followUpDays <= 0 ? "Follow-up due" : null,
+          contact.auditStatus ? formatLabel(contact.auditStatus) : null,
+        ].filter(Boolean);
+        return {
+          id: `contact-${contact.id}`,
+          title: contactTitle(contact),
+          meta: [contact.source || "Lead", contact.packageInterest || contact.recommendedPackage].filter(Boolean).join(" - "),
+          detail: signals.length ? signals.join(" - ") : priority.reasons.slice(0, 2).join(" - "),
+          href: `/app/crm/contacts/detail?id=${encodeURIComponent(contact.id)}&from=dashboard`,
+          badge: `${priority.label} ${priority.score}`,
+          badgeClass: leadPriorityBadgeClass(priority.tier),
+          sort: priority.tier === "hot" ? 0 : priority.tier === "warm" ? 1 : 2,
+        };
+      });
+
+    const dealRows = deals
+      .filter((deal) => deal.status === "open" && !contacts.some((contact) => contact.id === deal.contactId))
+      .map<LeadAttentionRow>((deal) => {
+        const followUpDays = daysFromToday(deal.nextFollowUpDate || deal.expectedCloseDate);
+        const priority = calculateLeadPriority({
+          accountName: deal.contactName || deal.title,
+          auditOverdue: isAuditDue(deal.auditStatus, deal.auditFollowUpDueAt),
+          auditStatus: deal.auditStatus,
+          followUpOverdue: followUpDays !== null && followUpDays < 0,
+          packageInterest: deal.treatment,
+          source: deal.source,
+          stage: deal.stageName,
+          status: followUpDays !== null && followUpDays < 0 ? "overdue" : "uncontacted",
+        });
+        return {
+          id: `deal-${deal.id}`,
+          title: deal.contactName || deal.title,
+          meta: [deal.ownerName || "Unassigned", deal.treatment].filter(Boolean).join(" - "),
+          detail: followUpDays !== null && followUpDays <= 0
+            ? `Follow-up due ${formatDate(deal.nextFollowUpDate || deal.expectedCloseDate)}`
+            : priority.reasons.slice(0, 2).join(" - "),
+          href: deal.contactId
+            ? `/app/crm/contacts/detail?id=${encodeURIComponent(deal.contactId)}&from=dashboard`
+            : `/app/crm/pipeline?deal=${encodeURIComponent(deal.id)}&from=dashboard`,
+          badge: `${priority.label} ${priority.score}`,
+          badgeClass: leadPriorityBadgeClass(priority.tier),
+          sort: priority.tier === "hot" ? 0 : priority.tier === "warm" ? 1 : 2,
+        };
+      });
+
+    return [...contactRows, ...dealRows]
+      .filter((row) => row.sort < 2 || row.detail.includes("Not contacted") || row.detail.includes("Follow-up due"))
+      .sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title));
+  }, [contacts, deals]);
+
+  const leadAttentionCounts = useMemo(() => {
+    const leadContacts = contacts.filter(isLeadContact);
+    const notContacted = leadContacts.filter(isLeadNotContacted);
+    const followUpsDue = leadContacts.filter(isLeadFollowUpDue);
+    const hotLeads = leadAttentionRows.filter((row) => row.badge.startsWith("Hot"));
+    return {
+      newLeads: metrics.newLeads.length,
+      notContacted: notContacted.length,
+      hotLeads: hotLeads.length,
+      followUpsDue: followUpsDue.length,
+    };
+  }, [contacts, leadAttentionRows, metrics.newLeads.length]);
+
+  const clientBlockerRows = useMemo<ClientBlockerRow[]>(() => {
+    return clientAccounts
+      .filter((account) => isOpenClient(account))
+      .map((account) => {
+        const missingAccess = account.missingAccessCount || 0;
+        const missingDocuments = account.missingDocumentCount || 0;
+        const openIssues = account.openIssueCount || 0;
+        const onboardingOpen = account.onboardingStatus !== "completed";
+        const hasBlocker = onboardingOpen || missingAccess > 0 || missingDocuments > 0 || openIssues > 0;
+        if (!hasBlocker) return null;
+      const detail = [
+          onboardingOpen ? `Onboarding ${formatLabel(account.onboardingStatus)}` : null,
+          missingAccess > 0 ? `${missingAccess} missing access` : null,
+          missingDocuments > 0 ? `${missingDocuments} missing file link${missingDocuments === 1 ? "" : "s"}` : null,
+          openIssues > 0 ? `${openIssues} open issue${openIssues === 1 ? "" : "s"}` : null,
+        ].filter(Boolean).join(" - ");
+
+        return {
+          id: account.clinicId,
+          title: account.clinicName,
+          owner: account.accountManager
+            ? [account.accountManager.firstName, account.accountManager.lastName].filter(Boolean).join(" ") || account.accountManager.email || "Unassigned"
+            : "Unassigned",
+          detail,
+          href: `/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}#account-access-assets`,
+          severity: account.overdueIssueCount > 0 || missingAccess > 0 || missingDocuments > 0 ? "high" : "medium",
+          sort: (account.overdueIssueCount || 0) > 0 ? 0 : missingAccess + missingDocuments > 0 ? 1 : 2,
+        };
+      })
+      .filter((row): row is ClientBlockerRow => Boolean(row))
+      .sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title))
+      .slice(0, 8);
+  }, [clientAccounts]);
 
   const stageRows = useMemo(() => {
     const rows = stages
@@ -641,6 +812,68 @@ export default function AppPage() {
       </div>
 
       <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-[#151f21]">Sales Attention</h2>
+            <p className="text-sm text-[#5e8a8d]">
+              New, uncontacted, hot and due follow-up leads for today
+            </p>
+          </div>
+          <Link
+            href="/app/leads?from=dashboard"
+            className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+          >
+            Prospect List
+          </Link>
+        </div>
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+          {[
+            { label: "New leads", value: leadAttentionCounts.newLeads, href: "/app/leads?view=new&from=dashboard" },
+            { label: "Not contacted", value: leadAttentionCounts.notContacted, href: "/app/leads?view=not_contacted&from=dashboard" },
+            { label: "Hot leads", value: leadAttentionCounts.hotLeads, href: "/app/leads?priority=hot&from=dashboard" },
+            { label: "Follow-ups due", value: leadAttentionCounts.followUpsDue, href: "/app/leads?followUp=due&from=dashboard" },
+          ].map((item) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="rounded-2xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+              aria-label={`Open ${item.value} ${item.label.toLowerCase()} from Mission Control`}
+            >
+              <p className="text-sm font-medium text-[#5e8a8d]">{item.label}</p>
+              <p className="mt-2 text-3xl font-bold text-[#151f21]">{item.value}</p>
+            </Link>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {isLoading &&
+            Array.from({ length: 4 }, (_, index) => (
+              <SkeletonLine key={index} className="h-16 w-full" />
+            ))}
+          {!isLoading && leadAttentionRows.slice(0, 6).map((row) => (
+            <Link
+              key={row.id}
+              href={row.href}
+              className="rounded-2xl border border-[#E7E1DA] bg-white p-4 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[#151f21]">{row.title}</p>
+                  <p className="mt-1 truncate text-xs text-[#7A746A]">{row.meta || "Lead"}</p>
+                </div>
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${row.badgeClass}`}>
+                  {row.badge}
+                </span>
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs text-[#5e8a8d]">{row.detail}</p>
+            </Link>
+          ))}
+          {!isLoading && leadAttentionRows.length === 0 && (
+            <p className="text-sm text-[#5e8a8d]">No lead attention items found.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h2 className="font-semibold text-[#151f21]">Today&apos;s Next Best Actions</h2>
@@ -729,6 +962,84 @@ export default function AppPage() {
               <p className="mt-2 text-3xl font-bold">{item.value}</p>
             </Link>
           ))}
+        </div>
+      </section>
+
+      <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-[#151f21]">Onboarding & Access Blockers</h2>
+            <p className="text-sm text-[#5e8a8d]">
+              Open client setup issues, missing access, missing folders and onboarding status
+            </p>
+          </div>
+          <Link
+            href="/app/ops/client-accounts?clientStatus=onboarding&from=dashboard"
+            className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+          >
+            Onboarding Clients
+          </Link>
+        </div>
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+          {[
+            {
+              label: "Onboarding clients",
+              value: clientAccounts.filter((account) => account.onboardingStatus !== "completed" && isOpenClient(account)).length,
+              href: "/app/ops/client-accounts?clientStatus=onboarding&from=dashboard",
+            },
+            {
+              label: "Missing access",
+              value: clientAccounts.reduce((total, account) => total + (account.missingAccessCount || 0), 0),
+              href: "/app/ops/client-accounts?search=missing%20access&from=dashboard",
+            },
+            {
+              label: "Missing file links",
+              value: clientAccounts.reduce((total, account) => total + (account.missingDocumentCount || 0), 0),
+              href: "/app/ops/client-accounts?search=missing%20files&from=dashboard",
+            },
+            {
+              label: "Tasks due",
+              value: metrics.tasksDue.length,
+              href: "/app/crm/tasks?due=today&from=dashboard",
+            },
+          ].map((item) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="rounded-2xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+              aria-label={`Open ${item.value} ${item.label.toLowerCase()} from Mission Control`}
+            >
+              <p className="text-sm font-medium text-[#5e8a8d]">{item.label}</p>
+              <p className="mt-2 text-3xl font-bold text-[#151f21]">{item.value}</p>
+            </Link>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {isLoading &&
+            Array.from({ length: 4 }, (_, index) => (
+              <SkeletonLine key={index} className="h-16 w-full" />
+            ))}
+          {!isLoading && clientBlockerRows.map((row) => (
+            <Link
+              key={row.id}
+              href={row.href}
+              className="rounded-2xl border border-[#E7E1DA] bg-white p-4 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[#151f21]">{row.title}</p>
+                  <p className="mt-1 truncate text-xs text-[#7A746A]">{row.owner}</p>
+                </div>
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${row.severity === "high" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-cyan-200 bg-cyan-50 text-cyan-700"}`}>
+                  {row.severity === "high" ? "Blocker" : "Setup"}
+                </span>
+              </div>
+              <p className="mt-2 line-clamp-2 text-xs text-[#5e8a8d]">{row.detail}</p>
+            </Link>
+          ))}
+          {!isLoading && clientBlockerRows.length === 0 && (
+            <p className="text-sm text-[#5e8a8d]">No onboarding or access blockers found.</p>
+          )}
         </div>
       </section>
 

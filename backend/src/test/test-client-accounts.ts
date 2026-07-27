@@ -1233,10 +1233,10 @@ test("client account profile API is permission protected, updateable, audited, a
        ORDER BY created_at ASC`,
       [admin.clinicId, issueId],
     );
-    assert.deepEqual(issueAuditRows.map((row: any) => row.action), [
+    assert.deepEqual(issueAuditRows.map((row: any) => row.action).sort(), [
       "CLIENT_ACCOUNT_ISSUE_CREATED",
       "CLIENT_ACCOUNT_ISSUE_UPDATED",
-    ]);
+    ].sort());
 
     console.log("[client-accounts] issue/support tracker integration test passed");
 

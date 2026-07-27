@@ -243,6 +243,8 @@ export interface ClientAccountProfileResponse {
   upsellPrompts: ClientAccountUpsellPrompt[];
   openIssueCount: number;
   overdueIssueCount: number;
+  missingDocumentCount: number;
+  missingAccessCount: number;
   updatedAt: string | null;
 }
 

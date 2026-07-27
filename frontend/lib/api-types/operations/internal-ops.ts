@@ -227,6 +227,8 @@ export interface ClientAccountProfileRecord {
   upsellPrompts: ClientAccountUpsellPrompt[];
   openIssueCount: number;
   overdueIssueCount: number;
+  missingDocumentCount: number;
+  missingAccessCount: number;
   updatedAt: string | null;
 }
 

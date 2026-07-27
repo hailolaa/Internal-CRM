@@ -497,22 +497,6 @@ export class ClientAccountsService {
           cap.google_drive_folder_access_status as googleDriveFolderAccessStatus,
           cap.google_drive_folder_error as googleDriveFolderError,
           cap.google_drive_folder_checked_at as googleDriveFolderCheckedAt,
-          (
-            SELECT COUNT(*)
-            FROM client_account_issue ci
-            WHERE ci.client_account_profile_id = cap.id
-              AND ci.clinic_id = c.id
-              AND ci.status NOT IN ('resolved', 'closed')
-          ) as openIssueCount,
-          (
-            SELECT COUNT(*)
-            FROM client_account_issue ci
-            WHERE ci.client_account_profile_id = cap.id
-              AND ci.clinic_id = c.id
-              AND ci.status NOT IN ('resolved', 'closed')
-              AND ci.due_date IS NOT NULL
-              AND ci.due_date < CURDATE()
-          ) as overdueIssueCount,
           cap.updated_at as updatedAt,
           u.first_name as accountManagerFirstName,
           u.last_name as accountManagerLastName,
@@ -527,6 +511,8 @@ export class ClientAccountsService {
           COALESCE(task_summary.escalatedTaskCount, 0) as escalatedTaskCount,
           COALESCE(issue_summary.openIssueCount, 0) as openIssueCount,
           COALESCE(issue_summary.overdueIssueCount, 0) as overdueIssueCount,
+          COALESCE(document_summary.missingDocumentCount, 0) as missingDocumentCount,
+          COALESCE(access_summary.missingAccessCount, 0) as missingAccessCount,
           strategy_summary.lastStrategyLogAt as lastStrategyLogAt,
           action_plan_summary.actionPlanId as actionPlanId,
           action_plan_summary.actionPlanMonth as actionPlanMonth,
@@ -583,6 +569,24 @@ export class ClientAccountsService {
           GROUP BY client_account_profile_id
        ) issue_summary ON issue_summary.client_account_profile_id = cap.id
        LEFT JOIN (
+          SELECT
+            client_account_profile_id,
+            COUNT(*) as missingDocumentCount
+          FROM client_account_document_link
+          WHERE clinic_id = ?
+            AND (drive_url IS NULL OR drive_url = '' OR access_status = 'inaccessible')
+          GROUP BY client_account_profile_id
+       ) document_summary ON document_summary.client_account_profile_id = cap.id
+       LEFT JOIN (
+          SELECT
+            client_account_profile_id,
+            COUNT(*) as missingAccessCount
+          FROM client_account_access_item
+          WHERE clinic_id = ?
+            AND status = 'requested'
+          GROUP BY client_account_profile_id
+       ) access_summary ON access_summary.client_account_profile_id = cap.id
+       LEFT JOIN (
           SELECT clinic_id, MAX(updated_at) as lastStrategyLogAt
           FROM strategy_log
           WHERE archived_at IS NULL
@@ -618,7 +622,7 @@ export class ClientAccountsService {
          END,
          COALESCE(task_summary.escalatedTaskCount, 0) DESC,
          c.name ASC`,
-      [clinicId, ...values],
+      [clinicId, clinicId, clinicId, ...values],
     );
 
     return rows.map((row: any) => this.mapAccountSummaryRow(row));
@@ -1225,6 +1229,36 @@ export class ClientAccountsService {
           cap.google_drive_folder_access_status as googleDriveFolderAccessStatus,
           cap.google_drive_folder_error as googleDriveFolderError,
           cap.google_drive_folder_checked_at as googleDriveFolderCheckedAt,
+          (
+            SELECT COUNT(*)
+            FROM client_account_document_link cdl
+            WHERE cdl.client_account_profile_id = cap.id
+              AND cdl.clinic_id = c.id
+              AND (cdl.drive_url IS NULL OR cdl.drive_url = '' OR cdl.access_status = 'inaccessible')
+          ) as missingDocumentCount,
+          (
+            SELECT COUNT(*)
+            FROM client_account_access_item cai
+            WHERE cai.client_account_profile_id = cap.id
+              AND cai.clinic_id = c.id
+              AND cai.status = 'requested'
+          ) as missingAccessCount,
+          (
+            SELECT COUNT(*)
+            FROM client_account_issue ci
+            WHERE ci.client_account_profile_id = cap.id
+              AND ci.clinic_id = c.id
+              AND ci.status NOT IN ('resolved', 'closed')
+          ) as openIssueCount,
+          (
+            SELECT COUNT(*)
+            FROM client_account_issue ci
+            WHERE ci.client_account_profile_id = cap.id
+              AND ci.clinic_id = c.id
+              AND ci.status NOT IN ('resolved', 'closed')
+              AND ci.due_date IS NOT NULL
+              AND ci.due_date < CURDATE()
+          ) as overdueIssueCount,
           cap.updated_at as updatedAt,
           u.first_name as accountManagerFirstName,
           u.last_name as accountManagerLastName,
@@ -1301,6 +1335,8 @@ export class ClientAccountsService {
       }),
       openIssueCount: Number(row.openIssueCount || 0),
       overdueIssueCount: Number(row.overdueIssueCount || 0),
+      missingDocumentCount: Number(row.missingDocumentCount || 0),
+      missingAccessCount: Number(row.missingAccessCount || 0),
       updatedAt: toIsoString(row.updatedAt),
     };
   }
@@ -2715,6 +2751,8 @@ export class ClientAccountsService {
       }),
       openIssueCount: Number(row.openIssueCount || 0),
       overdueIssueCount: Number(row.overdueIssueCount || 0),
+      missingDocumentCount: Number(row.missingDocumentCount || 0),
+      missingAccessCount: Number(row.missingAccessCount || 0),
       updatedAt: toIsoString(row.updatedAt || row.clinicUpdatedAt),
       activeServiceCount: Number(row.activeServiceCount || 0),
       renewalRiskCount: Number(row.renewalRiskCount || 0),
