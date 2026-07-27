@@ -21,9 +21,11 @@ import type {
   ClientAccountSummaryResponse,
   ClientAccountUpsellPrompt,
   ClientAccessItemType,
+  ClientIssueResponse,
   CreateClientAccountDTO,
   CreateClientAccountFromContactDTO,
   CreateClientAccountDriveFolderDTO,
+  CreateClientIssueDTO,
   ClientDocumentType,
   ConvertWonDealToClientDTO,
   GrowthScoreCategories,
@@ -34,6 +36,7 @@ import type {
   UpdateClientAccountAccessItemDTO,
   UpdateClientAccountDocumentLinkDTO,
   UpdateClientAccountDriveFolderDTO,
+  UpdateClientIssueDTO,
   UpdateClientAccountServiceDTO,
   UpdateClientAccountProfileDTO,
 } from "./client-accounts.types.js";
@@ -494,6 +497,22 @@ export class ClientAccountsService {
           cap.google_drive_folder_access_status as googleDriveFolderAccessStatus,
           cap.google_drive_folder_error as googleDriveFolderError,
           cap.google_drive_folder_checked_at as googleDriveFolderCheckedAt,
+          (
+            SELECT COUNT(*)
+            FROM client_account_issue ci
+            WHERE ci.client_account_profile_id = cap.id
+              AND ci.clinic_id = c.id
+              AND ci.status NOT IN ('resolved', 'closed')
+          ) as openIssueCount,
+          (
+            SELECT COUNT(*)
+            FROM client_account_issue ci
+            WHERE ci.client_account_profile_id = cap.id
+              AND ci.clinic_id = c.id
+              AND ci.status NOT IN ('resolved', 'closed')
+              AND ci.due_date IS NOT NULL
+              AND ci.due_date < CURDATE()
+          ) as overdueIssueCount,
           cap.updated_at as updatedAt,
           u.first_name as accountManagerFirstName,
           u.last_name as accountManagerLastName,
@@ -506,6 +525,8 @@ export class ClientAccountsService {
           COALESCE(task_summary.qaTaskCount, 0) as qaTaskCount,
           COALESCE(task_summary.missedTaskCount, 0) as missedTaskCount,
           COALESCE(task_summary.escalatedTaskCount, 0) as escalatedTaskCount,
+          COALESCE(issue_summary.openIssueCount, 0) as openIssueCount,
+          COALESCE(issue_summary.overdueIssueCount, 0) as overdueIssueCount,
           strategy_summary.lastStrategyLogAt as lastStrategyLogAt,
           action_plan_summary.actionPlanId as actionPlanId,
           action_plan_summary.actionPlanMonth as actionPlanMonth,
@@ -552,6 +573,16 @@ export class ClientAccountsService {
           GROUP BY clinic_id
        ) task_summary ON task_summary.clinic_id = c.id
        LEFT JOIN (
+          SELECT
+            client_account_profile_id,
+            COUNT(*) as openIssueCount,
+            SUM(CASE WHEN due_date IS NOT NULL AND due_date < CURDATE() THEN 1 ELSE 0 END) as overdueIssueCount
+          FROM client_account_issue
+          WHERE clinic_id = ?
+            AND status NOT IN ('resolved', 'closed')
+          GROUP BY client_account_profile_id
+       ) issue_summary ON issue_summary.client_account_profile_id = cap.id
+       LEFT JOIN (
           SELECT clinic_id, MAX(updated_at) as lastStrategyLogAt
           FROM strategy_log
           WHERE archived_at IS NULL
@@ -587,7 +618,7 @@ export class ClientAccountsService {
          END,
          COALESCE(task_summary.escalatedTaskCount, 0) DESC,
          c.name ASC`,
-      values,
+      [clinicId, ...values],
     );
 
     return rows.map((row: any) => this.mapAccountSummaryRow(row));
@@ -1268,6 +1299,8 @@ export class ClientAccountsService {
         growthScoreCategories: growthScore.growthScoreCategories,
         growthScoreGapSummary: growthScore.growthScoreGapSummary,
       }),
+      openIssueCount: Number(row.openIssueCount || 0),
+      overdueIssueCount: Number(row.overdueIssueCount || 0),
       updatedAt: toIsoString(row.updatedAt),
     };
   }
@@ -1718,6 +1751,174 @@ export class ClientAccountsService {
     });
 
     return this.listAccessItems(sourceClinicId, clientClinicId, access);
+  }
+
+  async listIssues(
+    sourceClinicId: string,
+    clientClinicId: string,
+    access: { canManageAllClientAccounts: boolean },
+  ): Promise<ClientIssueResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const account = await this.getProfile(clientClinicId);
+    if (!account.id) return [];
+    const [rows]: any = await pool.execute(
+      `SELECT ${this.issueSelectColumns()}
+       FROM client_account_issue issue
+       LEFT JOIN user owner
+         ON owner.id = issue.owner_user_id
+        AND owner.deleted_at IS NULL
+       LEFT JOIN task linked_task
+         ON linked_task.id = issue.task_id
+        AND linked_task.deleted_at IS NULL
+       WHERE issue.clinic_id = ?
+         AND issue.client_account_profile_id = ?
+       ORDER BY
+         CASE issue.status
+           WHEN 'open' THEN 0
+           WHEN 'in_progress' THEN 1
+           WHEN 'waiting' THEN 2
+           WHEN 'resolved' THEN 3
+           ELSE 4
+         END,
+         CASE issue.priority
+           WHEN 'critical' THEN 0
+           WHEN 'high' THEN 1
+           WHEN 'medium' THEN 2
+           ELSE 3
+         END,
+         issue.due_date IS NULL ASC,
+         issue.due_date ASC,
+         issue.updated_at DESC`,
+      [sourceClinicId, account.id],
+    );
+    return rows.map((row: any) => this.mapIssueRow(row));
+  }
+
+  async createIssue(
+    sourceClinicId: string,
+    clientClinicId: string,
+    userId: string,
+    data: CreateClientIssueDTO,
+    access: { canManageAllClientAccounts: boolean },
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientIssueResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const account = await this.getProfile(clientClinicId);
+    const profileId = account.id || await this.ensureProfileRow(clientClinicId, userId);
+    const ownerUserId = data.ownerUserId || null;
+    const taskId = data.taskId || null;
+
+    if (ownerUserId) await this.ensureAccountManagerBelongsToClinic(sourceClinicId, ownerUserId);
+    if (taskId) await this.ensureIssueTaskBelongsToProfile(sourceClinicId, profileId, taskId);
+
+    const issueId = uuidv4();
+    await pool.execute(
+      `INSERT INTO client_account_issue
+        (id, clinic_id, client_account_profile_id, task_id, title, priority, status,
+         owner_user_id, due_date, notes, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        issueId,
+        sourceClinicId,
+        profileId,
+        taskId,
+        data.title.trim(),
+        data.priority || "medium",
+        data.status || "open",
+        ownerUserId,
+        toDateString(data.dueDate),
+        data.notes?.trim() || null,
+        userId,
+        userId,
+      ],
+    );
+
+    await logAuditEvent({
+      clinicId: sourceClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_ISSUE_CREATED",
+      entityType: "client_account_issue",
+      entityId: issueId,
+      changes: { ...data, clientAccountProfileId: profileId, clientClinicId },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.listIssues(sourceClinicId, clientClinicId, access);
+  }
+
+  async updateIssue(
+    sourceClinicId: string,
+    clientClinicId: string,
+    issueId: string,
+    userId: string,
+    data: UpdateClientIssueDTO,
+    access: { canManageAllClientAccounts: boolean },
+    auditContext: ClientAccountAuditContext,
+  ): Promise<ClientIssueResponse[]> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const account = await this.getProfile(clientClinicId);
+    if (!account.id) throw ApiError.notFound("Client account profile not found");
+
+    const [existingRows]: any = await pool.execute(
+      `SELECT id
+       FROM client_account_issue
+       WHERE id = ?
+         AND clinic_id = ?
+         AND client_account_profile_id = ?
+       LIMIT 1`,
+      [issueId, sourceClinicId, account.id],
+    );
+    if (existingRows.length === 0) throw ApiError.notFound("Client issue not found");
+
+    const fields: string[] = [];
+    const values: any[] = [];
+    const changes: Record<string, unknown> = {};
+    const add = (column: string, value: unknown, key: string) => {
+      fields.push(`${column} = ?`);
+      values.push(value);
+      changes[key] = value;
+    };
+
+    if (ownKey(data, "title")) add("title", data.title?.trim(), "title");
+    if (ownKey(data, "priority")) add("priority", data.priority, "priority");
+    if (ownKey(data, "status")) add("status", data.status, "status");
+    if (ownKey(data, "ownerUserId")) {
+      if (data.ownerUserId) await this.ensureAccountManagerBelongsToClinic(sourceClinicId, data.ownerUserId);
+      add("owner_user_id", data.ownerUserId || null, "ownerUserId");
+    }
+    if (ownKey(data, "dueDate")) add("due_date", toDateString(data.dueDate), "dueDate");
+    if (ownKey(data, "notes")) add("notes", data.notes?.trim() || null, "notes");
+    if (ownKey(data, "taskId")) {
+      if (data.taskId) await this.ensureIssueTaskBelongsToProfile(sourceClinicId, account.id, data.taskId);
+      add("task_id", data.taskId || null, "taskId");
+    }
+
+    if (fields.length === 0) return this.listIssues(sourceClinicId, clientClinicId, access);
+
+    fields.push("updated_by = ?");
+    values.push(userId, issueId, sourceClinicId, account.id);
+    await pool.execute(
+      `UPDATE client_account_issue
+       SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?
+         AND client_account_profile_id = ?`,
+      values,
+    );
+
+    await logAuditEvent({
+      clinicId: sourceClinicId,
+      userId,
+      action: "CLIENT_ACCOUNT_ISSUE_UPDATED",
+      entityType: "client_account_issue",
+      entityId: issueId,
+      changes,
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return this.listIssues(sourceClinicId, clientClinicId, access);
   }
 
   async listDriveFolders(
@@ -2344,6 +2545,59 @@ export class ClientAccountsService {
             owner.email as ownerEmail`;
   }
 
+  private issueSelectColumns() {
+    return `issue.id,
+            issue.client_account_profile_id as clientAccountProfileId,
+            issue.task_id as taskId,
+            issue.title,
+            issue.priority,
+            issue.status,
+            issue.owner_user_id as ownerUserId,
+            issue.due_date as dueDate,
+            issue.notes,
+            (issue.status NOT IN ('resolved', 'closed') AND issue.due_date IS NOT NULL AND issue.due_date < CURDATE()) as isOverdue,
+            issue.created_at as createdAt,
+            issue.updated_at as updatedAt,
+            owner.first_name as ownerFirstName,
+            owner.last_name as ownerLastName,
+            owner.email as ownerEmail,
+            linked_task.title as taskTitle,
+            linked_task.status as taskStatus,
+            linked_task.due_date as taskDueDate`;
+  }
+
+  private mapIssueRow(row: any): ClientIssueResponse {
+    return {
+      id: row.id,
+      clientAccountProfileId: row.clientAccountProfileId,
+      taskId: row.taskId || null,
+      title: row.title,
+      priority: row.priority,
+      status: row.status,
+      owner: row.ownerUserId
+        ? {
+            id: row.ownerUserId,
+            firstName: row.ownerFirstName || null,
+            lastName: row.ownerLastName || null,
+            email: row.ownerEmail || null,
+          }
+        : null,
+      dueDate: toDateString(row.dueDate),
+      notes: row.notes || null,
+      isOverdue: Boolean(row.isOverdue),
+      task: row.taskId
+        ? {
+            id: row.taskId,
+            title: row.taskTitle || "Linked task",
+            status: row.taskStatus || "pending",
+            dueDate: toDateString(row.taskDueDate),
+          }
+        : null,
+      createdAt: toIsoString(row.createdAt) || new Date().toISOString(),
+      updatedAt: toIsoString(row.updatedAt) || new Date().toISOString(),
+    };
+  }
+
   private mapServiceRow(row: any): ClientAccountServiceResponse {
     return {
       id: row.id,
@@ -2459,6 +2713,8 @@ export class ClientAccountsService {
         growthScoreCategories: growthScore.growthScoreCategories,
         growthScoreGapSummary: growthScore.growthScoreGapSummary,
       }),
+      openIssueCount: Number(row.openIssueCount || 0),
+      overdueIssueCount: Number(row.overdueIssueCount || 0),
       updatedAt: toIsoString(row.updatedAt || row.clinicUpdatedAt),
       activeServiceCount: Number(row.activeServiceCount || 0),
       renewalRiskCount: Number(row.renewalRiskCount || 0),
@@ -2529,6 +2785,24 @@ export class ClientAccountsService {
       [sourceClinicId, clientAccountProfileId],
     );
     return rows;
+  }
+
+  private async ensureIssueTaskBelongsToProfile(sourceClinicId: string, profileId: string, taskId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT id
+       FROM task
+       WHERE id = ?
+         AND clinic_id = ?
+         AND client_account_profile_id = ?
+         AND is_internal = 1
+         AND deleted_at IS NULL
+         AND archived_at IS NULL
+       LIMIT 1`,
+      [taskId, sourceClinicId, profileId],
+    );
+    if (rows.length === 0) {
+      throw ApiError.badRequest("Linked task must be an open internal task for this client account");
+    }
   }
 
   private normalizeMoney(value: number | string | null | undefined) {

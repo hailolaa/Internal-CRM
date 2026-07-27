@@ -436,6 +436,29 @@ export default function AppPage() {
         };
       });
 
+    const clientIssueRows = clientAccounts
+      .filter((account) => isOpenClient(account) && account.openIssueCount > 0)
+      .map((account) => {
+        const href = `/app/ops/client-accounts/detail?id=${encodeURIComponent(account.clinicId)}#account-issues`;
+        const isOverdue = account.overdueIssueCount > 0;
+        return {
+          id: `client-issue-${account.clinicId}`,
+          title: account.clinicName,
+          owner: account.accountManager
+            ? [account.accountManager.firstName, account.accountManager.lastName].filter(Boolean).join(" ") || account.accountManager.email || "Unassigned"
+            : "Unassigned",
+          action: {
+            kind: "client_review" as const,
+            label: isOverdue ? "Resolve overdue issue" : "Review client issue",
+            detail: `${account.openIssueCount} open issue${account.openIssueCount === 1 ? "" : "s"}${isOverdue ? `, ${account.overdueIssueCount} overdue` : ""}.`,
+            urgency: isOverdue ? "high" as const : "medium" as const,
+            href,
+          },
+          href,
+          sort: isOverdue ? 0 : 1,
+        };
+      });
+
     const clientRows = clientAccounts
       .filter(isOpenClient)
       .map((account) => {
@@ -452,7 +475,7 @@ export default function AppPage() {
           overdueTaskCount: account.overdueTaskCount,
           recommendedNextPackage: account.recommendedNextPackage,
           renewalDate: account.renewalDate,
-          upsellOpportunity: account.upsellOpportunity,
+          upsellOpportunity: account.upsellOpportunity || account.upsellPrompts[0]?.reason,
         });
         return {
           id: `client-${account.clinicId}`,
@@ -466,7 +489,7 @@ export default function AppPage() {
         };
       });
 
-    return [...contactRows, ...dealRows, ...clientRows]
+    return [...clientIssueRows, ...contactRows, ...dealRows, ...clientRows]
       .filter((row) => row.action.urgency !== "low")
       .sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title))
       .slice(0, 8);

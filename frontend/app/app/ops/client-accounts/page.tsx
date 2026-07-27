@@ -213,6 +213,7 @@ export default function ClientAccountsPage() {
           account.recommendedNextPackage || "",
           account.upsellOpportunity || "",
           account.upsellPrompts.map((prompt) => `${prompt.toPackage} ${prompt.reason}`).join(" "),
+          account.openIssueCount ? `${account.openIssueCount} open issues` : "",
           accountPersonName(account.accountManager),
           account.activeServices.join(" "),
         ].some((value) => value.toLowerCase().includes(search));
@@ -398,6 +399,12 @@ export default function ClientAccountsPage() {
                   <p className="text-xs text-[#7A746A]">
                     {formatLabel(account.healthStatus)} - {formatLabel(account.churnRisk)} risk
                   </p>
+                  {account.openIssueCount > 0 ? (
+                    <p className="mt-1 text-xs font-medium text-amber-700">
+                      {account.openIssueCount} open issue{account.openIssueCount === 1 ? "" : "s"}
+                      {account.overdueIssueCount > 0 ? `, ${account.overdueIssueCount} overdue` : ""}
+                    </p>
+                  ) : null}
                 </div>
               </TableCell>
               <TableCell>

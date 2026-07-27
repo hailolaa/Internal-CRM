@@ -9,6 +9,8 @@ const paymentStatuses = ["not_started", "pending", "paid", "overdue", "failed", 
 const invoiceStatuses = ["not_required", "not_sent", "sent", "paid", "overdue", "disputed", "void"];
 const healthStatuses = ["healthy", "attention_needed", "at_risk", "critical"];
 const churnRisks = ["low", "medium", "high", "critical"];
+const issuePriorities = ["low", "medium", "high", "critical"];
+const issueStatuses = ["open", "in_progress", "waiting", "resolved", "closed"];
 const clientDocumentTypes = [
   "main_client_folder",
   "audit",
@@ -227,6 +229,33 @@ export const updateClientAccountAccessItemValidator = [
     .optional({ nullable: true })
     .custom((value) => value === null || String(value).trim().length <= 2000)
     .withMessage("Access notes must be 2000 characters or fewer"),
+];
+
+export const clientAccountIssueIdParamValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  param("issueId").isUUID().withMessage("Valid client issue ID is required"),
+];
+
+export const createClientAccountIssueValidator = [
+  param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
+  body("title").isString().trim().isLength({ min: 1, max: 255 }).withMessage("Issue title is required"),
+  body("priority").optional().isIn(issuePriorities),
+  body("status").optional().isIn(issueStatuses),
+  body("ownerUserId").optional({ nullable: true }).isString().trim().matches(/^[A-Za-z0-9_-]{1,36}$/).withMessage("Owner must be a valid user ID"),
+  body("dueDate").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Due date must be valid"),
+  body("notes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Issue notes must be 10000 characters or fewer"),
+  body("taskId").optional({ nullable: true, checkFalsy: true }).isUUID().withMessage("Linked task ID must be valid"),
+];
+
+export const updateClientAccountIssueValidator = [
+  ...clientAccountIssueIdParamValidator,
+  body("title").optional().isString().trim().isLength({ min: 1, max: 255 }).withMessage("Issue title must be 1-255 characters"),
+  body("priority").optional().isIn(issuePriorities),
+  body("status").optional().isIn(issueStatuses),
+  body("ownerUserId").optional({ nullable: true }).isString().trim().matches(/^[A-Za-z0-9_-]{1,36}$/).withMessage("Owner must be a valid user ID"),
+  body("dueDate").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Due date must be valid"),
+  body("notes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Issue notes must be 10000 characters or fewer"),
+  body("taskId").optional({ nullable: true, checkFalsy: true }).isUUID().withMessage("Linked task ID must be valid"),
 ];
 
 const driveParentId = () =>

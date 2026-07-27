@@ -58,6 +58,8 @@ export type {
   ClientAccountServiceType,
   ClientAccountServiceUpdatePayload,
   ClientAccountSummaryRecord,
+  ClientIssuePayload,
+  ClientIssueRecord,
   AuditLogList,
   AutomationRecord,
   BackendAuthResponse,

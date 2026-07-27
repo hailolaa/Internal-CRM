@@ -9,6 +9,7 @@ import {
   clientAccountContactIdParamValidator,
   clientAccountContactLinkValidator,
   clientAccountServiceIdParamValidator,
+  createClientAccountIssueValidator,
   createClientAccountFromContactValidator,
   createClientAccountDriveFolderValidator,
   createClientAccountValidator,
@@ -20,6 +21,7 @@ import {
   updateClientAccountDriveFolderValidator,
   updateClientAccountAccessItemValidator,
   updateClientAccountDocumentLinkValidator,
+  updateClientAccountIssueValidator,
   updateClientAccountProfileValidator,
   updateClientAccountServiceValidator,
   uploadClientAccountDriveFileValidator,
@@ -182,6 +184,30 @@ router.patch(
   updateClientAccountAccessItemValidator,
   validate,
   clientAccountsController.updateAccessItem,
+);
+
+router.get(
+  "/:clinicId/issues",
+  authorizePermission("client_accounts:read"),
+  clientAccountClinicIdParamValidator,
+  validate,
+  clientAccountsController.listIssues,
+);
+
+router.post(
+  "/:clinicId/issues",
+  authorizePermission("client_accounts:write"),
+  createClientAccountIssueValidator,
+  validate,
+  clientAccountsController.createIssue,
+);
+
+router.patch(
+  "/:clinicId/issues/:issueId",
+  authorizePermission("client_accounts:write"),
+  updateClientAccountIssueValidator,
+  validate,
+  clientAccountsController.updateIssue,
 );
 
 router.post(

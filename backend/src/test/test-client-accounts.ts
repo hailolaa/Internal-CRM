@@ -281,6 +281,7 @@ test("client account Drive links require validated Google access and tenant avai
   const testApp = express();
   testApp.use(express.json());
   testApp.use("/api/client-accounts", clientAccountsRoutes);
+  testApp.use("/api/tasks", tasksRoutes);
   testApp.use(errorHandler);
 
   const server = testApp.listen(0);
@@ -820,6 +821,7 @@ test("won opportunities convert into client accounts with preserved history and 
   const testApp = express();
   testApp.use(express.json());
   testApp.use("/api/client-accounts", clientAccountsRoutes);
+  testApp.use("/api/tasks", tasksRoutes);
   testApp.use(errorHandler);
 
   const server = testApp.listen(0);
@@ -993,6 +995,7 @@ test("client account profile API is permission protected, updateable, audited, a
   const testApp = express();
   testApp.use(express.json());
   testApp.use("/api/client-accounts", clientAccountsRoutes);
+  testApp.use("/api/tasks", tasksRoutes);
   testApp.use(errorHandler);
 
   const server = testApp.listen(0);
@@ -1146,6 +1149,96 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(auditChanges.lastContactAt.after, "2026-07-10 00:00:00");
     assert.equal(auditChanges.lastReportAt.after, "2026-07-11 00:00:00");
     assert.equal(auditChanges.lastLoomAt.after, "2026-07-12 00:00:00");
+
+    const issueTaskRes = await fetchJson(baseUrl, "/api/tasks/internal", admin.token, {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Fix client tracking issue",
+        description: "Created by MC-049 issue test",
+        priority: "high",
+        boardKey: "delivery",
+        serviceType: "tracking",
+        category: "client_issue",
+        clientAccountProfileId: profileRows[0].id,
+        dueDate: "2020-01-01",
+        assignedUserId: admin.userId,
+      }),
+    });
+    assert.equal(issueTaskRes.response.status, 400);
+
+    const linkedTaskRes = await fetchJson(baseUrl, "/api/tasks/internal", admin.token, {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Fix client tracking issue",
+        description: "Created by MC-049 issue test",
+        priority: "high",
+        boardKey: "delivery",
+        serviceType: "strategy",
+        category: "client_issue",
+        clientAccountProfileId: profileRows[0].id,
+        dueDate: "2020-01-01",
+        assignedUserId: admin.userId,
+      }),
+    });
+    assert.equal(linkedTaskRes.response.status, 201);
+    const linkedTaskId = linkedTaskRes.body.data.id;
+
+    const createIssueRes = await fetchJson(baseUrl, `/api/client-accounts/${admin.clinicId}/issues`, admin.token, {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Tracking outage reported by client",
+        priority: "high",
+        ownerUserId: admin.userId,
+        dueDate: "2020-01-01",
+        notes: "Client reported missing conversion data after website changes.",
+        taskId: linkedTaskId,
+      }),
+    });
+    assert.equal(createIssueRes.response.status, 201);
+    assert.equal(createIssueRes.body.data.length, 1);
+    assert.equal(createIssueRes.body.data[0].title, "Tracking outage reported by client");
+    assert.equal(createIssueRes.body.data[0].priority, "high");
+    assert.equal(createIssueRes.body.data[0].status, "open");
+    assert.equal(createIssueRes.body.data[0].owner.id, admin.userId);
+    assert.equal(createIssueRes.body.data[0].task.id, linkedTaskId);
+    assert.equal(createIssueRes.body.data[0].isOverdue, true);
+    const issueId = createIssueRes.body.data[0].id;
+
+    const listIssuesRes = await fetchJson(baseUrl, `/api/client-accounts/${admin.clinicId}/issues`, admin.token);
+    assert.equal(listIssuesRes.response.status, 200);
+    assert.equal(listIssuesRes.body.data.some((issue: any) => issue.id === issueId), true);
+
+    const issueCountList = await fetchJson(baseUrl, "/api/client-accounts", admin.token);
+    const issueAccount = issueCountList.body.data.find((account: any) => account.clinicId === admin.clinicId);
+    assert.equal(issueAccount.openIssueCount, 1);
+    assert.equal(issueAccount.overdueIssueCount, 1);
+
+    const resolvedIssueRes = await fetchJson(baseUrl, `/api/client-accounts/${admin.clinicId}/issues/${issueId}`, admin.token, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "resolved" }),
+    });
+    assert.equal(resolvedIssueRes.response.status, 200);
+    assert.equal(resolvedIssueRes.body.data.find((issue: any) => issue.id === issueId).status, "resolved");
+
+    const resolvedCountList = await fetchJson(baseUrl, "/api/client-accounts", admin.token);
+    const resolvedAccount = resolvedCountList.body.data.find((account: any) => account.clinicId === admin.clinicId);
+    assert.equal(resolvedAccount.openIssueCount, 0);
+    assert.equal(resolvedAccount.overdueIssueCount, 0);
+
+    const [issueAuditRows]: any = await pool.execute(
+      `SELECT action FROM audit_log
+       WHERE clinic_id = ?
+         AND entity_type = 'client_account_issue'
+         AND entity_id = ?
+       ORDER BY created_at ASC`,
+      [admin.clinicId, issueId],
+    );
+    assert.deepEqual(issueAuditRows.map((row: any) => row.action), [
+      "CLIENT_ACCOUNT_ISSUE_CREATED",
+      "CLIENT_ACCOUNT_ISSUE_UPDATED",
+    ]);
+
+    console.log("[client-accounts] issue/support tracker integration test passed");
 
     console.log("[client-accounts] profile API integration test passed");
 
@@ -1325,6 +1418,8 @@ test("client account profile API is permission protected, updateable, audited, a
 
     // Clean up service records before profile/contact cleanup
     await pool.execute(`DELETE FROM audit_log WHERE clinic_id = ? AND entity_type = 'client_account_service'`, [admin.clinicId]);
+    await pool.execute(`DELETE FROM audit_log WHERE clinic_id = ? AND entity_type = 'client_account_issue'`, [admin.clinicId]);
+    await pool.execute(`DELETE FROM client_account_issue WHERE clinic_id = ?`, [admin.clinicId]);
     await pool.execute(`DELETE FROM client_account_service WHERE clinic_id = ?`, [admin.clinicId]);
 
     await pool.execute(

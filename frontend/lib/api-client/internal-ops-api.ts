@@ -17,6 +17,8 @@ import type {
   ClientAccountServiceRecord,
   ClientAccountServiceUpdatePayload,
   ClientAccountSummaryRecord,
+  ClientIssuePayload,
+  ClientIssueRecord,
   GoogleDriveConnectionRecord,
   GoogleDriveFolderBrowserRecord,
   GoogleDriveFolderCreatePayload,
@@ -251,6 +253,27 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
       ) {
         const response = await apiRequest<ClientAccountAccessItemRecord[]>(
           `/api/client-accounts/${encodeURIComponent(clinicId)}/access-items/${encodeURIComponent(itemType)}`,
+          { method: "PATCH", token, body: JSON.stringify(payload) },
+        );
+        return response.data!;
+      },
+      async listIssues(token: string, clinicId: string) {
+        const response = await apiRequest<ClientIssueRecord[]>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/issues`,
+          { token },
+        );
+        return response.data!;
+      },
+      async createIssue(token: string, clinicId: string, payload: ClientIssuePayload) {
+        const response = await apiRequest<ClientIssueRecord[]>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/issues`,
+          { method: "POST", token, body: JSON.stringify(payload) },
+        );
+        return response.data!;
+      },
+      async updateIssue(token: string, clinicId: string, issueId: string, payload: ClientIssuePayload) {
+        const response = await apiRequest<ClientIssueRecord[]>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/issues/${encodeURIComponent(issueId)}`,
           { method: "PATCH", token, body: JSON.stringify(payload) },
         );
         return response.data!;

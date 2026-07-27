@@ -387,6 +387,70 @@ export class ClientAccountsController {
     }
   };
 
+  listIssues = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const issues = await clientAccountsService.listIssues(
+        user.clinicId,
+        String(req.params.clinicId),
+        { canManageAllClientAccounts },
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: issues,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createIssue = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const issues = await clientAccountsService.createIssue(
+        user.clinicId,
+        String(req.params.clinicId),
+        user.userId,
+        req.body,
+        { canManageAllClientAccounts },
+        this.auditContext(req),
+      );
+
+      res.status(201).json({
+        status: "success",
+        data: issues,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateIssue = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const issues = await clientAccountsService.updateIssue(
+        user.clinicId,
+        String(req.params.clinicId),
+        String(req.params.issueId),
+        user.userId,
+        req.body,
+        { canManageAllClientAccounts },
+        this.auditContext(req),
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: issues,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   linkContact = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;

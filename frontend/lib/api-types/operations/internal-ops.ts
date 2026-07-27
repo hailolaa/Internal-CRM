@@ -106,6 +106,8 @@ export type ClientAccountActionPlanStatus =
   | "archived";
 
 export type ClientAccountUpsellPromptSeverity = "medium" | "high";
+export type ClientIssuePriority = "low" | "medium" | "high" | "critical";
+export type ClientIssueStatus = "open" | "in_progress" | "waiting" | "resolved" | "closed";
 
 export interface ClientAccountGrowthScoreCategories {
   websiteVisibility: number | null;
@@ -135,6 +137,37 @@ export interface ClientAccountUpsellPrompt {
   toPackage: string;
   reason: string;
   severity: ClientAccountUpsellPromptSeverity;
+}
+
+export interface ClientIssueRecord {
+  id: string;
+  clientAccountProfileId: string;
+  taskId: string | null;
+  title: string;
+  priority: ClientIssuePriority;
+  status: ClientIssueStatus;
+  owner: ClientAccountPerson | null;
+  dueDate: string | null;
+  notes: string | null;
+  isOverdue: boolean;
+  task: {
+    id: string;
+    title: string;
+    status: string;
+    dueDate: string | null;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClientIssuePayload {
+  title?: string;
+  priority?: ClientIssuePriority;
+  status?: ClientIssueStatus;
+  ownerUserId?: string | null;
+  dueDate?: string | null;
+  notes?: string | null;
+  taskId?: string | null;
 }
 
 export interface ClientAccountPerson {
@@ -192,6 +225,8 @@ export interface ClientAccountProfileRecord {
   googleDriveFolderError: string | null;
   googleDriveFolderCheckedAt: string | null;
   upsellPrompts: ClientAccountUpsellPrompt[];
+  openIssueCount: number;
+  overdueIssueCount: number;
   updatedAt: string | null;
 }
 

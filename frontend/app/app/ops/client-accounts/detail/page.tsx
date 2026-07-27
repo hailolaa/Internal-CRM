@@ -10,6 +10,7 @@ import {
   FileCheck2,
   FolderOpen,
   Gauge,
+  LifeBuoy,
   Link2,
   Loader2,
   Mail,
@@ -33,8 +34,12 @@ import type {
   ClientAccountDocumentLinkRecord,
   ClientAccountServiceRecord,
   ClientAccountSummaryRecord,
+  ClientIssuePriority,
+  ClientIssueRecord,
+  ClientIssueStatus,
   ContactRecord,
   GrowthScoreSnapshotList,
+  TeamMember,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -121,6 +126,19 @@ const growthScoreCategoryLabels = [
   ["growthOpportunity", "Growth opportunity"],
 ] as const;
 
+const ISSUE_PRIORITIES: ClientIssuePriority[] = ["low", "medium", "high", "critical"];
+const ISSUE_STATUSES: ClientIssueStatus[] = ["open", "in_progress", "waiting", "resolved", "closed"];
+
+const emptyIssueForm = {
+  title: "",
+  priority: "medium" as ClientIssuePriority,
+  status: "open" as ClientIssueStatus,
+  ownerUserId: "",
+  dueDate: "",
+  notes: "",
+  taskId: "",
+};
+
 function formatScore(value: number | null | undefined) {
   return value === null || value === undefined ? "Not scored" : `${Math.round(value)} / 100`;
 }
@@ -137,6 +155,11 @@ export default function ClientAccountDetailPage() {
   const [linkedRecords, setLinkedRecords] = useState<ClientAccountLinkedRecords | null>(null);
   const [documents, setDocuments] = useState<ClientAccountDocumentLinkRecord[]>([]);
   const [accessItems, setAccessItems] = useState<ClientAccountAccessItemRecord[]>([]);
+  const [issues, setIssues] = useState<ClientIssueRecord[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [issueForm, setIssueForm] = useState(emptyIssueForm);
+  const [issueActionId, setIssueActionId] = useState<string | null>(null);
+  const [issueStatusMessage, setIssueStatusMessage] = useState("");
   const [growthScoreHistory, setGrowthScoreHistory] = useState<GrowthScoreSnapshotList | null>(null);
   const [contactSearch, setContactSearch] = useState("");
   const [contactSearchTerm, setContactSearchTerm] = useState("");
@@ -161,8 +184,10 @@ export default function ClientAccountDetailPage() {
       api.clientAccounts.getLinkedRecords(token, clinicId),
       api.clientAccounts.listDocuments(token, clinicId),
       api.clientAccounts.listAccessItems(token, clinicId),
+      api.clientAccounts.listIssues(token, clinicId),
+      api.team.getMembers(token),
     ])
-      .then(([accounts, allServices, records, documentLinks, accessList]) => {
+      .then(([accounts, allServices, records, documentLinks, accessList, issueRows, members]) => {
         const selected = accounts.find((item) => item.clinicId === clinicId) || null;
         if (!selected) throw new Error("Client account not found or unavailable to this user.");
         setAccount(selected);
@@ -170,6 +195,8 @@ export default function ClientAccountDetailPage() {
         setLinkedRecords(records);
         setDocuments(documentLinks);
         setAccessItems(accessList);
+        setIssues(issueRows);
+        setTeamMembers(members.filter((member) => !member.isInvitation));
         setDocumentDrafts(Object.fromEntries(documentLinks.map((document) => [
           document.documentType,
           {
@@ -225,6 +252,14 @@ export default function ClientAccountDetailPage() {
   const missingAccessCount = useMemo(
     () => accessItems.filter((item) => item.isMissing).length,
     [accessItems],
+  );
+  const openIssues = useMemo(
+    () => issues.filter((issue) => !["resolved", "closed"].includes(issue.status)),
+    [issues],
+  );
+  const overdueIssues = useMemo(
+    () => openIssues.filter((issue) => issue.isOverdue),
+    [openIssues],
   );
   const availableContactSearchResults = useMemo(
     () => contactSearchResults.filter((contact) => !linkedContacts.some((linked) => linked.id === contact.id)),
@@ -330,6 +365,50 @@ export default function ClientAccountDetailPage() {
       setFilesStatusMessage(error instanceof Error ? error.message : "Could not update this access item.");
     } finally {
       setAccessActionType(null);
+    }
+  };
+
+  const handleCreateIssue = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!token || !account || issueActionId) return;
+    if (!issueForm.title.trim()) {
+      setIssueStatusMessage("Issue title is required.");
+      return;
+    }
+    setIssueActionId("new");
+    setIssueStatusMessage("");
+    try {
+      const nextIssues = await api.clientAccounts.createIssue(token, account.clinicId, {
+        title: issueForm.title.trim(),
+        priority: issueForm.priority,
+        status: issueForm.status,
+        ownerUserId: issueForm.ownerUserId || null,
+        dueDate: issueForm.dueDate || null,
+        notes: issueForm.notes || null,
+        taskId: issueForm.taskId || null,
+      });
+      setIssues(nextIssues);
+      setIssueForm(emptyIssueForm);
+      setIssueStatusMessage("Client issue created.");
+    } catch (error) {
+      setIssueStatusMessage(error instanceof Error ? error.message : "Could not create this issue.");
+    } finally {
+      setIssueActionId(null);
+    }
+  };
+
+  const handleUpdateIssueStatus = async (issue: ClientIssueRecord, status: ClientIssueStatus) => {
+    if (!token || !account || issueActionId) return;
+    setIssueActionId(issue.id);
+    setIssueStatusMessage("");
+    try {
+      const nextIssues = await api.clientAccounts.updateIssue(token, account.clinicId, issue.id, { status });
+      setIssues(nextIssues);
+      setIssueStatusMessage("Client issue updated.");
+    } catch (error) {
+      setIssueStatusMessage(error instanceof Error ? error.message : "Could not update this issue.");
+    } finally {
+      setIssueActionId(null);
     }
   };
 
@@ -690,6 +769,120 @@ export default function ClientAccountDetailPage() {
             <div className="mt-5 flex flex-wrap gap-2">{activeServices.map((service) => <Badge key={service.id} variant="success">{service.name}</Badge>)}{activeServices.length === 0 && <Badge variant="warning">No active services</Badge>}</div>
           </Card>
 
+          <div id="account-issues" className="scroll-mt-24">
+          <Card padding="p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-[#151f21]">
+                  <LifeBuoy className="h-5 w-5 text-[#315f62]" />
+                  Issues/Support
+                </h2>
+                <p className="mt-1 text-sm text-[#7A746A]">Track important client problems before they disappear into chat or email.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={overdueIssues.length > 0 ? "error" : "success"}>{overdueIssues.length} overdue</Badge>
+                <Badge variant={openIssues.length > 0 ? "warning" : "success"}>{openIssues.length} open</Badge>
+              </div>
+            </div>
+
+            {issueStatusMessage ? (
+              <p className="mt-4 rounded-xl border border-[#d8ddda] bg-[#FAF8F5] px-4 py-3 text-sm font-medium text-[#315f62]">{issueStatusMessage}</p>
+            ) : null}
+
+            <form onSubmit={handleCreateIssue} className="mt-5 rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="space-y-1.5 md:col-span-2">
+                  <span className="text-sm font-semibold text-[#344446]">Issue title</span>
+                  <input
+                    value={issueForm.title}
+                    onChange={(event) => setIssueForm((current) => ({ ...current, title: event.target.value }))}
+                    placeholder="e.g. Ads tracking dropped after website update"
+                    className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-sm font-semibold text-[#344446]">Priority</span>
+                  <select value={issueForm.priority} onChange={(event) => setIssueForm((current) => ({ ...current, priority: event.target.value as ClientIssuePriority }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
+                    {ISSUE_PRIORITIES.map((priority) => <option key={priority} value={priority}>{formatLabel(priority)}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-sm font-semibold text-[#344446]">Status</span>
+                  <select value={issueForm.status} onChange={(event) => setIssueForm((current) => ({ ...current, status: event.target.value as ClientIssueStatus }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
+                    {ISSUE_STATUSES.map((status) => <option key={status} value={status}>{formatLabel(status)}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-sm font-semibold text-[#344446]">Owner</span>
+                  <select value={issueForm.ownerUserId} onChange={(event) => setIssueForm((current) => ({ ...current, ownerUserId: event.target.value }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
+                    <option value="">Unassigned</option>
+                    {teamMembers.map((member) => (
+                      <option key={member.id} value={member.id}>{[member.firstName, member.lastName].filter(Boolean).join(" ") || member.email}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-sm font-semibold text-[#344446]">Due date</span>
+                  <input type="date" value={issueForm.dueDate} onChange={(event) => setIssueForm((current) => ({ ...current, dueDate: event.target.value }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full" />
+                </label>
+                <label className="space-y-1.5 md:col-span-2">
+                  <span className="text-sm font-semibold text-[#344446]">Linked task</span>
+                  <select value={issueForm.taskId} onChange={(event) => setIssueForm((current) => ({ ...current, taskId: event.target.value }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
+                    <option value="">No linked task</option>
+                    {openTasks.map((task) => (
+                      <option key={task.id} value={task.id}>{task.title}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1.5 md:col-span-2">
+                  <span className="text-sm font-semibold text-[#344446]">Notes</span>
+                  <textarea value={issueForm.notes} onChange={(event) => setIssueForm((current) => ({ ...current, notes: event.target.value }))} rows={3} placeholder="What happened, where it was reported, and what needs to happen next..." className="rounded-lg border border-[#d8ddda] bg-white px-3 py-2 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full" />
+                </label>
+              </div>
+              <button type="submit" disabled={issueActionId === "new"} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#315f62] px-4 text-sm font-semibold text-white hover:bg-[#264f51] disabled:opacity-60">
+                {issueActionId === "new" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Create issue
+              </button>
+            </form>
+
+            <div className="mt-5 grid gap-3">
+              {issues.map((issue) => (
+                <div key={issue.id} className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-[#151f21]">{issue.title}</h3>
+                      <p className="mt-1 text-sm text-[#7A746A]">{issue.notes || "No notes added."}</p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-[#7A746A]">
+                        <span>Owner: {issue.owner ? [issue.owner.firstName, issue.owner.lastName].filter(Boolean).join(" ") || issue.owner.email : "Unassigned"}</span>
+                        <span>Due: {formatDate(issue.dueDate)}</span>
+                        {issue.task ? (
+                          <Link href={`/app/crm/tasks/detail?id=${issue.task.id}&from=delivery`} className="font-semibold text-[#315f62] hover:underline">
+                            Task: {issue.task.title}
+                          </Link>
+                        ) : <span>No linked task</span>}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Badge variant={issue.priority === "critical" || issue.priority === "high" ? "error" : issue.priority === "medium" ? "warning" : "neutral"}>{formatLabel(issue.priority)}</Badge>
+                      <Badge variant={issue.status === "resolved" || issue.status === "closed" ? "success" : issue.isOverdue ? "error" : "warning"}>{formatLabel(issue.status)}</Badge>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(["open", "in_progress", "waiting", "resolved"] as ClientIssueStatus[]).map((status) => (
+                      <button key={status} type="button" onClick={() => void handleUpdateIssueStatus(issue, status)} disabled={issueActionId === issue.id || issue.status === status} className="inline-flex min-h-9 items-center rounded-lg border border-[#d8ddda] bg-white px-3 text-xs font-semibold text-[#315f62] hover:bg-[#edf5f3] disabled:opacity-60">
+                        {formatLabel(status)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {issues.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-[#E7E1DA] p-5 text-center text-sm text-[#7A746A]">No client issues are currently tracked.</p>
+              ) : null}
+            </div>
+          </Card>
+          </div>
+
           <div id="account-files" className="scroll-mt-24">
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -936,6 +1129,7 @@ export default function ClientAccountDetailPage() {
               {[
                 [Users, "Contacts and leads", `/app/leads?account=${encodeURIComponent(account.clinicName)}`],
                 [BriefcaseBusiness, "Deals", `/app/crm/pipeline?account=${encodeURIComponent(account.clinicName)}`],
+                [LifeBuoy, "Issues/Support", "#account-issues"],
                 [FolderOpen, "Files/Documents", "#account-files"],
                 [ShieldCheck, "Access/assets", "#account-access-assets"],
                 [NotebookText, "Notes", "#account-notes"],

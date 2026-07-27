@@ -9,6 +9,8 @@ export type ClientServiceType = "ppc" | "seo" | "gbp" | "website" | "landing_pag
 export type ClientServiceStatus = "onboarding" | "active" | "paused" | "ended" | "archived";
 export type MonthlyActionPlanStatus = "draft" | "active" | "completed" | "archived";
 export type ClientUpsellPromptSeverity = "medium" | "high";
+export type ClientIssuePriority = "low" | "medium" | "high" | "critical";
+export type ClientIssueStatus = "open" | "in_progress" | "waiting" | "resolved" | "closed";
 export type ClientDocumentType =
   | "main_client_folder"
   | "audit"
@@ -63,6 +65,44 @@ export interface ClientAccountUpsellPrompt {
   toPackage: string;
   reason: string;
   severity: ClientUpsellPromptSeverity;
+}
+
+export interface CreateClientIssueDTO {
+  title: string;
+  priority?: ClientIssuePriority;
+  status?: ClientIssueStatus;
+  ownerUserId?: string | null;
+  dueDate?: string | null;
+  notes?: string | null;
+  taskId?: string | null;
+}
+
+export type UpdateClientIssueDTO = Partial<CreateClientIssueDTO>;
+
+export interface ClientIssueResponse {
+  id: string;
+  clientAccountProfileId: string;
+  taskId: string | null;
+  title: string;
+  priority: ClientIssuePriority;
+  status: ClientIssueStatus;
+  owner: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+  } | null;
+  dueDate: string | null;
+  notes: string | null;
+  isOverdue: boolean;
+  task: {
+    id: string;
+    title: string;
+    status: string;
+    dueDate: string | null;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UpdateClientAccountProfileDTO {
@@ -201,6 +241,8 @@ export interface ClientAccountProfileResponse {
   googleDriveFolderError: string | null;
   googleDriveFolderCheckedAt: string | null;
   upsellPrompts: ClientAccountUpsellPrompt[];
+  openIssueCount: number;
+  overdueIssueCount: number;
   updatedAt: string | null;
 }
 
