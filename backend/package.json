@@ -22,6 +22,7 @@
     "db:backup": "node scripts/db-backup.mjs",
     "db:restore": "node scripts/db-restore.mjs",
     "validate:scoro-import": "node scripts/validate-scoro-import.mjs",
+    "qa:mvp": "node scripts/mission-control-mvp-qa.mjs",
     "setup:brevo-inbound": "node scripts/setup-brevo-inbound-webhook.mjs",
     "seed:staging-demo": "node scripts/seed-staging-demo.mjs",
     "test": "npm run build && npm run test:smoke",
