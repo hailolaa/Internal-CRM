@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { getDatabaseHealth } from "../../config/database.js";
 import { config, getProductionConfigIssues } from "../../config/index.js";
 import { getReleaseInfo } from "../../utils/releaseInfo.js";
+import { ApiError } from "../../utils/ApiError.js";
 
 const startedAt = new Date();
 
@@ -62,6 +63,21 @@ export class HealthController {
         requestId: (req as any).requestId,
       },
     });
+  };
+
+  forceObservabilityError = (req: Request, res: Response, next: NextFunction) => {
+    if (!config.observability.testEnabled) {
+      next(ApiError.notFound("Observability test endpoint is disabled"));
+      return;
+    }
+
+    const suppliedToken = req.get("x-observability-test-token") || "";
+    if (!config.observability.testToken || suppliedToken !== config.observability.testToken) {
+      next(ApiError.forbidden("Observability test token is invalid"));
+      return;
+    }
+
+    next(new Error("Forced observability API error"));
   };
 }
 

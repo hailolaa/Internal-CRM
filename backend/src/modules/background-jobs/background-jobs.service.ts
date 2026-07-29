@@ -1,5 +1,6 @@
 import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
+import { backgroundJobsScheduler } from "./background-jobs.scheduler.js";
 import {
   backgroundJobDefinitions,
   findBackgroundJobDefinition,
@@ -47,6 +48,15 @@ export class BackgroundJobsService {
       status,
       status === "active" ? definition.getNextRunAt(new Date()) : null,
     );
+
+    return this.listJobs();
+  }
+
+  async runNow(jobKey: string) {
+    const definition = await backgroundJobsScheduler.runNow(jobKey, "manual");
+    if (!definition) {
+      throw ApiError.notFound("Background job not found");
+    }
 
     return this.listJobs();
   }

@@ -77,3 +77,7 @@ export async function runSequenceExecution(): Promise<BackgroundJobTaskResult> {
   return sequencesService.processDueSequences({ limit: 100 });
 }
 
+export async function runObservabilityFailureProbe(): Promise<BackgroundJobTaskResult> {
+  throw new Error("Forced observability background job failure");
+}
+

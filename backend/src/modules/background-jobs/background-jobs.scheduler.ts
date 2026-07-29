@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { config } from "../../config/index.js";
 import logger from "../../utils/logger.js";
+import { notifyObservabilityAlert } from "../../utils/observability.js";
 import {
   backgroundJobDefinitions,
   findBackgroundJobDefinition,
@@ -34,6 +35,13 @@ export class BackgroundJobsScheduler {
         logger.error("Background jobs scheduler tick failed", {
           message: error.message,
           stack: error.stack,
+        });
+        void notifyObservabilityAlert({
+          type: "background_job_failure",
+          severity: "critical",
+          title: "Mission Control background scheduler tick failed",
+          message: error?.message || "Background jobs scheduler tick failed",
+          error,
         });
       });
     }, config.backgroundJobs.pollIntervalMs);
@@ -113,10 +121,25 @@ export class BackgroundJobsScheduler {
         definition.getNextRunAt(new Date()),
       );
       logger.error("Background job failed", {
+        runId,
         jobKey: definition.id,
         durationMs,
         message,
         stack: error?.stack,
+      });
+      void notifyObservabilityAlert({
+        type: "background_job_failure",
+        severity: "critical",
+        title: "Mission Control background job failed",
+        message,
+        traceId: runId,
+        jobKey: definition.id,
+        durationMs,
+        error,
+        context: {
+          triggeredBy,
+          runId,
+        },
       });
     } finally {
       this.runningJobKeys.delete(definition.id);

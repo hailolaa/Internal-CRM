@@ -127,6 +127,15 @@ export const config = {
         pollIntervalMs: parseInt(process.env.BACKGROUND_JOBS_POLL_INTERVAL_MS || "60000", 10),
     },
 
+    observability: {
+        serviceName: process.env.OBSERVABILITY_SERVICE_NAME || "mission-control-backend",
+        alertWebhookUrl: process.env.OBSERVABILITY_ALERT_WEBHOOK_URL || "",
+        alertWebhookToken: process.env.OBSERVABILITY_ALERT_WEBHOOK_TOKEN || "",
+        alertTimeoutMs: parseInt(process.env.OBSERVABILITY_ALERT_TIMEOUT_MS || "5000", 10),
+        testEnabled: parseBoolean(process.env.OBSERVABILITY_TEST_ENABLED, false),
+        testToken: process.env.OBSERVABILITY_TEST_TOKEN || "",
+    },
+
     oauth: {
         google: {
             clientId: process.env.GOOGLE_CLIENT_ID || "",
@@ -208,6 +217,10 @@ export function getProductionConfigIssues() {
 
     if (config.email.provider === "log") {
         warnings.push("EMAIL_PROVIDER is set to log; transactional email is not configured yet.");
+    }
+
+    if (!config.observability.alertWebhookUrl) {
+        warnings.push("OBSERVABILITY_ALERT_WEBHOOK_URL is not configured; critical alerts will be logged but not routed externally.");
     }
 
     if (config.email.provider === "brevo" && !config.email.brevoApiKey) {

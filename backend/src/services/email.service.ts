@@ -1,6 +1,7 @@
 import { config } from "../config/index.js";
 import { ApiError } from "../utils/ApiError.js";
 import logger from "../utils/logger.js";
+import { notifyObservabilityAlert } from "../utils/observability.js";
 
 interface EmailAddress {
   email: string;
@@ -93,6 +94,20 @@ export class EmailService {
       logger.error("Brevo transactional email failed", {
         status: response.status,
         response: payload || body,
+      });
+      void notifyObservabilityAlert({
+        type: "provider_failure",
+        severity: "critical",
+        title: "Mission Control email provider failure",
+        message: "Brevo transactional email failed",
+        provider: "brevo",
+        statusCode: response.status,
+        context: {
+          to: input.to.map((recipient) => recipient.email),
+          subject: input.subject,
+          tags: input.tags,
+          response: payload || body,
+        },
       });
       throw ApiError.internal("Unable to send transactional email");
     }

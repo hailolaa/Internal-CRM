@@ -24,6 +24,16 @@ export class BackgroundJobsController {
       next(error);
     }
   };
+
+  // POST /api/background-jobs/:id/run
+  runNow = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await backgroundJobsService.runNow(String(req.params.id || ""));
+      res.status(200).json({ status: "success", data });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const backgroundJobsController = new BackgroundJobsController();

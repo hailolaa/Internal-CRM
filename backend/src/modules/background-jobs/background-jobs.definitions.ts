@@ -1,9 +1,11 @@
 import {
   runDailySlaReport,
+  runObservabilityFailureProbe,
   runRecurringTasksGeneration,
   runSequenceExecution,
   runSlaBreachCheck,
 } from "./background-jobs.tasks.js";
+import { config } from "../../config/index.js";
 import type { BackgroundJobDefinition } from "./background-jobs.types.js";
 
 const minuteMs = 60 * 1000;
@@ -63,6 +65,18 @@ export const backgroundJobDefinitions: BackgroundJobDefinition[] = [
     handler: runSequenceExecution,
   },
 ];
+
+if (config.observability.testEnabled) {
+  backgroundJobDefinitions.push({
+    id: "observability-failure-probe",
+    name: "Observability Failure Probe",
+    description: "Test-only job that proves failed background jobs create alerts with trace context.",
+    schedule: "Manual only",
+    category: "Observability",
+    getNextRunAt: nextDailyRun(23, 59),
+    handler: runObservabilityFailureProbe,
+  });
+}
 
 export function findBackgroundJobDefinition(jobKey: string) {
   return backgroundJobDefinitions.find((job) => job.id === jobKey) || null;

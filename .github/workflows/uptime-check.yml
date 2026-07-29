@@ -1,0 +1,28 @@
+name: Mission Control Uptime Check
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  uptime:
+    name: Check production health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      UPTIME_CHECK_URL: ${{ secrets.UPTIME_CHECK_URL }}
+      UPTIME_SERVICE_NAME: mission-control
+      UPTIME_ENVIRONMENT: production
+      UPTIME_EXPECTED_STATUS: "200"
+      OBSERVABILITY_ALERT_WEBHOOK_URL: ${{ secrets.OBSERVABILITY_ALERT_WEBHOOK_URL }}
+      OBSERVABILITY_ALERT_WEBHOOK_TOKEN: ${{ secrets.OBSERVABILITY_ALERT_WEBHOOK_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check uptime
+        run: node scripts/check-uptime.mjs

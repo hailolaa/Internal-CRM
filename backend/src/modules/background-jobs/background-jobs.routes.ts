@@ -25,4 +25,13 @@ router.patch(
   backgroundJobsController.updateStatus,
 );
 
+// @route   POST /api/background-jobs/:id/run
+// @desc    Run a scheduler job now for operational verification
+// @access  Private
+router.post(
+  "/:id/run",
+  authorizePermission("settings:write"),
+  backgroundJobsController.runNow,
+);
+
 export default router;
