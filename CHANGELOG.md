@@ -22,6 +22,8 @@ The format follows these sections:
 - Reviewer checklist for consistent code review.
 - Branch and commit convention guide.
 - System architecture diagram for the Mission Control application and its external integrations.
+- Release promotion workflow with signed release manifests, migration ordering, rollback rehearsal and deployment-webhook promotion.
+- Backend release version endpoint for deployed revision and paired-system visibility.
 
 ### Operational
 

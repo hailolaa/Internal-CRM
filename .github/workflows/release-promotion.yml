@@ -1,0 +1,179 @@
+name: Mission Control Release Promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        required: true
+        options:
+          - staging
+          - production
+      release_id:
+        description: Release ID. Leave blank to generate one.
+        required: false
+      previous_mission_control_revision:
+        description: Previous Mission Control revision for rollback.
+        required: true
+      clinic_os_frontend_revision:
+        description: Related Clinic OS frontend revision, if this release depends on one.
+        required: false
+      clinic_os_backend_revision:
+        description: Related Clinic OS backend revision, if this release depends on one.
+        required: false
+      database_backup:
+        description: Database backup reference used for rollback.
+        required: false
+      promote:
+        description: Call the configured deployment webhook after verification.
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mission-control-release-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  build-verify-and-promote:
+    name: Build, sign and promote release
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: ${{ inputs.environment }}
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: growth_group_internal_crm
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      NODE_ENV: test
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: growth_group_internal_crm
+      JWT_SECRET: ci-only-secret-at-least-32-characters
+      BACKGROUND_JOBS_ENABLED: "false"
+      WHATSAPP_PROVIDER: log
+      GOOGLE_DRIVE_VALIDATION_MODE: mocked
+      RELEASE_MANIFEST_SIGNING_KEY: ${{ secrets.RELEASE_MANIFEST_SIGNING_KEY }}
+      PROMOTION_DEPLOY_WEBHOOK_URL: ${{ secrets.PROMOTION_DEPLOY_WEBHOOK_URL }}
+      PROMOTION_DEPLOY_WEBHOOK_TOKEN: ${{ secrets.PROMOTION_DEPLOY_WEBHOOK_TOKEN }}
+    steps:
+      - name: Checkout release revision
+        uses: actions/checkout@v4
+
+      - name: Setup Node for backend
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Verify database migration order
+        working-directory: backend
+        run: |
+          mysql -h 127.0.0.1 -uroot -proot growth_group_internal_crm < db.sql
+          npm run db:migrate
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Run backend smoke/database tests
+        working-directory: backend
+        run: npm run test:smoke
+
+      - name: Validate import templates
+        working-directory: backend
+        run: npm run validate:scoro-import
+
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Lint frontend source
+        working-directory: frontend
+        run: node --max-old-space-size=4096 ./node_modules/eslint/bin/eslint.js app components hooks lib
+
+      - name: Test frontend
+        working-directory: frontend
+        run: npm run test
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Create signed release manifest
+        run: |
+          node scripts/create-release-manifest.mjs \
+            --environment "${{ inputs.environment }}" \
+            --mission-control-revision "$GITHUB_SHA" \
+            --branch "${GITHUB_REF_NAME:-main}" \
+            --release-id "${{ inputs.release_id }}" \
+            --previous-mission-control-revision "${{ inputs.previous_mission_control_revision }}" \
+            --clinic-os-frontend-revision "${{ inputs.clinic_os_frontend_revision }}" \
+            --clinic-os-backend-revision "${{ inputs.clinic_os_backend_revision }}" \
+            --database-backup "${{ inputs.database_backup }}" \
+            --require-signature
+
+      - name: Verify signed release manifest
+        run: node scripts/verify-release-manifest.mjs --require-signature
+
+      - name: Rehearse rollback plan
+        run: node scripts/rehearse-rollback.mjs --require-previous
+
+      - name: Promote release through deployment webhook
+        if: ${{ inputs.promote }}
+        run: node scripts/promote-release.mjs --environment "${{ inputs.environment }}"
+
+      - name: Upload release artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-control-release-${{ inputs.environment }}
+          path: |
+            release/current-release.json
+            release/current-release.json.sha256
+            release/rollback-rehearsal.md
+          retention-days: 30
+
+      - name: Write release summary
+        if: always()
+        run: |
+          {
+            echo "## Mission Control Release"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Environment | ${{ inputs.environment }} |"
+            echo "| Revision | $GITHUB_SHA |"
+            echo "| Promotion requested | ${{ inputs.promote }} |"
+            echo "| Clinic OS frontend revision | ${{ inputs.clinic_os_frontend_revision }} |"
+            echo "| Clinic OS backend revision | ${{ inputs.clinic_os_backend_revision }} |"
+            echo ""
+            echo "Release manifest and rollback rehearsal artifacts are retained for 30 days."
+          } >> "$GITHUB_STEP_SUMMARY"

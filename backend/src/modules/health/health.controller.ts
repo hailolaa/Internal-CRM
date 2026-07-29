@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { getDatabaseHealth } from "../../config/database.js";
 import { config, getProductionConfigIssues } from "../../config/index.js";
+import { getReleaseInfo } from "../../utils/releaseInfo.js";
 
 const startedAt = new Date();
 
@@ -49,6 +50,18 @@ export class HealthController {
     } catch (error) {
       next(error);
     }
+  };
+
+  version = (req: Request, res: Response) => {
+    res.status(200).json({
+      status: "success",
+      data: {
+        service: "clinicgrower-crm-backend",
+        environment: config.nodeEnv,
+        release: getReleaseInfo(),
+        requestId: (req as any).requestId,
+      },
+    });
   };
 }
 

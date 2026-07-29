@@ -12,6 +12,7 @@ Mission Control uses branch protection, pull requests, code ownership and releas
 - Review standards are documented in `docs/reviewer-checklist.md`.
 - Branch and commit naming standards are documented in `docs/branch-and-commit-conventions.md`.
 - The system architecture diagram is documented in `docs/architecture-diagram.md`.
+- Release promotion, signed manifests and rollback rehearsal are documented in `docs/release-promotion-and-rollback.md`.
 
 ## Branch Rule
 
@@ -67,6 +68,10 @@ These settings must be enabled in GitHub repository settings:
 - Require branches to be up to date before merge
 - Block force pushes to main
 - Dismiss stale approvals when new commits are pushed
+
+## Release Promotion
+
+Staging and production promotion should use the release promotion workflow. Each release should produce a signed manifest, verify migration ordering, record paired-system revisions, rehearse rollback and retain artifacts for review.
 
 ## Issue Triage
 
