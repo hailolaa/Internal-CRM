@@ -1,0 +1,2 @@
+scoro_record_id,scoro_url,scoro_exported_at,account_name,first_name,last_name,role,email,phone,can_email,can_call,can_whatsapp_message,unsubscribed,do_not_contact,permission_source,opt_in_at,opt_out_at,notes
+scoro-contact-001,https://scoro.example.com/contacts/001,2026-07-29T09:00:00Z,Example Dental Studio,Alex,Rivers,Owner,alex@exampledental.co.uk,+447700900111,true,true,true,false,false,scoro_import,2026-07-10T09:00:00Z,,Primary commercial contact

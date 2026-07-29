@@ -1,0 +1,2 @@
+scoro_record_id,scoro_url,scoro_exported_at,related_type,related_scoro_id,related_account_name,related_email,title,description,owner_email,due_date,priority,status,category,follow_up_type,notes
+scoro-task-001,https://scoro.example.com/tasks/001,2026-07-29T09:00:00Z,lead,scoro-lead-001,Example Dental Studio,alex@exampledental.co.uk,Follow up on Growth Score request,Call after audit request,sales@clinicgrower.com,2026-07-30,high,open,follow_up,call,Imported from Scoro task export
