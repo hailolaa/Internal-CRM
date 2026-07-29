@@ -4,26 +4,52 @@ import type { AddressInfo } from "node:net";
 import { v4 as uuidv4 } from "uuid";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { generateToken, hashPassword } from "../utils/helpers.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
+  const clinicId = uuidv4();
+  const userId = uuidv4();
+  const roleId = uuidv4();
+  const email = uniqueEmail(`${prefix}_admin`);
+  const role = `ROLE_TEST_ADMIN_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+
+  await pool.execute(
+    `INSERT INTO clinic (id, name, email, timezone, subscription_plan, subscription_status, max_users)
+     VALUES (?, ?, ?, 'Europe/London', 'professional', 'active', 10)`,
+    [clinicId, `${prefix} Workspace`, email],
+  );
+  await pool.execute(
+    `INSERT INTO role (id, clinic_id, name, display_name, is_system)
+     VALUES (?, ?, ?, 'Role Test Admin', 0)`,
+    [roleId, clinicId, role],
+  );
+  await pool.execute(
+    `INSERT INTO role_permission (role_id, permission_id)
+     SELECT ?, id
+     FROM permission
+     WHERE key_name IN ('settings:read', 'settings:write')`,
+    [roleId],
+  );
+  await pool.execute(
+    `INSERT INTO user
+       (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at, status, is_active)
+     VALUES (?, ?, ?, ?, ?, 'Admin', ?, CURRENT_TIMESTAMP, 'active', 1)`,
+    [userId, clinicId, email, await hashPassword("password123"), prefix, role],
+  );
+  await pool.execute(
+    "INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary) VALUES (?, ?, ?, 'active', 1)",
+    [userId, clinicId, role],
+  );
 
   return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
+    clinicId,
+    userId,
+    roleId,
+    token: generateToken({ userId, clinicId, role, email }),
   };
 }
 
@@ -100,6 +126,31 @@ test("role management creates, updates, protects system roles, and archives safe
     assert.equal(update.response.status, 200);
     assert.equal(update.body.data.displayName, "Growth Ops Lead");
     assert.equal(update.body.data.permissions.includes("marketing:write"), true);
+    const [permissionAuditRows]: any = await pool.execute(
+      `SELECT
+          JSON_CONTAINS(changes, JSON_QUOTE('settings:read'), '$.permissions.before') as hadSettingsRead,
+          JSON_CONTAINS(changes, JSON_QUOTE('marketing:read'), '$.permissions.before') as hadMarketingRead,
+          JSON_CONTAINS(changes, JSON_QUOTE('marketing:write'), '$.permissions.before') as hadMarketingWrite,
+          JSON_CONTAINS(changes, JSON_QUOTE('settings:read'), '$.permissions.after') as hasSettingsRead,
+          JSON_CONTAINS(changes, JSON_QUOTE('marketing:read'), '$.permissions.after') as hasMarketingRead,
+          JSON_CONTAINS(changes, JSON_QUOTE('marketing:write'), '$.permissions.after') as hasMarketingWrite
+       FROM audit_log
+       WHERE clinic_id = ?
+         AND user_id = ?
+         AND entity_type = 'role'
+         AND entity_id = ?
+         AND action = 'ROLE_UPDATED'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [primary.clinicId, primary.userId, roleId],
+    );
+    assert.equal(permissionAuditRows.length, 1);
+    assert.equal(Number(permissionAuditRows[0].hadSettingsRead), 1);
+    assert.equal(Number(permissionAuditRows[0].hadMarketingRead), 1);
+    assert.equal(Number(permissionAuditRows[0].hadMarketingWrite), 0);
+    assert.equal(Number(permissionAuditRows[0].hasSettingsRead), 1);
+    assert.equal(Number(permissionAuditRows[0].hasMarketingRead), 1);
+    assert.equal(Number(permissionAuditRows[0].hasMarketingWrite), 1);
 
     invitationId = uuidv4();
     await pool.execute(

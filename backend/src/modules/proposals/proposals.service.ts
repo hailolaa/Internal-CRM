@@ -1973,7 +1973,7 @@ export class ProposalsService {
       action: existing.status !== updated.status ? "PROPOSAL_STATUS_CHANGED" : "PROPOSAL_UPDATED",
       entityType: "proposal",
       entityId: proposalId,
-      changes: { before: { status: existing.status }, after: data },
+      changes: this.buildProposalAuditChanges(existing, updated, data),
     };
     if (executor) {
       await insertAuditEvent(executor, auditPayload);
@@ -2054,6 +2054,57 @@ export class ProposalsService {
     if (data.ownerId) await this.ensureActiveOwner(clinicId, String(data.ownerId));
 
     return { contactId, dealId, clientAccountProfileId };
+  }
+
+  private buildProposalAuditChanges(
+    existing: ProposalResponse,
+    updated: ProposalResponse,
+    data: ProposalMutationDTO,
+  ) {
+    const trackedFields: Array<keyof ProposalResponse & keyof ProposalMutationDTO> = [
+      "contactId",
+      "dealId",
+      "clientAccountProfileId",
+      "proposalName",
+      "templateKey",
+      "packageName",
+      "recommendedPackageId",
+      "ownerId",
+      "status",
+      "valueCents",
+      "monthlyFeeCents",
+      "setupFeeCents",
+      "currency",
+      "adSpendNote",
+      "vatStatus",
+      "minimumTermMonths",
+      "noticePeriodDays",
+      "startDate",
+      "followUpAt",
+      "acceptedReason",
+      "wonReason",
+      "lostReason",
+      "objectionType",
+      "proposalUrl",
+      "notes",
+      "addOns",
+      "discounts",
+      "internalMarginNote",
+      "sectionContent",
+    ];
+    const changes: Record<string, { before: unknown; after: unknown }> = {};
+
+    for (const field of trackedFields) {
+      const requested = Object.prototype.hasOwnProperty.call(data, field);
+      const changed = JSON.stringify(existing[field]) !== JSON.stringify(updated[field]);
+      if (!requested && !changed) continue;
+      changes[field] = {
+        before: existing[field] ?? null,
+        after: updated[field] ?? null,
+      };
+    }
+
+    return changes;
   }
 
   private async getProposalContactSource(clinicId: string, contactId: string) {

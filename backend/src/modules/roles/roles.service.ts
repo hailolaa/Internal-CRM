@@ -106,6 +106,7 @@ export class RolesService {
 
   async updateRole(clinicId: string, userId: string, roleId: string, data: UpsertRoleDTO) {
     const role = await this.getEditableRole(clinicId, roleId);
+    const previousPermissions = await this.getRolePermissionKeys(roleId);
     const displayName = data.displayName === undefined ? role.displayName || role.name : this.cleanDisplayName(data.displayName);
     const description = data.description === undefined ? role.description : data.description?.trim() || null;
     const permissionKeys = data.permissions ? this.cleanPermissionKeys(data.permissions) : undefined;
@@ -150,7 +151,13 @@ export class RolesService {
       action: "ROLE_UPDATED",
       entityType: "role",
       entityId: roleId,
-      changes: { displayName, description, ...(permissionKeys ? { permissions: permissionKeys } : {}) },
+      changes: {
+        displayName: { before: role.displayName || role.name, after: displayName },
+        description: { before: role.description, after: description },
+        ...(permissionKeys
+          ? { permissions: { before: previousPermissions, after: permissionKeys } }
+          : {}),
+      },
     });
 
     return this.getRole(clinicId, roleId);
@@ -239,6 +246,20 @@ export class RolesService {
       throw ApiError.badRequest(`Unknown permission key: ${missing.join(", ")}`);
     }
     return rows.map((row: any) => row.id as string);
+  }
+
+  private async getRolePermissionKeys(roleId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT p.key_name as keyName
+       FROM role_permission rp
+       JOIN permission p
+         ON p.id = rp.permission_id
+        AND p.deleted_at IS NULL
+       WHERE rp.role_id = ?
+       ORDER BY p.key_name ASC`,
+      [roleId],
+    );
+    return rows.map((row: any) => row.keyName as string);
   }
 
   private async preventSelfPermissionLockout(

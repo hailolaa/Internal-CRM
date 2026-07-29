@@ -356,11 +356,41 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
 
     const updated = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token, {
       method: "PATCH",
-      body: JSON.stringify({ status: "follow_up_due", followUpAt: "2026-07-24T09:00:00.000Z" }),
+      body: JSON.stringify({
+        status: "follow_up_due",
+        followUpAt: "2026-07-24T09:00:00.000Z",
+        packageName: "Growth Engine",
+        monthlyFeeCents: 199500,
+        setupFeeCents: 50000,
+      }),
     });
     assert.equal(updated.response.status, 200);
     assert.equal(updated.body.data.status, "follow_up_due");
     assert.equal(updated.body.data.contactId, contactId);
+    const [proposalAuditRows]: any = await pool.execute(
+      `SELECT
+          JSON_UNQUOTE(JSON_EXTRACT(changes, '$.status.before')) as previousStatus,
+          JSON_UNQUOTE(JSON_EXTRACT(changes, '$.status.after')) as status,
+          JSON_UNQUOTE(JSON_EXTRACT(changes, '$.packageName.after')) as packageName,
+          JSON_EXTRACT(changes, '$.monthlyFeeCents.after') as monthlyFeeCents,
+          JSON_EXTRACT(changes, '$.setupFeeCents.after') as setupFeeCents
+       FROM audit_log
+       WHERE clinic_id = ?
+         AND user_id = ?
+         AND entity_type = 'proposal'
+         AND entity_id = ?
+         AND action = 'PROPOSAL_STATUS_CHANGED'
+         AND JSON_UNQUOTE(JSON_EXTRACT(changes, '$.status.after')) = 'follow_up_due'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [primaryClinicId, writer.id, created.body.data.id],
+    );
+    assert.equal(proposalAuditRows.length, 1);
+    assert.equal(proposalAuditRows[0].previousStatus, "viewed");
+    assert.equal(proposalAuditRows[0].status, "follow_up_due");
+    assert.equal(proposalAuditRows[0].packageName, "Growth Engine");
+    assert.equal(Number(proposalAuditRows[0].monthlyFeeCents), 199500);
+    assert.equal(Number(proposalAuditRows[0].setupFeeCents), 50000);
     const [customStageRows]: any = await pool.execute(
       `SELECT pipeline_stage_id as stageId, stage
        FROM deal
@@ -814,8 +844,9 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(accepted.body.data.status, "accepted");
     assert.equal(accepted.body.data.acceptanceRecord.acceptedByName, "Week Two Owner");
     assert.equal(accepted.body.data.acceptanceRecord.acceptedByEmail, "owner@example.com");
-    assert.equal(accepted.body.data.acceptanceRecord.packageName, null);
-    assert.equal(accepted.body.data.acceptanceRecord.monthlyFeeCents, null);
+    assert.equal(accepted.body.data.acceptanceRecord.packageName, "Growth Engine");
+    assert.equal(accepted.body.data.acceptanceRecord.monthlyFeeCents, 199500);
+    assert.equal(accepted.body.data.acceptanceRecord.setupFeeCents, 50000);
     assert.equal(accepted.body.data.acceptanceRecord.paymentTerms, "Monthly in advance, setup due before kickoff.");
     assert.ok(accepted.body.data.clientAccountProfileId);
     assert.equal(

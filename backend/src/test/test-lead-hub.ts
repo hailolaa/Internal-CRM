@@ -585,7 +585,11 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
     );
     const [lostAuditRows]: any = await pool.execute(
       `SELECT JSON_UNQUOTE(JSON_EXTRACT(changes, '$.lostReason')) as lostReason,
-              JSON_UNQUOTE(JSON_EXTRACT(changes, '$.objectionType')) as objectionType
+              JSON_UNQUOTE(JSON_EXTRACT(changes, '$.objectionType')) as objectionType,
+              JSON_UNQUOTE(JSON_EXTRACT(changes, '$.previousStatus')) as previousStatus,
+              JSON_UNQUOTE(JSON_EXTRACT(changes, '$.status')) as status,
+              JSON_UNQUOTE(JSON_EXTRACT(changes, '$.fromStageId')) as fromStageId,
+              JSON_UNQUOTE(JSON_EXTRACT(changes, '$.toStageId')) as toStageId
        FROM audit_log
        WHERE clinic_id = ?
          AND entity_type = 'deal'
@@ -597,6 +601,14 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
     assert.equal(lostAuditRows.length, 2);
     assert.equal(
       lostAuditRows.every((row: any) => row.lostReason === "budget" && row.objectionType === "budget"),
+      true,
+    );
+    assert.equal(
+      lostAuditRows.every((row: any) => row.status === "lost" && row.toStageId === lostStage.id),
+      true,
+    );
+    assert.equal(
+      lostAuditRows.some((row: any) => row.previousStatus === "open" && row.fromStageId === auditStage.id),
       true,
     );
 

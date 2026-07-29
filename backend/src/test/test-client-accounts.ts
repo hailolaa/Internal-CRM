@@ -2261,6 +2261,7 @@ test("client account profile API is permission protected, updateable, audited, a
       activeServices: ["ppc", "seo", "strategy"],
       onboardingStatus: "in_progress",
       healthStatus: "healthy",
+      clientStatus: "active",
       monthlyPrice: "3495.00",
       setupFee: "500.00",
       currency: "GBP",
@@ -2371,9 +2372,12 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(auditRows[0].entityId, profileRows[0].id);
     const auditChanges = parseDbJsonObject(auditRows[0].changes);
     assert.ok(auditChanges);
+    assert.equal(auditChanges.currentPackage.after, "Growth Diagnostic");
     assert.equal(auditChanges.healthStatus.after, "healthy");
+    assert.equal(auditChanges.clientStatus.after, "active");
     assert.equal(auditChanges.contractStatus.after, "active");
     assert.equal(auditChanges.monthlyPrice.after, "3495.00");
+    assert.equal(auditChanges.setupFee.after, "500.00");
     assert.equal(auditChanges.paymentStatus.after, "pending");
     assert.equal(auditChanges.invoiceStatus.after, "sent");
     assert.equal(auditChanges.lastContactAt.after, "2026-07-10 00:00:00");
