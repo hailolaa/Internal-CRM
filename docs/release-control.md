@@ -8,6 +8,10 @@ Mission Control uses branch protection, pull requests, code ownership and releas
 - Code ownership routes important changes for review.
 - Paired frontend, backend or external repo changes are linked in one release record.
 - Architecture decisions are recorded in `docs/adr/` so structural choices can be reviewed without relying on private messages.
+- Stakeholder-readable release history is recorded in `CHANGELOG.md`.
+- Review standards are documented in `docs/reviewer-checklist.md`.
+- Branch and commit naming standards are documented in `docs/branch-and-commit-conventions.md`.
+- The system architecture diagram is documented in `docs/architecture-diagram.md`.
 
 ## Branch Rule
 
@@ -31,6 +35,7 @@ Every pull request should explain:
 - Which checks were run before review
 - Whether related repo revisions need to ship together
 - Any known risks or follow-up work
+- Whether the changelog needs an entry
 
 ## Paired Release Record
 
@@ -62,6 +67,10 @@ These settings must be enabled in GitHub repository settings:
 - Require branches to be up to date before merge
 - Block force pushes to main
 - Dismiss stale approvals when new commits are pushed
+
+## Issue Triage
+
+Production and release issues should use `.github/ISSUE_TEMPLATE/bug_report.md` so severity, impact, reproduction steps, evidence and rollback needs are captured consistently.
 
 ## Enforcement
 

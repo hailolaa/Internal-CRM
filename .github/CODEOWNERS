@@ -1,12 +1,12 @@
 # Default ownership for review routing.
-* @The-Growth-Group/mission-control-reviewers
+* @hailolaa @The-Growth-Group
 
 # Backend changes should be reviewed with API, database and integration safety in mind.
-/backend/ @The-Growth-Group/mission-control-reviewers
+/backend/ @hailolaa @The-Growth-Group
 
 # Frontend changes should be reviewed with Mission Control UX and production build safety in mind.
-/frontend/ @The-Growth-Group/mission-control-reviewers
+/frontend/ @hailolaa @The-Growth-Group
 
 # Release controls, workflow changes and environment guidance need careful review before merge.
-/.github/ @The-Growth-Group/mission-control-reviewers
-/docs/ @The-Growth-Group/mission-control-reviewers
+/.github/ @hailolaa @The-Growth-Group
+/docs/ @hailolaa @The-Growth-Group

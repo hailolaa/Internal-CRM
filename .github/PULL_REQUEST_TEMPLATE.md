@@ -19,6 +19,7 @@
 - Related frontend revision:
 - Related backend revision:
 - Related external repo revision:
+- If not applicable, state `None`.
 
 ## Verification
 
@@ -39,15 +40,19 @@
 - [ ] Fresh database setup path is still clear
 - [ ] Any paired repo changes are linked above
 - [ ] Known risks or follow-up work are listed below
+- [ ] Changelog updated or not needed
 
 ## Review Notes
 
 - Main areas to review:
 - Anything intentionally left out:
 - Any dependency on another repo, migration, setting or provider:
+- Reviewer checklist section needing extra attention:
+- If not applicable, state `None`.
 
 ## Known Risks / Follow-Up
 
 - Known risks:
 - Follow-up work:
 - Rollback or recovery note:
+- If not applicable, state `None`.
