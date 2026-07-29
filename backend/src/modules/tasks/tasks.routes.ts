@@ -54,6 +54,14 @@ router.get(
   tasksController.listInternalTasks,
 );
 
+router.get(
+  "/internal/export/csv",
+  authorizePermission("internal_tasks:read"),
+  listInternalTasksValidator,
+  validate,
+  tasksController.exportInternalTasksCsv,
+);
+
 // @route   POST /api/tasks/internal
 // @desc    Create a Clinic Grower internal delivery task
 // @access  Private(internal tasks permission)

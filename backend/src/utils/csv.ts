@@ -12,3 +12,7 @@ export function csvCell(value: unknown) {
     ? `"${spreadsheetSafe.replace(/"/g, '""')}"`
     : spreadsheetSafe;
 }
+
+export function csvRows(headers: string[], rows: unknown[][]) {
+  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
+}

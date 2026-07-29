@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, FilePlus2, FileText, Loader2, RefreshCw, Search } from "lucide-react";
+import { ArrowRight, Download, FilePlus2, FileText, Loader2, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertBanner, PageHeader } from "@/components/ui";
@@ -8,6 +8,7 @@ import { api } from "@/lib/api-client";
 import type { ProposalRecord, ProposalStatus } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { proposalEditorHref } from "@/lib/proposal-editor-state";
+import { saveBlobDownload } from "@/lib/download";
 
 const statusOptions: Array<{ value: ProposalStatus | "all"; label: string }> = [
   { value: "all", label: "All active proposals" },
@@ -69,6 +70,7 @@ export default function ProposalsPage() {
   const [status, setStatus] = useState<ProposalStatus | "all">("all");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   const loadProposals = useCallback(async () => {
     if (!token || !canReadProposals) {
@@ -117,21 +119,54 @@ export default function ProposalsPage() {
   const followUpCount = proposals.filter((proposal) => proposal.status === "follow_up_due").length;
   const completedCount = proposals.filter((proposal) => ["accepted", "won"].includes(proposal.status)).length;
 
+  const handleExport = useCallback(async () => {
+    if (!token || !canReadProposals || isExporting) return;
+
+    setIsExporting(true);
+    setError("");
+    try {
+      const result = await api.proposals.exportCsv(token, {
+        search: query,
+        status,
+        includeArchived: true,
+        limit: 5000,
+      });
+      saveBlobDownload(result.blob, result.fileName);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Could not export proposals.");
+    } finally {
+      setIsExporting(false);
+    }
+  }, [canReadProposals, isExporting, query, status, token]);
+
   return (
     <div className="min-h-screen bg-[#f5f6f1]">
       <PageHeader
         title="Proposals"
         subtitle="Find, resume and manage saved proposal drafts and active client proposals."
         right={
-          canWriteProposals ? (
-            <Link
-              href="/app/crm/proposals/edit"
-              className="inline-flex items-center gap-2 rounded-[8px] bg-[#315f51] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#24483d]"
-            >
-              <FilePlus2 className="h-4 w-4" />
-              New proposal
-            </Link>
-          ) : null
+          <div className="flex flex-wrap items-center gap-2">
+            {canReadProposals ? (
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={isExporting || !token}
+                className="inline-flex items-center gap-2 rounded-[8px] border border-[rgba(21,31,33,0.08)] bg-[#FFFCF9] px-4 py-2.5 text-sm font-semibold text-[#315f62] transition hover:bg-[#eaedeb] disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {isExporting ? "Exporting" : "Export CSV"}
+              </button>
+            ) : null}
+            {canWriteProposals ? (
+              <Link
+                href="/app/crm/proposals/edit"
+                className="inline-flex items-center gap-2 rounded-[8px] bg-[#315f51] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#24483d]"
+              >
+                <FilePlus2 className="h-4 w-4" />
+                New proposal
+              </Link>
+            ) : null}
+          </div>
         }
       />
 

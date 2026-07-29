@@ -23,6 +23,18 @@ export class ProposalsController {
     }
   };
 
+  exportProposalsCsv = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const csv = await proposalsService.exportProposalsCsv(clinicId, req.query as any);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="proposals-export.csv"');
+      res.status(200).send(csv);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getProposal = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId } = (req as any).user;

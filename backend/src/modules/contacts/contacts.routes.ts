@@ -103,6 +103,14 @@ router.get(
 // @desc    Export clinic contacts with the same filters as the lead inbox
 // @access  Private
 router.get(
+  "/export/leads/csv",
+  authorizePermission("contacts:read"),
+  listContactsValidator,
+  validate,
+  contactsController.exportLeadsCsv,
+);
+
+router.get(
   "/export/csv",
   authorizePermission("contacts:read"),
   listContactsValidator,

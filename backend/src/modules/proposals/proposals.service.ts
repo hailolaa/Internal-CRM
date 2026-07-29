@@ -3,6 +3,7 @@ import type { PoolConnection } from "mysql2/promise";
 import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
+import { csvRows } from "../../utils/csv.js";
 import { insertAuditEvent, logAuditEvent } from "../../utils/audit.js";
 import { buildTimelineMetadata, insertTimelineActivity, logTimelineActivity } from "../../utils/activity.js";
 import { generateResetToken, hashToken } from "../../utils/helpers.js";
@@ -340,6 +341,93 @@ function mapProposal(row: any): ProposalResponse {
   };
 }
 
+function toProposalsCsv(proposals: ProposalResponse[]) {
+  const headers = [
+    "id",
+    "contactId",
+    "dealId",
+    "clientAccountProfileId",
+    "proposalName",
+    "packageName",
+    "recommendedPackageId",
+    "ownerId",
+    "ownerName",
+    "status",
+    "valueCents",
+    "monthlyFeeCents",
+    "setupFeeCents",
+    "currency",
+    "vatStatus",
+    "minimumTermMonths",
+    "noticePeriodDays",
+    "startDate",
+    "followUpAt",
+    "readyAt",
+    "sentAt",
+    "sentToEmail",
+    "sentToName",
+    "sendMethod",
+    "viewedAt",
+    "acceptedAt",
+    "wonAt",
+    "lostAt",
+    "lostReason",
+    "objectionType",
+    "expiresAt",
+    "proposalUrl",
+    "contactName",
+    "contactEmail",
+    "accountName",
+    "dealTitle",
+    "clientAccountName",
+    "createdAt",
+    "updatedAt",
+  ];
+  const rows = proposals.map((proposal) => [
+    proposal.id,
+    proposal.contactId,
+    proposal.dealId,
+    proposal.clientAccountProfileId,
+    proposal.proposalName,
+    proposal.packageName,
+    proposal.recommendedPackageId,
+    proposal.ownerId,
+    proposal.ownerName,
+    proposal.status,
+    proposal.valueCents,
+    proposal.monthlyFeeCents,
+    proposal.setupFeeCents,
+    proposal.currency,
+    proposal.vatStatus,
+    proposal.minimumTermMonths,
+    proposal.noticePeriodDays,
+    proposal.startDate,
+    proposal.followUpAt,
+    proposal.readyAt,
+    proposal.sentAt,
+    proposal.sentToEmail,
+    proposal.sentToName,
+    proposal.sendMethod,
+    proposal.viewedAt,
+    proposal.acceptedAt,
+    proposal.wonAt,
+    proposal.lostAt,
+    proposal.lostReason,
+    proposal.objectionType,
+    proposal.expiresAt,
+    proposal.proposalUrl,
+    proposal.contactName,
+    proposal.contactEmail,
+    proposal.accountName,
+    proposal.dealTitle,
+    proposal.clientAccountName,
+    proposal.createdAt,
+    proposal.updatedAt,
+  ]);
+
+  return csvRows(headers, rows);
+}
+
 function proposalSelectSql() {
   return `SELECT p.id,
                  p.clinic_id as clinicId,
@@ -503,7 +591,8 @@ export class ProposalsService {
       values.push(like, like, like, like, like, like, like, like, like);
     }
 
-    const limit = Math.min(250, Math.max(1, Number(query.limit) || 100));
+    const maxLimit = isTruthy((query as any).exportAll) ? 5000 : 250;
+    const limit = Math.min(maxLimit, Math.max(1, Number(query.limit) || 100));
     const [rows]: any = await pool.execute(
       `${proposalSelectSql()}
        WHERE ${where.join(" AND ")}
@@ -516,6 +605,16 @@ export class ProposalsService {
     );
 
     return rows.map(mapProposal);
+  }
+
+  async exportProposalsCsv(clinicId: string, query: ProposalListQuery = {}): Promise<string> {
+    const proposals = await this.listProposals(clinicId, {
+      ...query,
+      includeArchived: query.includeArchived ?? true,
+      limit: 5000,
+      exportAll: true,
+    } as ProposalListQuery);
+    return toProposalsCsv(proposals);
   }
 
   async getProposal(

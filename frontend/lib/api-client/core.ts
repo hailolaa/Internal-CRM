@@ -86,3 +86,36 @@ export async function apiRequest<T>(
 
   return payload as ApiEnvelope<T>;
 }
+
+export async function downloadCsv(
+  path: string,
+  token: string,
+  fallbackFileName: string,
+) {
+  const response = await fetch(
+    `${publicEnv.apiBaseUrl}/${path.replace(/^\/+/, "").replace(/^api\//, "")}`,
+    {
+      cache: "no-store",
+      headers: {
+        Accept: "text/csv",
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new ApiClientError(
+      payload?.message || `CSV export failed with ${response.status}`,
+      response.status,
+    );
+  }
+
+  const disposition = response.headers.get("content-disposition") || "";
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const fileName = encodedName
+    ? decodeURIComponent(encodedName)
+    : disposition.match(/filename="([^"]+)"/)?.[1] || fallbackFileName;
+
+  return { blob: await response.blob(), fileName };
+}

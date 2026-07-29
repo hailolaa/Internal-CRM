@@ -58,6 +58,14 @@ router.get(
   clientAccountsController.listAccounts,
 );
 
+router.get(
+  "/export/csv",
+  authorizePermission("client_accounts:read"),
+  listClientAccountsValidator,
+  validate,
+  clientAccountsController.exportAccountsCsv,
+);
+
 router.post(
   "/",
   authorizePermission("client_accounts:write"),

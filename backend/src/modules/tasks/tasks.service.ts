@@ -2,6 +2,7 @@ import pool from "../../config/database.js";
 import { v4 as uuidv4 } from "uuid";
 import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
+import { csvRows } from "../../utils/csv.js";
 import {
   CreateInternalTaskDTO,
   CreateTaskDTO,
@@ -50,6 +51,69 @@ function mapTask(row: any): TaskResponse {
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
   };
+}
+
+function toInternalTasksCsv(tasks: TaskResponse[]) {
+  const headers = [
+    "id",
+    "title",
+    "description",
+    "priority",
+    "status",
+    "category",
+    "boardKey",
+    "serviceType",
+    "clientAccountProfileId",
+    "clientAccountServiceId",
+    "contactId",
+    "contact",
+    "due",
+    "dueDate",
+    "assignedTo",
+    "assignedUserId",
+    "isOverdue",
+    "needsQa",
+    "approvalStatus",
+    "missedTask",
+    "escalationFlag",
+    "workflowMonth",
+    "templateKey",
+    "completedAt",
+    "archivedAt",
+    "createdAt",
+    "updatedAt",
+  ];
+  const rows = tasks.map((task) => [
+    task.id,
+    task.title,
+    task.description,
+    task.priority,
+    task.status,
+    task.category,
+    task.boardKey,
+    task.serviceType,
+    task.clientAccountProfileId,
+    task.clientAccountServiceId,
+    task.contactId,
+    task.contact,
+    task.due,
+    task.dueDate,
+    task.assignedTo,
+    task.assignedUserId,
+    task.isOverdue,
+    task.needsQa,
+    task.approvalStatus,
+    task.missedTask,
+    task.escalationFlag,
+    task.workflowMonth,
+    task.templateKey,
+    task.completedAt,
+    task.archivedAt,
+    task.createdAt,
+    task.updatedAt,
+  ]);
+
+  return csvRows(headers, rows);
 }
 
 function parseJson(value: unknown) {
@@ -288,6 +352,15 @@ export class TasksService {
     );
 
     return rows.map(mapTask);
+  }
+
+  async exportInternalTasksCsv(
+    clinicId: string,
+    query: InternalTaskListQuery,
+    access: { canManageAllClientAccounts: boolean } = { canManageAllClientAccounts: false },
+  ): Promise<string> {
+    const tasks = await this.listInternalTasks(clinicId, query, access);
+    return toInternalTasksCsv(tasks);
   }
 
   async createInternalTask(

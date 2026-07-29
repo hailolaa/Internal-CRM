@@ -8,6 +8,7 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   CircleDollarSign,
+  Download,
   Layers3,
   Plus,
   RefreshCw,
@@ -29,6 +30,7 @@ import {
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
+import { saveBlobDownload } from "@/lib/download";
 import {
   getClientNextBestAction,
   nextBestActionBadgeClass,
@@ -143,6 +145,7 @@ export default function ClientAccountsPage() {
   const [accountQuery, setAccountQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!token) return;
@@ -181,6 +184,29 @@ export default function ClientAccountsPage() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadData]);
+
+  const handleExport = useCallback(async () => {
+    if (!token || isExporting) return;
+
+    setIsExporting(true);
+    setStatusMessage("");
+    try {
+      const result = await api.clientAccounts.exportCsv(token, {
+        search: accountQuery,
+        contractStatus:
+          requestedContractStatus && requestedContractStatus !== "open"
+            ? (requestedContractStatus as ClientAccountContractStatus)
+            : undefined,
+      });
+      saveBlobDownload(result.blob, result.fileName);
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error ? error.message : "Client account export could not download.",
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  }, [accountQuery, isExporting, requestedContractStatus, token]);
 
   const hasLoadedData = !isLoading && !statusMessage;
   const activeServices = services.filter((service) => service.status === "active");
@@ -278,6 +304,15 @@ export default function ClientAccountsPage() {
                 <Plus className="h-4 w-4" />
                 Add client
               </Link>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={isExporting || !token}
+                className="inline-flex items-center gap-2 rounded-full border border-[rgba(21,31,33,0.08)] bg-[#FFFCF9] px-4 py-2 text-sm font-semibold text-[#315f62] transition-colors hover:bg-[#eaedeb] disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {isExporting ? "Exporting" : "Export CSV"}
+              </button>
               <button
                 type="button"
                 aria-label="Refresh client accounts"

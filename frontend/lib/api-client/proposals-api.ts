@@ -9,7 +9,7 @@ import type {
   ProposalSourceDataRecord,
   ProposalStatusUpdatePayload,
 } from "@/lib/api-types";
-import type { ApiRequest } from "./core";
+import { downloadCsv, type ApiRequest } from "./core";
 
 function toQuery(params: ProposalListParams = {}) {
   const searchParams = new URLSearchParams();
@@ -30,6 +30,14 @@ export function createProposalsApi(apiRequest: ApiRequest) {
           { token },
         );
         return response.data!;
+      },
+      async exportCsv(token: string, params: ProposalListParams = {}) {
+        const query = toQuery(params);
+        return downloadCsv(
+          `/api/proposals/export/csv${query ? `?${query}` : ""}`,
+          token,
+          "proposals-export.csv",
+        );
       },
       async get(token: string, proposalId: string) {
         const response = await apiRequest<ProposalRecord>(`/api/proposals/${proposalId}`, { token });

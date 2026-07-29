@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
 import { ApiError } from "../../utils/ApiError.js";
-import { csvCell } from "../../utils/csv.js";
+import { csvRows } from "../../utils/csv.js";
 import { buildTimelineMetadata, logTimelineActivity, type ActivityType } from "../../utils/activity.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { phase1TimelineActions } from "../events/phase1-events.js";
@@ -287,7 +287,12 @@ function toContactsCsv(contacts: ContactResponse[]) {
     contact.updatedAt,
   ]);
 
-  return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n") + "\n";
+  return csvRows(headers, rows);
+}
+
+function isLeadExportRecord(contact: ContactResponse) {
+  const status = `${contact.status || ""} ${contact.leadStatus || ""}`.toLowerCase();
+  return ["lead", "prospect", "new", "contacted", "proposal", "audit", "discovery", "follow"].some((term) => status.includes(term));
 }
 
 function normalizeImportHeader(header: string) {
@@ -500,6 +505,16 @@ export class ContactsService {
     });
 
     return toContactsCsv(result.contacts);
+  }
+
+  async exportLeadsCsv(clinicId: string, query: ContactListQuery): Promise<string> {
+    const result = await this.listContacts(clinicId, {
+      ...query,
+      page: 1,
+      limit: Math.min(5000, Math.max(1, Number(query.limit || query.pageSize) || 5000)),
+    });
+
+    return toContactsCsv(result.contacts.filter(isLeadExportRecord));
   }
 
   // Read a single contact profile inside the authenticated clinic

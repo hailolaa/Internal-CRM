@@ -73,6 +73,35 @@ export class ContactsController {
     }
   };
 
+  exportLeadsCsv = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const clinicId = (req as any).user.clinicId;
+      const query: ContactListQuery = {};
+      if (req.query.search) query.search = String(req.query.search);
+      if (req.query.status) query.status = String(req.query.status);
+      if (req.query.leadStatus) query.leadStatus = String(req.query.leadStatus);
+      if (req.query.source) query.source = String(req.query.source);
+      if (req.query.tag) query.tag = String(req.query.tag);
+      if (req.query.campaign) query.campaign = String(req.query.campaign);
+      if (req.query.utmSource) query.utmSource = String(req.query.utmSource);
+      if (req.query.utmMedium) query.utmMedium = String(req.query.utmMedium);
+      if (req.query.utmCampaign) query.utmCampaign = String(req.query.utmCampaign);
+      if (req.query.createdFrom) query.createdFrom = String(req.query.createdFrom);
+      if (req.query.createdTo) query.createdTo = String(req.query.createdTo);
+      if (req.query.sortBy) query.sortBy = String(req.query.sortBy) as any;
+      if (req.query.sortOrder || req.query.sortDir) {
+        query.sortOrder = String(req.query.sortOrder || req.query.sortDir) as any;
+      }
+
+      const csv = await contactsService.exportLeadsCsv(clinicId, query);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="leads-export.csv"');
+      res.status(200).send(csv);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   createContact = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;

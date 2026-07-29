@@ -33,6 +33,14 @@ router.get(
   proposalsController.listProposals,
 );
 
+router.get(
+  "/export/csv",
+  authorizePermission("proposals:read"),
+  listProposalsValidator,
+  validate,
+  proposalsController.exportProposalsCsv,
+);
+
 router.post(
   "/",
   authorizePermission("proposals:write"),

@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   BriefcaseBusiness,
   CheckSquare,
+  Download,
   Link2,
   MessageSquare,
   UserRound,
@@ -31,6 +32,7 @@ import { useAuth } from "@/lib/auth-context";
 import { AlertBanner, PageHeader, SkeletonLine } from "@/components/ui";
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
 import { isTaskDueByToday } from "@/lib/operations-drilldowns";
+import { saveBlobDownload } from "@/lib/download";
 
 type TaskRow = {
   id: string;
@@ -93,6 +95,18 @@ const dueFilterValues: DueFilter[] = [
   "no-date",
 ];
 const workFilterValues = workFilters.map((filter) => filter.value);
+const serviceTypeWorkFilters: ClientAccountServiceType[] = [
+  "website",
+  "seo",
+  "ppc",
+  "strategy",
+];
+
+function isServiceTypeWorkFilter(
+  value: WorkFilter,
+): value is Extract<WorkFilter, ClientAccountServiceType> {
+  return serviceTypeWorkFilters.includes(value as ClientAccountServiceType);
+}
 
 function getInitialDueFilter(value: string | null): DueFilter {
   return dueFilterValues.includes(value as DueFilter) ? value as DueFilter : "all";
@@ -214,6 +228,7 @@ export default function TasksPage() {
   const [noteTaskId, setNoteTaskId] = useState<string | null>(null);
   const [savingNoteTaskId, setSavingNoteTaskId] = useState<string | null>(null);
   const [noteDraftByTaskId, setNoteDraftByTaskId] = useState<Record<string, string>>({});
+  const [isExporting, setIsExporting] = useState(false);
   const taskRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const clientNameById = useMemo(() => {
     return new Map(
@@ -339,6 +354,36 @@ export default function TasksPage() {
     tasks,
     workFilter,
   ]);
+
+  const handleExport = async () => {
+    if (!token || isExporting) return;
+
+    setIsExporting(true);
+    setActionError("");
+    setActionMessage("");
+    try {
+      const result = await api.internalTasks.exportCsv(token, {
+        includeArchived: false,
+        clientAccountProfileId: requestedClientAccountProfileId || undefined,
+        overdue: dueFilter === "overdue" ? true : undefined,
+        completed: dueFilter === "all" ? undefined : false,
+        boardKey:
+          workFilter !== "all" &&
+          workFilter !== "needs-qa" &&
+          workFilter !== "unlinked"
+            ? workFilter
+            : undefined,
+        serviceType: isServiceTypeWorkFilter(workFilter) ? workFilter : undefined,
+        needsQa: workFilter === "needs-qa" ? true : undefined,
+      });
+      saveBlobDownload(result.blob, result.fileName);
+      setActionMessage("Task export downloaded.");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not export tasks.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   useEffect(() => {
     if (!requestedTaskId || isLoading) return;
@@ -469,12 +514,22 @@ export default function TasksPage() {
         subtitle="Plan and track internal and client-linked work for The Growth Group team."
         icon={CheckSquare}
         right={
-          <Link
-            href="/app/crm/tasks/new"
-            className="bg-[#6E6AE8] hover:bg-[#5A56D4] text-white font-medium px-4 py-2.5 rounded-[14px] flex items-center gap-2 w-fit transition-colors"
-          >
-            <Plus className="w-4 h-4" /> Add Task
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={isExporting || !token}
+              className="inline-flex w-fit items-center gap-2 rounded-[14px] border border-[rgba(0,0,0,0.08)] bg-[#FFFCF9] px-4 py-2.5 text-sm font-semibold text-[#315f62] transition-colors hover:bg-[#eaedeb] disabled:opacity-60"
+            >
+              <Download className="w-4 h-4" /> {isExporting ? "Exporting" : "Export CSV"}
+            </button>
+            <Link
+              href="/app/crm/tasks/new"
+              className="bg-[#6E6AE8] hover:bg-[#5A56D4] text-white font-medium px-4 py-2.5 rounded-[14px] flex items-center gap-2 w-fit transition-colors"
+            >
+              <Plus className="w-4 h-4" /> Add Task
+            </Link>
+          </div>
         }
       />
 

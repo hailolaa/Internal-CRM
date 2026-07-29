@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   PageHeader,
@@ -37,8 +37,9 @@ import {
   type NextBestActionResult,
 } from "@/lib/next-best-action";
 import { salesOutcomeLabel } from "@/lib/sales-outcomes";
-import { AlertTriangle, Plus, PoundSterling, Target, Users } from "lucide-react";
+import { AlertTriangle, Download, Plus, PoundSterling, Target, Users } from "lucide-react";
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
+import { saveBlobDownload } from "@/lib/download";
 
 const LEAD_RESPONSE_SLA_HOURS = 2;
 const SOURCE_LABELS: Record<string, string> = {
@@ -435,6 +436,7 @@ export default function LeadsPage() {
   const searchParams = useSearchParams();
   const dashboardView = searchParams.get("view");
   const { session } = useAuth();
+  const token = session?.token;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -444,6 +446,7 @@ export default function LeadsPage() {
   const [packageFilter, setPackageFilter] = useState("all");
   const [followUpFilter, setFollowUpFilter] = useState("all");
   const [auditFilter, setAuditFilter] = useState(searchParams.get("audit") || "all");
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     if (!session?.token) return;
@@ -633,6 +636,41 @@ export default function LeadsPage() {
     router.push(`/app/crm/contacts/detail?id=${lead.contactId}`);
   };
 
+  const handleExport = useCallback(async () => {
+    if (!token || isExporting) return;
+
+    setIsExporting(true);
+    setLoadError("");
+    try {
+      const result = await api.contacts.exportLeadsCsv(token, {
+        search: searchQuery,
+        source: sourceFilter,
+        status: stageFilter,
+        auditWorkflow:
+          auditFilter === "due" ||
+          auditFilter === "overdue" ||
+          auditFilter === "in_progress" ||
+          auditFilter === "completed"
+            ? auditFilter
+            : undefined,
+        page: 1,
+        pageSize: 5000,
+      });
+      saveBlobDownload(result.blob, result.fileName);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not export leads.");
+    } finally {
+      setIsExporting(false);
+    }
+  }, [
+    auditFilter,
+    isExporting,
+    searchQuery,
+    sourceFilter,
+    stageFilter,
+    token,
+  ]);
+
   return (
     <div className="space-y-6">
       <SubNav items={SALES_NAV} />
@@ -643,14 +681,25 @@ export default function LeadsPage() {
         icon={Target}
         iconColor="text-[#6E6AE8]"
         right={
-          <button
-            type="button"
-            onClick={() => router.push("/app/crm/contacts/new?mode=lead")}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#6E6AE8] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#5A56D4]"
-          >
-            <Plus className="h-4 w-4" />
-            Add Lead
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={isExporting || !token}
+              className="inline-flex items-center gap-2 rounded-xl border border-[rgba(21,31,33,0.08)] bg-[#FFFCF9] px-3 py-2 text-sm font-semibold text-[#315f62] transition-colors hover:bg-[#eaedeb] disabled:opacity-60"
+            >
+              <Download className="h-4 w-4" />
+              {isExporting ? "Exporting" : "Export CSV"}
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/app/crm/contacts/new?mode=lead")}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#6E6AE8] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#5A56D4]"
+            >
+              <Plus className="h-4 w-4" />
+              Add Lead
+            </button>
+          </div>
         }
       />
 

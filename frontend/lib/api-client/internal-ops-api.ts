@@ -39,7 +39,7 @@ import type {
   StrategyLogRecord,
   StrategyLogUpdatePayload,
 } from "@/lib/api-types";
-import type { ApiRequest } from "./core";
+import { downloadCsv, type ApiRequest } from "./core";
 import { publicEnv } from "@/lib/env";
 
 function buildQuery(params: object = {}) {
@@ -92,6 +92,13 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
           { token },
         );
         return response.data!;
+      },
+      async exportCsv(token: string, params?: ClientAccountListParams) {
+        return downloadCsv(
+          `/api/client-accounts/export/csv${buildQuery(params)}`,
+          token,
+          "client-accounts-export.csv",
+        );
       },
       async create(token: string, payload: ClientAccountCreatePayload) {
         const response = await apiRequest<ClientAccountSummaryRecord>(
@@ -367,6 +374,13 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
           { token },
         );
         return response.data!;
+      },
+      async exportCsv(token: string, params?: InternalTaskListParams) {
+        return downloadCsv(
+          `/api/tasks/internal/export/csv${buildQuery(params)}`,
+          token,
+          "internal-tasks-export.csv",
+        );
       },
       async create(token: string, payload: InternalTaskPayload) {
         const response = await apiRequest<{ id: string }>("/api/tasks/internal", {

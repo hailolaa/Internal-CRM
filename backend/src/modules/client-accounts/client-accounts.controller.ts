@@ -63,6 +63,22 @@ export class ClientAccountsController {
     }
   };
 
+  exportAccountsCsv = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const includeAllClinics = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const csv = await clientAccountsService.exportAccountsCsv(user.clinicId, {
+        includeAllClinics,
+        query: req.query as any,
+      });
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="client-accounts-export.csv"');
+      res.status(200).send(csv);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   createAccount = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;

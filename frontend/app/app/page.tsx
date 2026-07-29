@@ -134,11 +134,57 @@ function formatMoney(cents: number) {
   }).format(cents / 100);
 }
 
+function formatCurrencyAmount(value: number, currency = "GBP") {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 function formatLabel(value: string) {
   return value
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function commercialLabel(value: string | null | undefined, fallback: string) {
+  const clean = String(value || "").trim();
+  if (!clean || clean === "-") return fallback;
+  return clean;
+}
+
+function addCommercialRow(
+  rows: Map<string, { label: string; count: number; value: number }>,
+  label: string,
+  value = 0,
+) {
+  const key = label.toLowerCase();
+  const current = rows.get(key) || { label, count: 0, value: 0 };
+  current.count += 1;
+  current.value += Number(value || 0);
+  rows.set(key, current);
+}
+
+function commercialRows(
+  rows: Map<string, { label: string; count: number; value: number }>,
+  hrefFor: (label: string) => string,
+) {
+  return Array.from(rows.entries())
+    .map(([id, row]) => ({
+      id,
+      label: row.label,
+      count: row.count,
+      value: row.value,
+      href: hrefFor(row.label),
+    }))
+    .sort((a, b) => b.count - a.count || b.value - a.value || a.label.localeCompare(b.label))
+    .slice(0, 6);
+}
+
+function isProposalSent(proposal: ProposalRecord) {
+  return Boolean(proposal.sentAt) || ["sent", "viewed", "follow_up_due", "accepted", "won", "lost"].includes(proposal.status);
 }
 
 function isNewLead(deal: PipelineDealRecord) {
@@ -462,6 +508,70 @@ export default function AppPage() {
       .sort((a, b) => a.sort - b.sort || a.title.localeCompare(b.title))
       .slice(0, 8);
   }, [openClientAccounts]);
+
+  const commercialMetrics = useMemo(() => {
+    const sourceRows = new Map<string, { label: string; count: number; value: number }>();
+    const packageInterestRows = new Map<string, { label: string; count: number; value: number }>();
+    const clientPackageRows = new Map<string, { label: string; count: number; value: number }>();
+    const leadContactIds = new Set(contacts.filter(isLeadContact).map((contact) => contact.id));
+
+    contacts.filter(isLeadContact).forEach((contact) => {
+      addCommercialRow(sourceRows, commercialLabel(contact.source || contact.firstSource, "Source not set"), Number(contact.value || 0));
+      addCommercialRow(
+        packageInterestRows,
+        commercialLabel(contact.packageInterest || contact.recommendedPackage || contact.treatmentInterests?.[0], "Package not set"),
+        Number(contact.value || 0),
+      );
+    });
+
+    deals
+      .filter((deal) => deal.status === "open" && !leadContactIds.has(deal.contactId))
+      .forEach((deal) => {
+        addCommercialRow(sourceRows, commercialLabel(deal.source, "Source not set"), Number(deal.valueCents || 0) / 100);
+        addCommercialRow(packageInterestRows, commercialLabel(deal.treatment, "Package not set"), Number(deal.valueCents || 0) / 100);
+      });
+
+    openClientAccounts.forEach((account) => {
+      addCommercialRow(
+        clientPackageRows,
+        commercialLabel(account.currentPackage, "Package not set"),
+        Number(account.monthlyPrice || 0),
+      );
+    });
+
+    const sentProposals = proposals.filter(isProposalSent);
+    const proposalValueCents = sentProposals.reduce(
+      (total, proposal) => total + Number(proposal.valueCents || proposal.monthlyFeeCents || 0),
+      0,
+    );
+    const manualMrr = openClientAccounts.reduce(
+      (total, account) => total + Number(account.monthlyPrice || 0),
+      0,
+    );
+
+    return {
+      sourceRows: commercialRows(
+        sourceRows,
+        (label) => `/app/leads?source=${encodeURIComponent(label)}&from=dashboard`,
+      ),
+      packageInterestRows: commercialRows(
+        packageInterestRows,
+        (label) => `/app/leads?packageInterest=${encodeURIComponent(label)}&from=dashboard`,
+      ),
+      clientPackageRows: commercialRows(
+        clientPackageRows,
+        (label) => `/app/ops/client-accounts?search=${encodeURIComponent(label)}&from=dashboard`,
+      ),
+      sentProposalCount: sentProposals.length,
+      proposalValueCents,
+      wonDealCount: metrics.wonDeals.length,
+      wonDealValueCents: metrics.wonDeals.reduce((total, deal) => total + Number(deal.valueCents || 0), 0),
+      lostDealCount: metrics.lostDeals.length,
+      lostDealValueCents: metrics.lostDeals.reduce((total, deal) => total + Number(deal.valueCents || 0), 0),
+      manualMrr,
+      clientCurrency: openClientAccounts.find((account) => account.currency)?.currency || "GBP",
+    };
+  }, [contacts, deals, metrics.lostDeals, metrics.wonDeals, openClientAccounts, proposals]);
 
   const stageRows = useMemo(() => {
     const rows = stages
@@ -826,6 +936,119 @@ export default function AppPage() {
           </>
         )}
       </div>
+
+      <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-[#151f21]">Commercial Snapshot</h2>
+            <p className="text-sm text-[#5e8a8d]">
+              Lead source, package demand, proposals, won/lost and manual client MRR
+            </p>
+          </div>
+          <Link
+            href="/app/crm/proposals?from=dashboard"
+            className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+          >
+            Proposals
+          </Link>
+        </div>
+
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            {
+              label: "Proposals sent",
+              value: String(commercialMetrics.sentProposalCount),
+              sub: formatMoney(commercialMetrics.proposalValueCents),
+              href: "/app/crm/proposals?status=sent&from=dashboard",
+            },
+            {
+              label: "Won deals",
+              value: String(commercialMetrics.wonDealCount),
+              sub: formatMoney(commercialMetrics.wonDealValueCents),
+              href: "/app/crm/pipeline?status=won&from=dashboard",
+            },
+            {
+              label: "Lost deals",
+              value: String(commercialMetrics.lostDealCount),
+              sub: formatMoney(commercialMetrics.lostDealValueCents),
+              href: "/app/crm/pipeline?status=lost&from=dashboard",
+            },
+            {
+              label: "Manual MRR",
+              value: formatCurrencyAmount(commercialMetrics.manualMrr, commercialMetrics.clientCurrency),
+              sub: `${openClientAccounts.length} open client${openClientAccounts.length === 1 ? "" : "s"}`,
+              href: "/app/ops/client-accounts?contractStatus=open&from=dashboard",
+            },
+          ].map((item) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              className="rounded-2xl border border-[#E7E1DA] bg-[#FAF8F5] p-4 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+              aria-label={`Open ${item.label.toLowerCase()} from Mission Control`}
+            >
+              <p className="text-sm font-medium text-[#5e8a8d]">{item.label}</p>
+              <p className="mt-2 text-2xl font-bold text-[#151f21]">{item.value}</p>
+              <p className="mt-1 text-xs text-[#7A746A]">{item.sub}</p>
+            </Link>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          {[
+            {
+              title: "Leads by Source",
+              rows: commercialMetrics.sourceRows,
+              empty: "No lead source data yet.",
+              valueLabel: "est. value",
+            },
+            {
+              title: "Package Interest",
+              rows: commercialMetrics.packageInterestRows,
+              empty: "No package interest data yet.",
+              valueLabel: "est. value",
+            },
+            {
+              title: "Current Clients by Package",
+              rows: commercialMetrics.clientPackageRows,
+              empty: "No client package data yet.",
+              valueLabel: "MRR",
+            },
+          ].map((group) => (
+            <div
+              key={group.title}
+              className="rounded-2xl border border-[#E7E1DA] bg-white p-4"
+            >
+              <h3 className="text-sm font-semibold text-[#151f21]">{group.title}</h3>
+              <div className="mt-3 space-y-2">
+                {isLoading &&
+                  Array.from({ length: 3 }, (_, index) => (
+                    <SkeletonLine key={index} className="h-9 w-full" />
+                  ))}
+                {!isLoading && group.rows.map((row) => (
+                  <Link
+                    key={row.id}
+                    href={row.href}
+                    className="block rounded-xl border border-transparent p-2 transition-colors hover:border-[#d8ddda] hover:bg-[#FAF8F5] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62]"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate text-sm font-medium text-[#151f21]">{row.label}</span>
+                      <span className="shrink-0 rounded-full bg-[rgba(96,180,175,0.08)] px-2 py-0.5 text-xs font-semibold text-[#5e8a8d]">
+                        {row.count}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-[#7A746A]">
+                      {formatCurrencyAmount(row.value, commercialMetrics.clientCurrency)} {group.valueLabel}
+                    </p>
+                  </Link>
+                ))}
+                {!isLoading && group.rows.length === 0 && (
+                  <p className="text-sm text-[#5e8a8d]">{group.empty}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

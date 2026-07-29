@@ -135,6 +135,19 @@ export class TasksController {
     }
   };
 
+  exportInternalTasksCsv = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(userId, clinicId);
+      const csv = await tasksService.exportInternalTasksCsv(clinicId, req.query as any, { canManageAllClientAccounts });
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="internal-tasks-export.csv"');
+      res.status(200).send(csv);
+    } catch (error) {
+      next(error);
+    }
+  };
+
   // POST /api/tasks/internal
   // Create a Clinic Grower internal delivery task
   createInternalTask = async (req: Request, res: Response, next: NextFunction) => {

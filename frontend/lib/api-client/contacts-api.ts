@@ -18,7 +18,7 @@ import type {
   SalesCallDemoPayload,
   TaskRecord,
 } from "@/lib/api-types";
-import type { ApiRequest } from "./core";
+import { downloadCsv, type ApiRequest } from "./core";
 
 function buildContactsQuery(params: ContactListParams = {}) {
   const searchParams = new URLSearchParams();
@@ -44,6 +44,20 @@ export function createContactsApi(apiRequest: ApiRequest) {
           { token },
         );
         return response.data!;
+      },
+      async exportCsv(token: string, params?: ContactListParams) {
+        return downloadCsv(
+          `/api/contacts/export/csv${buildContactsQuery(params)}`,
+          token,
+          "contacts-export.csv",
+        );
+      },
+      async exportLeadsCsv(token: string, params?: ContactListParams) {
+        return downloadCsv(
+          `/api/contacts/export/leads/csv${buildContactsQuery(params)}`,
+          token,
+          "leads-export.csv",
+        );
       },
       async create(token: string, payload: ContactCreatePayload) {
         const response = await apiRequest<ContactMutationResult>(

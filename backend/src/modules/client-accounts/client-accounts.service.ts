@@ -4,6 +4,7 @@ import type { PoolConnection } from "mysql2/promise";
 import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
+import { csvRows } from "../../utils/csv.js";
 import { buildTimelineMetadata, insertTimelineActivity } from "../../utils/activity.js";
 import { insertAuditEvent, logAuditEvent } from "../../utils/audit.js";
 import { googleDriveOAuthService } from "./google-drive-oauth.service.js";
@@ -108,6 +109,81 @@ const clientAccessItemTypes = [
 
 const expectedClientDocumentLinkCount = clientDocumentTypes.length - 1;
 const expectedClientAccessItemCount = clientAccessItemTypes.length;
+
+function toClientAccountsCsv(accounts: ClientAccountSummaryResponse[]) {
+  const headers = [
+    "id",
+    "clinicId",
+    "clinicName",
+    "email",
+    "phone",
+    "website",
+    "city",
+    "country",
+    "accountManagerId",
+    "accountManagerName",
+    "accountManagerEmail",
+    "clientStatus",
+    "onboardingStatus",
+    "healthStatus",
+    "currentPackage",
+    "monthlyPrice",
+    "setupFee",
+    "currency",
+    "recommendedNextPackage",
+    "contractStatus",
+    "contractStartDate",
+    "renewalDate",
+    "noticeDate",
+    "paymentStatus",
+    "invoiceStatus",
+    "activeServiceCount",
+    "pendingTaskCount",
+    "overdueTaskCount",
+    "openIssueCount",
+    "missingDocumentCount",
+    "missingAccessCount",
+    "updatedAt",
+  ];
+  const rows = accounts.map((account) => [
+    account.id,
+    account.clinicId,
+    account.clinicName,
+    account.email,
+    account.phone,
+    account.website,
+    account.city,
+    account.country,
+    account.accountManager?.id || null,
+    account.accountManager
+      ? [account.accountManager.firstName, account.accountManager.lastName].filter(Boolean).join(" ") || null
+      : null,
+    account.accountManager?.email || null,
+    account.clientStatus,
+    account.onboardingStatus,
+    account.healthStatus,
+    account.currentPackage,
+    account.monthlyPrice,
+    account.setupFee,
+    account.currency,
+    account.recommendedNextPackage,
+    account.contractStatus,
+    account.contractStartDate,
+    account.renewalDate,
+    account.noticeDate,
+    account.paymentStatus,
+    account.invoiceStatus,
+    account.activeServiceCount,
+    account.pendingTaskCount,
+    account.overdueTaskCount,
+    account.openIssueCount,
+    account.missingDocumentCount,
+    account.missingAccessCount,
+    account.updatedAt,
+  ]);
+
+  return csvRows(headers, rows);
+}
 
 function parseServices(value: unknown): string[] {
   if (!value) return [];
@@ -689,6 +765,14 @@ export class ClientAccountsService {
     );
 
     return rows.map((row: any) => this.mapAccountSummaryRow(row));
+  }
+
+  async exportAccountsCsv(
+    clinicId: string,
+    options: { includeAllClinics: boolean; query?: ClientAccountListQuery },
+  ): Promise<string> {
+    const accounts = await this.listAccounts(clinicId, options);
+    return toClientAccountsCsv(accounts);
   }
 
   async createAccount(

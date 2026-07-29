@@ -41,7 +41,7 @@ import { useFilteredSortedPaginated } from "@/hooks/use-table";
 import { api } from "@/lib/api-client";
 import type { ContactRecord } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
-import { exportToCSV } from "@/lib/export-utils";
+import { saveBlobDownload } from "@/lib/download";
 
 type ContactTableRow = {
   id: string;
@@ -119,6 +119,7 @@ export default function ContactsPage() {
   const [actionMessage, setActionMessage] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionContactId, setActionContactId] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -215,19 +216,28 @@ export default function ContactsPage() {
     totalCount,
   } = useFilteredSortedPaginated(filteredContacts, searchFn, 10);
 
-  const handleExport = useCallback(() => {
-    const data = filteredContacts.map((c) => ({
-      Name: c.name,
-      Email: c.email,
-      Phone: c.phone,
-      Source: c.source,
-      Status: c.status,
-      Value: c.value,
-      "Last Contact": c.lastContact,
-      Tags: c.tags.join(", "),
-    }));
-    exportToCSV(data, `contacts-${new Date().toISOString().split("T")[0]}`);
-  }, [filteredContacts]);
+  const handleExport = useCallback(async () => {
+    if (!token || isExporting) return;
+
+    setIsExporting(true);
+    setActionError("");
+    setActionMessage("");
+    try {
+      const result = await api.contacts.exportCsv(token, {
+        search: searchQuery,
+        status: selectedStatus,
+        tag: selectedTag,
+        page: 1,
+        pageSize: 5000,
+      });
+      saveBlobDownload(result.blob, result.fileName);
+      setActionMessage("Contact export downloaded.");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not export contacts.");
+    } finally {
+      setIsExporting(false);
+    }
+  }, [isExporting, searchQuery, selectedStatus, selectedTag, token]);
 
   const refreshContact = useCallback(
     async (contactId: string) => {
@@ -344,8 +354,12 @@ export default function ContactsPage() {
         icon={Users}
         right={
           <div className="flex gap-2">
-            <button onClick={handleExport} className="btn-secondary text-sm">
-              <Download className="w-4 h-4" /> Export
+            <button
+              onClick={handleExport}
+              disabled={isExporting || !token}
+              className="btn-secondary text-sm disabled:opacity-60"
+            >
+              <Download className="w-4 h-4" /> {isExporting ? "Exporting" : "Export CSV"}
             </button>
             <button
               onClick={() => router.push("/app/crm/contacts/import")}
