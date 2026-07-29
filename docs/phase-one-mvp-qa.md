@@ -1,4 +1,4 @@
-# MC-055 - Phase-One MVP QA
+# Phase-One MVP QA
 
 This is the QA note for checking Mission Control before the team starts relying on it for live leads, clients, proposals and onboarding work.
 
