@@ -11,7 +11,7 @@ import {
   salesOutcomeLabel,
 } from "@/lib/sales-outcomes";
 import { api } from "@/lib/api-client";
-import type { GrowthPackageRecord, ProposalRecord } from "@/lib/api-types";
+import type { GrowthPackageRecord, ProposalRecord, ProposalSignatureRequestRecord } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { ClinicGrowerProposalTemplate } from "@/components/proposals/clinicgrower-proposal-template";
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from "@/lib/datetime-local";
@@ -159,15 +159,20 @@ export default function ProposalPreviewPage() {
   const shareRequestRef = useRef(0);
   const sendRequestRef = useRef(0);
   const statusRequestRef = useRef(0);
+  const signatureRequestRef = useRef(0);
   const [proposal, setProposal] = useState<ProposalRecord | null>(proposalId ? null : sampleProposal);
   const [packages, setPackages] = useState<GrowthPackageRecord[]>(proposalId ? [] : [samplePackage]);
+  const [signatureRequests, setSignatureRequests] = useState<ProposalSignatureRequestRecord[]>([]);
   const [isLoading, setIsLoading] = useState(Boolean(proposalId));
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
   const [isMarkingSent, setIsMarkingSent] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isCreatingSignatureRequest, setIsCreatingSignatureRequest] = useState(false);
   const [sendRecipientEmail, setSendRecipientEmail] = useState("");
   const [sendRecipientName, setSendRecipientName] = useState("");
   const [sendNote, setSendNote] = useState("");
+  const [signerName, setSignerName] = useState("");
+  const [signerEmail, setSignerEmail] = useState("");
   const [followUpAt, setFollowUpAt] = useState("");
   const [acceptedReason, setAcceptedReason] = useState(acceptedReasons[0]);
   const [wonReason, setWonReason] = useState(wonReasons[0]);
@@ -197,14 +202,17 @@ export default function ProposalPreviewPage() {
     shareRequestRef.current += 1;
     sendRequestRef.current += 1;
     statusRequestRef.current += 1;
+    signatureRequestRef.current += 1;
     setIsGeneratingLink(false);
     setIsMarkingSent(false);
     setIsUpdatingStatus(false);
+    setIsCreatingSignatureRequest(false);
     setMessage("");
     setError("");
     if (!proposalId) {
       setProposal(sampleProposal);
       setPackages([samplePackage]);
+      setSignatureRequests([]);
       setIsLoading(false);
       return;
     }
@@ -217,18 +225,22 @@ export default function ProposalPreviewPage() {
     setIsLoading(true);
     setProposal(null);
     try {
-      const [proposalRecord, packageRecords] = await Promise.all([
+      const [proposalRecord, packageRecords, signatureRecords] = await Promise.all([
         api.proposals.get(token, proposalId),
         loadOptionalProposalPackages(
           () => api.packages.list(token, { includeInactive: true }),
         ),
+        api.proposals.listSignatureRequests(token, proposalId),
       ]);
       if (!requestIsCurrent()) return;
       setProposal(proposalRecord);
       setPackages(packageRecords);
+      setSignatureRequests(signatureRecords);
       setSendRecipientEmail(proposalRecord.sentToEmail || proposalRecord.contactEmail || "");
       setSendRecipientName(proposalRecord.sentToName || proposalRecord.contactName || proposalRecord.accountName || "");
       setSendNote(proposalRecord.sendNote || "");
+      setSignerName(signatureRecords[0]?.signerName || proposalRecord.sentToName || proposalRecord.contactName || proposalRecord.accountName || "");
+      setSignerEmail(signatureRecords[0]?.signerEmail || proposalRecord.sentToEmail || proposalRecord.contactEmail || "");
       setFollowUpAt(toDatetimeLocalValue(proposalRecord.followUpAt));
       setAcceptedReason(proposalRecord.acceptedReason || acceptedReasons[0]);
       setWonReason(proposalRecord.wonReason || wonReasons[0]);
@@ -245,6 +257,7 @@ export default function ProposalPreviewPage() {
       if (!requestIsCurrent()) return;
       setError(loadError instanceof Error ? loadError.message : "Could not load proposal preview.");
       setProposal(null);
+      setSignatureRequests([]);
     } finally {
       if (requestIsCurrent()) setIsLoading(false);
     }
@@ -260,6 +273,7 @@ export default function ProposalPreviewPage() {
       shareRequestRef.current += 1;
       sendRequestRef.current += 1;
       statusRequestRef.current += 1;
+      signatureRequestRef.current += 1;
     };
   }, [loadPreview]);
 
@@ -402,6 +416,43 @@ export default function ProposalPreviewPage() {
       if (requestIsCurrent()) setIsUpdatingStatus(false);
     }
   }, [acceptedAt, acceptedByEmail, acceptedByName, canMutateProposal, followUpAt, objectionType, paymentTerms, previewRouteKey, proposalId, token]);
+
+  const createSignatureRequest = useCallback(async () => {
+    if (!token || !proposalId || !canMutateProposal) return;
+    setIsCreatingSignatureRequest(true);
+    setError("");
+    setMessage("");
+    const request = {
+      requestId: ++signatureRequestRef.current,
+      routeKey: previewRouteKey,
+    };
+    const requestIsCurrent = () => isCurrentProposalRequest(
+      {
+        requestId: signatureRequestRef.current,
+        routeKey: currentBrowserRouteKey(),
+      },
+      request,
+    );
+    try {
+      const signature = await api.proposals.createSignatureRequest(token, proposalId, {
+        signerName: signerName.trim() || null,
+        signerEmail: signerEmail.trim() || null,
+      });
+      if (!requestIsCurrent()) return;
+      const records = await api.proposals.listSignatureRequests(token, proposalId);
+      if (!requestIsCurrent()) return;
+      setSignatureRequests(records);
+      setSignerName(signature.signerName || signerName);
+      setSignerEmail(signature.signerEmail || signerEmail);
+      setMessage("Signature request created and linked to this proposal.");
+    } catch (signatureError) {
+      if (!requestIsCurrent()) return;
+      setError(signatureError instanceof Error ? signatureError.message : "Could not create signature request.");
+    } finally {
+      if (requestIsCurrent()) setIsCreatingSignatureRequest(false);
+    }
+  }, [canMutateProposal, previewRouteKey, proposalId, signerEmail, signerName, token]);
+
   const proposalIsFinal = proposal ? isFinalProposalStatus(proposal.status) : false;
   const proposalOutcomeIsLocked = proposal
     ? ["won", "lost", "expired", "archived"].includes(proposal.status)
@@ -553,6 +604,106 @@ export default function ProposalPreviewPage() {
                     {proposal.sentByName ? ` by ${proposal.sentByName}` : ""}.
                   </p>
                 ) : null}
+              </section>
+            ) : null}
+            {proposalId ? (
+              <section className="mx-auto mb-4 max-w-5xl rounded-[8px] border border-[#d8e4df] bg-white p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[#14231f]">E-signature</p>
+                    <p className="mt-1 text-xs text-[#5b7069]">
+                      Create a signature request and keep the signed PDF, audit certificate and signer evidence against this proposal.
+                    </p>
+                  </div>
+                  {signatureRequests[0] ? (
+                    <span className="rounded-full bg-[#315f51]/10 px-2.5 py-1 text-xs font-semibold text-[#315f51]">
+                      {statusLabel(signatureRequests[0].status)}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+                  <label className="block text-sm font-medium text-[#354943]">
+                    Signer name
+                    <input
+                      value={signerName}
+                      onChange={(event) => setSignerName(event.target.value)}
+                      placeholder="Decision maker name"
+                      className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                    />
+                  </label>
+                  <label className="block text-sm font-medium text-[#354943]">
+                    Signer email
+                    <input
+                      type="email"
+                      value={signerEmail}
+                      onChange={(event) => setSignerEmail(event.target.value)}
+                      placeholder="name@example.com"
+                      className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={isCreatingSignatureRequest || !signerName.trim() || !signerEmail.trim() || !canMutateProposal}
+                    onClick={() => void createSignatureRequest()}
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isCreatingSignatureRequest ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    Request signature
+                  </button>
+                </div>
+                {signatureRequests.length ? (
+                  <div className="mt-4 grid gap-3">
+                    {signatureRequests.map((request) => (
+                      <div key={request.id} className="rounded-[8px] border border-[#e3ece8] bg-[#f8fbf9] p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-[#14231f]">
+                              {request.signerName || "Signer"} {request.signerEmail ? `(${request.signerEmail})` : ""}
+                            </p>
+                            <p className="mt-1 text-xs text-[#5b7069]">
+                              Provider: {request.provider}
+                              {request.providerRequestId ? ` - request ${request.providerRequestId}` : ""}
+                              {request.sentAt ? ` - sent ${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(request.sentAt))}` : ""}
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#315f51]">
+                            {statusLabel(request.status)}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                          {request.signatureUrl ? (
+                            <a href={request.signatureUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-[#315f51] hover:text-[#24483d]">
+                              Open signing link
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          ) : null}
+                          {request.evidence?.signedPdfUrl ? (
+                            <a href={request.evidence.signedPdfUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-[#315f51] hover:text-[#24483d]">
+                              Signed PDF
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          ) : null}
+                          {request.evidence?.auditCertificateUrl ? (
+                            <a href={request.evidence.auditCertificateUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-[#315f51] hover:text-[#24483d]">
+                              Audit certificate
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          ) : null}
+                        </div>
+                        {request.evidence ? (
+                          <p className="mt-3 text-xs text-[#5b7069]">
+                            Immutable evidence saved {new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(request.evidence.createdAt))}
+                            {" "}with SHA-256 {request.evidence.evidenceSha256.slice(0, 12)}...
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-[#5b7069]">
+                    No signature request has been created for this proposal yet.
+                  </p>
+                )}
               </section>
             ) : null}
             {proposalId ? (

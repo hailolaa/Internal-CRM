@@ -5,6 +5,7 @@ import type {
   ProposalRecord,
   ProposalSendPayload,
   ProposalShareRecord,
+  ProposalSignatureRequestRecord,
   ProposalSourceDataParams,
   ProposalSourceDataRecord,
   ProposalStatusUpdatePayload,
@@ -94,6 +95,28 @@ export function createProposalsApi(apiRequest: ApiRequest) {
           token,
           body: JSON.stringify(payload),
         });
+        return response.data!;
+      },
+      async listSignatureRequests(token: string, proposalId: string) {
+        const response = await apiRequest<ProposalSignatureRequestRecord[]>(
+          `/api/proposals/${proposalId}/signature-requests`,
+          { token },
+        );
+        return response.data!;
+      },
+      async createSignatureRequest(
+        token: string,
+        proposalId: string,
+        payload: { signerName?: string | null; signerEmail?: string | null; idempotencyKey?: string | null },
+      ) {
+        const response = await apiRequest<ProposalSignatureRequestRecord>(
+          `/api/proposals/${proposalId}/signature-requests`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
         return response.data!;
       },
       async remove(token: string, proposalId: string) {

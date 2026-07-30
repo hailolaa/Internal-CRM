@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { userCanManageAllClientAccounts } from "../../middleware/authorize.js";
 import { proposalsService } from "./proposals.service.js";
+import { proposalSignaturesService } from "./proposal-signatures.service.js";
 
 export class ProposalsController {
   getSharedProposal = async (req: Request, res: Response, next: NextFunction) => {
@@ -114,6 +115,48 @@ export class ProposalsController {
       const { clinicId, userId } = (req as any).user;
       await proposalsService.archiveProposal(clinicId, userId, String(req.params.id));
       res.status(200).json({ status: "success", message: "Proposal archived successfully" });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listSignatureRequests = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const signatures = await proposalSignaturesService.listSignatureRequests(clinicId, String(req.params.id));
+      res.status(200).json({ status: "success", data: signatures });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createSignatureRequest = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const signature = await proposalSignaturesService.createSignatureRequest(
+        clinicId,
+        userId,
+        String(req.params.id),
+        req.body,
+      );
+      res.status(201).json({ status: "success", data: signature });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  handleSignatureWebhook = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      proposalSignaturesService.verifyWebhookSignature(
+        (req as any).rawBody,
+        req.get("x-esign-signature-256"),
+      );
+      const result = await proposalSignaturesService.handleProviderWebhook(
+        String(req.params.provider),
+        req.body,
+        (req as any).rawBody,
+      );
+      res.status(200).json({ status: "success", data: result });
     } catch (error) {
       next(error);
     }

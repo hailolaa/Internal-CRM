@@ -5,6 +5,7 @@ import { validate } from "../../middleware/validate.js";
 import { proposalsController } from "./proposals.controller.js";
 import {
   createProposalValidator,
+  createProposalSignatureRequestValidator,
   exportProposalsValidator,
   listProposalsValidator,
   proposalIdParamValidator,
@@ -88,6 +89,22 @@ router.post(
   proposalStatusUpdateValidator,
   validate,
   proposalsController.updateProposalStatus,
+);
+
+router.get(
+  "/:id/signature-requests",
+  authorizePermission("proposals:read"),
+  proposalIdParamValidator,
+  validate,
+  proposalsController.listSignatureRequests,
+);
+
+router.post(
+  "/:id/signature-requests",
+  authorizePermission("proposals:write"),
+  createProposalSignatureRequestValidator,
+  validate,
+  proposalsController.createSignatureRequest,
 );
 
 router.patch(

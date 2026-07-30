@@ -228,3 +228,25 @@ export const proposalStatusUpdateValidator = [
   optionalDate("acceptedAt"),
   body("paymentTerms").optional({ nullable: true }).trim().isLength({ max: 2000 }),
 ];
+
+export const createProposalSignatureRequestValidator = [
+  ...proposalIdParamValidator,
+  body("signerName").optional({ nullable: true }).trim().isLength({ min: 1, max: 255 }),
+  body("signerEmail").optional({ nullable: true }).trim().isEmail().withMessage("Signer email must be valid"),
+  body("idempotencyKey").optional({ nullable: true }).trim().isLength({ min: 8, max: 191 }),
+];
+
+export const proposalSignatureWebhookProviderValidator = [
+  param("provider").trim().isIn(["log", "pandadoc", "docusign"]).withMessage("Unsupported e-sign provider"),
+  body("providerRequestId").trim().notEmpty().isLength({ max: 191 }),
+  body("providerEventId").optional({ nullable: true }).trim().isLength({ min: 1, max: 191 }),
+  body("eventType").optional({ nullable: true }).trim().isLength({ min: 1, max: 100 }),
+  body("status").optional({ nullable: true }).trim().isLength({ min: 1, max: 50 }),
+  body("signerName").optional({ nullable: true }).trim().isLength({ min: 1, max: 255 }),
+  body("signerEmail").optional({ nullable: true }).trim().isEmail().withMessage("Signer email must be valid"),
+  body("signedAt").optional({ nullable: true }).isISO8601(),
+  body("signedPdfUrl").optional({ nullable: true }).trim().isURL({ require_protocol: true }).isLength({ max: 1000 }),
+  body("auditCertificateUrl").optional({ nullable: true }).trim().isURL({ require_protocol: true }).isLength({ max: 1000 }),
+  body("evidenceSha256").optional({ nullable: true }).trim().isHexadecimal().isLength({ min: 64, max: 64 }),
+  body("evidence").optional({ nullable: true }).isObject(),
+];

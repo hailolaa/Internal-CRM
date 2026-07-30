@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { webhooksController } from "./webhooks.controller.js";
+import { proposalsController } from "../proposals/proposals.controller.js";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
 import { createWebhookEndpointValidator, updateWebhookEndpointValidator, webhookEndpointIdParamValidator } from "./webhooks.validators.js";
+import { proposalSignatureWebhookProviderValidator } from "../proposals/proposals.validators.js";
 
 const router = Router();
 
@@ -31,6 +33,16 @@ router.post("/whatsapp/inbound", webhooksController.handleWhatsAppInbound);
 // @desc    Public inbound email webhook for Mission Control inbox
 // @access  Public provider webhook
 router.post("/email/inbound", webhooksController.handleEmailInbound);
+
+// @route   POST /api/webhooks/esign/:provider
+// @desc    Public e-sign provider status/evidence callback
+// @access  Public provider webhook
+router.post(
+  "/esign/:provider",
+  proposalSignatureWebhookProviderValidator,
+  validate,
+  proposalsController.handleSignatureWebhook,
+);
 
 router.use(authenticate);
 

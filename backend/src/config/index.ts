@@ -119,6 +119,12 @@ export const config = {
         webhookWorkspaceMap: parseJsonRecord(process.env.WHATSAPP_WEBHOOK_WORKSPACE_MAP),
     },
 
+    esign: {
+        provider: process.env.ESIGN_PROVIDER || "log",
+        webhookSecret: process.env.ESIGN_WEBHOOK_SECRET || "",
+        apiKey: process.env.ESIGN_API_KEY || "",
+    },
+
     backups: {
         directory: process.env.BACKUP_DIR || "backups",
         retentionDays: parseInt(process.env.BACKUP_RETENTION_DAYS || "14", 10),
@@ -270,6 +276,18 @@ export function getProductionConfigIssues() {
 
     if (!["log", "meta", "twilio"].includes(config.whatsapp.provider)) {
         issues.push("WHATSAPP_PROVIDER must be log, meta, or twilio.");
+    }
+
+    if (!["log", "pandadoc", "docusign"].includes(config.esign.provider)) {
+        issues.push("ESIGN_PROVIDER must be log, pandadoc, or docusign.");
+    }
+
+    if (config.esign.provider !== "log" && !config.esign.apiKey) {
+        issues.push("ESIGN_API_KEY must be set when ESIGN_PROVIDER is not log.");
+    }
+
+    if (config.esign.provider !== "log" && !config.esign.webhookSecret) {
+        issues.push("ESIGN_WEBHOOK_SECRET must be set when ESIGN_PROVIDER is not log.");
     }
 
     if (
