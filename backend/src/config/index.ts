@@ -122,6 +122,8 @@ export const config = {
     backups: {
         directory: process.env.BACKUP_DIR || "backups",
         retentionDays: parseInt(process.env.BACKUP_RETENTION_DAYS || "14", 10),
+        encryptionKeyConfigured: Boolean(process.env.BACKUP_ENCRYPTION_KEY && process.env.BACKUP_ENCRYPTION_KEY.length >= 32),
+        offsiteConfigured: Boolean(process.env.BACKUP_OFFSITE_DIR),
     },
 
     taskUploads: {
@@ -228,6 +230,14 @@ export function getProductionConfigIssues() {
 
     if (!config.observability.alertWebhookUrl) {
         warnings.push("OBSERVABILITY_ALERT_WEBHOOK_URL is not configured; critical alerts will be logged but not routed externally.");
+    }
+
+    if (!config.backups.encryptionKeyConfigured) {
+        issues.push("BACKUP_ENCRYPTION_KEY must be set to a strong secret of at least 32 characters.");
+    }
+
+    if (!config.backups.offsiteConfigured) {
+        warnings.push("BACKUP_OFFSITE_DIR is not configured; backups will not be copied to off-site storage.");
     }
 
     if (!config.credentials.encryptionKey || config.credentials.encryptionKey.length < 32) {

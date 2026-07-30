@@ -1,0 +1,69 @@
+name: Mission Control Encrypted Backup
+
+on:
+  schedule:
+    - cron: "15 1 * * *"
+  workflow_dispatch:
+    inputs:
+      rehearse_restore:
+        description: "Run restore rehearsal after backup"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: Encrypted database backup
+    if: ${{ vars.BACKUP_WORKFLOW_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: production
+      BACKUP_SERVICE_NAME: mission-control-backend
+      DB_HOST: ${{ secrets.DB_HOST }}
+      DB_PORT: ${{ secrets.DB_PORT }}
+      DB_USER: ${{ secrets.DB_USER }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_NAME: ${{ secrets.DB_NAME }}
+      BACKUP_DIR: backups/production
+      BACKUP_RETENTION_DAYS: ${{ vars.BACKUP_RETENTION_DAYS || '30' }}
+      BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+      BACKUP_OFFSITE_DIR: ${{ secrets.BACKUP_OFFSITE_DIR }}
+      BACKUP_FILE_DIRS: ${{ vars.BACKUP_FILE_DIRS }}
+      BACKUP_RESTORE_RTO_MINUTES: ${{ vars.BACKUP_RESTORE_RTO_MINUTES || '60' }}
+      BACKUP_RESTORE_RPO_MINUTES: ${{ vars.BACKUP_RESTORE_RPO_MINUTES || '1440' }}
+      TAR_BIN: tar
+      OBSERVABILITY_ALERT_WEBHOOK_URL: ${{ secrets.OBSERVABILITY_ALERT_WEBHOOK_URL }}
+      OBSERVABILITY_ALERT_WEBHOOK_TOKEN: ${{ secrets.OBSERVABILITY_ALERT_WEBHOOK_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create encrypted backup
+        run: npm run db:backup
+
+      - name: Upload backup evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mission-control-backup-evidence
+          path: backend/backups/production/*.manifest.json
+          retention-days: 30
+
+      - name: Rehearse restore
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.rehearse_restore == 'true' }}
+        run: npm run db:restore:rehearse
