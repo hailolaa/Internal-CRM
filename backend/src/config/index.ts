@@ -125,6 +125,13 @@ export const config = {
         apiKey: process.env.ESIGN_API_KEY || "",
     },
 
+    clickup: {
+        clientId: process.env.CLICKUP_CLIENT_ID || "",
+        clientSecret: process.env.CLICKUP_CLIENT_SECRET || "",
+        apiBaseUrl: process.env.CLICKUP_API_BASE_URL || "https://api.clickup.com/api/v2",
+        appAuthUrl: process.env.CLICKUP_APP_AUTH_URL || "https://app.clickup.com/api",
+    },
+
     backups: {
         directory: process.env.BACKUP_DIR || "backups",
         retentionDays: parseInt(process.env.BACKUP_RETENTION_DAYS || "14", 10),
@@ -288,6 +295,14 @@ export function getProductionConfigIssues() {
 
     if (config.esign.provider !== "log" && !config.esign.webhookSecret) {
         issues.push("ESIGN_WEBHOOK_SECRET must be set when ESIGN_PROVIDER is not log.");
+    }
+
+    if ((config.clickup.clientId && !config.clickup.clientSecret) || (!config.clickup.clientId && config.clickup.clientSecret)) {
+        issues.push("CLICKUP_CLIENT_ID and CLICKUP_CLIENT_SECRET must be configured together.");
+    }
+
+    if (config.clickup.clientId && !config.credentials.encryptionKey) {
+        issues.push("CREDENTIAL_ENCRYPTION_KEY must be set before ClickUp OAuth credentials can be stored.");
     }
 
     if (

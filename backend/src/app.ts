@@ -66,6 +66,7 @@ import strategyLogsRoutes from "./modules/strategy-logs/strategy-logs.routes.js"
 import performanceOsRoutes from "./modules/performance-os/performance-os.routes.js";
 import integrationInputsRoutes from "./modules/integration-inputs/integration-inputs.routes.js";
 import commandPaletteRoutes from "./modules/command-palette/command-palette.routes.js";
+import clickUpRoutes from "./modules/clickup/clickup.routes.js";
 
 const app = express();
 
@@ -159,6 +160,7 @@ app.use("/api/strategy-logs", strategyLogsRoutes);
 app.use("/api/performance-os", performanceOsRoutes);
 app.use("/api/integration-inputs", integrationInputsRoutes);
 app.use("/api/command-palette", commandPaletteRoutes);
+app.use("/api/clickup", clickUpRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/health", healthRoutes);
 

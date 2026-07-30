@@ -35,6 +35,7 @@
     "test:whatsapp-ai": "npm run build && node --test dist/test/test-whatsapp-ai.js",
     "test:proposals-public": "npm run build && node --test dist/test/test-proposals-public.js",
     "test:proposals": "npm run build && node --test dist/test/test-proposals.js",
+    "test:clickup": "npm run build && node --test dist/test/test-clickup-mappings.js",
     "qa:phase1": "node scripts/phase1-browser-qa.mjs"
   },
   "dependencies": {
