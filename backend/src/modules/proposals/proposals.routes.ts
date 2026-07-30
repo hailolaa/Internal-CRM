@@ -5,6 +5,7 @@ import { validate } from "../../middleware/validate.js";
 import { proposalsController } from "./proposals.controller.js";
 import {
   createProposalValidator,
+  exportProposalsValidator,
   listProposalsValidator,
   proposalIdParamValidator,
   proposalPublicTokenParamValidator,
@@ -36,7 +37,7 @@ router.get(
 router.get(
   "/export/csv",
   authorizePermission("proposals:read"),
-  listProposalsValidator,
+  exportProposalsValidator,
   validate,
   proposalsController.exportProposalsCsv,
 );

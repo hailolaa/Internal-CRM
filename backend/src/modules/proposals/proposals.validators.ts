@@ -87,7 +87,7 @@ export const proposalPublicTokenParamValidator = [
   param("token").trim().isLength({ min: 20, max: 200 }).withMessage("Proposal link is invalid"),
 ];
 
-export const listProposalsValidator = [
+const proposalListValidators = (maximumLimit: number) => [
   query("contactId").optional().trim().isLength({ min: 1, max: 36 }),
   query("dealId").optional().trim().isLength({ min: 1, max: 36 }),
   query("clientAccountProfileId").optional().trim().isLength({ min: 1, max: 36 }),
@@ -96,8 +96,11 @@ export const listProposalsValidator = [
   query("followUpDue").optional().isBoolean(),
   query("includeArchived").optional().isBoolean(),
   query("search").optional().trim().isLength({ max: 255 }),
-  query("limit").optional().isInt({ min: 1, max: 250 }),
+  query("limit").optional().isInt({ min: 1, max: maximumLimit }).toInt(),
 ];
+
+export const listProposalsValidator = proposalListValidators(250);
+export const exportProposalsValidator = proposalListValidators(5000);
 
 export const proposalSourceDataValidator = [
   query("contactId").optional().trim().isLength({ min: 1, max: 36 }),

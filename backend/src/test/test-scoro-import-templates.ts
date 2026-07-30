@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -72,4 +74,31 @@ test("Scoro import template pack contains required operational headers", () => {
       );
     }
   }
+});
+
+test("Scoro import validator checks completed row data", () => {
+  const validResult = spawnSync(
+    process.execPath,
+    [resolve(testDir, "../../scripts/validate-scoro-import.mjs"), templateDir],
+    { encoding: "utf8" },
+  );
+  assert.equal(validResult.status, 0, validResult.stderr);
+
+  const invalidTemplateDir = mkdtempSync(resolve(tmpdir(), "scoro-import-"));
+  cpSync(templateDir, invalidTemplateDir, { recursive: true });
+  const leadsPath = resolve(invalidTemplateDir, "scoro-leads-template.csv");
+  const [headers, sampleRow] = readFileSync(leadsPath, "utf8").trim().split(/\r?\n/);
+  assert.ok(headers);
+  assert.ok(sampleRow);
+  const invalidRow = sampleRow.replace(",true,true,true,false,", ",yes,true,true,false,");
+  writeFileSync(leadsPath, `${headers}\n${invalidRow}\n${invalidRow}\n`);
+
+  const invalidResult = spawnSync(
+    process.execPath,
+    [resolve(testDir, "../../scripts/validate-scoro-import.mjs"), invalidTemplateDir],
+    { encoding: "utf8" },
+  );
+  assert.notEqual(invalidResult.status, 0);
+  assert.match(invalidResult.stderr, /invalid can_email/);
+  assert.match(invalidResult.stderr, /duplicates scoro_record_id/);
 });

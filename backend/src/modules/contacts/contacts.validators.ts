@@ -148,10 +148,10 @@ const contactMutationValidator = [
   body("lastContactAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
 ];
 
-export const listContactsValidator = [
+const contactListValidators = (maximumPageSize: number) => [
   query("page").optional().isInt({ min: 1 }).toInt(),
-  query("limit").optional().isInt({ min: 1, max: 250 }).toInt(),
-  query("pageSize").optional().isInt({ min: 1, max: 250 }).toInt(),
+  query("limit").optional().isInt({ min: 1, max: maximumPageSize }).toInt(),
+  query("pageSize").optional().isInt({ min: 1, max: maximumPageSize }).toInt(),
   query("search").optional().isString().trim().isLength({ max: 255 }),
   query("status").optional().isString().trim().isLength({ max: 50 }),
   query("leadStatus").optional().isString().trim().isLength({ max: 50 }),
@@ -171,6 +171,9 @@ export const listContactsValidator = [
   query("sortOrder").optional().isIn(["asc", "desc"]),
   query("sortDir").optional().isIn(["asc", "desc"]),
 ];
+
+export const listContactsValidator = contactListValidators(250);
+export const exportContactsValidator = contactListValidators(5000);
 
 export const createContactValidator = [
   ...contactMutationValidator,

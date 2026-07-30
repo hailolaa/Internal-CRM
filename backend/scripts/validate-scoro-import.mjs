@@ -106,6 +106,13 @@ const templates = {
     "notes",
   ],
 };
+const booleanHeaders = new Set([
+  "can_email",
+  "can_call",
+  "can_whatsapp_message",
+  "do_not_contact",
+  "unsubscribed",
+]);
 
 let failures = 0;
 
@@ -117,7 +124,8 @@ for (const [filename, requiredHeaders] of Object.entries(templates)) {
     continue;
   }
 
-  const [headerLine = ""] = readFileSync(filePath, "utf8").split(/\r?\n/, 1);
+  const lines = readFileSync(filePath, "utf8").split(/\r?\n/).filter((line) => line.trim());
+  const [headerLine = ""] = lines;
   const headers = parseCsvLine(headerLine);
   const missingHeaders = requiredHeaders.filter((header) => !headers.includes(header));
 
@@ -127,7 +135,42 @@ for (const [filename, requiredHeaders] of Object.entries(templates)) {
     continue;
   }
 
-  console.log(`${filename}: ok (${headers.length} headers)`);
+  const recordIds = new Set();
+  let fileHasErrors = false;
+  for (const [rowOffset, line] of lines.slice(1).entries()) {
+    const rowNumber = rowOffset + 2;
+    const values = parseCsvLine(line);
+    const row = Object.fromEntries(headers.map((header, index) => [header, values[index] || ""]));
+
+    if (values.length !== headers.length) {
+      console.error(`${filename}:${rowNumber} has ${values.length} columns; expected ${headers.length}`);
+      fileHasErrors = true;
+    }
+    for (const requiredValue of ["scoro_record_id", "scoro_exported_at"]) {
+      if (!row[requiredValue]) {
+        console.error(`${filename}:${rowNumber} missing ${requiredValue}`);
+        fileHasErrors = true;
+      }
+    }
+    if (recordIds.has(row.scoro_record_id)) {
+      console.error(`${filename}:${rowNumber} duplicates scoro_record_id ${row.scoro_record_id}`);
+      fileHasErrors = true;
+    }
+    recordIds.add(row.scoro_record_id);
+    for (const header of booleanHeaders) {
+      if (row[header] && !["true", "false"].includes(row[header].toLowerCase())) {
+        console.error(`${filename}:${rowNumber} has invalid ${header}; use true or false`);
+        fileHasErrors = true;
+      }
+    }
+  }
+
+  if (fileHasErrors) {
+    failures += 1;
+    continue;
+  }
+
+  console.log(`${filename}: ok (${headers.length} headers, ${lines.length - 1} data rows)`);
 }
 
 if (failures > 0) {

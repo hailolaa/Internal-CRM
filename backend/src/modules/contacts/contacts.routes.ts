@@ -6,6 +6,7 @@ import { contactsController } from "./contacts.controller.js";
 import {
   contactIdParamValidator,
   createContactValidator,
+  exportContactsValidator,
   importContactsPreviewValidator,
   importContactsValidator,
   leadBookingActionValidator,
@@ -105,7 +106,7 @@ router.get(
 router.get(
   "/export/leads/csv",
   authorizePermission("contacts:read"),
-  listContactsValidator,
+  exportContactsValidator,
   validate,
   contactsController.exportLeadsCsv,
 );
@@ -113,7 +114,7 @@ router.get(
 router.get(
   "/export/csv",
   authorizePermission("contacts:read"),
-  listContactsValidator,
+  exportContactsValidator,
   validate,
   contactsController.exportContactsCsv,
 );

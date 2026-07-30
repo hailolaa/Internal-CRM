@@ -22,6 +22,7 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { groupMonthlyRevenueByCurrency } from "@/lib/commercial-metrics";
 import {
   getDashboardTaskDetailHref,
   getDashboardKpiCards,
@@ -544,10 +545,7 @@ export default function AppPage() {
       (total, proposal) => total + Number(proposal.valueCents || proposal.monthlyFeeCents || 0),
       0,
     );
-    const manualMrr = openClientAccounts.reduce(
-      (total, account) => total + Number(account.monthlyPrice || 0),
-      0,
-    );
+    const manualMrrByCurrency = groupMonthlyRevenueByCurrency(openClientAccounts);
 
     return {
       sourceRows: commercialRows(
@@ -568,8 +566,7 @@ export default function AppPage() {
       wonDealValueCents: metrics.wonDeals.reduce((total, deal) => total + Number(deal.valueCents || 0), 0),
       lostDealCount: metrics.lostDeals.length,
       lostDealValueCents: metrics.lostDeals.reduce((total, deal) => total + Number(deal.valueCents || 0), 0),
-      manualMrr,
-      clientCurrency: openClientAccounts.find((account) => account.currency)?.currency || "GBP",
+      manualMrrByCurrency,
     };
   }, [contacts, deals, metrics.lostDeals, metrics.wonDeals, openClientAccounts, proposals]);
 
@@ -975,7 +972,12 @@ export default function AppPage() {
             },
             {
               label: "Manual MRR",
-              value: formatCurrencyAmount(commercialMetrics.manualMrr, commercialMetrics.clientCurrency),
+              value:
+                commercialMetrics.manualMrrByCurrency.length > 0
+                  ? commercialMetrics.manualMrrByCurrency
+                      .map((row) => formatCurrencyAmount(row.amount, row.currency))
+                      .join(" · ")
+                  : formatCurrencyAmount(0, "GBP"),
               sub: `${openClientAccounts.length} open client${openClientAccounts.length === 1 ? "" : "s"}`,
               href: "/app/ops/client-accounts?contractStatus=open&from=dashboard",
             },
@@ -1037,7 +1039,15 @@ export default function AppPage() {
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-[#7A746A]">
-                      {formatCurrencyAmount(row.value, commercialMetrics.clientCurrency)} {group.valueLabel}
+                      {group.title === "Current Clients by Package" &&
+                      commercialMetrics.manualMrrByCurrency.length > 1
+                        ? "See accounts for currency breakdown"
+                        : `${formatCurrencyAmount(
+                            row.value,
+                            group.title === "Current Clients by Package"
+                              ? commercialMetrics.manualMrrByCurrency[0]?.currency || "GBP"
+                              : "GBP",
+                          )} ${group.valueLabel}`}
                     </p>
                   </Link>
                 ))}
