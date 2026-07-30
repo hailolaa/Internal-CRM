@@ -15,6 +15,11 @@ import {
 import { basename, join } from "node:path";
 import { spawn } from "node:child_process";
 import mysql from "mysql2/promise";
+import {
+  mysqlCliSslArgs,
+  mysqlConnectionOptions,
+  readBackupDbConfig,
+} from "./backup-db-options.mjs";
 
 const serviceName = process.env.BACKUP_SERVICE_NAME || "mission-control-backend";
 const backupDir = process.env.BACKUP_DIR || "backups";
@@ -27,19 +32,7 @@ const tarBin = process.env.TAR_BIN || "tar";
 const fileDirs = parseCsv(process.env.BACKUP_FILE_DIRS || "");
 const alertWebhookUrl = process.env.OBSERVABILITY_ALERT_WEBHOOK_URL || "";
 const alertWebhookToken = process.env.OBSERVABILITY_ALERT_WEBHOOK_TOKEN || "";
-const db = {
-  host: process.env.DB_HOST || "127.0.0.1",
-  port: process.env.DB_PORT || "3306",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
-  name: process.env.DB_NAME || "growth_group_internal_crm",
-};
-
-mkdirSync(backupDir, { recursive: true });
-if (offsiteDir) mkdirSync(offsiteDir, { recursive: true });
-if ((process.env.NODE_ENV === "production" || offsiteDir) && encryptionKey.trim().length < 32) {
-  throw new Error("BACKUP_ENCRYPTION_KEY must be set to at least 32 characters for encrypted backups.");
-}
+const db = readBackupDbConfig();
 
 const id = randomUUID();
 const startedAt = new Date();
@@ -49,20 +42,21 @@ const encryptedPath = `${sqlPath}.enc`;
 const manifestPath = `${encryptedPath}.manifest.json`;
 const storageProvider = offsiteDir ? "encrypted-offsite-filesystem" : encryptionKey ? "encrypted-local" : "local";
 
-const connection = await mysql.createConnection({
-  host: db.host,
-  port: Number(db.port),
-  user: db.user,
-  password: db.password,
-  database: db.name,
-});
-
-await connection.execute(
-  "INSERT INTO backup_run (id, status, file_path, storage_provider) VALUES (?, 'started', ?, ?)",
-  [id, encryptedPath, storageProvider],
-);
+let connection;
 
 try {
+  mkdirSync(backupDir, { recursive: true });
+  if (offsiteDir) mkdirSync(offsiteDir, { recursive: true });
+  if ((process.env.NODE_ENV === "production" || offsiteDir) && encryptionKey.trim().length < 32) {
+    throw new Error("BACKUP_ENCRYPTION_KEY must be set to at least 32 characters for encrypted backups.");
+  }
+
+  connection = await mysql.createConnection(mysqlConnectionOptions(db));
+  await connection.execute(
+    "INSERT INTO backup_run (id, status, file_path, storage_provider) VALUES (?, 'started', ?, ?)",
+    [id, encryptedPath, storageProvider],
+  );
+
   await runDump(sqlPath);
 
   const plaintextChecksum = await sha256(sqlPath);
@@ -145,18 +139,20 @@ try {
 
   console.log(JSON.stringify({ status: "completed", id, artifactPath: outputPath, manifestPath, offsitePath: offsite }, null, 2));
 } catch (error) {
-  await connection.execute(
-    `UPDATE backup_run
-     SET status = 'failed',
-         error_message = ?,
-         completed_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [error instanceof Error ? error.message : String(error), id],
-  );
+  if (connection) {
+    await connection.execute(
+      `UPDATE backup_run
+       SET status = 'failed',
+           error_message = ?,
+           completed_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [error instanceof Error ? error.message : String(error), id],
+    ).catch(() => undefined);
+  }
   await sendAlert("backup_failure", error, { id, database: db.name, backupDir, offsiteConfigured: Boolean(offsiteDir) });
   throw error;
 } finally {
-  await connection.end();
+  await connection?.end();
 }
 
 function runDump(filePath) {
@@ -165,7 +161,9 @@ function runDump(filePath) {
       `--host=${db.host}`,
       `--port=${db.port}`,
       `--user=${db.user}`,
+      ...mysqlCliSslArgs(db),
       "--single-transaction",
+      "--no-tablespaces",
       "--routines",
       "--triggers",
       "--events",

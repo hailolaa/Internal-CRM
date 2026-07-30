@@ -20,6 +20,8 @@ BACKUP_OFFSITE_DIR=
 BACKUP_FILE_DIRS=
 BACKUP_RESTORE_RTO_MINUTES=60
 BACKUP_RESTORE_RPO_MINUTES=1440
+RESTORE_REHEARSAL_DB_USER=
+RESTORE_REHEARSAL_DB_PASSWORD=
 BACKUP_KEEP_PLAINTEXT=false
 MYSQLDUMP_BIN=mysqldump
 MYSQL_BIN=mysql
@@ -31,6 +33,8 @@ TAR_BIN=tar
 `BACKUP_OFFSITE_DIR` should point to the approved off-site storage mount or synced object-storage location. If the backup runs from a deployment host rather than GitHub Actions, this can be a mounted S3, GCS, Azure, Backblaze, SFTP or provider-managed backup path.
 
 `BACKUP_FILE_DIRS` is comma-separated. Leave it blank if there are no app-managed file directories to back up.
+
+`RESTORE_REHEARSAL_DB_USER` and `RESTORE_REHEARSAL_DB_PASSWORD` are optional dedicated credentials for the temporary rehearsal database. Configure a restricted account that can create and drop rehearsal databases when the normal application user does not have those privileges.
 
 ## Commands
 

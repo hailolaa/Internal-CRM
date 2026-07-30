@@ -4,6 +4,10 @@ import { createReadStream, createWriteStream, existsSync, mkdtempSync, readFileS
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { spawn } from "node:child_process";
+import {
+  mysqlCliSslArgs,
+  readBackupDbConfig,
+} from "./backup-db-options.mjs";
 
 const sourcePath = process.argv[2];
 
@@ -19,13 +23,7 @@ if (!existsSync(sourcePath)) {
 
 const mysqlBin = process.env.MYSQL_BIN || "mysql";
 const backupEncryptionKey = process.env.BACKUP_ENCRYPTION_KEY || "";
-const db = {
-  host: process.env.DB_HOST || "127.0.0.1",
-  port: process.env.DB_PORT || "3306",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
-  name: process.env.DB_NAME || "growth_group_internal_crm",
-};
+const db = readBackupDbConfig();
 
 let restorePath = sourcePath;
 let tempDir = "";
@@ -44,6 +42,7 @@ try {
     `--host=${db.host}`,
     `--port=${db.port}`,
     `--user=${db.user}`,
+    ...mysqlCliSslArgs(db),
     "-e",
     `CREATE DATABASE IF NOT EXISTS \`${db.name}\`;`,
   ]);
@@ -52,6 +51,7 @@ try {
     `--host=${db.host}`,
     `--port=${db.port}`,
     `--user=${db.user}`,
+    ...mysqlCliSslArgs(db),
     db.name,
   ], restorePath);
 

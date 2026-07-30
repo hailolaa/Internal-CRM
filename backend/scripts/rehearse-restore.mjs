@@ -3,6 +3,10 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import mysql from "mysql2/promise";
+import {
+  mysqlConnectionOptions,
+  readBackupDbConfig,
+} from "./backup-db-options.mjs";
 
 const serviceName = process.env.BACKUP_SERVICE_NAME || "mission-control-backend";
 const backupDir = process.env.BACKUP_DIR || "backups";
@@ -14,12 +18,11 @@ const keepDatabase = process.env.RESTORE_REHEARSAL_KEEP_DB === "true";
 const backupArg = process.argv[2] || process.env.RESTORE_REHEARSAL_BACKUP_PATH || "";
 const restoreDbName = process.env.RESTORE_REHEARSAL_DB_NAME ||
   `${process.env.DB_NAME || "growth_group_internal_crm"}_restore_${Date.now()}`;
-const db = {
-  host: process.env.DB_HOST || "127.0.0.1",
-  port: process.env.DB_PORT || "3306",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
-};
+const db = readBackupDbConfig({
+  ...process.env,
+  DB_USER: process.env.RESTORE_REHEARSAL_DB_USER || process.env.DB_USER,
+  DB_PASSWORD: process.env.RESTORE_REHEARSAL_DB_PASSWORD || process.env.DB_PASSWORD,
+});
 
 const manifestPath = backupArg || latestManifest(backupDir);
 if (!manifestPath || !existsSync(manifestPath)) {
@@ -81,17 +84,13 @@ async function runRestore(backupPath, databaseName) {
   await run(process.execPath, ["scripts/db-restore.mjs", backupPath], {
     ...process.env,
     DB_NAME: databaseName,
+    DB_USER: db.user,
+    DB_PASSWORD: db.password,
   });
 }
 
 async function countTables(databaseName) {
-  const connection = await mysql.createConnection({
-    host: db.host,
-    port: Number(db.port),
-    user: db.user,
-    password: db.password,
-    database: databaseName,
-  });
+  const connection = await mysql.createConnection(mysqlConnectionOptions(db, databaseName));
   try {
     const [rows] = await connection.execute(
       "SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = ?",
@@ -104,12 +103,7 @@ async function countTables(databaseName) {
 }
 
 async function dropDatabase(databaseName) {
-  const connection = await mysql.createConnection({
-    host: db.host,
-    port: Number(db.port),
-    user: db.user,
-    password: db.password,
-  });
+  const connection = await mysql.createConnection(mysqlConnectionOptions(db, ""));
   try {
     await connection.query(`DROP DATABASE IF EXISTS \`${databaseName.replace(/`/g, "``")}\``);
   } finally {
