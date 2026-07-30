@@ -5,6 +5,7 @@ import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
+import { decryptProviderCredential, encryptProviderCredential } from "../../utils/provider-credentials.js";
 import { roleMatchesAllowedRoles } from "../../utils/roles.js";
 import { decideGoogleOAuthAccess } from "../auth/google-oauth-access.js";
 
@@ -55,36 +56,8 @@ function parseStoredConfig(value: unknown): StoredDriveConfig {
   }
 }
 
-function encryptToken(value: string) {
-  const key = crypto.createHash("sha256").update(config.jwt.secret).digest();
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-  const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
-  return [
-    "enc:v1",
-    iv.toString("base64url"),
-    cipher.getAuthTag().toString("base64url"),
-    encrypted.toString("base64url"),
-  ].join(":");
-}
-
-function decryptToken(value: unknown) {
-  const raw = typeof value === "string" ? value : "";
-  if (!raw.startsWith("enc:v1:")) return raw || null;
-  const [, , ivValue, tagValue, encryptedValue] = raw.split(":");
-  if (!ivValue || !tagValue || !encryptedValue) return null;
-  try {
-    const key = crypto.createHash("sha256").update(config.jwt.secret).digest();
-    const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(ivValue, "base64url"));
-    decipher.setAuthTag(Buffer.from(tagValue, "base64url"));
-    return Buffer.concat([
-      decipher.update(Buffer.from(encryptedValue, "base64url")),
-      decipher.final(),
-    ]).toString("utf8");
-  } catch {
-    return null;
-  }
-}
+const encryptToken = encryptProviderCredential;
+const decryptToken = decryptProviderCredential;
 
 export class GoogleDriveOAuthService {
   private readonly integrationType = "google_drive";

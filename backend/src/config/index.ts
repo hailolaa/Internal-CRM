@@ -100,6 +100,13 @@ export const config = {
         whatsappWebhookUrl: process.env.TWILIO_WHATSAPP_WEBHOOK_URL || "",
     },
 
+    credentials: {
+        encryptionKey: process.env.CREDENTIAL_ENCRYPTION_KEY || "",
+        keyVersion: process.env.CREDENTIAL_ENCRYPTION_KEY_VERSION || "v1",
+        previousKeys: parseJsonRecord(process.env.CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS),
+        legacyJwtSecret: process.env.CREDENTIAL_ENCRYPTION_LEGACY_JWT_SECRET || "",
+    },
+
     whatsapp: {
         provider: process.env.WHATSAPP_PROVIDER || "log",
         accessToken: process.env.WHATSAPP_ACCESS_TOKEN || "",
@@ -221,6 +228,10 @@ export function getProductionConfigIssues() {
 
     if (!config.observability.alertWebhookUrl) {
         warnings.push("OBSERVABILITY_ALERT_WEBHOOK_URL is not configured; critical alerts will be logged but not routed externally.");
+    }
+
+    if (!config.credentials.encryptionKey || config.credentials.encryptionKey.length < 32) {
+        issues.push("CREDENTIAL_ENCRYPTION_KEY must be set to a strong secret of at least 32 characters.");
     }
 
     if (config.email.provider === "brevo" && !config.email.brevoApiKey) {

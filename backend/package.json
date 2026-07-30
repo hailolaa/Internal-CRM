@@ -25,6 +25,7 @@
     "qa:mvp": "node scripts/mission-control-mvp-qa.mjs",
     "setup:brevo-inbound": "node scripts/setup-brevo-inbound-webhook.mjs",
     "seed:staging-demo": "node scripts/seed-staging-demo.mjs",
+    "credentials:rewrap": "node scripts/rewrap-provider-credentials.mjs",
     "test": "npm run build && npm run test:smoke",
     "db:migrate": "node scripts/db-migrate.mjs",
     "test:smoke": "NODE_ENV=test node --test --test-force-exit --test-concurrency=1 dist/test/test-csv.js dist/test/test-command-palette.js dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js dist/test/test-client-accounts.js dist/test/test-lead-hub.js dist/test/test-proposals-public.js dist/test/test-proposals.js dist/test/test-roles-management.js dist/test/test-scoro-import-templates.js",
