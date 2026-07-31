@@ -192,10 +192,47 @@ export interface ProposalAcceptanceRecord {
 
 export interface ProposalSectionContent {
   executiveSummary?: string | null;
+  personalIntroduction?: string | null;
   diagnosis?: string | null;
+  introVideoUrl?: string | null;
+  introVideoTitle?: string | null;
+  fallbackVideoUrl?: string | null;
+  primaryGoal?: string | null;
+  currentPosition?: string | null;
+  availableCapacity?: string | null;
+  priorityTreatments?: string | null;
+  targetArea?: string | null;
+  desiredOutcome?: string | null;
+  growthScoreOverall?: number | null;
+  visibilityScore?: number | null;
+  conversionScore?: number | null;
+  trackingScore?: number | null;
+  leadHandlingScore?: number | null;
+  salesConversionScore?: number | null;
+  retentionScore?: number | null;
+  biggestRisk?: string | null;
+  biggestOpportunity?: string | null;
+  firstRecommendedFix?: string | null;
+  currentMonthlyEnquiries?: string | null;
+  currentMonthlyBookedPatients?: string | null;
+  targetBookings?: string | null;
+  consultationValue?: string | null;
+  averageTreatmentValue?: string | null;
+  availableCommercialCapacity?: string | null;
+  recommendedAdSpend?: string | null;
+  estimatedCostPerLead?: string | null;
+  estimatedLeads?: string | null;
+  estimatedBookedPatients?: string | null;
+  breakEvenBookings?: string | null;
+  commercialDataSource?: string | null;
   recommendedPlan?: string | null;
+  strategyPoints?: string[];
   includedFeatures?: string[];
+  successMetrics?: string[];
+  clinicGrowerResponsibilities?: string[];
+  clientResponsibilities?: string[];
   timeline?: string | null;
+  termsSummary?: string | null;
   investmentNotes?: string | null;
   nextSteps?: string | null;
 }

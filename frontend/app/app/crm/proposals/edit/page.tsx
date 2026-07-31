@@ -51,6 +51,8 @@ const statusOptions = PROPOSAL_EDITOR_STATUSES.map((value) => ({
   label: statusLabels[value],
 }));
 
+const defaultProposalIntroVideoUrl = "https://vimeo.com/1008757315?fl=pl&fe=sh";
+
 type ProposalForm = {
   contactId: string;
   dealId: string;
@@ -77,10 +79,47 @@ type ProposalForm = {
   discounts: string;
   internalMarginNote: string;
   executiveSummary: string;
+  personalIntroduction: string;
   diagnosis: string;
+  introVideoUrl: string;
+  introVideoTitle: string;
+  fallbackVideoUrl: string;
+  primaryGoal: string;
+  currentPosition: string;
+  availableCapacity: string;
+  priorityTreatments: string;
+  targetArea: string;
+  desiredOutcome: string;
+  growthScoreOverall: string;
+  visibilityScore: string;
+  conversionScore: string;
+  trackingScore: string;
+  leadHandlingScore: string;
+  salesConversionScore: string;
+  retentionScore: string;
+  biggestRisk: string;
+  biggestOpportunity: string;
+  firstRecommendedFix: string;
+  currentMonthlyEnquiries: string;
+  currentMonthlyBookedPatients: string;
+  targetBookings: string;
+  consultationValue: string;
+  averageTreatmentValue: string;
+  availableCommercialCapacity: string;
+  recommendedAdSpend: string;
+  estimatedCostPerLead: string;
+  estimatedLeads: string;
+  estimatedBookedPatients: string;
+  breakEvenBookings: string;
+  commercialDataSource: string;
   recommendedPlan: string;
+  strategyPoints: string;
   includedFeatures: string;
+  successMetrics: string;
+  clinicGrowerResponsibilities: string;
+  clientResponsibilities: string;
   timeline: string;
+  termsSummary: string;
   investmentNotes: string;
   nextSteps: string;
 };
@@ -116,6 +155,19 @@ function intOrNull(value: string) {
   return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
 }
 
+function scoreOrNull(value: string) {
+  if (!value.trim()) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 && numeric <= 100 ? numeric : null;
+}
+
+function textLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function commercialItemsFromText(value: string): ProposalCommercialItem[] {
   return value
     .split(/\r?\n/)
@@ -142,13 +194,47 @@ function commercialItemsToText(items: ProposalCommercialItem[] | null | undefine
 function sectionContentFromForm(form: ProposalForm): ProposalSectionContent {
   return {
     executiveSummary: form.executiveSummary.trim() || null,
+    personalIntroduction: form.personalIntroduction.trim() || null,
     diagnosis: form.diagnosis.trim() || null,
+    introVideoUrl: form.introVideoUrl.trim() || null,
+    introVideoTitle: form.introVideoTitle.trim() || null,
+    fallbackVideoUrl: form.fallbackVideoUrl.trim() || null,
+    primaryGoal: form.primaryGoal.trim() || null,
+    currentPosition: form.currentPosition.trim() || null,
+    availableCapacity: form.availableCapacity.trim() || null,
+    priorityTreatments: form.priorityTreatments.trim() || null,
+    targetArea: form.targetArea.trim() || null,
+    desiredOutcome: form.desiredOutcome.trim() || null,
+    growthScoreOverall: scoreOrNull(form.growthScoreOverall),
+    visibilityScore: scoreOrNull(form.visibilityScore),
+    conversionScore: scoreOrNull(form.conversionScore),
+    trackingScore: scoreOrNull(form.trackingScore),
+    leadHandlingScore: scoreOrNull(form.leadHandlingScore),
+    salesConversionScore: scoreOrNull(form.salesConversionScore),
+    retentionScore: scoreOrNull(form.retentionScore),
+    biggestRisk: form.biggestRisk.trim() || null,
+    biggestOpportunity: form.biggestOpportunity.trim() || null,
+    firstRecommendedFix: form.firstRecommendedFix.trim() || null,
+    currentMonthlyEnquiries: form.currentMonthlyEnquiries.trim() || null,
+    currentMonthlyBookedPatients: form.currentMonthlyBookedPatients.trim() || null,
+    targetBookings: form.targetBookings.trim() || null,
+    consultationValue: form.consultationValue.trim() || null,
+    averageTreatmentValue: form.averageTreatmentValue.trim() || null,
+    availableCommercialCapacity: form.availableCommercialCapacity.trim() || null,
+    recommendedAdSpend: form.recommendedAdSpend.trim() || null,
+    estimatedCostPerLead: form.estimatedCostPerLead.trim() || null,
+    estimatedLeads: form.estimatedLeads.trim() || null,
+    estimatedBookedPatients: form.estimatedBookedPatients.trim() || null,
+    breakEvenBookings: form.breakEvenBookings.trim() || null,
+    commercialDataSource: form.commercialDataSource.trim() || null,
     recommendedPlan: form.recommendedPlan.trim() || null,
-    includedFeatures: form.includedFeatures
-      .split(/\r?\n/)
-      .map((feature) => feature.trim())
-      .filter(Boolean),
+    strategyPoints: textLines(form.strategyPoints),
+    includedFeatures: textLines(form.includedFeatures),
+    successMetrics: textLines(form.successMetrics),
+    clinicGrowerResponsibilities: textLines(form.clinicGrowerResponsibilities),
+    clientResponsibilities: textLines(form.clientResponsibilities),
     timeline: form.timeline.trim() || null,
+    termsSummary: form.termsSummary.trim() || null,
     investmentNotes: form.investmentNotes.trim() || null,
     nextSteps: form.nextSteps.trim() || null,
   };
@@ -182,10 +268,47 @@ function formFromProposal(proposal: ProposalRecord): ProposalForm {
     discounts: commercialItemsToText(proposal.discounts),
     internalMarginNote: proposal.internalMarginNote || "",
     executiveSummary: sections.executiveSummary || "",
+    personalIntroduction: sections.personalIntroduction || "",
     diagnosis: sections.diagnosis || "",
+    introVideoUrl: sections.introVideoUrl || "",
+    introVideoTitle: sections.introVideoTitle || "",
+    fallbackVideoUrl: sections.fallbackVideoUrl || "",
+    primaryGoal: sections.primaryGoal || "",
+    currentPosition: sections.currentPosition || "",
+    availableCapacity: sections.availableCapacity || "",
+    priorityTreatments: sections.priorityTreatments || "",
+    targetArea: sections.targetArea || "",
+    desiredOutcome: sections.desiredOutcome || "",
+    growthScoreOverall: sections.growthScoreOverall === null || sections.growthScoreOverall === undefined ? "" : String(sections.growthScoreOverall),
+    visibilityScore: sections.visibilityScore === null || sections.visibilityScore === undefined ? "" : String(sections.visibilityScore),
+    conversionScore: sections.conversionScore === null || sections.conversionScore === undefined ? "" : String(sections.conversionScore),
+    trackingScore: sections.trackingScore === null || sections.trackingScore === undefined ? "" : String(sections.trackingScore),
+    leadHandlingScore: sections.leadHandlingScore === null || sections.leadHandlingScore === undefined ? "" : String(sections.leadHandlingScore),
+    salesConversionScore: sections.salesConversionScore === null || sections.salesConversionScore === undefined ? "" : String(sections.salesConversionScore),
+    retentionScore: sections.retentionScore === null || sections.retentionScore === undefined ? "" : String(sections.retentionScore),
+    biggestRisk: sections.biggestRisk || "",
+    biggestOpportunity: sections.biggestOpportunity || "",
+    firstRecommendedFix: sections.firstRecommendedFix || "",
+    currentMonthlyEnquiries: sections.currentMonthlyEnquiries || "",
+    currentMonthlyBookedPatients: sections.currentMonthlyBookedPatients || "",
+    targetBookings: sections.targetBookings || "",
+    consultationValue: sections.consultationValue || "",
+    averageTreatmentValue: sections.averageTreatmentValue || "",
+    availableCommercialCapacity: sections.availableCommercialCapacity || "",
+    recommendedAdSpend: sections.recommendedAdSpend || "",
+    estimatedCostPerLead: sections.estimatedCostPerLead || "",
+    estimatedLeads: sections.estimatedLeads || "",
+    estimatedBookedPatients: sections.estimatedBookedPatients || "",
+    breakEvenBookings: sections.breakEvenBookings || "",
+    commercialDataSource: sections.commercialDataSource || "",
     recommendedPlan: sections.recommendedPlan || "",
+    strategyPoints: (sections.strategyPoints || []).join("\n"),
     includedFeatures: (sections.includedFeatures || []).join("\n"),
+    successMetrics: (sections.successMetrics || []).join("\n"),
+    clinicGrowerResponsibilities: (sections.clinicGrowerResponsibilities || []).join("\n"),
+    clientResponsibilities: (sections.clientResponsibilities || []).join("\n"),
     timeline: sections.timeline || "",
+    termsSummary: sections.termsSummary || "",
     investmentNotes: sections.investmentNotes || "",
     nextSteps: sections.nextSteps || "",
   };
@@ -220,10 +343,47 @@ function createInitialForm(searchParams: URLSearchParams): ProposalForm {
     discounts: "",
     internalMarginNote: "",
     executiveSummary: "",
+    personalIntroduction: "",
     diagnosis: "",
+    introVideoUrl: defaultProposalIntroVideoUrl,
+    introVideoTitle: "A short message from ClinicGrower",
+    fallbackVideoUrl: "",
+    primaryGoal: "",
+    currentPosition: "",
+    availableCapacity: "",
+    priorityTreatments: "",
+    targetArea: "",
+    desiredOutcome: "",
+    growthScoreOverall: "",
+    visibilityScore: "",
+    conversionScore: "",
+    trackingScore: "",
+    leadHandlingScore: "",
+    salesConversionScore: "",
+    retentionScore: "",
+    biggestRisk: "",
+    biggestOpportunity: "",
+    firstRecommendedFix: "",
+    currentMonthlyEnquiries: "",
+    currentMonthlyBookedPatients: "",
+    targetBookings: "",
+    consultationValue: "",
+    averageTreatmentValue: "",
+    availableCommercialCapacity: "",
+    recommendedAdSpend: "",
+    estimatedCostPerLead: "",
+    estimatedLeads: "",
+    estimatedBookedPatients: "",
+    breakEvenBookings: "",
+    commercialDataSource: "",
     recommendedPlan: "",
+    strategyPoints: "",
     includedFeatures: "",
+    successMetrics: "",
+    clinicGrowerResponsibilities: "",
+    clientResponsibilities: "",
     timeline: "",
+    termsSummary: "",
     investmentNotes: "",
     nextSteps: "",
   };
@@ -277,10 +437,47 @@ function formWithSourceData(current: ProposalForm, sourceData: ProposalSourceDat
     currency: current.currency || suggested.currency || "GBP",
     adSpendNote: mergeIfBlank(current.adSpendNote, suggested.adSpendNote),
     executiveSummary: mergeIfBlank(current.executiveSummary, sections.executiveSummary),
+    personalIntroduction: mergeIfBlank(current.personalIntroduction, sections.personalIntroduction),
     diagnosis: mergeIfBlank(current.diagnosis, sections.diagnosis),
+    introVideoUrl: mergeIfBlank(current.introVideoUrl, sections.introVideoUrl),
+    introVideoTitle: mergeIfBlank(current.introVideoTitle, sections.introVideoTitle),
+    fallbackVideoUrl: mergeIfBlank(current.fallbackVideoUrl, sections.fallbackVideoUrl),
+    primaryGoal: mergeIfBlank(current.primaryGoal, sections.primaryGoal),
+    currentPosition: mergeIfBlank(current.currentPosition, sections.currentPosition),
+    availableCapacity: mergeIfBlank(current.availableCapacity, sections.availableCapacity),
+    priorityTreatments: mergeIfBlank(current.priorityTreatments, sections.priorityTreatments),
+    targetArea: mergeIfBlank(current.targetArea, sections.targetArea),
+    desiredOutcome: mergeIfBlank(current.desiredOutcome, sections.desiredOutcome),
+    growthScoreOverall: mergeIfBlank(current.growthScoreOverall, sections.growthScoreOverall === null || sections.growthScoreOverall === undefined ? null : String(sections.growthScoreOverall)),
+    visibilityScore: mergeIfBlank(current.visibilityScore, sections.visibilityScore === null || sections.visibilityScore === undefined ? null : String(sections.visibilityScore)),
+    conversionScore: mergeIfBlank(current.conversionScore, sections.conversionScore === null || sections.conversionScore === undefined ? null : String(sections.conversionScore)),
+    trackingScore: mergeIfBlank(current.trackingScore, sections.trackingScore === null || sections.trackingScore === undefined ? null : String(sections.trackingScore)),
+    leadHandlingScore: mergeIfBlank(current.leadHandlingScore, sections.leadHandlingScore === null || sections.leadHandlingScore === undefined ? null : String(sections.leadHandlingScore)),
+    salesConversionScore: mergeIfBlank(current.salesConversionScore, sections.salesConversionScore === null || sections.salesConversionScore === undefined ? null : String(sections.salesConversionScore)),
+    retentionScore: mergeIfBlank(current.retentionScore, sections.retentionScore === null || sections.retentionScore === undefined ? null : String(sections.retentionScore)),
+    biggestRisk: mergeIfBlank(current.biggestRisk, sections.biggestRisk),
+    biggestOpportunity: mergeIfBlank(current.biggestOpportunity, sections.biggestOpportunity),
+    firstRecommendedFix: mergeIfBlank(current.firstRecommendedFix, sections.firstRecommendedFix),
+    currentMonthlyEnquiries: mergeIfBlank(current.currentMonthlyEnquiries, sections.currentMonthlyEnquiries),
+    currentMonthlyBookedPatients: mergeIfBlank(current.currentMonthlyBookedPatients, sections.currentMonthlyBookedPatients),
+    targetBookings: mergeIfBlank(current.targetBookings, sections.targetBookings),
+    consultationValue: mergeIfBlank(current.consultationValue, sections.consultationValue),
+    averageTreatmentValue: mergeIfBlank(current.averageTreatmentValue, sections.averageTreatmentValue),
+    availableCommercialCapacity: mergeIfBlank(current.availableCommercialCapacity, sections.availableCommercialCapacity),
+    recommendedAdSpend: mergeIfBlank(current.recommendedAdSpend, sections.recommendedAdSpend),
+    estimatedCostPerLead: mergeIfBlank(current.estimatedCostPerLead, sections.estimatedCostPerLead),
+    estimatedLeads: mergeIfBlank(current.estimatedLeads, sections.estimatedLeads),
+    estimatedBookedPatients: mergeIfBlank(current.estimatedBookedPatients, sections.estimatedBookedPatients),
+    breakEvenBookings: mergeIfBlank(current.breakEvenBookings, sections.breakEvenBookings),
+    commercialDataSource: mergeIfBlank(current.commercialDataSource, sections.commercialDataSource),
     recommendedPlan: mergeIfBlank(current.recommendedPlan, sections.recommendedPlan),
+    strategyPoints: mergeIfBlank(current.strategyPoints, (sections.strategyPoints || []).join("\n")),
     includedFeatures: mergeIfBlank(current.includedFeatures, (sections.includedFeatures || []).join("\n")),
+    successMetrics: mergeIfBlank(current.successMetrics, (sections.successMetrics || []).join("\n")),
+    clinicGrowerResponsibilities: mergeIfBlank(current.clinicGrowerResponsibilities, (sections.clinicGrowerResponsibilities || []).join("\n")),
+    clientResponsibilities: mergeIfBlank(current.clientResponsibilities, (sections.clientResponsibilities || []).join("\n")),
     timeline: mergeIfBlank(current.timeline, sections.timeline),
+    termsSummary: mergeIfBlank(current.termsSummary, sections.termsSummary),
     investmentNotes: mergeIfBlank(current.investmentNotes, sections.investmentNotes),
     nextSteps: mergeIfBlank(current.nextSteps, sections.nextSteps),
   };
@@ -970,12 +1167,160 @@ export default function ProposalEditPage() {
               <section className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
                 <h2 className="text-base font-semibold text-[#14231f]">Editable proposal sections</h2>
                 <div className="mt-5 space-y-4">
+                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                    <h3 className="text-sm font-semibold text-[#14231f]">Personal note and clinic summary</h3>
+                    <div className="mt-4 space-y-3">
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Personal introduction
+                        <textarea
+                          rows={4}
+                          value={form.personalIntroduction}
+                          onChange={(event) => updateForm({ personalIntroduction: event.target.value })}
+                          placeholder="Hi [First Name], thank you for taking the time..."
+                          className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {[
+                          ["Primary goal", "primaryGoal"],
+                          ["Current position", "currentPosition"],
+                          ["Available capacity", "availableCapacity"],
+                          ["Priority treatments", "priorityTreatments"],
+                          ["Target area", "targetArea"],
+                          ["Desired outcome/timeframe", "desiredOutcome"],
+                        ].map(([label, key]) => (
+                          <label key={key} className="block text-sm font-medium text-[#354943]">
+                            {label}
+                            <input
+                              value={form[key as keyof ProposalForm] || ""}
+                              onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
+                              className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                    <h3 className="text-sm font-semibold text-[#14231f]">Proposal video</h3>
+                    <p className="mt-1 text-sm leading-6 text-[#5b7069]">
+                      Add the confirmed Vimeo or website video used in the sales proposal.
+                    </p>
+                    <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Video title
+                        <input
+                          value={form.introVideoTitle}
+                          onChange={(event) => updateForm({ introVideoTitle: event.target.value })}
+                          placeholder="A message from ClinicGrower"
+                          className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Video URL
+                        <input
+                          value={form.introVideoUrl}
+                          onChange={(event) => updateForm({ introVideoUrl: event.target.value })}
+                          placeholder="https://vimeo.com/..."
+                          className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                    </div>
+                    <label className="mt-3 block text-sm font-medium text-[#354943]">
+                      Backup video link
+                      <input
+                        value={form.fallbackVideoUrl}
+                        onChange={(event) => updateForm({ fallbackVideoUrl: event.target.value })}
+                        placeholder="https://..."
+                        className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                    <h3 className="text-sm font-semibold text-[#14231f]">Growth diagnosis</h3>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                      {[
+                        ["Overall score", "growthScoreOverall"],
+                        ["Visibility", "visibilityScore"],
+                        ["Conversion", "conversionScore"],
+                        ["Tracking", "trackingScore"],
+                        ["Lead handling", "leadHandlingScore"],
+                        ["Sales conversion", "salesConversionScore"],
+                        ["Retention", "retentionScore"],
+                      ].map(([label, key]) => (
+                        <label key={key} className="block text-sm font-medium text-[#354943]">
+                          {label}
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={form[key as keyof ProposalForm] || ""}
+                            onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
+                            className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      {[
+                        ["Biggest current risk", "biggestRisk"],
+                        ["Biggest opportunity", "biggestOpportunity"],
+                        ["First recommended fix", "firstRecommendedFix"],
+                      ].map(([label, key]) => (
+                        <label key={key} className="block text-sm font-medium text-[#354943]">
+                          {label}
+                          <textarea
+                            rows={3}
+                            value={form[key as keyof ProposalForm] || ""}
+                            onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
+                            className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                    <h3 className="text-sm font-semibold text-[#14231f]">Commercial opportunity</h3>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                      {[
+                        ["Monthly enquiries", "currentMonthlyEnquiries"],
+                        ["Monthly booked patients", "currentMonthlyBookedPatients"],
+                        ["Target bookings", "targetBookings"],
+                        ["Consultation value", "consultationValue"],
+                        ["Average treatment value", "averageTreatmentValue"],
+                        ["Commercial capacity", "availableCommercialCapacity"],
+                        ["Recommended ad spend", "recommendedAdSpend"],
+                        ["Estimated cost per lead", "estimatedCostPerLead"],
+                        ["Estimated leads", "estimatedLeads"],
+                        ["Estimated booked patients", "estimatedBookedPatients"],
+                        ["Break-even bookings", "breakEvenBookings"],
+                        ["Data source/label", "commercialDataSource"],
+                      ].map(([label, key]) => (
+                        <label key={key} className="block text-sm font-medium text-[#354943]">
+                          {label}
+                          <input
+                            value={form[key as keyof ProposalForm] || ""}
+                            onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
+                            className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                   {[
                     ["Executive summary", "executiveSummary"],
                     ["Current diagnosis", "diagnosis"],
                     ["Recommended plan", "recommendedPlan"],
+                    ["Strategy points", "strategyPoints"],
                     ["Included features", "includedFeatures"],
+                    ["Success metrics", "successMetrics"],
+                    ["ClinicGrower responsibilities", "clinicGrowerResponsibilities"],
+                    ["Client responsibilities", "clientResponsibilities"],
                     ["Delivery timeline", "timeline"],
+                    ["Terms summary", "termsSummary"],
                     ["Investment notes", "investmentNotes"],
                     ["Next steps", "nextSteps"],
                   ].map(([label, key]) => (

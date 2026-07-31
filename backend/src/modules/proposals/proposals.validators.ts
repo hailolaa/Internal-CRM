@@ -44,31 +44,125 @@ const sectionContentValidator = body("sectionContent")
   .custom((value) => {
     const allowedKeys = new Set([
       "executiveSummary",
+      "personalIntroduction",
       "diagnosis",
+      "introVideoUrl",
+      "introVideoTitle",
+      "fallbackVideoUrl",
+      "primaryGoal",
+      "currentPosition",
+      "availableCapacity",
+      "priorityTreatments",
+      "targetArea",
+      "desiredOutcome",
+      "growthScoreOverall",
+      "visibilityScore",
+      "conversionScore",
+      "trackingScore",
+      "leadHandlingScore",
+      "salesConversionScore",
+      "retentionScore",
+      "biggestRisk",
+      "biggestOpportunity",
+      "firstRecommendedFix",
+      "currentMonthlyEnquiries",
+      "currentMonthlyBookedPatients",
+      "targetBookings",
+      "consultationValue",
+      "averageTreatmentValue",
+      "availableCommercialCapacity",
+      "recommendedAdSpend",
+      "estimatedCostPerLead",
+      "estimatedLeads",
+      "estimatedBookedPatients",
+      "breakEvenBookings",
+      "commercialDataSource",
       "recommendedPlan",
+      "strategyPoints",
       "includedFeatures",
+      "successMetrics",
+      "clinicGrowerResponsibilities",
+      "clientResponsibilities",
       "timeline",
+      "termsSummary",
       "investmentNotes",
       "nextSteps",
     ]);
     const textKeys = new Set([
       "executiveSummary",
+      "personalIntroduction",
       "diagnosis",
+      "introVideoTitle",
+      "primaryGoal",
+      "currentPosition",
+      "availableCapacity",
+      "priorityTreatments",
+      "targetArea",
+      "desiredOutcome",
+      "biggestRisk",
+      "biggestOpportunity",
+      "firstRecommendedFix",
+      "currentMonthlyEnquiries",
+      "currentMonthlyBookedPatients",
+      "targetBookings",
+      "consultationValue",
+      "averageTreatmentValue",
+      "availableCommercialCapacity",
+      "recommendedAdSpend",
+      "estimatedCostPerLead",
+      "estimatedLeads",
+      "estimatedBookedPatients",
+      "breakEvenBookings",
+      "commercialDataSource",
       "recommendedPlan",
       "timeline",
+      "termsSummary",
       "investmentNotes",
       "nextSteps",
+    ]);
+    const urlKeys = new Set(["introVideoUrl", "fallbackVideoUrl"]);
+    const scoreKeys = new Set([
+      "growthScoreOverall",
+      "visibilityScore",
+      "conversionScore",
+      "trackingScore",
+      "leadHandlingScore",
+      "salesConversionScore",
+      "retentionScore",
+    ]);
+    const listKeys = new Set([
+      "includedFeatures",
+      "strategyPoints",
+      "successMetrics",
+      "clinicGrowerResponsibilities",
+      "clientResponsibilities",
     ]);
     for (const [key, fieldValue] of Object.entries(value || {})) {
       if (!allowedKeys.has(key)) throw new Error(`Unsupported proposal section: ${key}`);
       if (textKeys.has(key) && fieldValue !== null && fieldValue !== undefined && String(fieldValue).length > 10000) {
         throw new Error(`${key} is too long`);
       }
-      if (key === "includedFeatures") {
-        if (!Array.isArray(fieldValue)) throw new Error("includedFeatures must be a list");
-        if (fieldValue.length > 30) throw new Error("includedFeatures can include up to 30 items");
-        for (const feature of fieldValue) {
-          if (String(feature).length > 500) throw new Error("includedFeatures items can be up to 500 characters");
+      if (urlKeys.has(key) && fieldValue !== null && fieldValue !== undefined) {
+        const rawUrl = String(fieldValue).trim();
+        if (rawUrl.length > 1000) throw new Error(`${key} is too long`);
+        if (rawUrl) {
+          try {
+            const parsed = new URL(rawUrl);
+            if (!["https:", "http:"].includes(parsed.protocol)) throw new Error("invalid protocol");
+          } catch {
+            throw new Error(`${key} must be a valid URL`);
+          }
+        }
+      }
+      if (scoreKeys.has(key) && fieldValue !== null && fieldValue !== undefined) {
+        const score = Number(fieldValue);
+        if (!Number.isFinite(score) || score < 0 || score > 100) throw new Error(`${key} must be a score from 0 to 100`);
+      }
+      if (listKeys.has(key)) {
+        if (!Array.isArray(fieldValue)) throw new Error(`${key} must be a list`);
+        if (fieldValue.length > 40) throw new Error(`${key} can include up to 40 items`);
+        for (const item of fieldValue) {
+          if (String(item).length > 500) throw new Error(`${key} items can be up to 500 characters`);
         }
       }
     }

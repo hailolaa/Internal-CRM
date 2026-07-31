@@ -103,23 +103,23 @@ describe("ClinicGrowerProposalTemplate", () => {
   it.each([
     [
       "clinicgrower_standard",
-      "ClinicGrower Proposal",
-      "Proposal flow",
+      "Personalised Growth Proposal",
+      "The first 90 days",
       "A controlled path from insight to action.",
     ],
     [
       "growth_score_follow_up",
-      "Growth Score Action Plan",
-      "From score to action",
+      "Personalised Growth Proposal",
+      "The first 90 days",
       "Turn the Growth Score into measurable progress.",
     ],
     [
       "bespoke_growth_plan",
-      "Bespoke Clinic Growth Plan",
-      "Bespoke delivery model",
+      "Personalised Growth Proposal",
+      "The first 90 days",
       "A tailored engagement with clear ownership.",
     ],
-  ])("renders practical %s template content", (templateKey, eyebrow, flowLabel, includedHeading) => {
+  ])("renders practical %s template content", (templateKey, coverLabel, timelineLabel, includedHeading) => {
     const html = renderToStaticMarkup(
       ClinicGrowerProposalTemplate({
         proposal: { ...publicProposal, templateKey },
@@ -128,8 +128,59 @@ describe("ClinicGrowerProposalTemplate", () => {
       }),
     );
 
-    expect(html).toContain(eyebrow);
-    expect(html).toContain(flowLabel);
+    expect(html).toContain(coverLabel);
+    expect(html).toContain(timelineLabel);
     expect(html).toContain(includedHeading);
+  });
+
+  it("renders the diagnosis-led proposal flow before investment", () => {
+    const html = renderToStaticMarkup(
+      ClinicGrowerProposalTemplate({
+        proposal: {
+          ...publicProposal,
+          sectionContent: {
+            personalIntroduction: "Hi Alex, this is a tailored growth proposal.",
+            primaryGoal: "Add 10 booked consultations per week.",
+            growthScoreOverall: 49,
+            visibilityScore: 58,
+            conversionScore: 46,
+            biggestRisk: "Tracking is incomplete.",
+            biggestOpportunity: "Available clinical capacity can be filled.",
+            firstRecommendedFix: "Fix tracking before scaling spend.",
+            recommendedPlan: "Capture demand and improve the full patient journey.",
+          },
+        },
+        packageRecord: null,
+        previewMode: false,
+      }),
+    );
+
+    expect(html.indexOf("What we understood")).toBeLessThan(html.indexOf("Recommended programme and investment"));
+    expect(html.indexOf("Growth diagnosis")).toBeLessThan(html.indexOf("Recommended programme and investment"));
+    expect(html.indexOf("The first 90 days")).toBeLessThan(html.indexOf("Recommended programme and investment"));
+    expect(html).toContain("Next steps and acceptance");
+    expect(html).toContain("Accept proposal");
+    expect(html).toContain("Add 10 booked consultations per week.");
+    expect(html).toContain("49 / 100");
+  });
+
+  it("renders a Vimeo proposal video when a video URL is saved", () => {
+    const html = renderToStaticMarkup(
+      ClinicGrowerProposalTemplate({
+        proposal: {
+          ...publicProposal,
+          sectionContent: {
+            introVideoTitle: "A message from ClinicGrower",
+            introVideoUrl: "https://vimeo.com/1144662620",
+          },
+        },
+        packageRecord: null,
+        previewMode: false,
+      }),
+    );
+
+    expect(html).toContain("Proposal video");
+    expect(html).toContain("A message from ClinicGrower");
+    expect(html).toContain("https://player.vimeo.com/video/1144662620");
   });
 });
