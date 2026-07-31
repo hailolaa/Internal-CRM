@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Eye, FileText, Loader2, RefreshCw, Save } from "lucide-react";
+import { ArrowLeft, Eye, FileText, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,7 +8,7 @@ import { AlertBanner, PageHeader } from "@/components/ui";
 import { ClinicGrowerProposalTemplate } from "@/components/proposals/clinicgrower-proposal-template";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { GrowthPackageRecord, ProposalCommercialItem, ProposalPayload, ProposalPublicRecord, ProposalRecord, ProposalSectionContent, ProposalSourceDataRecord, ProposalTemplateRecord } from "@/lib/api-types";
+import type { GrowthPackageRecord, ProposalCommercialItem, ProposalPayload, ProposalPublicRecord, ProposalRecord, ProposalScopeItem, ProposalSectionContent, ProposalSourceDataRecord, ProposalTemplateRecord } from "@/lib/api-types";
 import {
   PROPOSAL_EDITOR_STATUSES,
   isCurrentProposalRequest,
@@ -21,6 +21,83 @@ import {
 } from "@/lib/proposal-editor-state";
 
 const defaultProposalIntroVideoUrl = "https://vimeo.com/1008757315?fl=pl&fe=sh";
+
+const scopeCategories = [
+  "Strategy",
+  "Google Ads",
+  "Meta Ads",
+  "SEO",
+  "Google Business Profile",
+  "Website/Landing Pages",
+  "Tracking",
+  "Lead Handling",
+  "Reporting",
+  "Content",
+  "Conversion",
+  "Retention",
+  "Support",
+];
+
+const fallbackGrowthEngineScopeItems: ProposalScopeItem[] = [
+  {
+    category: "Strategy",
+    title: "Growth strategy and priorities",
+    clientDescription: "A focused growth plan built around the clinic goals, service priorities, commercial capacity and highest-impact opportunities.",
+    frequency: "Monthly",
+    quantityLimit: "Included in programme",
+    inclusionStatus: "included",
+    deliveryType: "recurring",
+    isOptionalAddOn: false,
+    sortOrder: 10,
+  },
+  {
+    category: "Google Ads",
+    title: "Google Ads management",
+    clientDescription: "Campaign structure, search intent, budget control and optimisation for the agreed priority services and locations.",
+    frequency: "Ongoing",
+    quantityLimit: "Subject to agreed ad spend",
+    inclusionStatus: "included",
+    deliveryType: "recurring",
+    isOptionalAddOn: false,
+    sortOrder: 20,
+  },
+  {
+    category: "Tracking",
+    title: "Lead tracking and reporting setup",
+    clientDescription: "Tracking recommendations for calls, forms, campaign sources and booked enquiry visibility.",
+    frequency: "Setup then ongoing review",
+    quantityLimit: "Tracking depends on access and platform limits",
+    inclusionStatus: "included",
+    deliveryType: "recurring",
+    isOptionalAddOn: false,
+    sortOrder: 30,
+  },
+];
+
+const fallbackBespokeScopeItems: ProposalScopeItem[] = [
+  {
+    category: "Strategy",
+    title: "Bespoke growth strategy",
+    clientDescription: "A tailored plan based on the agreed commercial objective, available capacity, current constraints and internal team setup.",
+    frequency: "Agreed per scope",
+    quantityLimit: "Defined in proposal",
+    inclusionStatus: "included",
+    deliveryType: "one_off",
+    isOptionalAddOn: false,
+    sortOrder: 10,
+  },
+  {
+    category: "Website/Landing Pages",
+    title: "Priority website or landing page work",
+    clientDescription: "The agreed website, landing page or conversion workstream needed to support the first commercial priority.",
+    frequency: "Agreed per scope",
+    quantityLimit: "Pages and deliverables confirmed before acceptance",
+    inclusionStatus: "included",
+    deliveryType: "one_off",
+    isOptionalAddOn: false,
+    sortOrder: 20,
+  },
+];
 
 const fallbackProposalTemplates: ProposalTemplateRecord[] = [
   {
@@ -52,6 +129,7 @@ const fallbackProposalTemplates: ProposalTemplateRecord[] = [
       "Tracking completeness",
       "Pipeline and revenue visibility",
     ],
+    defaultScopeItems: fallbackGrowthEngineScopeItems,
     sortOrder: 10,
     isActive: true,
     createdAt: "",
@@ -86,6 +164,7 @@ const fallbackProposalTemplates: ProposalTemplateRecord[] = [
       "Client-side readiness",
       "Next-phase decision clarity",
     ],
+    defaultScopeItems: fallbackBespokeScopeItems,
     sortOrder: 20,
     isActive: true,
     createdAt: "",
@@ -166,6 +245,7 @@ type ProposalForm = {
   breakEvenBookings: string;
   commercialDataSource: string;
   recommendedPlan: string;
+  scopeItems: ProposalScopeItem[];
   strategyPoints: string;
   includedFeatures: string;
   successMetrics: string;
@@ -219,6 +299,23 @@ function textLines(value: string) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+function cleanScopeItems(items: ProposalScopeItem[] | null | undefined): ProposalScopeItem[] {
+  return (items || [])
+    .map((item, index) => ({
+      category: scopeCategories.includes(item.category) ? item.category : "Strategy",
+      title: item.title.trim(),
+      clientDescription: item.clientDescription.trim(),
+      frequency: item.frequency?.trim() || null,
+      quantityLimit: item.quantityLimit?.trim() || null,
+      inclusionStatus: item.inclusionStatus === "excluded" ? "excluded" as const : "included" as const,
+      deliveryType: item.deliveryType === "one_off" ? "one_off" as const : "recurring" as const,
+      isOptionalAddOn: Boolean(item.isOptionalAddOn),
+      sortOrder: Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : index + 1,
+    }))
+    .filter((item) => item.title && item.clientDescription)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
 }
 
 function commercialItemsFromText(value: string): ProposalCommercialItem[] {
@@ -281,6 +378,7 @@ function sectionContentFromForm(form: ProposalForm): ProposalSectionContent {
     breakEvenBookings: form.breakEvenBookings.trim() || null,
     commercialDataSource: form.commercialDataSource.trim() || null,
     recommendedPlan: form.recommendedPlan.trim() || null,
+    scopeItems: cleanScopeItems(form.scopeItems),
     strategyPoints: textLines(form.strategyPoints),
     includedFeatures: textLines(form.includedFeatures),
     successMetrics: textLines(form.successMetrics),
@@ -355,6 +453,7 @@ function formFromProposal(proposal: ProposalRecord): ProposalForm {
     breakEvenBookings: sections.breakEvenBookings || "",
     commercialDataSource: sections.commercialDataSource || "",
     recommendedPlan: sections.recommendedPlan || "",
+    scopeItems: cleanScopeItems(sections.scopeItems),
     strategyPoints: (sections.strategyPoints || []).join("\n"),
     includedFeatures: (sections.includedFeatures || []).join("\n"),
     successMetrics: (sections.successMetrics || []).join("\n"),
@@ -430,6 +529,7 @@ function createInitialForm(searchParams: URLSearchParams): ProposalForm {
     breakEvenBookings: "",
     commercialDataSource: "",
     recommendedPlan: "",
+    scopeItems: [],
     strategyPoints: "",
     includedFeatures: "",
     successMetrics: "",
@@ -456,6 +556,11 @@ function currentBrowserRouteKey() {
 
 function statusLabel(value: ProposalRecord["status"]) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formTextValue(form: ProposalForm, key: keyof ProposalForm) {
+  const value = form[key];
+  return typeof value === "string" ? value : "";
 }
 
 function formatPackagePrice(item: GrowthPackageRecord) {
@@ -513,6 +618,7 @@ function formWithTemplateDefaults(current: ProposalForm, template: ProposalTempl
     breakEvenBookings: mergeIfBlank(current.breakEvenBookings, sections.breakEvenBookings),
     commercialDataSource: mergeIfBlank(current.commercialDataSource, sections.commercialDataSource),
     recommendedPlan: mergeIfBlank(current.recommendedPlan, sections.recommendedPlan),
+    scopeItems: current.scopeItems.length ? current.scopeItems : cleanScopeItems(sections.scopeItems?.length ? sections.scopeItems : template.defaultScopeItems),
     strategyPoints: mergeIfBlank(current.strategyPoints, (sections.strategyPoints || []).join("\n")),
     includedFeatures: mergeIfBlank(current.includedFeatures, (sections.includedFeatures || []).join("\n")),
     successMetrics: mergeIfBlank(current.successMetrics, successMetrics),
@@ -577,6 +683,7 @@ function formWithSourceData(current: ProposalForm, sourceData: ProposalSourceDat
     breakEvenBookings: mergeIfBlank(current.breakEvenBookings, sections.breakEvenBookings),
     commercialDataSource: mergeIfBlank(current.commercialDataSource, sections.commercialDataSource),
     recommendedPlan: mergeIfBlank(current.recommendedPlan, sections.recommendedPlan),
+    scopeItems: current.scopeItems.length ? current.scopeItems : cleanScopeItems(sections.scopeItems),
     strategyPoints: mergeIfBlank(current.strategyPoints, (sections.strategyPoints || []).join("\n")),
     includedFeatures: mergeIfBlank(current.includedFeatures, (sections.includedFeatures || []).join("\n")),
     successMetrics: mergeIfBlank(current.successMetrics, (sections.successMetrics || []).join("\n")),
@@ -678,7 +785,10 @@ export default function ProposalEditPage() {
       updateForm({ templateKey });
       return;
     }
-    setForm((current) => formWithTemplateDefaults(current, template));
+    setForm((current) => ({
+      ...formWithTemplateDefaults(current, template),
+      scopeItems: cleanScopeItems(template.defaultScopeItems),
+    }));
   };
 
   useEffect(() => {
@@ -761,7 +871,47 @@ export default function ProposalEditPage() {
       currency: packageRecord?.currency || form.currency || "GBP",
       recommendedPlan: form.recommendedPlan || packageRecord?.proposalWording || "",
       includedFeatures: form.includedFeatures || (packageRecord?.includedFeatures || []).join("\n"),
+      scopeItems: form.scopeItems.length ? form.scopeItems : cleanScopeItems(selectedTemplate.defaultScopeItems),
     });
+  };
+
+  const updateScopeItem = (index: number, patch: Partial<ProposalScopeItem>) => {
+    if (!canEditCurrentProposal) return;
+    setForm((current) => ({
+      ...current,
+      scopeItems: current.scopeItems.map((item, itemIndex) => (
+        itemIndex === index ? { ...item, ...patch } : item
+      )),
+    }));
+  };
+
+  const addScopeItem = () => {
+    if (!canEditCurrentProposal) return;
+    setForm((current) => ({
+      ...current,
+      scopeItems: [
+        ...current.scopeItems,
+        {
+          category: "Strategy",
+          title: "",
+          clientDescription: "",
+          frequency: "",
+          quantityLimit: "",
+          inclusionStatus: "included",
+          deliveryType: "recurring",
+          isOptionalAddOn: false,
+          sortOrder: current.scopeItems.length ? Math.max(...current.scopeItems.map((item) => item.sortOrder || 0)) + 10 : 10,
+        },
+      ],
+    }));
+  };
+
+  const removeScopeItem = (index: number) => {
+    if (!canEditCurrentProposal) return;
+    setForm((current) => ({
+      ...current,
+      scopeItems: current.scopeItems.filter((_, itemIndex) => itemIndex !== index),
+    }));
   };
 
   const pullProposalSourceData = useCallback(async () => {
@@ -1318,7 +1468,7 @@ export default function ProposalEditPage() {
                           <label key={key} className="block text-sm font-medium text-[#354943]">
                             {label}
                             <input
-                              value={form[key as keyof ProposalForm] || ""}
+                              value={formTextValue(form, key as keyof ProposalForm)}
                               onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
                               className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                             />
@@ -1382,7 +1532,7 @@ export default function ProposalEditPage() {
                             type="number"
                             min="0"
                             max="100"
-                            value={form[key as keyof ProposalForm] || ""}
+                            value={formTextValue(form, key as keyof ProposalForm)}
                             onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
                             className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                           />
@@ -1399,7 +1549,7 @@ export default function ProposalEditPage() {
                           {label}
                           <textarea
                             rows={3}
-                            value={form[key as keyof ProposalForm] || ""}
+                            value={formTextValue(form, key as keyof ProposalForm)}
                             onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
                             className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                           />
@@ -1428,7 +1578,7 @@ export default function ProposalEditPage() {
                         <label key={key} className="block text-sm font-medium text-[#354943]">
                           {label}
                           <input
-                            value={form[key as keyof ProposalForm] || ""}
+                            value={formTextValue(form, key as keyof ProposalForm)}
                             onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
                             className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                           />
@@ -1436,12 +1586,135 @@ export default function ProposalEditPage() {
                       ))}
                     </div>
                   </div>
+
+                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-[#14231f]">Scope and deliverables</h3>
+                        <p className="mt-1 text-sm leading-6 text-[#5b7069]">
+                          These rows appear in the client-facing proposal. Internal delivery notes are not included here.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={addScopeItem}
+                        disabled={!canEditCurrentProposal}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[8px] border border-[#315f51] bg-white px-3 text-sm font-semibold text-[#315f51] hover:bg-[#f3f7f4] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add scope item
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-4">
+                      {form.scopeItems.length ? form.scopeItems.map((item, index) => (
+                        <div key={`${item.sortOrder}-${index}`} className="rounded-[8px] border border-[#d8e4df] bg-white p-4">
+                          <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto]">
+                            <label className="block text-sm font-medium text-[#354943]">
+                              Category
+                              <select
+                                value={item.category}
+                                onChange={(event) => updateScopeItem(index, { category: event.target.value })}
+                                className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                              >
+                                {scopeCategories.map((category) => (
+                                  <option key={category} value={category}>{category}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="block text-sm font-medium text-[#354943]">
+                              Title
+                              <input
+                                value={item.title}
+                                onChange={(event) => updateScopeItem(index, { title: event.target.value })}
+                                className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => removeScopeItem(index)}
+                              disabled={!canEditCurrentProposal}
+                              aria-label={`Remove scope item ${item.title || index + 1}`}
+                              className="mt-6 inline-flex min-h-11 items-center justify-center rounded-[8px] border border-[#e1b8b2] bg-white px-3 text-[#9d2f22] hover:bg-[#fff5f3] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          <label className="mt-3 block text-sm font-medium text-[#354943]">
+                            Client-facing description
+                            <textarea
+                              rows={3}
+                              value={item.clientDescription}
+                              onChange={(event) => updateScopeItem(index, { clientDescription: event.target.value })}
+                              className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                            />
+                          </label>
+
+                          <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+                            <label className="block text-sm font-medium text-[#354943]">
+                              Frequency
+                              <input
+                                value={item.frequency || ""}
+                                onChange={(event) => updateScopeItem(index, { frequency: event.target.value })}
+                                className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                              />
+                            </label>
+                            <label className="block text-sm font-medium text-[#354943]">
+                              Quantity / limit
+                              <input
+                                value={item.quantityLimit || ""}
+                                onChange={(event) => updateScopeItem(index, { quantityLimit: event.target.value })}
+                                className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                              />
+                            </label>
+                            <label className="block text-sm font-medium text-[#354943]">
+                              Included
+                              <select
+                                value={item.inclusionStatus}
+                                onChange={(event) => updateScopeItem(index, { inclusionStatus: event.target.value === "excluded" ? "excluded" : "included" })}
+                                className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                              >
+                                <option value="included">Included</option>
+                                <option value="excluded">Excluded</option>
+                              </select>
+                            </label>
+                            <label className="block text-sm font-medium text-[#354943]">
+                              Type
+                              <select
+                                value={item.deliveryType}
+                                onChange={(event) => updateScopeItem(index, { deliveryType: event.target.value === "one_off" ? "one_off" : "recurring" })}
+                                className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                              >
+                                <option value="recurring">Recurring</option>
+                                <option value="one_off">One-off</option>
+                              </select>
+                            </label>
+                            <label className="flex min-h-11 items-center gap-2 self-end rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-medium text-[#354943]">
+                              <input
+                                type="checkbox"
+                                checked={item.isOptionalAddOn}
+                                onChange={(event) => updateScopeItem(index, { isOptionalAddOn: event.target.checked })}
+                                className="h-4 w-4 rounded border-[#b8c8c2] text-[#315f51] focus:ring-[#315f51]"
+                              />
+                              Optional add-on
+                            </label>
+                          </div>
+                        </div>
+                      )) : (
+                        <div className="rounded-[8px] border border-dashed border-[#b8c8c2] bg-white p-5 text-sm text-[#5b7069]">
+                          No structured scope items are selected yet. Choose a template or add scope items before sending.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {[
                     ["Executive summary", "executiveSummary"],
                     ["Current diagnosis", "diagnosis"],
                     ["Recommended plan", "recommendedPlan"],
                     ["Strategy points", "strategyPoints"],
-                    ["Included features", "includedFeatures"],
+                    ["Included features fallback", "includedFeatures"],
                     ["Success metrics", "successMetrics"],
                     ["ClinicGrower responsibilities", "clinicGrowerResponsibilities"],
                     ["Client responsibilities", "clientResponsibilities"],
@@ -1454,7 +1727,7 @@ export default function ProposalEditPage() {
                       {label}
                       <textarea
                         rows={key === "includedFeatures" || key === "timeline" ? 5 : 4}
-                        value={form[key as keyof ProposalForm] || ""}
+                        value={formTextValue(form, key as keyof ProposalForm)}
                         onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
                         className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                       />

@@ -78,6 +78,7 @@ const sectionContentValidator = body("sectionContent")
       "breakEvenBookings",
       "commercialDataSource",
       "recommendedPlan",
+      "scopeItems",
       "strategyPoints",
       "includedFeatures",
       "successMetrics",
@@ -137,6 +138,21 @@ const sectionContentValidator = body("sectionContent")
       "clinicGrowerResponsibilities",
       "clientResponsibilities",
     ]);
+    const scopeCategories = new Set([
+      "Strategy",
+      "Google Ads",
+      "Meta Ads",
+      "SEO",
+      "Google Business Profile",
+      "Website/Landing Pages",
+      "Tracking",
+      "Lead Handling",
+      "Reporting",
+      "Content",
+      "Conversion",
+      "Retention",
+      "Support",
+    ]);
     for (const [key, fieldValue] of Object.entries(value || {})) {
       if (!allowedKeys.has(key)) throw new Error(`Unsupported proposal section: ${key}`);
       if (textKeys.has(key) && fieldValue !== null && fieldValue !== undefined && String(fieldValue).length > 10000) {
@@ -163,6 +179,35 @@ const sectionContentValidator = body("sectionContent")
         if (fieldValue.length > 40) throw new Error(`${key} can include up to 40 items`);
         for (const item of fieldValue) {
           if (String(item).length > 500) throw new Error(`${key} items can be up to 500 characters`);
+        }
+      }
+      if (key === "scopeItems") {
+        if (!Array.isArray(fieldValue)) throw new Error("scopeItems must be a list");
+        if (fieldValue.length > 60) throw new Error("scopeItems can include up to 60 items");
+        for (const item of fieldValue) {
+          if (!item || typeof item !== "object") throw new Error("scopeItems entries must be objects");
+          const scopeItem = item as Record<string, unknown>;
+          if (!scopeCategories.has(String(scopeItem.category || ""))) throw new Error("scopeItems category is not supported");
+          if (!String(scopeItem.title || "").trim() || String(scopeItem.title || "").length > 180) {
+            throw new Error("scopeItems title is required and can be up to 180 characters");
+          }
+          if (!String(scopeItem.clientDescription || "").trim() || String(scopeItem.clientDescription || "").length > 2000) {
+            throw new Error("scopeItems clientDescription is required and can be up to 2000 characters");
+          }
+          if (scopeItem.frequency !== null && scopeItem.frequency !== undefined && String(scopeItem.frequency).length > 120) {
+            throw new Error("scopeItems frequency can be up to 120 characters");
+          }
+          if (scopeItem.quantityLimit !== null && scopeItem.quantityLimit !== undefined && String(scopeItem.quantityLimit).length > 120) {
+            throw new Error("scopeItems quantityLimit can be up to 120 characters");
+          }
+          if (!["included", "excluded"].includes(String(scopeItem.inclusionStatus || ""))) {
+            throw new Error("scopeItems inclusionStatus must be included or excluded");
+          }
+          if (!["recurring", "one_off"].includes(String(scopeItem.deliveryType || ""))) {
+            throw new Error("scopeItems deliveryType must be recurring or one_off");
+          }
+          if (typeof scopeItem.isOptionalAddOn !== "boolean") throw new Error("scopeItems isOptionalAddOn must be true or false");
+          if (!Number.isInteger(Number(scopeItem.sortOrder))) throw new Error("scopeItems sortOrder must be an integer");
         }
       }
     }

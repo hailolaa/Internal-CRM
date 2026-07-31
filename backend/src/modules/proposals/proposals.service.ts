@@ -31,6 +31,7 @@ import type {
   ProposalSectionContent,
   ProposalSendDTO,
   ProposalShareResponse,
+  ProposalScopeItem,
   ProposalSourceDataQuery,
   ProposalSourceDataResponse,
   ProposalStatus,
@@ -353,10 +354,25 @@ function mapProposalTemplate(row: any): ProposalTemplateResponse {
     defaultRoadmap: parseJsonArray(row.defaultRoadmap),
     defaultTerms: row.defaultTerms || null,
     defaultSuccessMetrics: parseJsonArray(row.defaultSuccessMetrics),
+    defaultScopeItems: [],
     sortOrder: Number(row.sortOrder || 0),
     isActive: Boolean(row.isActive),
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
+  };
+}
+
+function mapProposalScopeItem(row: any): ProposalScopeItem {
+  return {
+    category: row.category,
+    title: row.title,
+    clientDescription: row.clientDescription,
+    frequency: row.frequency || null,
+    quantityLimit: row.quantityLimit || null,
+    inclusionStatus: row.inclusionStatus === "excluded" ? "excluded" : "included",
+    deliveryType: row.deliveryType === "one_off" ? "one_off" : "recurring",
+    isOptionalAddOn: Boolean(row.isOptionalAddOn),
+    sortOrder: Number(row.sortOrder || 0),
   };
 }
 
@@ -588,7 +604,38 @@ export class ProposalsService {
       [clinicId],
     );
 
-    return rows.map(mapProposalTemplate);
+    const templates: ProposalTemplateResponse[] = rows.map(mapProposalTemplate);
+    if (templates.length === 0) return templates;
+
+    const [scopeRows]: any = await pool.execute(
+      `SELECT template_key as templateKey,
+              category,
+              title,
+              client_description as clientDescription,
+              frequency,
+              quantity_limit as quantityLimit,
+              inclusion_status as inclusionStatus,
+              delivery_type as deliveryType,
+              is_optional_add_on as isOptionalAddOn,
+              sort_order as sortOrder
+       FROM proposal_scope_item
+       WHERE clinic_id = ?
+         ${filters}
+       ORDER BY template_key ASC, sort_order ASC, title ASC`,
+      [clinicId],
+    );
+    const scopeByTemplate = new Map<string, ProposalScopeItem[]>();
+    for (const row of scopeRows) {
+      const templateKey = String(row.templateKey || "");
+      const items = scopeByTemplate.get(templateKey) || [];
+      items.push(mapProposalScopeItem(row));
+      scopeByTemplate.set(templateKey, items);
+    }
+
+    return templates.map((template) => ({
+      ...template,
+      defaultScopeItems: scopeByTemplate.get(template.templateKey) || [],
+    }));
   }
 
   async listProposals(clinicId: string, query: ProposalListQuery = {}): Promise<ProposalResponse[]> {

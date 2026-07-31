@@ -226,6 +226,7 @@ export interface ProposalSectionContent {
   breakEvenBookings?: string | null;
   commercialDataSource?: string | null;
   recommendedPlan?: string | null;
+  scopeItems?: ProposalScopeItem[];
   strategyPoints?: string[];
   includedFeatures?: string[];
   successMetrics?: string[];
@@ -235,6 +236,18 @@ export interface ProposalSectionContent {
   termsSummary?: string | null;
   investmentNotes?: string | null;
   nextSteps?: string | null;
+}
+
+export interface ProposalScopeItem {
+  category: string;
+  title: string;
+  clientDescription: string;
+  frequency?: string | null;
+  quantityLimit?: string | null;
+  inclusionStatus: "included" | "excluded";
+  deliveryType: "recurring" | "one_off";
+  isOptionalAddOn: boolean;
+  sortOrder: number;
 }
 
 export interface ProposalCommercialItem {
@@ -253,6 +266,7 @@ export interface ProposalTemplateResponse {
   defaultRoadmap: string[];
   defaultTerms: string | null;
   defaultSuccessMetrics: string[];
+  defaultScopeItems: ProposalScopeItem[];
   sortOrder: number;
   isActive: boolean;
   createdAt: string;

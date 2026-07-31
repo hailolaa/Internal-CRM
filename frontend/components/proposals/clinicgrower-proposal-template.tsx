@@ -232,6 +232,10 @@ function statusLabel(value: string) {
   return value.replace(/_/g, " ");
 }
 
+function deliveryTypeLabel(value: string) {
+  return value === "one_off" ? "One-off" : "Recurring";
+}
+
 function firstName(value: string) {
   return value.trim().split(/\s+/)[0] || value;
 }
@@ -291,6 +295,9 @@ export function ClinicGrowerProposalTemplate({
     : packageRecord?.includedFeatures?.length
       ? packageRecord.includedFeatures
       : defaultFeatures;
+  const scopeItems = (sectionContent.scopeItems || [])
+    .filter((item) => item.title && item.clientDescription)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
   const proposalWording =
     sectionContent.recommendedPlan ||
     packageRecord?.proposalWording ||
@@ -687,7 +694,40 @@ export function ClinicGrowerProposalTemplate({
           </p>
         </div>
         <div className="grid gap-3">
-          {features.map((feature) => (
+          {scopeItems.length ? scopeItems.map((item) => (
+            <div key={`${item.category}-${item.title}-${item.sortOrder}`} className="rounded-[8px] border border-[#e2ebe7] p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-[#edf5f1] px-2 py-1 text-xs font-semibold text-[#315f51]">{item.category}</span>
+                <span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.inclusionStatus === "included" ? "bg-[#e4f5ec] text-[#256148]" : "bg-[#f7e8e6] text-[#9d2f22]"}`}>
+                  {item.inclusionStatus === "included" ? "Included" : "Not included"}
+                </span>
+                {item.isOptionalAddOn ? (
+                  <span className="rounded-full bg-[#fff1d6] px-2 py-1 text-xs font-semibold text-[#8a5a10]">Optional add-on</span>
+                ) : null}
+                <span className="rounded-full bg-[#f3f7f4] px-2 py-1 text-xs font-semibold capitalize text-[#5b7069]">
+                  {deliveryTypeLabel(item.deliveryType)}
+                </span>
+              </div>
+              <h3 className="mt-3 text-base font-semibold text-[#14231f]">{item.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-[#5b7069]">{item.clientDescription}</p>
+              {item.frequency || item.quantityLimit ? (
+                <dl className="mt-3 grid gap-2 text-xs text-[#5b7069] sm:grid-cols-2">
+                  {item.frequency ? (
+                    <div>
+                      <dt className="font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Frequency</dt>
+                      <dd className="mt-1">{item.frequency}</dd>
+                    </div>
+                  ) : null}
+                  {item.quantityLimit ? (
+                    <div>
+                      <dt className="font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Quantity / limit</dt>
+                      <dd className="mt-1">{item.quantityLimit}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+              ) : null}
+            </div>
+          )) : features.map((feature) => (
             <div key={feature} className="flex gap-3 rounded-[8px] border border-[#e2ebe7] p-4">
               <CheckCircle2 className="mt-0.5 h-5 w-5 flex-none text-[#2f7665]" />
               <span className="text-sm leading-6 text-[#354943]">{feature}</span>

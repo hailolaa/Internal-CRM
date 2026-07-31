@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ClinicGrowerProposalTemplate } from "./clinicgrower-proposal-template";
-import type { ProposalPublicRecord, ProposalRecord } from "@/lib/api-types";
+import type { ProposalPublicRecord, ProposalRecord, ProposalScopeItem } from "@/lib/api-types";
 
 const publicProposal: ProposalPublicRecord = {
   proposalName: "Example Clinic Growth Proposal",
@@ -182,5 +182,37 @@ describe("ClinicGrowerProposalTemplate", () => {
     expect(html).toContain("Proposal video");
     expect(html).toContain("A message from ClinicGrower");
     expect(html).toContain("https://player.vimeo.com/video/1144662620");
+  });
+
+  it("renders structured scope items without exposing internal delivery notes", () => {
+    const scopeItemWithInternalNotes: ProposalScopeItem & { internalNotes: string } = {
+      category: "Google Ads",
+      title: "Google Ads management",
+      clientDescription: "Campaign structure, search intent and optimisation for agreed priority services.",
+      frequency: "Ongoing",
+      quantityLimit: "Subject to agreed ad spend",
+      inclusionStatus: "included",
+      deliveryType: "recurring",
+      isOptionalAddOn: false,
+      sortOrder: 10,
+      internalNotes: "Do not show this delivery note publicly.",
+    };
+    const html = renderToStaticMarkup(
+      ClinicGrowerProposalTemplate({
+        proposal: {
+          ...publicProposal,
+          sectionContent: {
+            scopeItems: [scopeItemWithInternalNotes],
+          },
+        },
+        packageRecord: null,
+        previewMode: false,
+      }),
+    );
+
+    expect(html).toContain("Google Ads management");
+    expect(html).toContain("Subject to agreed ad spend");
+    expect(html).toContain("Recurring");
+    expect(html).not.toContain("Do not show this delivery note publicly.");
   });
 });
