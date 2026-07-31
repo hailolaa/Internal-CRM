@@ -35,6 +35,7 @@ import type {
   ProposalSourceDataResponse,
   ProposalStatus,
   ProposalStatusUpdateDTO,
+  ProposalTemplateResponse,
 } from "./proposals.types.js";
 
 type QueryExecutor = Pick<PoolConnection, "execute">;
@@ -341,6 +342,24 @@ function mapProposal(row: any): ProposalResponse {
   };
 }
 
+function mapProposalTemplate(row: any): ProposalTemplateResponse {
+  return {
+    id: row.id,
+    templateKey: row.templateKey,
+    name: row.name,
+    description: row.description || null,
+    packageName: row.packageName || null,
+    defaultSections: parseSectionContent(row.defaultSections),
+    defaultRoadmap: parseJsonArray(row.defaultRoadmap),
+    defaultTerms: row.defaultTerms || null,
+    defaultSuccessMetrics: parseJsonArray(row.defaultSuccessMetrics),
+    sortOrder: Number(row.sortOrder || 0),
+    isActive: Boolean(row.isActive),
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.updatedAt).toISOString(),
+  };
+}
+
 function toProposalsCsv(proposals: ProposalResponse[]) {
   const headers = [
     "id",
@@ -546,6 +565,32 @@ function isTruthy(value: unknown) {
 }
 
 export class ProposalsService {
+  async listProposalTemplates(clinicId: string, includeInactive = false): Promise<ProposalTemplateResponse[]> {
+    const filters = includeInactive ? "" : "AND is_active = 1";
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              template_key as templateKey,
+              name,
+              description,
+              package_name as packageName,
+              default_sections as defaultSections,
+              default_roadmap as defaultRoadmap,
+              default_terms as defaultTerms,
+              default_success_metrics as defaultSuccessMetrics,
+              sort_order as sortOrder,
+              is_active as isActive,
+              created_at as createdAt,
+              updated_at as updatedAt
+       FROM proposal_template
+       WHERE clinic_id = ?
+         ${filters}
+       ORDER BY sort_order ASC, name ASC`,
+      [clinicId],
+    );
+
+    return rows.map(mapProposalTemplate);
+  }
+
   async listProposals(clinicId: string, query: ProposalListQuery = {}): Promise<ProposalResponse[]> {
     const where = ["p.clinic_id = ?"];
     const values: any[] = [clinicId];

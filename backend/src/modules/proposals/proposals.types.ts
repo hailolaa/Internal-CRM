@@ -243,6 +243,22 @@ export interface ProposalCommercialItem {
   note?: string | null;
 }
 
+export interface ProposalTemplateResponse {
+  id: string;
+  templateKey: string;
+  name: string;
+  description: string | null;
+  packageName: string | null;
+  defaultSections: ProposalSectionContent | null;
+  defaultRoadmap: string[];
+  defaultTerms: string | null;
+  defaultSuccessMetrics: string[];
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProposalShareResponse {
   proposalId: string;
   proposalUrl: string;

@@ -8,7 +8,7 @@ import { AlertBanner, PageHeader } from "@/components/ui";
 import { ClinicGrowerProposalTemplate } from "@/components/proposals/clinicgrower-proposal-template";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { GrowthPackageRecord, ProposalCommercialItem, ProposalPayload, ProposalPublicRecord, ProposalRecord, ProposalSectionContent, ProposalSourceDataRecord } from "@/lib/api-types";
+import type { GrowthPackageRecord, ProposalCommercialItem, ProposalPayload, ProposalPublicRecord, ProposalRecord, ProposalSectionContent, ProposalSourceDataRecord, ProposalTemplateRecord } from "@/lib/api-types";
 import {
   PROPOSAL_EDITOR_STATUSES,
   isCurrentProposalRequest,
@@ -20,21 +20,76 @@ import {
   type ProposalIdentity,
 } from "@/lib/proposal-editor-state";
 
-const proposalTemplates = [
+const defaultProposalIntroVideoUrl = "https://vimeo.com/1008757315?fl=pl&fe=sh";
+
+const fallbackProposalTemplates: ProposalTemplateRecord[] = [
   {
-    key: "clinicgrower_standard",
-    label: "ClinicGrower standard",
+    id: "fallback-clinic-growth-engine",
+    templateKey: "clinicgrower_standard",
+    name: "Clinic Growth Engine",
     description: "Default sales proposal for Growth Score, growth plan and ongoing package recommendations.",
+    packageName: "Growth Engine",
+    defaultSections: {
+      executiveSummary: "This proposal is built around the growth gaps we can see today, the commercial opportunity available, and the practical plan to turn more existing demand into booked, trackable enquiries.",
+      personalIntroduction: "I have kept this proposal focused on the areas that matter most: visibility, conversion, tracking, lead handling and the first actions needed to create measurable progress.",
+      diagnosis: "The main opportunity is not simply more activity. The priority is to connect the website, tracking, paid media, follow-up process and reporting into one growth system that the team can trust.",
+      introVideoUrl: defaultProposalIntroVideoUrl,
+      introVideoTitle: "A short message from ClinicGrower",
+      recommendedPlan: "Build a joined-up ClinicGrower growth engine across website conversion, tracking, campaign structure, lead handling and performance reporting.",
+    },
+    defaultRoadmap: [
+      "Confirm offer, goals, access and commercial assumptions",
+      "Complete tracking and visibility foundations",
+      "Launch agreed campaign and conversion improvements",
+      "Review first performance signals and tighten lead handling",
+      "Scale the strongest channels and agree the next growth priority",
+    ],
+    defaultTerms: "Monthly service with the agreed minimum term, notice period, start date, VAT position and ad spend note confirmed before launch.",
+    defaultSuccessMetrics: [
+      "Qualified enquiries",
+      "Booked calls or consultations",
+      "Speed to lead",
+      "Tracking completeness",
+      "Pipeline and revenue visibility",
+    ],
+    sortOrder: 10,
+    isActive: true,
+    createdAt: "",
+    updatedAt: "",
   },
   {
-    key: "growth_score_follow_up",
-    label: "Growth Score follow-up",
-    description: "Used after a free audit or Growth Score review when the next step is a paid package.",
-  },
-  {
-    key: "bespoke_growth_plan",
-    label: "Bespoke growth plan",
+    id: "fallback-bespoke-growth-plan",
+    templateKey: "bespoke_growth_plan",
+    name: "Bespoke Growth Plan",
     description: "Flexible structure for custom scope, mixed delivery or multi-location opportunities.",
+    packageName: "Bespoke Growth Plan",
+    defaultSections: {
+      executiveSummary: "This proposal is shaped around the specific commercial situation, constraints and growth priorities discussed so the scope can stay practical rather than generic.",
+      personalIntroduction: "I have used the agreed context as the starting point and left the scope flexible enough to match the level of support required.",
+      diagnosis: "The opportunity needs a tailored plan because the growth constraints, delivery requirements or commercial model do not fit a standard package cleanly.",
+      introVideoUrl: defaultProposalIntroVideoUrl,
+      introVideoTitle: "A short message from ClinicGrower",
+      recommendedPlan: "Create a bespoke growth plan with agreed priorities, responsibilities, milestones and reporting.",
+    },
+    defaultRoadmap: [
+      "Confirm bespoke scope and commercial objective",
+      "Agree access, responsibilities and first milestone",
+      "Deliver the first priority workstream",
+      "Review early results and blockers",
+      "Confirm the next phase or package recommendation",
+    ],
+    defaultTerms: "Bespoke terms should be confirmed against the agreed scope, payment timing, start date, minimum commitment and notice period.",
+    defaultSuccessMetrics: [
+      "Agreed milestone completion",
+      "Enquiry or conversion visibility",
+      "Priority blocker removal",
+      "Client-side readiness",
+      "Next-phase decision clarity",
+    ],
+    sortOrder: 20,
+    isActive: true,
+    createdAt: "",
+    updatedAt: "",
   },
 ];
 
@@ -50,8 +105,6 @@ const statusOptions = PROPOSAL_EDITOR_STATUSES.map((value) => ({
   value,
   label: statusLabels[value],
 }));
-
-const defaultProposalIntroVideoUrl = "https://vimeo.com/1008757315?fl=pl&fe=sh";
 
 type ProposalForm = {
   contactId: string;
@@ -419,6 +472,59 @@ function mergeIfBlank(currentValue: string, suggestedValue: string | null | unde
   return currentValue.trim() ? currentValue : suggestedValue || "";
 }
 
+function mergeIntroVideoUrl(currentValue: string, suggestedValue: string | null | undefined) {
+  if (!suggestedValue) return currentValue;
+  return !currentValue.trim() || currentValue === defaultProposalIntroVideoUrl ? suggestedValue : currentValue;
+}
+
+function formWithTemplateDefaults(current: ProposalForm, template: ProposalTemplateRecord): ProposalForm {
+  const sections = template.defaultSections || {};
+  const timeline = sections.timeline || template.defaultRoadmap.join("\n");
+  const successMetrics = (sections.successMetrics || template.defaultSuccessMetrics).join("\n");
+  return {
+    ...current,
+    templateKey: template.templateKey,
+    packageName: mergeIfBlank(current.packageName, template.packageName),
+    executiveSummary: mergeIfBlank(current.executiveSummary, sections.executiveSummary),
+    personalIntroduction: mergeIfBlank(current.personalIntroduction, sections.personalIntroduction),
+    diagnosis: mergeIfBlank(current.diagnosis, sections.diagnosis),
+    introVideoUrl: mergeIntroVideoUrl(current.introVideoUrl, sections.introVideoUrl),
+    introVideoTitle: mergeIfBlank(current.introVideoTitle, sections.introVideoTitle),
+    fallbackVideoUrl: mergeIfBlank(current.fallbackVideoUrl, sections.fallbackVideoUrl),
+    primaryGoal: mergeIfBlank(current.primaryGoal, sections.primaryGoal),
+    currentPosition: mergeIfBlank(current.currentPosition, sections.currentPosition),
+    availableCapacity: mergeIfBlank(current.availableCapacity, sections.availableCapacity),
+    priorityTreatments: mergeIfBlank(current.priorityTreatments, sections.priorityTreatments),
+    targetArea: mergeIfBlank(current.targetArea, sections.targetArea),
+    desiredOutcome: mergeIfBlank(current.desiredOutcome, sections.desiredOutcome),
+    biggestRisk: mergeIfBlank(current.biggestRisk, sections.biggestRisk),
+    biggestOpportunity: mergeIfBlank(current.biggestOpportunity, sections.biggestOpportunity),
+    firstRecommendedFix: mergeIfBlank(current.firstRecommendedFix, sections.firstRecommendedFix),
+    currentMonthlyEnquiries: mergeIfBlank(current.currentMonthlyEnquiries, sections.currentMonthlyEnquiries),
+    currentMonthlyBookedPatients: mergeIfBlank(current.currentMonthlyBookedPatients, sections.currentMonthlyBookedPatients),
+    targetBookings: mergeIfBlank(current.targetBookings, sections.targetBookings),
+    consultationValue: mergeIfBlank(current.consultationValue, sections.consultationValue),
+    averageTreatmentValue: mergeIfBlank(current.averageTreatmentValue, sections.averageTreatmentValue),
+    availableCommercialCapacity: mergeIfBlank(current.availableCommercialCapacity, sections.availableCommercialCapacity),
+    recommendedAdSpend: mergeIfBlank(current.recommendedAdSpend, sections.recommendedAdSpend),
+    estimatedCostPerLead: mergeIfBlank(current.estimatedCostPerLead, sections.estimatedCostPerLead),
+    estimatedLeads: mergeIfBlank(current.estimatedLeads, sections.estimatedLeads),
+    estimatedBookedPatients: mergeIfBlank(current.estimatedBookedPatients, sections.estimatedBookedPatients),
+    breakEvenBookings: mergeIfBlank(current.breakEvenBookings, sections.breakEvenBookings),
+    commercialDataSource: mergeIfBlank(current.commercialDataSource, sections.commercialDataSource),
+    recommendedPlan: mergeIfBlank(current.recommendedPlan, sections.recommendedPlan),
+    strategyPoints: mergeIfBlank(current.strategyPoints, (sections.strategyPoints || []).join("\n")),
+    includedFeatures: mergeIfBlank(current.includedFeatures, (sections.includedFeatures || []).join("\n")),
+    successMetrics: mergeIfBlank(current.successMetrics, successMetrics),
+    clinicGrowerResponsibilities: mergeIfBlank(current.clinicGrowerResponsibilities, (sections.clinicGrowerResponsibilities || []).join("\n")),
+    clientResponsibilities: mergeIfBlank(current.clientResponsibilities, (sections.clientResponsibilities || []).join("\n")),
+    timeline: mergeIfBlank(current.timeline, timeline),
+    termsSummary: mergeIfBlank(current.termsSummary, sections.termsSummary || template.defaultTerms),
+    investmentNotes: mergeIfBlank(current.investmentNotes, sections.investmentNotes),
+    nextSteps: mergeIfBlank(current.nextSteps, sections.nextSteps),
+  };
+}
+
 function formWithSourceData(current: ProposalForm, sourceData: ProposalSourceDataRecord): ProposalForm {
   const suggested = sourceData.suggested;
   const sections = suggested.sectionContent || {};
@@ -499,6 +605,7 @@ export default function ProposalEditPage() {
   const saveRequestRef = useRef(0);
   const [form, setForm] = useState<ProposalForm>(() => createInitialForm(searchParams));
   const [packages, setPackages] = useState<GrowthPackageRecord[]>([]);
+  const [proposalTemplates, setProposalTemplates] = useState<ProposalTemplateRecord[]>(fallbackProposalTemplates);
   const [isLoading, setIsLoading] = useState(Boolean(proposalId));
   const [isSaving, setIsSaving] = useState(false);
   const [isPullingSourceData, setIsPullingSourceData] = useState(false);
@@ -523,8 +630,8 @@ export default function ProposalEditPage() {
     isLoading || routeHasMismatchedProposal || routeAwaitsProposal;
 
   const selectedTemplate = useMemo(
-    () => proposalTemplates.find((item) => item.key === form.templateKey) || proposalTemplates[0],
-    [form.templateKey],
+    () => proposalTemplates.find((item) => item.templateKey === form.templateKey) || proposalTemplates[0],
+    [form.templateKey, proposalTemplates],
   );
 
   const selectedPackage = useMemo(
@@ -564,6 +671,16 @@ export default function ProposalEditPage() {
     setForm((current) => ({ ...current, ...patch }));
   };
 
+  const applyProposalTemplate = (templateKey: string) => {
+    if (!canEditCurrentProposal) return;
+    const template = proposalTemplates.find((item) => item.templateKey === templateKey);
+    if (!template) {
+      updateForm({ templateKey });
+      return;
+    }
+    setForm((current) => formWithTemplateDefaults(current, template));
+  };
+
   useEffect(() => {
     let active = true;
     sourceRequestRef.current += 1;
@@ -574,6 +691,7 @@ export default function ProposalEditPage() {
 
       setForm(createInitialForm(routeSearchParams));
       setPackages([]);
+      setProposalTemplates(fallbackProposalTemplates);
       setSavedProposalId("");
       setSourceData(null);
       setLoadedIdentity(identityFromSearchParams(routeSearchParams));
@@ -589,18 +707,26 @@ export default function ProposalEditPage() {
 
       setIsLoading(true);
       try {
-        const [packageRecords, proposalRecord] = await Promise.all([
+        const [packageRecords, templateRecords, proposalRecord] = await Promise.all([
           loadOptionalProposalPackages(
             () => api.packages.list(token, { includeInactive: true }),
           ),
+          api.proposals.templates(token).catch(() => fallbackProposalTemplates),
           proposalId ? api.proposals.get(token, proposalId) : Promise.resolve(null),
         ]);
         if (!active) return;
+        const activeTemplates = templateRecords.length ? templateRecords : fallbackProposalTemplates;
         setPackages(packageRecords);
+        setProposalTemplates(activeTemplates);
         if (proposalRecord) {
           setForm(formFromProposal(proposalRecord));
           setSavedProposalId(proposalRecord.id);
           setLoadedIdentity(proposalIdentityFromRecord(proposalRecord));
+        } else {
+          const initialTemplate = activeTemplates.find((item) => item.templateKey === routeSearchParams.get("templateKey")) ||
+            activeTemplates.find((item) => item.templateKey === "clinicgrower_standard") ||
+            activeTemplates[0];
+          setForm((current) => formWithTemplateDefaults(current, initialTemplate));
         }
       } catch (loadError: unknown) {
         if (!active) return;
@@ -857,12 +983,12 @@ export default function ProposalEditPage() {
                       Template
                       <select
                         value={form.templateKey}
-                        onChange={(event) => updateForm({ templateKey: event.target.value })}
+                        onChange={(event) => applyProposalTemplate(event.target.value)}
                         className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                       >
                         {proposalTemplates.map((template) => (
-                          <option key={template.key} value={template.key}>
-                            {template.label}
+                          <option key={template.id} value={template.templateKey}>
+                            {template.name}
                           </option>
                         ))}
                       </select>
@@ -1354,7 +1480,7 @@ export default function ProposalEditPage() {
                     Client-facing output
                   </p>
                   <h2 id="proposal-live-preview-title" className="mt-1 text-lg font-semibold text-[#14231f]">
-                    Live {selectedTemplate.label} preview
+                    Live {selectedTemplate.name} preview
                   </h2>
                 </div>
                 <p className="max-w-xl text-sm text-[#5b7069]">

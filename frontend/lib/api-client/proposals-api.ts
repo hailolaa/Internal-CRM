@@ -9,10 +9,11 @@ import type {
   ProposalSourceDataParams,
   ProposalSourceDataRecord,
   ProposalStatusUpdatePayload,
+  ProposalTemplateRecord,
 } from "@/lib/api-types";
 import { downloadCsv, type ApiRequest } from "./core";
 
-function toQuery(params: ProposalListParams = {}) {
+function toQuery(params: object = {}) {
   const searchParams = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined || value === null || value === "") return;
@@ -54,6 +55,14 @@ export function createProposalsApi(apiRequest: ApiRequest) {
         const query = toQuery(params);
         const response = await apiRequest<ProposalSourceDataRecord>(
           `/api/proposals/source-data${query ? `?${query}` : ""}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async templates(token: string, params: { includeInactive?: boolean } = {}) {
+        const query = toQuery(params);
+        const response = await apiRequest<ProposalTemplateRecord[]>(
+          `/api/proposals/templates${query ? `?${query}` : ""}`,
           { token },
         );
         return response.data!;

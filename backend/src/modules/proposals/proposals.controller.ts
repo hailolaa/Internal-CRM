@@ -24,6 +24,17 @@ export class ProposalsController {
     }
   };
 
+  listProposalTemplates = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const includeInactive = req.query.includeInactive === "true";
+      const templates = await proposalsService.listProposalTemplates(clinicId, includeInactive);
+      res.status(200).json({ status: "success", data: templates });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   exportProposalsCsv = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId } = (req as any).user;

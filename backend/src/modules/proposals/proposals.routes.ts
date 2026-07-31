@@ -60,6 +60,12 @@ router.get(
 );
 
 router.get(
+  "/templates",
+  authorizePermission("proposals:read"),
+  proposalsController.listProposalTemplates,
+);
+
+router.get(
   "/:id",
   authorizePermission("proposals:read"),
   proposalIdParamValidator,
