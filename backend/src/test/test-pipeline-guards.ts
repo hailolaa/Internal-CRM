@@ -1,29 +1,46 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { v4 as uuidv4 } from "uuid";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
 import { contactsService } from "../modules/contacts/contacts.service.js";
 import { pipelineDealsService } from "../modules/pipeline/pipeline.deals.service.js";
 import { pipelineService } from "../modules/pipeline/pipeline.service.js";
+import { hashPassword } from "../utils/helpers.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
 }
 
 async function createClinicAndAdmin(prefix: string) {
+  const clinicId = uuidv4();
+  const userId = uuidv4();
   const email = uniqueEmail(`${prefix}_admin`);
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: email,
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
+
+  await pool.execute(
+    `INSERT INTO clinic
+      (id, name, email, phone, timezone, subscription_plan, subscription_status, max_users)
+     VALUES (?, ?, ?, '555-0100', 'Europe/London', 'professional', 'active', 20)`,
+    [clinicId, `${prefix} Workspace`, email],
+  );
+
+  await pool.execute(
+    `INSERT INTO user
+      (id, clinic_id, email, password_hash, first_name, last_name, phone, role,
+       email_verified_at, status, is_active)
+     VALUES (?, ?, ?, ?, ?, 'Admin', '555-0100', 'SUPER_ADMIN',
+       CURRENT_TIMESTAMP, 'active', 1)`,
+    [userId, clinicId, email, await hashPassword("password123"), prefix],
+  );
+
+  await pool.execute(
+    `INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary)
+     VALUES (?, ?, 'SUPER_ADMIN', 'active', 1)`,
+    [userId, clinicId],
+  );
 
   return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
+    clinicId,
+    userId,
   };
 }
 
@@ -189,4 +206,104 @@ test("pipeline deal move is denied across clinics", async () => {
        AND deleted_at IS NULL`,
     [deal.id, primary.clinicId],
   );
+});
+
+test("marking a lead lost requires reasons and syncs linked sales records", async () => {
+  await testConnection();
+
+  const primary = await createClinicAndAdmin("LeadLostSync");
+  const contact = await createContact(primary.clinicId, primary.userId, "LeadLostSync");
+  const stages = await pipelineService.listStages(primary.clinicId, primary.userId);
+  const openStage = stages.find((stage) => stage.kind === "open") || stages[0];
+  const lostStage = stages.find((stage) => stage.kind === "lost");
+  assert.ok(openStage, "Expected an open stage");
+  assert.ok(lostStage, "Expected a lost stage");
+
+  const deal = await pipelineDealsService.createDeal(primary.clinicId, primary.userId, {
+    contactId: contact.id,
+    stageId: openStage.id,
+    valueCents: 199500,
+    source: "website",
+    treatment: "Growth Engine",
+    probability: 40,
+  });
+  const proposalId = uuidv4();
+  await pool.execute(
+    `INSERT INTO proposal
+      (id, clinic_id, contact_id, deal_id, proposal_name, package_name, status, value, created_by, updated_by)
+     VALUES (?, ?, ?, ?, 'Lost sync proposal', 'Growth Engine', 'sent', 1995.00, ?, ?)`,
+    [proposalId, primary.clinicId, contact.id, deal.id, primary.userId, primary.userId],
+  );
+
+  try {
+    await assert.rejects(
+      () => contactsService.updateContactProfile(primary.clinicId, primary.userId, contact.id, {
+        status: "lost",
+      }),
+      (error: any) =>
+        error?.statusCode === 400
+        && typeof error?.message === "string"
+        && error.message.includes("Lost reason"),
+      "A lead cannot be marked lost without a reason",
+    );
+
+    const updated = await contactsService.updateContactProfile(primary.clinicId, primary.userId, contact.id, {
+      status: "lost",
+      lostReason: "budget",
+      objectionType: "timing",
+    });
+    assert.equal(updated.status, "lost");
+    assert.equal(updated.leadStatus, "lost");
+    assert.equal(updated.lostReason, "budget");
+    assert.equal(updated.objectionType, "timing");
+
+    const [dealRows]: any = await pool.execute(
+      `SELECT status,
+              pipeline_stage_id as stageId,
+              lost_reason as lostReason,
+              objection_type as objectionType
+       FROM deal
+       WHERE id = ? AND clinic_id = ?`,
+      [deal.id, primary.clinicId],
+    );
+    assert.equal(dealRows[0].status, "lost");
+    assert.equal(dealRows[0].stageId, lostStage.id);
+    assert.equal(dealRows[0].lostReason, "budget");
+    assert.equal(dealRows[0].objectionType, "timing");
+
+    const [proposalRows]: any = await pool.execute(
+      `SELECT status, lost_reason as lostReason, objection_type as objectionType
+       FROM proposal
+       WHERE id = ? AND clinic_id = ?`,
+      [proposalId, primary.clinicId],
+    );
+    assert.equal(proposalRows[0].status, "lost");
+    assert.equal(proposalRows[0].lostReason, "budget");
+    assert.equal(proposalRows[0].objectionType, "timing");
+
+    const [timelineRows]: any = await pool.execute(
+      `SELECT COUNT(*) as total
+       FROM activity
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.lostReason')) = 'budget'
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.changes.objectionType')) = 'timing'`,
+      [primary.clinicId, contact.id],
+    );
+    assert.ok(Number(timelineRows[0].total) >= 1, "Timeline should include the lost reason and objection");
+
+    const [auditRows]: any = await pool.execute(
+      `SELECT COUNT(*) as total
+       FROM audit_log
+       WHERE clinic_id = ?
+         AND action IN ('CONTACT_UPDATED', 'PIPELINE_DEAL_MOVED', 'PROPOSAL_STATUS_CHANGED')
+         AND JSON_UNQUOTE(JSON_EXTRACT(changes, '$.lostReason')) = 'budget'`,
+      [primary.clinicId],
+    );
+    assert.ok(Number(auditRows[0].total) >= 3, "Audit records should expose lost reason for reporting");
+  } finally {
+    await pool.execute("DELETE FROM proposal WHERE id = ?", [proposalId]);
+    await pool.execute("DELETE FROM deal WHERE id = ? AND clinic_id = ?", [deal.id, primary.clinicId]);
+    await pool.execute("UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND clinic_id = ?", [contact.id, primary.clinicId]);
+  }
 });

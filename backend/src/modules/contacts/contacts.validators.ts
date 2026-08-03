@@ -105,6 +105,18 @@ const contactMutationValidator = [
   body("leadStatus").optional({ nullable: true }).isString().trim().isLength({ max: 50 }),
   body("lostReason").optional({ nullable: true }).isIn(salesLossReasons),
   body("objectionType").optional({ nullable: true }).isIn(salesObjectionTypes),
+  body().custom((value) => {
+    const status = String(value.status || "").toLowerCase();
+    const leadStatus = String(value.leadStatus || "").toLowerCase();
+    if (status !== "lost" && leadStatus !== "lost") return true;
+    if (!salesLossReasons.includes(value.lostReason)) {
+      throw new Error("Lost reason is required when marking a lead lost");
+    }
+    if (!salesObjectionTypes.includes(value.objectionType)) {
+      throw new Error("Objection type is required when marking a lead lost");
+    }
+    return true;
+  }),
   body("source").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
   ...attributionTextFields.map((field) =>
     body(field).optional({ nullable: true }).isString().trim().isLength({ max: 150 }),

@@ -14,6 +14,10 @@ import { AlertBanner, Card, SkeletonLine } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import type { ContactRecord, ContactUpdatePayload } from "@/lib/api-types";
+import {
+  SALES_LOSS_REASON_OPTIONS,
+  SALES_OBJECTION_TYPE_OPTIONS,
+} from "@/lib/sales-outcomes";
 
 type FieldKey =
   | "clinicName"
@@ -29,6 +33,8 @@ type FieldKey =
   | "county"
   | "postcode"
   | "status"
+  | "lostReason"
+  | "objectionType"
   | "source"
   | "firstSource"
   | "latestSource"
@@ -90,6 +96,8 @@ function toFields(contact: ContactRecord): Record<FieldKey, string> {
     county: contact.state || "",
     postcode: contact.postalCode || "",
     status: contact.status || "lead",
+    lostReason: contact.lostReason || "",
+    objectionType: contact.objectionType || "",
     source: contact.source || "",
     firstSource: contact.firstSource || "",
     latestSource: contact.latestSource || "",
@@ -150,6 +158,11 @@ function validateFields(fields: Record<FieldKey, string>) {
     return "Enter a valid website domain or URL.";
   }
 
+  if (fields.status === "lost") {
+    if (!fields.lostReason) return "Choose a lost reason before saving.";
+    if (!fields.objectionType) return "Choose an objection type before saving.";
+  }
+
   return "";
 }
 
@@ -178,6 +191,8 @@ export default function EditContactPage() {
     county: "",
     postcode: "",
     status: "lead",
+    lostReason: "",
+    objectionType: "",
     source: "",
     firstSource: "",
     latestSource: "",
@@ -348,6 +363,9 @@ export default function EditContactPage() {
       state: emptyToNull(fields.county),
       postalCode: emptyToNull(fields.postcode),
       status: emptyToNull(fields.status),
+      leadStatus: fields.status === "lost" ? "lost" : undefined,
+      lostReason: fields.status === "lost" ? emptyToNull(fields.lostReason) : null,
+      objectionType: fields.status === "lost" ? emptyToNull(fields.objectionType) : null,
       source: emptyToNull(fields.source),
       firstSource: emptyToNull(fields.firstSource),
       latestSource: emptyToNull(fields.latestSource),
@@ -741,6 +759,45 @@ export default function EditContactPage() {
                     ) && <option value={fields.status}>{fields.status}</option>}
                 </select>
               </div>
+              {fields.status === "lost" ? (
+                <div className="grid gap-4 rounded-[14px] border border-[#ead4cb] bg-[#fff8f4] p-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                      Lost reason
+                    </label>
+                    <select
+                      value={fields.lostReason}
+                      onChange={handleSelectChange("lostReason")}
+                      className={selectBase}
+                      required
+                    >
+                      <option value="">Choose reason</option>
+                      {SALES_LOSS_REASON_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                      Objection type
+                    </label>
+                    <select
+                      value={fields.objectionType}
+                      onChange={handleSelectChange("objectionType")}
+                      className={selectBase}
+                      required
+                    >
+                      <option value="">Choose objection</option>
+                      {SALES_OBJECTION_TYPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-sm text-[#7A746A] sm:col-span-2">
+                    Saving this as lost also updates linked open opportunities and active proposals with the same reason.
+                  </p>
+                </div>
+              ) : null}
               <div>
                 <label className="block text-sm font-medium text-[#111111] mb-1.5">
                   Source

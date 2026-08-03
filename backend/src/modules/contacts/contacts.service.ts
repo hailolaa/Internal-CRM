@@ -1,9 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
+import type { PoolConnection } from "mysql2/promise";
 import pool from "../../config/database.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { csvRows } from "../../utils/csv.js";
-import { buildTimelineMetadata, logTimelineActivity, type ActivityType } from "../../utils/activity.js";
-import { logAuditEvent } from "../../utils/audit.js";
+import { buildTimelineMetadata, insertTimelineActivity, logTimelineActivity, type ActivityType } from "../../utils/activity.js";
+import { insertAuditEvent, logAuditEvent } from "../../utils/audit.js";
 import { phase1TimelineActions } from "../events/phase1-events.js";
 import { appointmentsService } from "../appointments/appointments.service.js";
 import { callsService } from "../calls/calls.service.js";
@@ -40,6 +41,10 @@ import {
 } from "./contacts.queries.js";
 import { slaService } from "../sla/sla.service.js";
 import { isAuditWorkflowStatus } from "../audit-workflow/audit-workflow.constants.js";
+import {
+  insertPipelineDealMovement,
+  movePipelineDealStage,
+} from "../pipeline/pipeline.deals.persistence.js";
 import type {
   ContactTimelineActivity,
   ContactDrawerActionContext,
@@ -191,6 +196,15 @@ function normalizeCallDemoDate(value: unknown) {
   if (!value) return null;
   const parsed = new Date(String(value));
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function toMysqlDateTime(value?: string | null) {
+  const date = value ? new Date(value) : new Date();
+  return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+function isLostStatus(value?: string | null) {
+  return String(value || "").toLowerCase() === "lost";
 }
 
 function salesCallDemoTitle(data: {
@@ -460,6 +474,202 @@ async function fetchGoogleSheetRows(sourceUrl: string) {
 }
 
 export class ContactsService {
+  private async syncLostContactRelations(
+    connection: PoolConnection,
+    clinicId: string,
+    userId: string,
+    contact: ContactResponse,
+    outcome: { lostReason: string; objectionType: string },
+  ) {
+    const lostAt = toMysqlDateTime();
+
+    const [proposalRows]: any = await connection.execute(
+      `SELECT id, proposal_name as proposalName, status, deal_id as dealId
+       FROM proposal
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND status IN ('draft', 'ready', 'sent', 'viewed', 'follow_up_due')
+         AND deleted_at IS NULL
+       FOR UPDATE`,
+      [clinicId, contact.id],
+    );
+
+    if (proposalRows.length > 0) {
+      await connection.execute(
+        `UPDATE proposal
+         SET status = 'lost',
+             lost_at = COALESCE(lost_at, ?),
+             lost_reason = ?,
+             objection_type = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE clinic_id = ?
+           AND contact_id = ?
+           AND status IN ('draft', 'ready', 'sent', 'viewed', 'follow_up_due')
+           AND deleted_at IS NULL`,
+        [lostAt, outcome.lostReason, outcome.objectionType, clinicId, contact.id],
+      );
+
+      for (const proposal of proposalRows) {
+        await insertTimelineActivity(connection, {
+          clinicId,
+          contactId: contact.id,
+          type: "StatusChange",
+          userId,
+          metadata: buildTimelineMetadata({
+            action: "proposal_status_changed",
+            source: "proposal",
+            recordId: proposal.id,
+            title: proposal.proposalName,
+            previousStatus: proposal.status,
+            status: "lost",
+            changes: {
+              previousStatus: proposal.status,
+              status: "lost",
+              lostReason: outcome.lostReason,
+              objectionType: outcome.objectionType,
+              syncedFrom: "contact",
+            },
+          }),
+        });
+        await insertAuditEvent(connection, {
+          clinicId,
+          userId,
+          action: "PROPOSAL_STATUS_CHANGED",
+          entityType: "proposal",
+          entityId: proposal.id,
+          changes: {
+            previousStatus: proposal.status,
+            status: "lost",
+            contactId: contact.id,
+            lostReason: outcome.lostReason,
+            objectionType: outcome.objectionType,
+            syncedFrom: "contact",
+          },
+        });
+      }
+    }
+
+    const [dealRows]: any = await connection.execute(
+      `SELECT d.id,
+              d.pipeline_id as pipelineId,
+              d.pipeline_stage_id as stageId,
+              COALESCE(ps.name, d.stage) as stageName,
+              d.status,
+              lost_stage.id as lostStageId,
+              lost_stage.name as lostStageName
+       FROM deal d
+       LEFT JOIN pipeline_stage ps
+         ON ps.id = d.pipeline_stage_id
+        AND ps.clinic_id = d.clinic_id
+        AND ps.deleted_at IS NULL
+       LEFT JOIN pipeline_stage lost_stage
+         ON lost_stage.pipeline_id = d.pipeline_id
+        AND lost_stage.clinic_id = d.clinic_id
+        AND lost_stage.kind = 'lost'
+        AND lost_stage.deleted_at IS NULL
+        AND lost_stage.position = (
+          SELECT MIN(inner_lost.position)
+          FROM pipeline_stage inner_lost
+          WHERE inner_lost.pipeline_id = d.pipeline_id
+            AND inner_lost.clinic_id = d.clinic_id
+            AND inner_lost.kind = 'lost'
+            AND inner_lost.deleted_at IS NULL
+        )
+       WHERE d.clinic_id = ?
+         AND d.contact_id = ?
+         AND d.status NOT IN ('won', 'lost')
+         AND d.deleted_at IS NULL
+       FOR UPDATE`,
+      [clinicId, contact.id],
+    );
+
+    for (const deal of dealRows) {
+      if (!deal.lostStageId) {
+        throw ApiError.badRequest("Linked opportunity pipeline does not have a Lost stage.");
+      }
+
+      const moved = await movePipelineDealStage(
+        clinicId,
+        deal.id,
+        {
+          stageId: deal.lostStageId,
+          stageName: deal.lostStageName,
+          status: "lost",
+          soldAt: null,
+          lostAt,
+          lostReason: outcome.lostReason,
+          objectionType: outcome.objectionType,
+        },
+        deal.stageId,
+        connection,
+      );
+      if (moved !== 1) {
+        throw ApiError.conflict("Opportunity moved while this lead was being marked lost.");
+      }
+
+      const movementId = uuidv4();
+      await insertPipelineDealMovement({
+        id: movementId,
+        clinicId,
+        dealId: deal.id,
+        pipelineId: deal.pipelineId,
+        fromStageId: deal.stageId,
+        toStageId: deal.lostStageId,
+        fromStage: deal.stageName,
+        toStage: deal.lostStageName,
+        movedBy: userId,
+        metadata: {
+          source: "contact",
+          contactId: contact.id,
+          previousStatus: deal.status,
+          status: "lost",
+          lostReason: outcome.lostReason,
+          objectionType: outcome.objectionType,
+        },
+      }, connection);
+      await insertTimelineActivity(connection, {
+        clinicId,
+        contactId: contact.id,
+        type: "StatusChange",
+        userId,
+        metadata: buildTimelineMetadata({
+          action: phase1TimelineActions.leadStageChanged,
+          source: "pipeline",
+          recordId: deal.id,
+          previousStatus: deal.status,
+          status: "lost",
+          changes: {
+            fromStage: deal.stageName,
+            toStage: deal.lostStageName,
+            lostReason: outcome.lostReason,
+            objectionType: outcome.objectionType,
+            syncedFrom: "contact",
+          },
+        }),
+      });
+      await insertAuditEvent(connection, {
+        clinicId,
+        userId,
+        action: "PIPELINE_DEAL_MOVED",
+        entityType: "deal",
+        entityId: deal.id,
+        changes: {
+          fromStageId: deal.stageId,
+          toStageId: deal.lostStageId,
+          fromStage: deal.stageName,
+          toStage: deal.lostStageName,
+          previousStatus: deal.status,
+          status: "lost",
+          movementId,
+          contactId: contact.id,
+          lostReason: outcome.lostReason,
+          objectionType: outcome.objectionType,
+          syncedFrom: "contact",
+        },
+      });
+    }
+  }
+
   // List active clinic contacts with the search and facets used by the lead inbox
   async listContacts(clinicId: string, query: ContactListQuery): Promise<ContactListResponse> {
     const page = Math.max(1, Number(query.page) || 1);
@@ -1030,11 +1240,131 @@ export class ContactsService {
     addField("notes", "notes", normalized.notes);
     addField("lastContactAt", "last_contact_at", normalized.lastContactAt);
 
-    if (fields.length === 0) {
-      return this.getContact(clinicId, contactId);
+    const existingContact = await this.getContact(clinicId, contactId);
+    const nextStatus = hasOwn(data, "status") ? normalized.status : existingContact.status;
+    const nextLeadStatus = hasOwn(data, "leadStatus") ? normalized.leadStatus : existingContact.leadStatus;
+    const isMarkingLost = isLostStatus(nextStatus) || isLostStatus(nextLeadStatus);
+    const lostOutcome = {
+      lostReason: hasOwn(data, "lostReason") ? normalized.lostReason : existingContact.lostReason || null,
+      objectionType: hasOwn(data, "objectionType") ? normalized.objectionType : existingContact.objectionType || null,
+    };
+
+    if (isMarkingLost) {
+      if (!lostOutcome.lostReason) {
+        throw ApiError.badRequest("Lost reason is required when marking a lead lost");
+      }
+      if (!lostOutcome.objectionType) {
+        throw ApiError.badRequest("Objection type is required when marking a lead lost");
+      }
+      if (!hasOwn(data, "lostReason")) {
+        fields.push("lost_reason = ?");
+        values.push(lostOutcome.lostReason);
+      }
+      if (!hasOwn(data, "objectionType")) {
+        fields.push("objection_type = ?");
+        values.push(lostOutcome.objectionType);
+      }
+      if (!hasOwn(data, "leadStatus") && !isLostStatus(existingContact.leadStatus)) {
+        fields.push("lead_status = ?");
+        values.push("lost");
+      }
+      if (!hasOwn(data, "status") && !isLostStatus(existingContact.status)) {
+        fields.push("status = ?");
+        values.push("lost");
+      }
     }
 
-    const existingContact = await this.getContact(clinicId, contactId);
+    if (fields.length === 0) {
+      return existingContact;
+    }
+
+    const statusChanged = hasOwn(data, "status") && data.status !== existingContact.status;
+    const leadStatusChanged = hasOwn(data, "leadStatus") && data.leadStatus !== existingContact.leadStatus;
+    const auditStatusChanged = hasOwn(data, "auditStatus") && normalized.auditStatus !== existingContact.auditStatus;
+    const contactChanges = {
+      ...data,
+      ...(isMarkingLost
+        ? {
+            lostReason: lostOutcome.lostReason,
+            objectionType: lostOutcome.objectionType,
+            leadStatus: nextLeadStatus || "lost",
+            status: nextStatus || "lost",
+          }
+        : {}),
+    };
+    const timelineMetadata = buildTimelineMetadata({
+      action: auditStatusChanged
+        ? "audit_status_changed"
+        : statusChanged || leadStatusChanged || isMarkingLost
+        ? phase1TimelineActions.leadStageChanged
+        : phase1TimelineActions.noteAdded,
+      source: "contact",
+      recordId: contactId,
+      previousStatus: existingContact.status,
+      status: hasOwn(data, "status") ? normalized.status : isMarkingLost ? "lost" : existingContact.status,
+      changes: {
+        changedFields: Object.keys(contactChanges),
+        previousLeadStatus: existingContact.leadStatus,
+        leadStatus: hasOwn(data, "leadStatus") ? normalized.leadStatus : isMarkingLost ? "lost" : existingContact.leadStatus,
+        previousAuditStatus: existingContact.auditStatus,
+        auditStatus: hasOwn(data, "auditStatus") ? normalized.auditStatus : existingContact.auditStatus,
+        auditAssignedTo: hasOwn(data, "auditAssignedTo") ? normalized.auditAssignedTo : existingContact.auditAssignedTo,
+        auditFollowUpDueAt: hasOwn(data, "auditFollowUpDueAt") ? normalized.auditFollowUpDueAt : existingContact.auditFollowUpDueAt,
+        ...(isMarkingLost
+          ? {
+              lostReason: lostOutcome.lostReason,
+              objectionType: lostOutcome.objectionType,
+            }
+          : {}),
+      },
+    });
+
+    if (isMarkingLost) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [result]: any = await connection.execute(
+          `UPDATE contact
+           SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+          [...values, contactId, clinicId],
+        );
+
+        if (result.affectedRows === 0) {
+          throw ApiError.notFound("Contact not found");
+        }
+
+        await this.syncLostContactRelations(connection, clinicId, userId, existingContact, {
+          lostReason: lostOutcome.lostReason!,
+          objectionType: lostOutcome.objectionType!,
+        });
+        await insertAuditEvent(connection, {
+          clinicId,
+          userId,
+          action: "CONTACT_UPDATED",
+          entityType: "contact",
+          entityId: contactId,
+          changes: contactChanges,
+          ipAddress: meta.ipAddress,
+          userAgent: meta.userAgent,
+        });
+        await insertTimelineActivity(connection, {
+          clinicId,
+          contactId,
+          userId,
+          type: "StatusChange",
+          metadata: timelineMetadata,
+        });
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
+
+      return this.getContact(clinicId, contactId);
+    }
 
     values.push(contactId, clinicId);
     const [result]: any = await pool.execute(
@@ -1054,40 +1384,17 @@ export class ContactsService {
       action: "CONTACT_UPDATED",
       entityType: "contact",
       entityId: contactId,
-      changes: { ...data },
+      changes: contactChanges,
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });
-
-    const statusChanged = hasOwn(data, "status") && data.status !== existingContact.status;
-    const leadStatusChanged = hasOwn(data, "leadStatus") && data.leadStatus !== existingContact.leadStatus;
-    const auditStatusChanged = hasOwn(data, "auditStatus") && normalized.auditStatus !== existingContact.auditStatus;
 
     await logTimelineActivity({
       clinicId,
       contactId,
       userId,
       type: statusChanged || leadStatusChanged || auditStatusChanged ? "StatusChange" : "Note",
-      metadata: buildTimelineMetadata({
-        action: auditStatusChanged
-          ? "audit_status_changed"
-          : statusChanged || leadStatusChanged
-          ? phase1TimelineActions.leadStageChanged
-          : phase1TimelineActions.noteAdded,
-        source: "contact",
-        recordId: contactId,
-        previousStatus: existingContact.status,
-        status: hasOwn(data, "status") ? normalized.status : existingContact.status,
-        changes: {
-          changedFields: Object.keys(data),
-          previousLeadStatus: existingContact.leadStatus,
-          leadStatus: hasOwn(data, "leadStatus") ? normalized.leadStatus : existingContact.leadStatus,
-          previousAuditStatus: existingContact.auditStatus,
-          auditStatus: hasOwn(data, "auditStatus") ? normalized.auditStatus : existingContact.auditStatus,
-          auditAssignedTo: hasOwn(data, "auditAssignedTo") ? normalized.auditAssignedTo : existingContact.auditAssignedTo,
-          auditFollowUpDueAt: hasOwn(data, "auditFollowUpDueAt") ? normalized.auditFollowUpDueAt : existingContact.auditFollowUpDueAt,
-        },
-      }),
+      metadata: timelineMetadata,
     });
 
     return this.getContact(clinicId, contactId);
