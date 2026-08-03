@@ -37,9 +37,8 @@ import {
   SortableHeader,
   PaginationControls,
 } from "@/components/ui/table-controls";
-import { useFilteredSortedPaginated } from "@/hooks/use-table";
 import { api } from "@/lib/api-client";
-import type { ContactRecord } from "@/lib/api-types";
+import type { ContactRecord, ContactSortBy, ContactSortOrder } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { saveBlobDownload } from "@/lib/download";
 
@@ -57,13 +56,33 @@ type ContactTableRow = {
   raw: ContactRecord;
 };
 
-const searchFn = (contact: ContactTableRow, query: string) =>
-  contact.name.toLowerCase().includes(query) ||
-  contact.email.toLowerCase().includes(query) ||
-  contact.phone.includes(query) ||
-  contact.source.toLowerCase().includes(query) ||
-  contact.status.toLowerCase().includes(query) ||
-  contact.tags.some((t) => t.toLowerCase().includes(query));
+const CONTACT_PAGE_SIZE = 25;
+
+const DEFAULT_STATUS_OPTIONS = [
+  "lead",
+  "prospect",
+  "contacted",
+  "qualified",
+  "discovery_call_booked",
+  "proposal_sent",
+  "client",
+  "active",
+  "lost",
+];
+
+const DEFAULT_TAG_OPTIONS = [
+  "Clinic Growth Score",
+  "Growth Diagnostic",
+  "Lead Concierge",
+  "Performance OS",
+  "Growth Engine",
+  "Market Leader",
+  "SEO",
+  "Google Ads",
+  "Meta Ads",
+  "Website",
+  "Referral",
+];
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-GB", {
@@ -71,6 +90,12 @@ function formatMoney(value: number) {
     currency: "GBP",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function formatFilterLabel(value: string) {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function formatLastContact(contact: ContactRecord) {
@@ -111,6 +136,16 @@ export default function ContactsPage() {
   const canDeleteContacts = hasPermission("contacts:delete");
   const canWriteContacts = hasPermission("contacts:write");
   const [contacts, setContacts] = useState<ContactTableRow[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortBy, setSortBy] = useState<ContactSortBy>("updatedAt");
+  const [sortDir, setSortDir] = useState<ContactSortOrder>("desc");
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: CONTACT_PAGE_SIZE,
+    total: 0,
+    totalPages: 1,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
@@ -122,23 +157,33 @@ export default function ContactsPage() {
   const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
-    if (!token) return;
-
     let isMounted = true;
-    api.contacts
-      .list(token, {
-        page: 1,
-        pageSize: 100,
-        sortBy: "updatedAt",
-        sortDir: "desc",
-      })
-      .then((result) => {
+
+    void Promise.resolve().then(async () => {
+      if (!token) return;
+
+      setIsLoading(true);
+      try {
+        const result = await api.contacts.list(token, {
+          page: currentPage,
+          pageSize: CONTACT_PAGE_SIZE,
+          search: searchQuery.trim() || undefined,
+          status: selectedStatus === "all" ? undefined : selectedStatus,
+          tag: selectedTag === "all" ? undefined : selectedTag,
+          sortBy,
+          sortDir,
+        });
         if (!isMounted) return;
         setLoadError("");
         const rows = result.contacts.map(toContactRow);
         setContacts(rows);
-      })
-      .catch((err) => {
+        setPagination({
+          page: result.pagination.page,
+          limit: result.pagination.limit,
+          total: result.pagination.total,
+          totalPages: Math.max(1, result.pagination.totalPages),
+        });
+      } catch (err) {
         if (!isMounted) return;
         setLoadError(
           err instanceof Error
@@ -146,38 +191,37 @@ export default function ContactsPage() {
             : "Unable to load contacts from the backend.",
         );
         setContacts([]);
-      })
-      .finally(() => {
+        setPagination({
+          page: 1,
+          limit: CONTACT_PAGE_SIZE,
+          total: 0,
+          totalPages: 1,
+        });
+      } finally {
         if (isMounted) setIsLoading(false);
-      });
+      }
+    });
 
     return () => {
       isMounted = false;
     };
-  }, [token]);
+  }, [currentPage, searchQuery, selectedStatus, selectedTag, sortBy, sortDir, token]);
 
   const statusOptions = useMemo(() => {
-    const statuses = new Set(contacts.map((contact) => contact.status).filter(Boolean));
+    const statuses = new Set([
+      ...DEFAULT_STATUS_OPTIONS,
+      ...contacts.map((contact) => contact.status).filter(Boolean),
+    ]);
     return Array.from(statuses).sort((a, b) => a.localeCompare(b));
   }, [contacts]);
 
   const tagOptions = useMemo(() => {
-    const tags = new Set(contacts.flatMap((contact) => contact.tags).filter(Boolean));
+    const tags = new Set([
+      ...DEFAULT_TAG_OPTIONS,
+      ...contacts.flatMap((contact) => contact.tags).filter(Boolean),
+    ]);
     return Array.from(tags).sort((a, b) => a.localeCompare(b));
   }, [contacts]);
-
-  const filteredContacts = useMemo(() => {
-    return contacts.filter((contact) => {
-      const statusMatches =
-        selectedStatus === "all" ||
-        contact.status.toLowerCase() === selectedStatus.toLowerCase();
-      const tagMatches =
-        selectedTag === "all" ||
-        contact.tags.some((tag) => tag.toLowerCase() === selectedTag.toLowerCase());
-
-      return statusMatches && tagMatches;
-    });
-  }, [contacts, selectedStatus, selectedTag]);
 
   const contactStats = useMemo(() => {
     const leadCount = contacts.filter((contact) =>
@@ -196,25 +240,42 @@ export default function ContactsPage() {
     return { leadCount, bookedCount, pipelineValue };
   }, [contacts]);
 
-  const {
-    searchQuery,
-    setSearchQuery,
-    toggleSort,
-    getSortDirection,
-    paginatedItems,
-    currentPage,
-    totalPages,
-    startIndex,
-    endIndex,
-    totalItems,
-    nextPage,
-    prevPage,
-    goToPage,
-    hasNextPage,
-    hasPrevPage,
-    filteredCount,
-    totalCount,
-  } = useFilteredSortedPaginated(filteredContacts, searchFn, 10);
+  const toggleSort = useCallback((key: string) => {
+    const nextSortBy = key as ContactSortBy;
+    setCurrentPage(1);
+    setSortBy((currentSortBy) => {
+      if (currentSortBy !== nextSortBy) {
+        setSortDir("asc");
+        return nextSortBy;
+      }
+      setSortDir((currentSortDir) => (currentSortDir === "asc" ? "desc" : "asc"));
+      return currentSortBy;
+    });
+  }, []);
+
+  const getSortDirection = useCallback(
+    (key: string) => (sortBy === key ? sortDir : null),
+    [sortBy, sortDir],
+  );
+
+  const totalPages = pagination.totalPages;
+  const totalItems = pagination.total;
+  const startIndex = totalItems === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
+  const endIndex = Math.min(pagination.page * pagination.limit, totalItems);
+  const hasPrevPage = pagination.page > 1;
+  const hasNextPage = pagination.page < totalPages;
+  const nextPage = useCallback(() => {
+    setCurrentPage((page) => Math.min(page + 1, totalPages));
+  }, [totalPages]);
+  const prevPage = useCallback(() => {
+    setCurrentPage((page) => Math.max(page - 1, 1));
+  }, []);
+  const goToPage = useCallback(
+    (page: number) => {
+      setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+    },
+    [totalPages],
+  );
 
   const handleExport = useCallback(async () => {
     if (!token || isExporting) return;
@@ -224,9 +285,9 @@ export default function ContactsPage() {
     setActionMessage("");
     try {
       const result = await api.contacts.exportCsv(token, {
-        search: searchQuery,
-        status: selectedStatus,
-        tag: selectedTag,
+        search: searchQuery.trim() || undefined,
+        status: selectedStatus === "all" ? undefined : selectedStatus,
+        tag: selectedTag === "all" ? undefined : selectedTag,
         page: 1,
         pageSize: 5000,
       });
@@ -328,6 +389,17 @@ export default function ContactsPage() {
       try {
         await api.contacts.remove(token, contact.id);
         setContacts((current) => current.filter((item) => item.id !== contact.id));
+        setPagination((current) => {
+          const nextTotal = Math.max(0, current.total - 1);
+          return {
+            ...current,
+            total: nextTotal,
+            totalPages: Math.max(1, Math.ceil(nextTotal / current.limit)),
+          };
+        });
+        if (contacts.length === 1 && currentPage > 1) {
+          setCurrentPage((page) => Math.max(1, page - 1));
+        }
         setActionMessage(`${contact.name} deleted.`);
         setOpenMenuId(null);
       } catch (error) {
@@ -338,12 +410,13 @@ export default function ContactsPage() {
         setActionContactId(null);
       }
     },
-    [canDeleteContacts, token],
+    [canDeleteContacts, contacts.length, currentPage, token],
   );
 
   const resetFilters = useCallback(() => {
     setSelectedStatus("all");
     setSelectedTag("all");
+    setCurrentPage(1);
   }, []);
 
   return (
@@ -382,7 +455,7 @@ export default function ContactsPage() {
           {isLoading ? (
             <SkeletonLine className="h-8 w-16 mb-2" />
           ) : (
-            <p className="text-2xl font-bold">{contacts.length}</p>
+            <p className="text-2xl font-bold">{totalItems.toLocaleString()}</p>
           )}
           <p className="text-sm text-[#6F6A66]">
             {isLoading ? "Loading contacts" : "Total Contacts"}
@@ -396,7 +469,7 @@ export default function ContactsPage() {
               {contactStats.leadCount}
             </p>
           )}
-          <p className="text-sm text-[#6F6A66]">Active Prospects</p>
+          <p className="text-sm text-[#6F6A66]">Visible Prospects</p>
         </Card>
         <Card padding="p-4">
           {isLoading ? (
@@ -406,7 +479,7 @@ export default function ContactsPage() {
               {contactStats.bookedCount}
             </p>
           )}
-          <p className="text-sm text-[#6F6A66]">Booked Calls</p>
+          <p className="text-sm text-[#6F6A66]">Visible Booked Calls</p>
         </Card>
         <Card padding="p-4">
           {isLoading ? (
@@ -416,7 +489,7 @@ export default function ContactsPage() {
               {formatMoney(contactStats.pipelineValue)}
             </p>
           )}
-          <p className="text-sm text-[#6F6A66]">Pipeline Value</p>
+          <p className="text-sm text-[#6F6A66]">Visible Pipeline Value</p>
         </Card>
       </div>
 
@@ -449,28 +522,34 @@ export default function ContactsPage() {
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         <SearchInput
           value={searchQuery}
-          onChange={setSearchQuery}
+          onChange={(value) => {
+            setSearchQuery(value);
+            setCurrentPage(1);
+          }}
           placeholder="Search by name, email, phone, source, tag..."
           className="flex-1"
         />
-        {filteredCount !== totalCount && (
-          <span className="text-xs text-[#9E9890] whitespace-nowrap">
-            {filteredCount} of {totalCount} contacts
-          </span>
-        )}
+        <span className="text-xs text-[#9E9890] whitespace-nowrap">
+          {isLoading
+            ? "Searching contacts..."
+            : `${totalItems.toLocaleString()} matching contact${totalItems === 1 ? "" : "s"}`}
+        </span>
         <div className="flex flex-wrap gap-2">
           <label className="relative">
             <span className="sr-only">Filter by status</span>
             <Tag className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7A746A]" />
             <select
               value={selectedStatus}
-              onChange={(event) => setSelectedStatus(event.target.value)}
+              onChange={(event) => {
+                setSelectedStatus(event.target.value);
+                setCurrentPage(1);
+              }}
               className="btn-secondary appearance-none py-2 pl-9 pr-8 text-sm"
             >
               <option value="all">All statuses</option>
               {statusOptions.map((status) => (
                 <option key={status} value={status}>
-                  {status}
+                  {formatFilterLabel(status)}
                 </option>
               ))}
             </select>
@@ -481,7 +560,10 @@ export default function ContactsPage() {
             <Tag className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7A746A]" />
             <select
               value={selectedTag}
-              onChange={(event) => setSelectedTag(event.target.value)}
+              onChange={(event) => {
+                setSelectedTag(event.target.value);
+                setCurrentPage(1);
+              }}
               className="btn-secondary appearance-none py-2 pl-9 pr-8 text-sm"
             >
               <option value="all">All tags</option>
@@ -568,7 +650,7 @@ export default function ContactsPage() {
                 Array.from({ length: 6 }, (_, index) => (
                   <TableRowSkeleton key={index} columns={8} />
                 ))}
-              {!isLoading && paginatedItems.map((contact) => (
+              {!isLoading && contacts.map((contact) => (
                 <Fragment key={contact.id}>
                 <TableRow>
                   <TableCell>
@@ -712,7 +794,7 @@ export default function ContactsPage() {
                 )}
                 </Fragment>
               ))}
-              {!isLoading && paginatedItems.length === 0 && (
+              {!isLoading && contacts.length === 0 && (
                 <tr>
                   <td
                     colSpan={8}
@@ -727,7 +809,7 @@ export default function ContactsPage() {
         </div>
 
         <PaginationControls
-          currentPage={currentPage}
+          currentPage={pagination.page}
           totalPages={totalPages}
           startIndex={startIndex}
           endIndex={endIndex}
