@@ -314,6 +314,7 @@ export function ClinicGrowerProposalTemplate({
   const introVideoTitle = sectionContent.introVideoTitle || "A short message from ClinicGrower";
   const introVideoEmbedUrl = getVimeoEmbedUrl(introVideoUrl);
   const fallbackVideoUrl = sectionContent.fallbackVideoUrl || null;
+  const printableVideoUrl = fallbackVideoUrl || introVideoUrl;
   const personalIntro =
     sectionContent.personalIntroduction ||
     `Hi ${firstName(contactName)}, thank you for taking the time to explain how the clinic currently operates, what is working and where you want to grow. This proposal sets out what we believe is currently restricting growth, what should be fixed first, and the ClinicGrower programme we recommend.`;
@@ -370,7 +371,14 @@ export function ClinicGrowerProposalTemplate({
     templateVariant.defaultNextStep;
 
   return (
-    <article className="mx-auto max-w-5xl overflow-hidden rounded-[8px] border border-[#d8e4df] bg-white text-[#1f332f] shadow-sm">
+    <article className="proposal-print-root mx-auto max-w-5xl overflow-hidden rounded-[8px] border border-[#d8e4df] bg-white text-[#1f332f] shadow-sm">
+      <div className="proposal-print-footer" aria-hidden="true">
+        <span>Personalised Growth Proposal for {accountName}</span>
+        <span>
+          ClinicGrower | Valid until {formatDate(proposal.expiresAt)} | Page{" "}
+          <span className="proposal-print-page-number" />
+        </span>
+      </div>
       <header className="border-b border-[#d8e4df] bg-[#f3f7f4] px-6 py-7 sm:px-10">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
@@ -609,6 +617,19 @@ export function ClinicGrowerProposalTemplate({
                 </a>
               )}
             </div>
+            {printableVideoUrl ? (
+              <p className="proposal-video-fallback text-sm leading-6 text-[#5b7069]">
+                Video link:{" "}
+                <a
+                  href={printableVideoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-[#315f51] hover:text-[#24483d]"
+                >
+                  {printableVideoUrl}
+                </a>
+              </p>
+            ) : null}
           </div>
         </section>
       ) : null}

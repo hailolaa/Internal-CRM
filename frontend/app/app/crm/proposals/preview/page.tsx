@@ -457,6 +457,18 @@ export default function ProposalPreviewPage() {
   const proposalOutcomeIsLocked = proposal
     ? ["won", "lost", "expired", "archived"].includes(proposal.status)
     : false;
+  const printableProposalTitle = proposal
+    ? `Personalised Growth Proposal for ${proposal.clientAccountName || proposal.accountName || "Prospective Clinic"}`
+    : "ClinicGrower proposal";
+
+  const printProposal = useCallback(() => {
+    const previousTitle = document.title;
+    document.title = printableProposalTitle;
+    window.print();
+    window.setTimeout(() => {
+      document.title = previousTitle;
+    }, 500);
+  }, [printableProposalTitle]);
 
   return (
     <div className="min-h-screen bg-[#f5f6f1]">
@@ -505,11 +517,12 @@ export default function ProposalPreviewPage() {
             ) : null}
             <button
               type="button"
-              onClick={() => window.print()}
+              disabled={!proposal || previewIsLoading}
+              onClick={printProposal}
               className="inline-flex items-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d]"
             >
               <Printer className="h-4 w-4" />
-              Print
+              Download / print PDF
             </button>
           </div>
         }
@@ -921,7 +934,11 @@ export default function ProposalPreviewPage() {
                 </div>
               ) : null}
             </div>
-            <ClinicGrowerProposalTemplate proposal={proposal} packageRecord={packageRecord} />
+            <ClinicGrowerProposalTemplate
+              proposal={proposal}
+              packageRecord={packageRecord}
+              previewMode={false}
+            />
           </>
         ) : null}
       </main>

@@ -274,3 +274,108 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm 10mm 16mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .proposal-print-root,
+  .proposal-print-root * {
+    visibility: visible;
+  }
+
+  .proposal-print-root {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: #14231f !important;
+    overflow: visible !important;
+    padding-bottom: 18mm;
+  }
+
+  .proposal-print-root header,
+  .proposal-print-root section,
+  .proposal-print-root footer {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .proposal-print-root h1,
+  .proposal-print-root h2,
+  .proposal-print-root h3,
+  .proposal-print-root p {
+    orphans: 3;
+    widows: 3;
+  }
+
+  .proposal-print-root h1,
+  .proposal-print-root h2,
+  .proposal-print-root h3 {
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+
+  .proposal-print-root iframe {
+    display: none !important;
+  }
+
+  .proposal-print-root a {
+    color: #315f51 !important;
+    text-decoration: none !important;
+  }
+
+  .proposal-print-root [class*="shadow"],
+  .proposal-print-root [class*="hover:"] {
+    box-shadow: none !important;
+  }
+
+  .proposal-print-root [class*="grid"] > *,
+  .proposal-print-root [class*="rounded-"] {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .proposal-print-footer {
+    align-items: center;
+    background: #ffffff;
+    border-top: 1px solid #d8e4df;
+    bottom: 0;
+    color: #5b7069;
+    display: flex !important;
+    font-size: 10px;
+    justify-content: space-between;
+    left: 0;
+    padding: 4mm 0 0;
+    position: fixed;
+    right: 0;
+  }
+
+  .proposal-print-page-number::after {
+    content: counter(page);
+  }
+
+  .proposal-video-fallback {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+}
+
+.proposal-print-footer {
+  display: none;
+}

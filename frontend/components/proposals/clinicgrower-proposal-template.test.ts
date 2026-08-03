@@ -182,6 +182,25 @@ describe("ClinicGrowerProposalTemplate", () => {
     expect(html).toContain("Proposal video");
     expect(html).toContain("A message from ClinicGrower");
     expect(html).toContain("https://player.vimeo.com/video/1144662620");
+    expect(html).toContain("Video link:");
+    expect(html).toContain("https://vimeo.com/1144662620");
+  });
+
+  it("includes print/PDF context without exposing CRM-only copy", () => {
+    const html = renderToStaticMarkup(
+      ClinicGrowerProposalTemplate({
+        proposal: publicProposal,
+        packageRecord: null,
+        previewMode: false,
+      }),
+    );
+
+    expect(html).toContain("proposal-print-root");
+    expect(html).toContain("proposal-print-footer");
+    expect(html).toContain("Personalised Growth Proposal for Example Clinic");
+    expect(html).toContain("ClinicGrower");
+    expect(html).not.toContain("Continue in Mission Control");
+    expect(html).not.toContain("CRM preview mode");
   });
 
   it("renders structured scope items without exposing internal delivery notes", () => {
