@@ -310,15 +310,38 @@ export interface ClientAccountLinkedTaskResponse {
   updatedAt: string;
 }
 
+export interface ClientAccountAcceptedProposalResponse {
+  acceptanceId: string;
+  proposalId: string;
+  proposalName: string;
+  proposalStatus: string;
+  acceptanceStatus: string;
+  acceptedAt: string;
+  acceptedByName: string | null;
+  acceptedByEmail: string | null;
+  legalCompanyName: string | null;
+  billingEmail: string | null;
+  preferredStartDate: string | null;
+  packageName: string | null;
+  monthlyFeeCents: number | null;
+  setupFeeCents: number | null;
+  currency: string;
+  paymentTerms: string | null;
+  evidenceSha256: string | null;
+  lockedAt: string | null;
+}
+
 export interface ClientAccountLinkedRecordsResponse {
   account: ClientAccountProfileResponse;
   contacts: ClientAccountLinkedContactResponse[];
   openTasks: ClientAccountLinkedTaskResponse[];
   completedTasks: ClientAccountLinkedTaskResponse[];
+  acceptedProposals: ClientAccountAcceptedProposalResponse[];
   counts: {
     contacts: number;
     openTasks: number;
     completedTasks: number;
+    acceptedProposals: number;
   };
 }
 

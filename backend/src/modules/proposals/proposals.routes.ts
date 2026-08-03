@@ -10,6 +10,7 @@ import {
   exportProposalsValidator,
   listProposalsValidator,
   proposalIdParamValidator,
+  proposalPublicAcceptanceValidator,
   proposalPublicTokenParamValidator,
   proposalStatusUpdateValidator,
   proposalSourceDataValidator,
@@ -24,6 +25,13 @@ router.get(
   proposalPublicTokenParamValidator,
   validate,
   proposalsController.getSharedProposal,
+);
+
+router.post(
+  "/shared/:token/accept",
+  proposalPublicAcceptanceValidator,
+  validate,
+  proposalsController.acceptSharedProposal,
 );
 
 router.use(authenticate);

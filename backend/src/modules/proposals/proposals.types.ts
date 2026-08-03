@@ -67,6 +67,15 @@ export interface ProposalMutationDTO {
   acceptedReason?: string | null;
   acceptedByName?: string | null;
   acceptedByEmail?: string | null;
+  legalCompanyName?: string | null;
+  billingEmail?: string | null;
+  preferredStartDate?: string | Date | null;
+  agreementAccepted?: boolean | null;
+  confirmationText?: string | null;
+  acceptanceSource?: string | null;
+  acceptedIpAddress?: string | null;
+  acceptedUserAgent?: string | null;
+  evidenceSha256?: string | null;
   paymentTerms?: string | null;
   wonAt?: string | Date | null;
   wonReason?: string | null;
@@ -97,7 +106,26 @@ export interface ProposalStatusUpdateDTO {
   acceptedByName?: string | null;
   acceptedByEmail?: string | null;
   acceptedAt?: string | Date | null;
+  legalCompanyName?: string | null;
+  billingEmail?: string | null;
+  preferredStartDate?: string | Date | null;
+  agreementAccepted?: boolean | null;
+  confirmationText?: string | null;
+  acceptanceSource?: string | null;
+  acceptedIpAddress?: string | null;
+  acceptedUserAgent?: string | null;
+  evidenceSha256?: string | null;
   paymentTerms?: string | null;
+}
+
+export interface ProposalPublicAcceptanceDTO {
+  fullName: string;
+  email: string;
+  legalCompanyName: string;
+  billingEmail: string;
+  preferredStartDate?: string | Date | null;
+  agreementAccepted: boolean;
+  signatureConfirmation: string;
 }
 
 export interface ProposalListQuery {
@@ -184,6 +212,16 @@ export interface ProposalAcceptanceRecord {
   clientAccountProfileId: string | null;
   acceptedByName: string | null;
   acceptedByEmail: string | null;
+  legalCompanyName: string | null;
+  billingEmail: string | null;
+  preferredStartDate: string | null;
+  agreementAccepted: boolean;
+  confirmationText: string | null;
+  acceptanceSource: string | null;
+  acceptedIpAddress: string | null;
+  acceptedUserAgent: string | null;
+  evidenceSha256: string | null;
+  lockedAt: string | null;
   acceptedAt: string;
   acceptanceStatus: "accepted" | "won";
   packageName: string | null;
@@ -351,6 +389,17 @@ export interface ProposalPublicPackageResponse {
 export interface ProposalPublicPreviewResponse {
   proposal: ProposalPublicResponse;
   packageRecord: ProposalPublicPackageResponse | null;
+  acceptance: ProposalPublicAcceptanceSummary | null;
+}
+
+export interface ProposalPublicAcceptanceSummary {
+  acceptedByName: string | null;
+  acceptedByEmail: string | null;
+  legalCompanyName: string | null;
+  billingEmail: string | null;
+  preferredStartDate: string | null;
+  acceptedAt: string;
+  lockedAt: string | null;
 }
 
 export interface ProposalSourceDataResponse {

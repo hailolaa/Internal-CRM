@@ -904,7 +904,17 @@ export default function ProposalPreviewPage() {
                       <span>Monthly: <strong>{proposal.acceptanceRecord.monthlyFeeCents === null ? "Not set" : new Intl.NumberFormat("en-GB", { style: "currency", currency: proposal.acceptanceRecord.currency, maximumFractionDigits: 0 }).format(proposal.acceptanceRecord.monthlyFeeCents / 100)}</strong></span>
                       <span>Setup: <strong>{proposal.acceptanceRecord.setupFeeCents === null ? "Not set" : new Intl.NumberFormat("en-GB", { style: "currency", currency: proposal.acceptanceRecord.currency, maximumFractionDigits: 0 }).format(proposal.acceptanceRecord.setupFeeCents / 100)}</strong></span>
                       <span>Account link: <strong>{proposal.acceptanceRecord.clientAccountProfileId ? "Linked" : "Not linked"}</strong></span>
+                      <span>Legal company: <strong>{proposal.acceptanceRecord.legalCompanyName || "Not set"}</strong></span>
+                      <span>Billing email: <strong>{proposal.acceptanceRecord.billingEmail || "Not set"}</strong></span>
+                      <span>Preferred start: <strong>{proposal.acceptanceRecord.preferredStartDate || proposal.acceptanceRecord.startDate || "Not set"}</strong></span>
+                      <span>Evidence: <strong>{proposal.acceptanceRecord.evidenceSha256 ? `${proposal.acceptanceRecord.evidenceSha256.slice(0, 12)}...` : "Not captured"}</strong></span>
                     </div>
+                    {proposal.acceptanceRecord.lockedAt ? (
+                      <p className="mt-3 text-xs text-[#5b7069]">
+                        Locked {new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(proposal.acceptanceRecord.lockedAt))}
+                        {proposal.acceptanceRecord.acceptanceSource ? ` via ${proposal.acceptanceRecord.acceptanceSource.replace(/_/g, " ")}` : ""}.
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
               </section>

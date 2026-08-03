@@ -236,6 +236,21 @@ export const proposalPublicTokenParamValidator = [
   param("token").trim().isLength({ min: 20, max: 200 }).withMessage("Proposal link is invalid"),
 ];
 
+export const proposalPublicAcceptanceValidator = [
+  ...proposalPublicTokenParamValidator,
+  body("fullName").trim().notEmpty().withMessage("Full name is required").isLength({ max: 255 }),
+  body("email").trim().isEmail().withMessage("A valid email is required").isLength({ max: 255 }),
+  body("legalCompanyName").trim().notEmpty().withMessage("Legal company name is required").isLength({ max: 255 }),
+  body("billingEmail").trim().isEmail().withMessage("A valid billing email is required").isLength({ max: 255 }),
+  body("preferredStartDate").optional({ nullable: true }).isISO8601().withMessage("Preferred start date must be a valid date"),
+  body("agreementAccepted").custom((value) => value === true).withMessage("Agreement must be accepted"),
+  body("signatureConfirmation")
+    .trim()
+    .notEmpty()
+    .withMessage("Signature confirmation is required")
+    .isLength({ max: 255 }),
+];
+
 const proposalListValidators = (maximumLimit: number) => [
   query("contactId").optional().trim().isLength({ min: 1, max: 36 }),
   query("dealId").optional().trim().isLength({ min: 1, max: 36 }),

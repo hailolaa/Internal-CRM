@@ -52,9 +52,13 @@ async function request(baseUrl: string, path: string, token: string, init: Reque
   return { response, body: await response.json() as any };
 }
 
-async function requestPublic(baseUrl: string, path: string) {
+async function requestPublic(baseUrl: string, path: string, init: RequestInit = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
-    headers: { Accept: "application/json" },
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+    },
   });
   return { response, body: await response.json() as any };
 }
@@ -353,6 +357,75 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       [primaryClinicId, contactId],
     );
     assert.equal(Number(repeatedViewActivityRows[0].total), 1);
+
+    const publicAcceptedProposal = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        contactId,
+        proposalName: "Public acceptance proposal",
+        status: "ready",
+        valueCents: 99500,
+        currency: "GBP",
+        paymentTerms: "Public acceptance payment terms.",
+      }),
+    });
+    assert.equal(publicAcceptedProposal.response.status, 201);
+    const publicAcceptedShare = await request(
+      baseUrl,
+      `/api/proposals/${publicAcceptedProposal.body.data.id}/share`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(publicAcceptedShare.response.status, 201);
+    const publicAcceptedToken = new URL(publicAcceptedShare.body.data.proposalUrl).searchParams.get("token");
+    assert.ok(publicAcceptedToken);
+    const publicAcceptance = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(publicAcceptedToken)}/accept`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          fullName: "Public Signer",
+          email: "public-signer@example.com",
+          legalCompanyName: "Public Signer Ltd",
+          billingEmail: "billing-public@example.com",
+          preferredStartDate: "2026-08-10",
+          agreementAccepted: true,
+          signatureConfirmation: "Public Signer",
+        }),
+      },
+    );
+    assert.equal(publicAcceptance.response.status, 200);
+    assert.equal(publicAcceptance.body.data.proposal.status, undefined);
+    assert.equal(publicAcceptance.body.data.acceptance.acceptedByName, "Public Signer");
+    assert.equal(publicAcceptance.body.data.acceptance.legalCompanyName, "Public Signer Ltd");
+    assert.equal(publicAcceptance.body.data.acceptance.billingEmail, "billing-public@example.com");
+    assert.equal(publicAcceptance.body.data.acceptance.preferredStartDate, "2026-08-10");
+
+    const publicAcceptedInternal = await request(
+      baseUrl,
+      `/api/proposals/${publicAcceptedProposal.body.data.id}`,
+      writer.token,
+    );
+    assert.equal(publicAcceptedInternal.response.status, 200);
+    assert.equal(publicAcceptedInternal.body.data.status, "accepted");
+    assert.equal(publicAcceptedInternal.body.data.acceptanceRecord.acceptedByName, "Public Signer");
+    assert.equal(publicAcceptedInternal.body.data.acceptanceRecord.legalCompanyName, "Public Signer Ltd");
+    assert.equal(publicAcceptedInternal.body.data.acceptanceRecord.agreementAccepted, true);
+    assert.ok(publicAcceptedInternal.body.data.acceptanceRecord.evidenceSha256);
+    assert.ok(publicAcceptedInternal.body.data.acceptanceRecord.lockedAt);
+
+    const publicAcceptedMutation = await request(
+      baseUrl,
+      `/api/proposals/${publicAcceptedProposal.body.data.id}`,
+      writer.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ proposalName: "Changed after acceptance" }),
+      },
+    );
+    assert.equal(publicAcceptedMutation.response.status, 409);
+    assert.match(publicAcceptedMutation.body.message, /accepted version is locked/i);
 
     const updated = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token, {
       method: "PATCH",
@@ -907,13 +980,8 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
         paymentTerms: "Updated payment terms.",
       }),
     });
-    assert.equal(acceptedRetry.response.status, 200);
-    assert.equal(acceptedRetry.body.data.clientAccountProfileId, accepted.body.data.clientAccountProfileId);
-    assert.equal(acceptedRetry.body.data.acceptanceRecord.id, accepted.body.data.acceptanceRecord.id);
-    assert.equal(acceptedRetry.body.data.acceptanceRecord.acceptedByName, "Updated Decision Maker");
-    assert.equal(acceptedRetry.body.data.acceptanceRecord.acceptedByEmail, "updated-owner@example.com");
-    assert.equal(acceptedRetry.body.data.acceptanceRecord.acceptedAt, "2026-07-25T11:30:00.000Z");
-    assert.equal(acceptedRetry.body.data.acceptanceRecord.paymentTerms, "Updated payment terms.");
+    assert.equal(acceptedRetry.response.status, 409);
+    assert.match(acceptedRetry.body.message, /accepted version is locked/i);
 
     const acceptedRetryWithoutEvidence = await request(
       baseUrl,
@@ -927,26 +995,29 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
         }),
       },
     );
-    assert.equal(acceptedRetryWithoutEvidence.response.status, 200);
+    assert.equal(acceptedRetryWithoutEvidence.response.status, 409);
+
+    const lockedAcceptedProposal = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token);
+    assert.equal(lockedAcceptedProposal.response.status, 200);
     assert.equal(
-      acceptedRetryWithoutEvidence.body.data.acceptanceRecord.id,
+      lockedAcceptedProposal.body.data.acceptanceRecord.id,
       accepted.body.data.acceptanceRecord.id,
     );
     assert.equal(
-      acceptedRetryWithoutEvidence.body.data.acceptanceRecord.acceptedByName,
-      "Updated Decision Maker",
+      lockedAcceptedProposal.body.data.acceptanceRecord.acceptedByName,
+      "Week Two Owner",
     );
     assert.equal(
-      acceptedRetryWithoutEvidence.body.data.acceptanceRecord.acceptedByEmail,
-      "updated-owner@example.com",
+      lockedAcceptedProposal.body.data.acceptanceRecord.acceptedByEmail,
+      "owner@example.com",
     );
     assert.equal(
-      acceptedRetryWithoutEvidence.body.data.acceptanceRecord.acceptedAt,
-      "2026-07-25T11:30:00.000Z",
+      lockedAcceptedProposal.body.data.acceptanceRecord.acceptedAt,
+      "2026-07-25T10:00:00.000Z",
     );
     assert.equal(
-      acceptedRetryWithoutEvidence.body.data.acceptanceRecord.paymentTerms,
-      "Updated payment terms.",
+      lockedAcceptedProposal.body.data.acceptanceRecord.paymentTerms,
+      "Monthly in advance, setup due before kickoff.",
     );
     const [acceptanceAuditRows]: any = await pool.execute(
       `SELECT entity_id as entityId
@@ -1424,8 +1495,8 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
         }),
       },
     );
-    assert.equal(rejectedAcceptedFollowUp.response.status, 400);
-    assert.match(rejectedAcceptedFollowUp.body.message, /accepted proposal cannot be moved back/i);
+    assert.equal(rejectedAcceptedFollowUp.response.status, 409);
+    assert.match(rejectedAcceptedFollowUp.body.message, /accepted version is locked/i);
 
     await pool.execute(
       `INSERT INTO pipeline_stage

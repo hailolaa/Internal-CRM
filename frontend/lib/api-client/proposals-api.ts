@@ -3,6 +3,7 @@ import type {
   ProposalPayload,
   ProposalProofAssetPayload,
   ProposalProofAssetRecord,
+  ProposalPublicAcceptancePayload,
   ProposalPublicPreviewRecord,
   ProposalRecord,
   ProposalSendPayload,
@@ -50,6 +51,16 @@ export function createProposalsApi(apiRequest: ApiRequest) {
       async getShared(publicToken: string) {
         const response = await apiRequest<ProposalPublicPreviewRecord>(
           `/api/proposals/shared/${encodeURIComponent(publicToken)}`,
+        );
+        return response.data!;
+      },
+      async acceptShared(publicToken: string, payload: ProposalPublicAcceptancePayload) {
+        const response = await apiRequest<ProposalPublicPreviewRecord>(
+          `/api/proposals/shared/${encodeURIComponent(publicToken)}/accept`,
+          {
+            method: "POST",
+            body: JSON.stringify(payload),
+          },
         );
         return response.data!;
       },

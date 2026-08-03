@@ -14,6 +14,23 @@ export class ProposalsController {
     }
   };
 
+  acceptSharedProposal = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const preview = await proposalsService.acceptSharedProposal(
+        String(req.params.token || ""),
+        req.body,
+        {
+          ipAddress: req.ip || null,
+          userAgent: req.get("user-agent") || null,
+        },
+      );
+      res.setHeader("Cache-Control", "no-store");
+      res.status(200).json({ status: "success", data: preview });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listProposals = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId } = (req as any).user;

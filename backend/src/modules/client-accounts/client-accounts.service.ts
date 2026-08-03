@@ -11,6 +11,7 @@ import { googleDriveOAuthService } from "./google-drive-oauth.service.js";
 import type {
   ClientAccountAuditContext,
   ClientAccountContactAccountLinkResponse,
+  ClientAccountAcceptedProposalResponse,
   ClientAccountListQuery,
   ClientAccountLinkedContactResponse,
   ClientAccountLinkedRecordsResponse,
@@ -1619,9 +1620,10 @@ export class ClientAccountsService {
   ): Promise<ClientAccountLinkedRecordsResponse> {
     await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
     const account = await this.getProfile(clientClinicId, sourceClinicId);
-    const [contacts, tasks] = await Promise.all([
+    const [contacts, tasks, acceptedProposals] = await Promise.all([
       account.id ? this.listLinkedContacts(sourceClinicId, account.id) : Promise.resolve([]),
       account.id ? this.listLinkedTasks(sourceClinicId, account.id) : Promise.resolve([]),
+      account.id ? this.listAcceptedProposals(sourceClinicId, account.id) : Promise.resolve([]),
     ]);
     const openTasks = tasks.filter((task) => task.status !== "completed");
     const completedTasks = tasks.filter((task) => task.status === "completed");
@@ -1631,10 +1633,12 @@ export class ClientAccountsService {
       contacts,
       openTasks,
       completedTasks,
+      acceptedProposals,
       counts: {
         contacts: contacts.length,
         openTasks: openTasks.length,
         completedTasks: completedTasks.length,
+        acceptedProposals: acceptedProposals.length,
       },
     };
   }
@@ -3718,6 +3722,68 @@ export class ClientAccountsService {
       clientAccountServiceId: row.clientAccountServiceId || null,
       templateKey: row.templateKey || null,
       updatedAt: toIsoString(row.updatedAt) || new Date().toISOString(),
+    }));
+  }
+
+  private async listAcceptedProposals(
+    sourceClinicId: string,
+    clientAccountProfileId: string,
+  ): Promise<ClientAccountAcceptedProposalResponse[]> {
+    const [rows]: any = await pool.execute(
+      `SELECT par.id as acceptanceId,
+              par.proposal_id as proposalId,
+              p.proposal_name as proposalName,
+              p.status as proposalStatus,
+              par.acceptance_status as acceptanceStatus,
+              par.accepted_at as acceptedAt,
+              par.accepted_by_name as acceptedByName,
+              par.accepted_by_email as acceptedByEmail,
+              par.legal_company_name as legalCompanyName,
+              par.billing_email as billingEmail,
+              DATE_FORMAT(par.preferred_start_date, '%Y-%m-%d') as preferredStartDate,
+              par.package_name as packageName,
+              par.monthly_fee_cents as monthlyFeeCents,
+              par.setup_fee_cents as setupFeeCents,
+              par.currency,
+              par.payment_terms as paymentTerms,
+              par.evidence_sha256 as evidenceSha256,
+              par.locked_at as lockedAt
+       FROM proposal_acceptance_record par
+       JOIN proposal p
+         ON p.id = par.proposal_id
+        AND p.clinic_id = par.clinic_id
+        AND p.deleted_at IS NULL
+       WHERE par.clinic_id = ?
+         AND par.client_account_profile_id = ?
+         AND par.deleted_at IS NULL
+       ORDER BY par.accepted_at DESC, par.created_at DESC
+       LIMIT 50`,
+      [sourceClinicId, clientAccountProfileId],
+    );
+
+    return rows.map((row: any) => ({
+      acceptanceId: row.acceptanceId,
+      proposalId: row.proposalId,
+      proposalName: row.proposalName || "Accepted proposal",
+      proposalStatus: row.proposalStatus || "accepted",
+      acceptanceStatus: row.acceptanceStatus || "accepted",
+      acceptedAt: toIsoString(row.acceptedAt) || new Date().toISOString(),
+      acceptedByName: row.acceptedByName || null,
+      acceptedByEmail: row.acceptedByEmail || null,
+      legalCompanyName: row.legalCompanyName || null,
+      billingEmail: row.billingEmail || null,
+      preferredStartDate: row.preferredStartDate || null,
+      packageName: row.packageName || null,
+      monthlyFeeCents: row.monthlyFeeCents === null || row.monthlyFeeCents === undefined
+        ? null
+        : Number(row.monthlyFeeCents),
+      setupFeeCents: row.setupFeeCents === null || row.setupFeeCents === undefined
+        ? null
+        : Number(row.setupFeeCents),
+      currency: row.currency || "GBP",
+      paymentTerms: row.paymentTerms || null,
+      evidenceSha256: row.evidenceSha256 || null,
+      lockedAt: toIsoString(row.lockedAt),
     }));
   }
 

@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import { createHash } from "node:crypto";
 import type { PoolConnection } from "mysql2/promise";
 import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
@@ -30,6 +31,8 @@ import type {
   ProposalProofAssetMutationDTO,
   ProposalProofAssetResponse,
   ProposalProofAssetType,
+  ProposalPublicAcceptanceDTO,
+  ProposalPublicAcceptanceSummary,
   ProposalResponse,
   ProposalSectionContent,
   ProposalSendDTO,
@@ -266,6 +269,16 @@ function mapAcceptanceRecord(row: any) {
     clientAccountProfileId: row.acceptanceClientAccountProfileId || null,
     acceptedByName: row.acceptedByName || null,
     acceptedByEmail: row.acceptedByEmail || null,
+    legalCompanyName: row.acceptanceLegalCompanyName || null,
+    billingEmail: row.acceptanceBillingEmail || null,
+    preferredStartDate: toDateOnly(row.acceptancePreferredStartDate),
+    agreementAccepted: Boolean(row.acceptanceAgreementAccepted),
+    confirmationText: row.acceptanceConfirmationText || null,
+    acceptanceSource: row.acceptanceSource || null,
+    acceptedIpAddress: row.acceptanceIpAddress || null,
+    acceptedUserAgent: row.acceptanceUserAgent || null,
+    evidenceSha256: row.acceptanceEvidenceSha256 || null,
+    lockedAt: toIso(row.acceptanceLockedAt),
     acceptedAt: new Date(row.acceptanceAcceptedAt).toISOString(),
     acceptanceStatus: row.acceptanceStatus || "accepted",
     packageName: row.acceptancePackageName || null,
@@ -344,6 +357,26 @@ function mapProposal(row: any): ProposalResponse {
     updatedAt: new Date(row.updatedAt).toISOString(),
     acceptanceRecord: mapAcceptanceRecord(row),
   };
+}
+
+function mapPublicAcceptanceSummary(proposal: ProposalResponse): ProposalPublicAcceptanceSummary | null {
+  const record = proposal.acceptanceRecord;
+  if (!record) return null;
+  return {
+    acceptedByName: record.acceptedByName,
+    acceptedByEmail: record.acceptedByEmail,
+    legalCompanyName: record.legalCompanyName,
+    billingEmail: record.billingEmail,
+    preferredStartDate: record.preferredStartDate,
+    acceptedAt: record.acceptedAt,
+    lockedAt: record.lockedAt,
+  };
+}
+
+function hashAcceptanceEvidence(value: Record<string, unknown>) {
+  return createHash("sha256")
+    .update(JSON.stringify(value))
+    .digest("hex");
 }
 
 function parseProofAssetIds(value: unknown): string[] {
@@ -558,6 +591,16 @@ function proposalSelectSql() {
                  ar.client_account_profile_id as acceptanceClientAccountProfileId,
                  ar.accepted_by_name as acceptedByName,
                  ar.accepted_by_email as acceptedByEmail,
+                 ar.legal_company_name as acceptanceLegalCompanyName,
+                 ar.billing_email as acceptanceBillingEmail,
+                 ar.preferred_start_date as acceptancePreferredStartDate,
+                 ar.agreement_accepted as acceptanceAgreementAccepted,
+                 ar.confirmation_text as acceptanceConfirmationText,
+                 ar.acceptance_source as acceptanceSource,
+                 ar.accepted_ip_address as acceptanceIpAddress,
+                 ar.accepted_user_agent as acceptanceUserAgent,
+                 ar.evidence_sha256 as acceptanceEvidenceSha256,
+                 ar.locked_at as acceptanceLockedAt,
                  ar.accepted_at as acceptanceAcceptedAt,
                  ar.acceptance_status as acceptanceStatus,
                  ar.package_name as acceptancePackageName,
@@ -1089,7 +1132,102 @@ export class ProposalsService {
       internalProposal.packageName,
     ));
 
-    return { proposal, packageRecord };
+    return {
+      proposal,
+      packageRecord,
+      acceptance: mapPublicAcceptanceSummary(internalProposal),
+    };
+  }
+
+  async acceptSharedProposal(
+    rawToken: string,
+    data: ProposalPublicAcceptanceDTO,
+    context: { ipAddress?: string | null; userAgent?: string | null } = {},
+  ): Promise<ProposalPublicPreviewResponse> {
+    const token = cleanString(rawToken);
+    if (!token || token.length < 20) throw ApiError.notFound("Proposal link not found");
+    const tokenHash = hashToken(token);
+    const publicStatusPlaceholders = proposalPublicStatuses.map(() => "?").join(", ");
+
+    const [rows]: any = await pool.execute(
+      `${proposalSelectSql()}
+       WHERE p.public_token_hash = ?
+         AND p.deleted_at IS NULL
+         AND p.status IN (${publicStatusPlaceholders})
+         AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
+       LIMIT 1`,
+      [tokenHash, ...proposalPublicStatuses],
+    );
+    if (rows.length === 0) throw ApiError.notFound("Proposal link not found");
+
+    const proposal = await this.hydrateSelectedProofAssets(
+      rows[0].clinicId,
+      mapProposal(rows[0]),
+    );
+    if (!isProposalPubliclyVisible(proposal.status, proposal.expiresAt)) {
+      throw ApiError.notFound("Proposal link not found");
+    }
+    if (proposal.acceptanceRecord || ["accepted", "won"].includes(proposal.status)) {
+      return this.getSharedProposal(token);
+    }
+
+    const acceptedAt = new Date().toISOString();
+    const fullName = cleanString(data.fullName);
+    const email = cleanString(data.email);
+    const legalCompanyName = cleanString(data.legalCompanyName);
+    const billingEmail = cleanString(data.billingEmail);
+    const confirmationText = cleanString(data.signatureConfirmation);
+    if (!fullName || !email || !legalCompanyName || !billingEmail || !confirmationText) {
+      throw ApiError.badRequest("Acceptance details are incomplete.");
+    }
+    if (confirmationText.toLowerCase() !== fullName.toLowerCase()) {
+      throw ApiError.badRequest("Signature confirmation must match the full name.");
+    }
+
+    const actingUserId = await this.resolvePublicAcceptanceActorUserId(
+      rows[0].clinicId,
+      proposal,
+    );
+    const evidence = {
+      proposalId: proposal.id,
+      proposalName: proposal.proposalName,
+      acceptedByName: fullName,
+      acceptedByEmail: email,
+      legalCompanyName,
+      billingEmail,
+      preferredStartDate: data.preferredStartDate ? toMysqlDateOnly(data.preferredStartDate) : null,
+      agreementAccepted: data.agreementAccepted === true,
+      confirmationText,
+      acceptedAt,
+      acceptanceSource: "public_proposal_link",
+      ipAddress: cleanString(context.ipAddress),
+      userAgent: cleanString(context.userAgent),
+    };
+
+    await this.updateProposalStatus(
+      rows[0].clinicId,
+      actingUserId,
+      proposal.id,
+      {
+        status: "accepted",
+        reason: "Client accepted from proposal link",
+        acceptedByName: fullName,
+        acceptedByEmail: email,
+        acceptedAt,
+        legalCompanyName,
+        billingEmail,
+        preferredStartDate: data.preferredStartDate || null,
+        agreementAccepted: true,
+        confirmationText,
+        acceptanceSource: "public_proposal_link",
+        acceptedIpAddress: context.ipAddress || null,
+        acceptedUserAgent: context.userAgent || null,
+        evidenceSha256: hashAcceptanceEvidence(evidence),
+      },
+      { canManageAllClientAccounts: true },
+    );
+
+    return this.getSharedProposal(token);
   }
 
   async getProposalSourceData(
@@ -1489,6 +1627,7 @@ export class ProposalsService {
     access: ProposalLinkAccess,
   ): Promise<ProposalResponse> {
     const existing = await this.getProposal(clinicId, proposalId);
+    this.assertAcceptedProposalCanBeMutated(existing, data);
     const linkData = {
       contactId: data.contactId === undefined ? existing.contactId : data.contactId,
       dealId: data.dealId === undefined ? existing.dealId : data.dealId,
@@ -1666,6 +1805,15 @@ export class ProposalsService {
       if (data.acceptedByName !== undefined) payload.acceptedByName = data.acceptedByName;
       if (data.acceptedByEmail !== undefined) payload.acceptedByEmail = data.acceptedByEmail;
       if (data.acceptedAt !== undefined) payload.acceptedAt = data.acceptedAt;
+      if (data.legalCompanyName !== undefined) payload.legalCompanyName = data.legalCompanyName;
+      if (data.billingEmail !== undefined) payload.billingEmail = data.billingEmail;
+      if (data.preferredStartDate !== undefined) payload.preferredStartDate = data.preferredStartDate;
+      if (data.agreementAccepted !== undefined) payload.agreementAccepted = data.agreementAccepted;
+      if (data.confirmationText !== undefined) payload.confirmationText = data.confirmationText;
+      if (data.acceptanceSource !== undefined) payload.acceptanceSource = data.acceptanceSource;
+      if (data.acceptedIpAddress !== undefined) payload.acceptedIpAddress = data.acceptedIpAddress;
+      if (data.acceptedUserAgent !== undefined) payload.acceptedUserAgent = data.acceptedUserAgent;
+      if (data.evidenceSha256 !== undefined) payload.evidenceSha256 = data.evidenceSha256;
       if (data.paymentTerms !== undefined) payload.paymentTerms = data.paymentTerms;
     }
 
@@ -1674,6 +1822,15 @@ export class ProposalsService {
       if (data.acceptedByName !== undefined) payload.acceptedByName = data.acceptedByName;
       if (data.acceptedByEmail !== undefined) payload.acceptedByEmail = data.acceptedByEmail;
       if (data.acceptedAt !== undefined) payload.acceptedAt = data.acceptedAt;
+      if (data.legalCompanyName !== undefined) payload.legalCompanyName = data.legalCompanyName;
+      if (data.billingEmail !== undefined) payload.billingEmail = data.billingEmail;
+      if (data.preferredStartDate !== undefined) payload.preferredStartDate = data.preferredStartDate;
+      if (data.agreementAccepted !== undefined) payload.agreementAccepted = data.agreementAccepted;
+      if (data.confirmationText !== undefined) payload.confirmationText = data.confirmationText;
+      if (data.acceptanceSource !== undefined) payload.acceptanceSource = data.acceptanceSource;
+      if (data.acceptedIpAddress !== undefined) payload.acceptedIpAddress = data.acceptedIpAddress;
+      if (data.acceptedUserAgent !== undefined) payload.acceptedUserAgent = data.acceptedUserAgent;
+      if (data.evidenceSha256 !== undefined) payload.evidenceSha256 = data.evidenceSha256;
       if (data.paymentTerms !== undefined) payload.paymentTerms = data.paymentTerms;
     }
 
@@ -1743,6 +1900,31 @@ export class ProposalsService {
     } finally {
       connection.release();
     }
+  }
+
+  private assertAcceptedProposalCanBeMutated(
+    existing: ProposalResponse,
+    data: ProposalMutationDTO,
+  ) {
+    if (!existing.acceptanceRecord) return;
+
+    const requestedStatus = data.status || existing.status;
+    if (existing.status === "accepted" && requestedStatus === "won") {
+      const allowedKeys = new Set([
+        "status",
+        "wonReason",
+        "acceptedByName",
+        "acceptedByEmail",
+        "acceptedAt",
+        "paymentTerms",
+      ]);
+      const unexpected = Object.keys(data).filter((key) => !allowedKeys.has(key));
+      if (unexpected.length === 0) return;
+    }
+
+    throw ApiError.conflict(
+      "This proposal has been accepted and its accepted version is locked. Create a new proposal version for further changes.",
+    );
   }
 
   private async persistAcceptedProposalMutation(input: {
@@ -2957,6 +3139,46 @@ export class ProposalsService {
     }
   }
 
+  private async resolvePublicAcceptanceActorUserId(
+    clinicId: string,
+    proposal: ProposalResponse,
+  ) {
+    const candidates = [proposal.ownerId, proposal.createdBy, proposal.updatedBy]
+      .map((value) => cleanString(value))
+      .filter(Boolean) as string[];
+
+    if (candidates.length) {
+      const placeholders = candidates.map(() => "?").join(", ");
+      const [candidateRows]: any = await pool.execute(
+        `SELECT id
+         FROM user
+         WHERE clinic_id = ?
+           AND id IN (${placeholders})
+           AND deleted_at IS NULL
+           AND COALESCE(is_active, 1) = 1
+         LIMIT 1`,
+        [clinicId, ...candidates],
+      );
+      if (candidateRows[0]?.id) return candidateRows[0].id as string;
+    }
+
+    const [rows]: any = await pool.execute(
+      `SELECT id
+       FROM user
+       WHERE clinic_id = ?
+         AND deleted_at IS NULL
+         AND COALESCE(is_active, 1) = 1
+       ORDER BY FIELD(role, 'SUPER_ADMIN', 'ADMIN', 'SALES') DESC,
+                created_at ASC
+       LIMIT 1`,
+      [clinicId],
+    );
+    if (!rows[0]?.id) {
+      throw ApiError.badRequest("This proposal cannot be accepted until the workspace has an active internal owner.");
+    }
+    return rows[0].id as string;
+  }
+
   private async ensureAcceptedProposalSnapshot(
     clinicId: string,
     userId: string,
@@ -2972,17 +3194,33 @@ export class ProposalsService {
       executor,
     );
     const priorAcceptance = proposal.acceptanceRecord;
+    if (priorAcceptance) {
+      await executor.execute(
+        `UPDATE proposal_acceptance_record
+         SET acceptance_status = ?,
+             client_account_profile_id = COALESCE(?, client_account_profile_id),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE proposal_id = ?
+           AND clinic_id = ?
+           AND deleted_at IS NULL`,
+        [
+          proposal.status === "won" ? "won" : priorAcceptance.acceptanceStatus,
+          clientAccountProfileId,
+          proposal.id,
+          clinicId,
+        ],
+      );
+      return;
+    }
     const acceptedByName = Object.prototype.hasOwnProperty.call(data, "acceptedByName")
       ? cleanString(data.acceptedByName)
-      : cleanString(priorAcceptance?.acceptedByName) ||
-        proposal.contactName ||
+      : proposal.contactName ||
         proposal.sentToName ||
         proposal.accountName ||
         proposal.clientAccountName;
     const acceptedByEmail = Object.prototype.hasOwnProperty.call(data, "acceptedByEmail")
       ? cleanString(data.acceptedByEmail)
-      : cleanString(priorAcceptance?.acceptedByEmail) ||
-        proposal.contactEmail ||
+      : proposal.contactEmail ||
         proposal.sentToEmail;
     if (!acceptedByName || !acceptedByEmail) {
       throw ApiError.badRequest(
@@ -2991,14 +3229,21 @@ export class ProposalsService {
     }
     const acceptedAt =
       toMysqlDateTime(data.acceptedAt) ||
-      toMysqlDateTime(priorAcceptance?.acceptedAt) ||
       toMysqlDateTime(proposal.acceptedAt) ||
       toMysqlDateTime(proposal.wonAt) ||
       new Date().toISOString().slice(0, 19).replace("T", " ");
     const paymentTerms =
       cleanString(data.paymentTerms) ||
-      cleanString(priorAcceptance?.paymentTerms) ||
       "Monthly fees payable monthly in advance. Setup fee due before project kickoff unless otherwise agreed.";
+    const legalCompanyName = cleanString(data.legalCompanyName);
+    const billingEmail = cleanString(data.billingEmail);
+    const preferredStartDate = toMysqlDateOnly(data.preferredStartDate);
+    const agreementAccepted = data.agreementAccepted === true;
+    const confirmationText = cleanString(data.confirmationText);
+    const acceptanceSource = cleanString(data.acceptanceSource) || "internal";
+    const acceptedIpAddress = cleanString(data.acceptedIpAddress);
+    const acceptedUserAgent = cleanString(data.acceptedUserAgent);
+    const evidenceSha256 = cleanString(data.evidenceSha256);
     const sectionContent = proposal.sectionContent || {};
     const scope = {
       packageName: proposal.packageName,
@@ -3040,6 +3285,13 @@ export class ProposalsService {
       notes: proposal.notes,
       acceptedReason: proposal.acceptedReason,
       wonReason: proposal.wonReason,
+      legalCompanyName,
+      billingEmail,
+      preferredStartDate,
+      agreementAccepted,
+      confirmationText,
+      acceptanceSource,
+      evidenceSha256,
       capturedAt: new Date().toISOString(),
     };
 
@@ -3047,31 +3299,17 @@ export class ProposalsService {
     await executor.execute(
       `INSERT INTO proposal_acceptance_record
         (id, clinic_id, proposal_id, contact_id, deal_id, client_account_profile_id,
-         accepted_by_name, accepted_by_email, accepted_at, acceptance_status,
+         accepted_by_name, accepted_by_email, legal_company_name, billing_email,
+         preferred_start_date, agreement_accepted, confirmation_text, acceptance_source,
+         accepted_ip_address, accepted_user_agent, evidence_sha256, locked_at,
+         accepted_at, acceptance_status,
          package_name, recommended_package_id, monthly_fee_cents, setup_fee_cents,
          currency, payment_terms, start_date, minimum_term_months, notice_period_days,
          scope, commercial_snapshot, proposal_snapshot, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         contact_id = VALUES(contact_id),
-         deal_id = VALUES(deal_id),
          client_account_profile_id = COALESCE(VALUES(client_account_profile_id), client_account_profile_id),
-         accepted_by_name = VALUES(accepted_by_name),
-         accepted_by_email = VALUES(accepted_by_email),
-         accepted_at = VALUES(accepted_at),
          acceptance_status = VALUES(acceptance_status),
-         package_name = VALUES(package_name),
-         recommended_package_id = VALUES(recommended_package_id),
-         monthly_fee_cents = VALUES(monthly_fee_cents),
-         setup_fee_cents = VALUES(setup_fee_cents),
-         currency = VALUES(currency),
-         payment_terms = VALUES(payment_terms),
-         start_date = VALUES(start_date),
-         minimum_term_months = VALUES(minimum_term_months),
-         notice_period_days = VALUES(notice_period_days),
-         scope = VALUES(scope),
-         commercial_snapshot = VALUES(commercial_snapshot),
-         proposal_snapshot = VALUES(proposal_snapshot),
          deleted_at = NULL,
          updated_at = CURRENT_TIMESTAMP`,
       [
@@ -3083,6 +3321,16 @@ export class ProposalsService {
         clientAccountProfileId,
         acceptedByName,
         acceptedByEmail,
+        legalCompanyName,
+        billingEmail,
+        preferredStartDate,
+        agreementAccepted ? 1 : 0,
+        confirmationText,
+        acceptanceSource,
+        acceptedIpAddress,
+        acceptedUserAgent,
+        evidenceSha256,
+        acceptedAt,
         acceptedAt,
         proposal.status === "won" ? "won" : "accepted",
         proposal.packageName,
@@ -3129,6 +3377,12 @@ export class ProposalsService {
         packageName: proposal.packageName,
         monthlyFeeCents: proposal.monthlyFeeCents,
         setupFeeCents: proposal.setupFeeCents,
+        legalCompanyName,
+        billingEmail,
+        preferredStartDate,
+        acceptanceSource,
+        agreementAccepted,
+        evidenceSha256,
       },
     }, executor === pool ? undefined : executor);
     const auditPayload = {
@@ -3146,6 +3400,12 @@ export class ProposalsService {
         packageName: proposal.packageName,
         monthlyFeeCents: proposal.monthlyFeeCents,
         setupFeeCents: proposal.setupFeeCents,
+        legalCompanyName,
+        billingEmail,
+        preferredStartDate,
+        acceptanceSource,
+        agreementAccepted,
+        evidenceSha256,
       },
     };
     if (executor === pool) {

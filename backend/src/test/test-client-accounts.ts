@@ -1294,9 +1294,13 @@ test("won opportunities convert into client accounts with preserved history and 
   await pool.execute(
     `INSERT INTO proposal_acceptance_record
       (id, clinic_id, proposal_id, contact_id, deal_id, accepted_by_name, accepted_by_email,
+       legal_company_name, billing_email, preferred_start_date, agreement_accepted,
+       confirmation_text, acceptance_source, evidence_sha256, locked_at,
        package_name, monthly_fee_cents, setup_fee_cents, payment_terms, start_date,
        minimum_term_months, notice_period_days, created_by)
      VALUES (?, ?, ?, ?, ?, 'Won Conversion', 'won.conversion@test.com',
+       'Won Conversion Ltd', 'billing.won@test.com', '2026-08-01', 1,
+       'Won Conversion', 'public_link', REPEAT('a', 64), '2026-07-25 12:00:00',
        'Growth Engine', 199500, 0, 'Monthly in advance', '2026-08-01',
        6, 30, ?)`,
     [acceptanceId, primary.clinicId, proposalId, contactId, dealId, primary.userId],
@@ -1787,6 +1791,16 @@ test("won opportunities convert into client accounts with preserved history and 
     assert.equal(linkedRecords.response.status, 200);
     assert.equal(linkedRecords.body.data.contacts.some((contact: any) => contact.id === contactId), true);
     assert.equal(linkedRecords.body.data.openTasks.length, 16);
+    assert.equal(linkedRecords.body.data.acceptedProposals.length, 1);
+    assert.equal(linkedRecords.body.data.counts.acceptedProposals, 1);
+    assert.equal(linkedRecords.body.data.acceptedProposals[0].proposalId, proposalId);
+    assert.equal(linkedRecords.body.data.acceptedProposals[0].proposalName, "Growth Engine Proposal");
+    assert.equal(linkedRecords.body.data.acceptedProposals[0].acceptedByName, "Won Conversion");
+    assert.equal(linkedRecords.body.data.acceptedProposals[0].legalCompanyName, "Won Conversion Ltd");
+    assert.equal(linkedRecords.body.data.acceptedProposals[0].billingEmail, "billing.won@test.com");
+    assert.equal(linkedRecords.body.data.acceptedProposals[0].preferredStartDate, "2026-08-01");
+    assert.equal(linkedRecords.body.data.acceptedProposals[0].evidenceSha256, "a".repeat(64));
+    assert.ok(linkedRecords.body.data.acceptedProposals[0].lockedAt);
     assert.equal(
       linkedRecords.body.data.openTasks.every((task: any) => task.assignedTo === "WonDealConversion Admin"),
       true,

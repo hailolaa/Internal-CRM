@@ -136,6 +136,16 @@ export interface ProposalAcceptanceRecord {
   clientAccountProfileId: string | null;
   acceptedByName: string | null;
   acceptedByEmail: string | null;
+  legalCompanyName: string | null;
+  billingEmail: string | null;
+  preferredStartDate: string | null;
+  agreementAccepted: boolean;
+  confirmationText: string | null;
+  acceptanceSource: string | null;
+  acceptedIpAddress: string | null;
+  acceptedUserAgent: string | null;
+  evidenceSha256: string | null;
+  lockedAt: string | null;
   acceptedAt: string;
   acceptanceStatus: "accepted" | "won";
   packageName: string | null;
@@ -286,6 +296,16 @@ export interface ProposalStatusUpdatePayload {
   paymentTerms?: string | null;
 }
 
+export interface ProposalPublicAcceptancePayload {
+  fullName: string;
+  email: string;
+  legalCompanyName: string;
+  billingEmail: string;
+  preferredStartDate?: string | null;
+  agreementAccepted: boolean;
+  signatureConfirmation: string;
+}
+
 export type ProposalPublicRecord = Pick<
   ProposalRecord,
   | "proposalName"
@@ -315,6 +335,17 @@ export interface ProposalPublicPreviewRecord {
     GrowthPackageRecord,
     "name" | "priceCents" | "setupFeeCents" | "currency" | "billingFrequency" | "includedFeatures" | "proposalWording"
   > | null;
+  acceptance: ProposalPublicAcceptanceSummary | null;
+}
+
+export interface ProposalPublicAcceptanceSummary {
+  acceptedByName: string | null;
+  acceptedByEmail: string | null;
+  legalCompanyName: string | null;
+  billingEmail: string | null;
+  preferredStartDate: string | null;
+  acceptedAt: string;
+  lockedAt: string | null;
 }
 
 export interface ProposalListParams {

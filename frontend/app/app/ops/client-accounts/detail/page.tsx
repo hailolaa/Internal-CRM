@@ -107,6 +107,11 @@ function formatMoney(value: number | null | undefined, currency = "GBP") {
   }).format(Number(value));
 }
 
+function formatMoneyFromCents(value: number | null | undefined, currency = "GBP") {
+  if (value === null || value === undefined) return "Not set";
+  return formatMoney(Number(value) / 100, currency);
+}
+
 function paymentBadge(status: string) {
   if (status === "paid") return <Badge variant="success">Paid</Badge>;
   if (status === "overdue" || status === "failed") return <Badge variant="error">{formatLabel(status)}</Badge>;
@@ -264,6 +269,10 @@ export default function ClientAccountDetailPage() {
   );
   const openTasks = useMemo(() => linkedRecords?.openTasks || [], [linkedRecords?.openTasks]);
   const completedTasks = useMemo(() => linkedRecords?.completedTasks || [], [linkedRecords?.completedTasks]);
+  const acceptedProposals = useMemo(
+    () => linkedRecords?.acceptedProposals || [],
+    [linkedRecords?.acceptedProposals],
+  );
   const onboardingOpenTasks = useMemo(
     () => openTasks.filter(isCanonicalWonClientOnboardingTask),
     [openTasks],
@@ -696,6 +705,88 @@ export default function ClientAccountDetailPage() {
                 {account.paymentNotes}
               </p>
             ) : null}
+          </Card>
+
+          <Card padding="p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-[#151f21]">
+                  <FileCheck2 className="h-5 w-5 text-[#315f62]" />
+                  Accepted proposals
+                </h2>
+                <p className="mt-1 text-sm text-[#7A746A]">
+                  Locked acceptance evidence connected to this client account.
+                </p>
+              </div>
+              <Badge variant={acceptedProposals.length > 0 ? "success" : "neutral"}>
+                {acceptedProposals.length}
+              </Badge>
+            </div>
+            {acceptedProposals.length > 0 ? (
+              <div className="mt-5 space-y-3">
+                {acceptedProposals.map((proposal) => (
+                  <div key={proposal.acceptanceId} className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <Link
+                          href={`/app/crm/proposals/preview?id=${encodeURIComponent(proposal.proposalId)}`}
+                          className="font-semibold text-[#151f21] hover:text-[#315f62] hover:underline"
+                        >
+                          {proposal.proposalName}
+                        </Link>
+                        <p className="mt-1 text-sm text-[#7A746A]">
+                          Accepted {new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(proposal.acceptedAt))}
+                          {proposal.acceptedByName ? ` by ${proposal.acceptedByName}` : ""}
+                          {proposal.acceptedByEmail ? ` (${proposal.acceptedByEmail})` : ""}.
+                        </p>
+                      </div>
+                      <Badge variant={proposal.acceptanceStatus === "won" ? "success" : "info"}>
+                        {formatLabel(proposal.acceptanceStatus)}
+                      </Badge>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="rounded-lg bg-white px-3 py-2">
+                        <p className="text-xs font-medium text-[#6F6A66]">Legal company</p>
+                        <p className="mt-1 break-words text-sm font-semibold text-[#151f21]">{proposal.legalCompanyName || "Not captured"}</p>
+                      </div>
+                      <div className="rounded-lg bg-white px-3 py-2">
+                        <p className="text-xs font-medium text-[#6F6A66]">Billing email</p>
+                        <p className="mt-1 break-all text-sm font-semibold text-[#151f21]">{proposal.billingEmail || "Not captured"}</p>
+                      </div>
+                      <div className="rounded-lg bg-white px-3 py-2">
+                        <p className="text-xs font-medium text-[#6F6A66]">Preferred start</p>
+                        <p className="mt-1 text-sm font-semibold text-[#151f21]">{formatDate(proposal.preferredStartDate)}</p>
+                      </div>
+                      <div className="rounded-lg bg-white px-3 py-2">
+                        <p className="text-xs font-medium text-[#6F6A66]">Package</p>
+                        <p className="mt-1 text-sm font-semibold text-[#151f21]">{proposal.packageName || "Not set"}</p>
+                      </div>
+                      <div className="rounded-lg bg-white px-3 py-2">
+                        <p className="text-xs font-medium text-[#6F6A66]">Monthly / setup</p>
+                        <p className="mt-1 text-sm font-semibold text-[#151f21]">
+                          {formatMoneyFromCents(proposal.monthlyFeeCents, proposal.currency)} / {formatMoneyFromCents(proposal.setupFeeCents, proposal.currency)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-white px-3 py-2">
+                        <p className="text-xs font-medium text-[#6F6A66]">Locked evidence</p>
+                        <p className="mt-1 text-sm font-semibold text-[#151f21]">
+                          {proposal.evidenceSha256 ? `${proposal.evidenceSha256.slice(0, 12)}...` : "Not captured"}
+                        </p>
+                      </div>
+                    </div>
+                    {proposal.lockedAt ? (
+                      <p className="mt-3 text-xs font-medium text-[#6F6A66]">
+                        Locked {new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(proposal.lockedAt))}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-5 rounded-xl border border-dashed border-[#E7E1DA] p-5 text-center text-sm text-[#7A746A]">
+                No accepted proposal has been linked to this client account yet.
+              </p>
+            )}
           </Card>
 
           <Card padding="p-5 sm:p-6">
