@@ -69,6 +69,27 @@ type DeadlineRow = {
   type: "Task" | "Service" | "Proposal";
 };
 
+type DailyTaskRow = {
+  id: string;
+  title: string;
+  owner: string;
+  detail: string;
+  date: string | null;
+  href: string;
+  priority: string;
+  status: string;
+};
+
+type TaskOwnerRow = {
+  id: string;
+  owner: string;
+  overdue: number;
+  dueToday: number;
+  upcoming: number;
+  totalOpen: number;
+  href: string;
+};
+
 type DashboardActionRow = {
   id: string;
   title: string;
@@ -206,6 +227,26 @@ function isTaskOverdue(task: InternalTaskRecord) {
   if (task.isOverdue) return true;
   const days = daysFromToday(task.dueDate);
   return days !== null && days < 0;
+}
+
+function isTaskDueToday(task: InternalTaskRecord) {
+  if (task.status === "completed") return false;
+  const days = daysFromToday(task.dueDate);
+  return days === 0;
+}
+
+function isTaskUpcoming(task: InternalTaskRecord) {
+  if (task.status === "completed") return false;
+  const days = daysFromToday(task.dueDate);
+  return days !== null && days > 0 && days <= 14;
+}
+
+function taskBoardLabel(task: InternalTaskRecord) {
+  return task.boardKey ? formatLabel(task.boardKey) : task.category ? formatLabel(task.category) : "Internal work";
+}
+
+function taskOwner(task: InternalTaskRecord) {
+  return task.assignedTo || "Unassigned";
 }
 
 function isUpcomingService(service: ClientAccountServiceRecord) {
@@ -672,6 +713,84 @@ export default function AppPage() {
       .slice(0, 8);
   }, [clientAccountByProfileId, clientNameByProfileId, proposals, services, tasks]);
 
+  const dailyTaskQueues = useMemo(() => {
+    const toTaskRow = (task: InternalTaskRecord): DailyTaskRow => ({
+      id: task.id,
+      title: task.title,
+      owner: taskOwner(task),
+      detail: taskBoardLabel(task),
+      date: task.dueDate || task.completedAt || task.updatedAt,
+      href: getDashboardTaskDetailHref(task.id),
+      priority: task.priority,
+      status: task.status,
+    });
+
+    const byDate = (a: DailyTaskRow, b: DailyTaskRow) =>
+      (parseDate(a.date)?.getTime() || 0) - (parseDate(b.date)?.getTime() || 0);
+
+    const completedRows = tasks
+      .filter((task) => task.status === "completed")
+      .map(toTaskRow)
+      .sort((a, b) => (parseDate(b.date)?.getTime() || 0) - (parseDate(a.date)?.getTime() || 0))
+      .slice(0, 4);
+
+    return {
+      overdue: tasks.filter(isTaskOverdue).map(toTaskRow).sort(byDate).slice(0, 5),
+      dueToday: tasks.filter(isTaskDueToday).map(toTaskRow).sort(byDate).slice(0, 5),
+      upcoming: tasks.filter(isTaskUpcoming).map(toTaskRow).sort(byDate).slice(0, 5),
+      completed: completedRows,
+    };
+  }, [tasks]);
+
+  const proposalFollowUpRows = useMemo<DeadlineRow[]>(() => {
+    return proposals
+      .filter(isActionableProposalFollowUp)
+      .map((proposal) => ({
+        id: proposal.id,
+        title: proposal.proposalName,
+        owner: proposal.ownerName || proposal.contactName || proposal.accountName || "Unassigned",
+        date: proposal.followUpAt,
+        href: `/app/crm/proposals/preview?id=${encodeURIComponent(proposal.id)}&from=dashboard`,
+        type: "Proposal" as const,
+      }))
+      .sort((a, b) => (parseDate(a.date)?.getTime() || 0) - (parseDate(b.date)?.getTime() || 0))
+      .slice(0, 6);
+  }, [proposals]);
+
+  const taskOwnerRows = useMemo<TaskOwnerRow[]>(() => {
+    const rows = new Map<string, TaskOwnerRow>();
+    tasks
+      .filter((task) => task.status !== "completed")
+      .forEach((task) => {
+        const owner = taskOwner(task);
+        const id = owner.toLowerCase();
+        const current = rows.get(id) || {
+          id,
+          owner,
+          overdue: 0,
+          dueToday: 0,
+          upcoming: 0,
+          totalOpen: 0,
+          href: "/app/crm/tasks?from=dashboard",
+        };
+        current.totalOpen += 1;
+        if (isTaskOverdue(task)) current.overdue += 1;
+        if (isTaskDueToday(task)) current.dueToday += 1;
+        if (isTaskUpcoming(task)) current.upcoming += 1;
+        rows.set(id, current);
+      });
+
+    return Array.from(rows.values())
+      .sort((a, b) =>
+        b.overdue - a.overdue ||
+        b.dueToday - a.dueToday ||
+        b.upcoming - a.upcoming ||
+        b.totalOpen - a.totalOpen ||
+        a.owner.localeCompare(b.owner),
+      )
+      .slice(0, 6);
+  }, [tasks]);
+
   const nextBestActions = useMemo<DashboardActionRow[]>(() => {
     const contactRows = contacts
       .filter(isLeadContact)
@@ -1119,6 +1238,170 @@ export default function AppPage() {
           {!isLoading && leadAttentionRows.length === 0 && (
             <p className="text-sm text-[#5e8a8d]">No lead attention items found.</p>
           )}
+        </div>
+      </section>
+
+      <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-[#151f21]">Daily Work Queue</h2>
+            <p className="text-sm text-[#5e8a8d]">
+              Overdue work, today&apos;s tasks, upcoming tasks, proposal follow-ups and owner load
+            </p>
+          </div>
+          <Link
+            href="/app/crm/tasks?from=dashboard"
+            className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+          >
+            Open Tasks
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+          {[
+            {
+              title: "Overdue",
+              rows: dailyTaskQueues.overdue,
+              empty: "No overdue tasks.",
+              tone: "border-amber-200 bg-amber-50 text-amber-700",
+            },
+            {
+              title: "Due today",
+              rows: dailyTaskQueues.dueToday,
+              empty: "No tasks due today.",
+              tone: "border-cyan-200 bg-cyan-50 text-cyan-700",
+            },
+            {
+              title: "Upcoming",
+              rows: dailyTaskQueues.upcoming,
+              empty: "No upcoming tasks in the next 14 days.",
+              tone: "border-violet-200 bg-violet-50 text-violet-700",
+            },
+            {
+              title: "Recently completed",
+              rows: dailyTaskQueues.completed,
+              empty: "No recently completed tasks loaded.",
+              tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
+            },
+          ].map((group) => (
+            <div key={group.title} className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-[#151f21]">{group.title}</h3>
+                <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${group.tone}`}>
+                  {group.rows.length}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {isLoading &&
+                  Array.from({ length: 3 }, (_, index) => (
+                    <SkeletonLine key={index} className="h-14 w-full" />
+                  ))}
+                {!isLoading && group.rows.map((task) => (
+                  <Link
+                    key={task.id}
+                    href={task.href}
+                    className="block rounded-xl border border-[#edf2ef] bg-[#FAF8F5] p-3 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62]"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="line-clamp-2 text-sm font-semibold text-[#151f21]">{task.title}</p>
+                      <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-[#5e8a8d]">
+                        {formatLabel(task.priority)}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5e8a8d]">
+                      <span>{task.owner}</span>
+                      <span>{task.detail}</span>
+                      <span>{task.status === "completed" ? "Done" : "Due"} {formatDate(task.date)}</span>
+                    </div>
+                  </Link>
+                ))}
+                {!isLoading && group.rows.length === 0 && (
+                  <p className="text-sm text-[#5e8a8d]">{group.empty}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-[#151f21]">Proposal follow-ups due</h3>
+              <Link
+                href="/app/crm/proposals?status=follow_up_due&from=dashboard"
+                className="text-sm font-medium text-[#5e8a8d] hover:text-[#151f21]"
+              >
+                Proposals
+              </Link>
+            </div>
+            <div className="space-y-2">
+              {isLoading &&
+                Array.from({ length: 3 }, (_, index) => (
+                  <SkeletonLine key={index} className="h-14 w-full" />
+                ))}
+              {!isLoading && proposalFollowUpRows.map((proposal) => (
+                <Link
+                  key={proposal.id}
+                  href={proposal.href}
+                  className="block rounded-xl border border-[#edf2ef] bg-[#FAF8F5] p-3 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62]"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="line-clamp-2 text-sm font-semibold text-[#151f21]">{proposal.title}</p>
+                    <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                      Follow-up
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5e8a8d]">
+                    <span>{proposal.owner}</span>
+                    <span>Due {formatDate(proposal.date)}</span>
+                  </div>
+                </Link>
+              ))}
+              {!isLoading && proposalFollowUpRows.length === 0 && (
+                <p className="text-sm text-[#5e8a8d]">No proposal follow-ups due.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-[#151f21]">Assigned tasks by owner</h3>
+              <Link
+                href="/app/crm/tasks?from=dashboard"
+                className="text-sm font-medium text-[#5e8a8d] hover:text-[#151f21]"
+              >
+                Task list
+              </Link>
+            </div>
+            <div className="space-y-2">
+              {isLoading &&
+                Array.from({ length: 3 }, (_, index) => (
+                  <SkeletonLine key={index} className="h-12 w-full" />
+                ))}
+              {!isLoading && taskOwnerRows.map((row) => (
+                <Link
+                  key={row.id}
+                  href={row.href}
+                  className="block rounded-xl border border-[#edf2ef] bg-[#FAF8F5] p-3 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62]"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="truncate text-sm font-semibold text-[#151f21]">{row.owner}</p>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-[#5e8a8d]">
+                      {row.totalOpen} open
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <span className="rounded-lg bg-amber-50 px-2 py-1 font-semibold text-amber-700">{row.overdue} overdue</span>
+                    <span className="rounded-lg bg-cyan-50 px-2 py-1 font-semibold text-cyan-700">{row.dueToday} today</span>
+                    <span className="rounded-lg bg-violet-50 px-2 py-1 font-semibold text-violet-700">{row.upcoming} upcoming</span>
+                  </div>
+                </Link>
+              ))}
+              {!isLoading && taskOwnerRows.length === 0 && (
+                <p className="text-sm text-[#5e8a8d]">No open assigned tasks found.</p>
+              )}
+            </div>
+          </div>
         </div>
       </section>
 

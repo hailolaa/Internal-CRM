@@ -238,7 +238,7 @@ function firstName(value: string) {
   return value.trim().split(/\s+/)[0] || value;
 }
 
-function valueOrFallback(value: string | null | undefined, fallback = "To confirm") {
+function draftValue(value: string | null | undefined, fallback: string) {
   return value?.trim() || fallback;
 }
 
@@ -319,12 +319,48 @@ export function ClinicGrowerProposalTemplate({
     sectionContent.personalIntroduction ||
     `Hi ${firstName(contactName)}, thank you for taking the time to explain how the clinic currently operates, what is working and where you want to grow. This proposal sets out what we believe is currently restricting growth, what should be fixed first, and the ClinicGrower programme we recommend.`;
   const understoodCards: Array<[string, string]> = [
-    ["Primary goal", valueOrFallback(sectionContent.primaryGoal)],
-    ["Current position", valueOrFallback(sectionContent.currentPosition)],
-    ["Available capacity", valueOrFallback(sectionContent.availableCapacity)],
-    ["Priority treatments", valueOrFallback(sectionContent.priorityTreatments)],
-    ["Target area", valueOrFallback(sectionContent.targetArea)],
-    ["Desired outcome", valueOrFallback(sectionContent.desiredOutcome)],
+    [
+      "Primary goal",
+      draftValue(
+        sectionContent.primaryGoal,
+        "Increase predictable enquiries and booked consultations from the existing local market.",
+      ),
+    ],
+    [
+      "Current position",
+      draftValue(
+        sectionContent.currentPosition,
+        "There is demand available, but visibility, conversion, follow-up and measurement need to work together more consistently.",
+      ),
+    ],
+    [
+      "Available capacity",
+      draftValue(
+        sectionContent.availableCapacity,
+        "Capacity will be confirmed before launch so growth activity is matched to what the clinic can fulfil.",
+      ),
+    ],
+    [
+      "Priority treatments",
+      draftValue(
+        sectionContent.priorityTreatments,
+        "Priority treatments will be confirmed before launch and reflected in campaign, content and landing-page planning.",
+      ),
+    ],
+    [
+      "Target area",
+      draftValue(
+        sectionContent.targetArea,
+        "Target locations will be agreed around the clinic's catchment, local competition and appointment capacity.",
+      ),
+    ],
+    [
+      "Desired outcome",
+      draftValue(
+        sectionContent.desiredOutcome,
+        "A clearer growth system with better enquiries, stronger conversion and reliable performance visibility.",
+      ),
+    ],
   ];
   const diagnosisScores: Array<[string, number | null | undefined]> = [
     ["Overall Clinic Growth Score", sectionContent.growthScoreOverall],
@@ -371,7 +407,7 @@ export function ClinicGrowerProposalTemplate({
     templateVariant.defaultNextStep;
 
   return (
-    <article className="proposal-print-root mx-auto max-w-5xl overflow-hidden rounded-[8px] border border-[#d8e4df] bg-white text-[#1f332f] shadow-sm">
+    <article className="proposal-print-root proposal-client-document mx-auto max-w-5xl overflow-hidden rounded-[8px] border border-[#d8e4df] bg-white text-[#1f332f] shadow-sm">
       <div className="proposal-print-footer" aria-hidden="true">
         <span>Personalised Growth Proposal for {accountName}</span>
         <span>
@@ -379,22 +415,70 @@ export function ClinicGrowerProposalTemplate({
           <span className="proposal-print-page-number" />
         </span>
       </div>
-      <header className="border-b border-[#d8e4df] bg-[#f3f7f4] px-6 py-7 sm:px-10">
+      <section className="proposal-cover-page relative min-h-[760px] overflow-hidden bg-white px-8 py-12 sm:px-14">
+        <div className="relative z-10 flex h-full min-h-[680px] flex-col">
+          <div className="inline-flex items-center gap-3">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-[#67c3bd] text-xl font-bold tracking-tight text-[#102b2f]">
+              CG
+            </div>
+            <div>
+              <p className="text-lg font-extrabold uppercase tracking-tight text-[#102b2f]">
+                <span className="text-[#67c3bd]">Clinic</span>Grower
+              </p>
+              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6f7d7f]">
+                Empowering Clinics To Thrive
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-28 max-w-xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#67a9a4]">
+              Personalised growth proposal
+            </p>
+            <h1 className="mt-6 text-4xl font-light leading-tight text-[#22272a] sm:text-6xl">
+              For {accountName}
+            </h1>
+            <p className="mt-8 text-base text-[#4d5759]">Written by Max Sharpe</p>
+          </div>
+
+          <div className="mt-auto max-w-2xl border-t border-[#d8e4df] pt-6">
+            <p className="text-sm leading-7 text-[#4d5759]">
+              A focused plan for improving visibility, conversion, tracking and lead handling so growth can become more predictable and easier to manage.
+            </p>
+          </div>
+        </div>
+        <div className="proposal-cover-shape" aria-hidden="true" />
+      </section>
+
+      <header className="proposal-intro-page border-b border-[#d8e4df] bg-white px-6 py-10 sm:px-12">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#8cb8a6] bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[#315f51]">
-              <FileText className="h-3.5 w-3.5" />
-              Personalised Growth Proposal
+            <div className="mb-8 flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#67c3bd] text-base font-bold text-[#102b2f]">
+                CG
+              </div>
+              <div>
+                <p className="text-base font-extrabold uppercase tracking-tight text-[#102b2f]">
+                  <span className="text-[#67c3bd]">Clinic</span>Grower
+                </p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6f7d7f]">
+                  Empowering Clinics To Thrive
+                </p>
+              </div>
             </div>
-            <h1 className="text-3xl font-semibold leading-tight text-[#14231f] sm:text-5xl">
+            <div className="mb-5 inline-flex items-center gap-2 border border-[#d8e4df] bg-[#f8fbf9] px-3 py-2 text-xs font-semibold text-[#315f51]">
+              <FileText className="h-3.5 w-3.5" />
+              {packageName} - {proposal.adSpendNote || "growth system and conversion tracking"}
+            </div>
+            <h2 className="text-3xl font-light leading-tight text-[#22272a] sm:text-5xl">
               Personalised Growth Proposal for {accountName}
-            </h1>
+            </h2>
             <p className="mt-4 max-w-2xl text-base leading-7 text-[#4e635d]">
               {executiveSummary}
             </p>
           </div>
 
-          <div className="min-w-[220px] rounded-[8px] border border-[#c8dad2] bg-white p-4">
+          <div className="min-w-[220px] border-l-4 border-[#67c3bd] bg-[#f8fbf9] p-5">
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Prepared for</p>
             <p className="mt-2 text-lg font-semibold text-[#14231f]">{accountName}</p>
             <p className="mt-1 text-sm text-[#5b7069]">{contactName}</p>
@@ -801,8 +885,8 @@ export function ClinicGrowerProposalTemplate({
             return (
               <div key={`${metric}-${index}`} className="grid gap-2 border-b border-[#e2ebe7] p-4 last:border-b-0 md:grid-cols-[1fr_1fr_1fr]">
                 <p className="text-sm font-semibold text-[#14231f]">{name || metric}</p>
-                <p className="text-sm text-[#5b7069]">{target || "Target to confirm"}</p>
-                <p className="text-sm text-[#5b7069]">{source || "Data source to confirm"}</p>
+                <p className="text-sm text-[#5b7069]">{target || "Baseline and target agreed during onboarding"}</p>
+                <p className="text-sm text-[#5b7069]">{source || "Measured from agreed tracking sources"}</p>
               </div>
             );
           })}

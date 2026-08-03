@@ -472,61 +472,63 @@ export default function ProposalPreviewPage() {
 
   return (
     <div className="min-h-screen bg-[#f5f6f1]">
-      <PageHeader
-        title="Proposal Preview"
-        subtitle="Preview the internal ClinicGrower proposal template without Better Proposals."
-        right={
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href={proposalId ? `/app/crm/proposals/edit?id=${encodeURIComponent(proposalId)}` : "/app/crm/proposals/edit"}
-              className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              {canWriteProposals ? "Edit" : "View details"}
-            </Link>
-            <button
-              type="button"
-              onClick={() => void loadPreview()}
-              className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Refresh
-            </button>
-            {proposalId && canWriteProposals ? (
+      <div className="proposal-screen-only">
+        <PageHeader
+          title="Proposal Preview"
+          subtitle="Review the client-facing ClinicGrower proposal before sharing or printing."
+          right={
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={proposalId ? `/app/crm/proposals/edit?id=${encodeURIComponent(proposalId)}` : "/app/crm/proposals/edit"}
+                className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                {canWriteProposals ? "Edit" : "View details"}
+              </Link>
               <button
                 type="button"
-                disabled={isGeneratingLink || previewIsLoading || !canGenerateLink || !canMutateProposal}
-                onClick={() => void createProposalLink()}
-                title={canGenerateLink ? undefined : "Mark the proposal ready and ensure it has not expired before sharing."}
-                className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => void loadPreview()}
+                className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]"
               >
-                {isGeneratingLink ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-                Generate link
+                <RefreshCw className="h-4 w-4" />
+                Refresh
               </button>
-            ) : null}
-            {proposalId && canWriteProposals ? (
+              {proposalId && canWriteProposals ? (
+                <button
+                  type="button"
+                  disabled={isGeneratingLink || previewIsLoading || !canGenerateLink || !canMutateProposal}
+                  onClick={() => void createProposalLink()}
+                  title={canGenerateLink ? undefined : "Mark the proposal ready and ensure it has not expired before sharing."}
+                  className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isGeneratingLink ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                  Generate link
+                </button>
+              ) : null}
+              {proposalId && canWriteProposals ? (
+                <button
+                  type="button"
+                  disabled={isMarkingSent || previewIsLoading || proposalIsFinal || !canMutateProposal}
+                  onClick={() => void markProposalSent()}
+                  className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isMarkingSent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  Mark sent
+                </button>
+              ) : null}
               <button
                 type="button"
-                disabled={isMarkingSent || previewIsLoading || proposalIsFinal || !canMutateProposal}
-                onClick={() => void markProposalSent()}
-                className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6] disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!proposal || previewIsLoading}
+                onClick={printProposal}
+                className="inline-flex items-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d]"
               >
-                {isMarkingSent ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                Mark sent
+                <Printer className="h-4 w-4" />
+                Download / print PDF
               </button>
-            ) : null}
-            <button
-              type="button"
-              disabled={!proposal || previewIsLoading}
-              onClick={printProposal}
-              className="inline-flex items-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d]"
-            >
-              <Printer className="h-4 w-4" />
-              Download / print PDF
-            </button>
-          </div>
-        }
-      />
+            </div>
+          }
+        />
+      </div>
 
       <main className="px-4 py-6 sm:px-6 lg:px-8">
         {!proposalId && (
@@ -569,7 +571,7 @@ export default function ProposalPreviewPage() {
           <>
             <fieldset
               disabled={!canMutateProposal}
-              className="m-0 min-w-0 border-0 p-0 disabled:opacity-90"
+              className="proposal-screen-only m-0 min-w-0 border-0 p-0 disabled:opacity-90"
             >
             {proposalId ? (
               <section className="mx-auto mb-4 max-w-5xl rounded-[8px] border border-[#d8e4df] bg-white p-4">
@@ -920,7 +922,7 @@ export default function ProposalPreviewPage() {
               </section>
             ) : null}
             </fieldset>
-            <div className="mx-auto mb-4 flex max-w-5xl justify-end">
+            <div className="proposal-screen-only mx-auto mb-4 flex max-w-5xl justify-end">
               {proposal.proposalUrl ? (
                 <div className="flex flex-wrap items-center justify-end gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2">
                   <span className="max-w-[min(560px,80vw)] truncate text-sm text-[#4e635d]">{proposal.proposalUrl}</span>

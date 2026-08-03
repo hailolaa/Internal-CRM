@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Eye, FileText, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronDown, Eye, FileText, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,6 +21,10 @@ import {
 } from "@/lib/proposal-editor-state";
 
 const defaultProposalIntroVideoUrl = "https://vimeo.com/1008757315?fl=pl&fe=sh";
+const oldGrowthEnginePersonalIntroduction =
+  "I have kept this proposal focused on the areas that matter most: visibility, conversion, tracking, lead handling and the first actions needed to create measurable progress.";
+const growthEnginePersonalIntroduction =
+  "Hi, thanks again for taking the time to walk me through where the clinic is now and what you want growth to look like. I have pulled this proposal together around the main opportunities we discussed: improving local visibility, tightening the enquiry journey, making tracking clearer, and giving the team a practical plan for turning more of the right enquiries into booked consultations.";
 
 const scopeCategories = [
   "Strategy",
@@ -118,7 +122,7 @@ const fallbackProposalTemplates: ProposalTemplateRecord[] = [
     packageName: "Growth Engine",
     defaultSections: {
       executiveSummary: "This proposal is built around the growth gaps we can see today, the commercial opportunity available, and the practical plan to turn more existing demand into booked, trackable enquiries.",
-      personalIntroduction: "I have kept this proposal focused on the areas that matter most: visibility, conversion, tracking, lead handling and the first actions needed to create measurable progress.",
+      personalIntroduction: growthEnginePersonalIntroduction,
       diagnosis: "The main opportunity is not simply more activity. The priority is to connect the website, tracking, paid media, follow-up process and reporting into one growth system that the team can trust.",
       introVideoUrl: defaultProposalIntroVideoUrl,
       introVideoTitle: "A short message from ClinicGrower",
@@ -612,6 +616,21 @@ function mergeIntroVideoUrl(currentValue: string, suggestedValue: string | null 
   return !currentValue.trim() || currentValue === defaultProposalIntroVideoUrl ? suggestedValue : currentValue;
 }
 
+function normaliseProposalTemplate(template: ProposalTemplateRecord): ProposalTemplateRecord {
+  const sections = template.defaultSections;
+  if (!sections || sections.personalIntroduction !== oldGrowthEnginePersonalIntroduction) {
+    return template;
+  }
+
+  return {
+    ...template,
+    defaultSections: {
+      ...sections,
+      personalIntroduction: growthEnginePersonalIntroduction,
+    },
+  };
+}
+
 function formWithTemplateDefaults(current: ProposalForm, template: ProposalTemplateRecord): ProposalForm {
   const sections = template.defaultSections || {};
   const timeline = sections.timeline || template.defaultRoadmap.join("\n");
@@ -751,6 +770,7 @@ export default function ProposalEditPage() {
   const [isPullingSourceData, setIsPullingSourceData] = useState(false);
   const [savedProposalId, setSavedProposalId] = useState("");
   const [sourceData, setSourceData] = useState<ProposalSourceDataRecord | null>(null);
+  const [advancedLinksOpen, setAdvancedLinksOpen] = useState(false);
   const [loadedIdentity, setLoadedIdentity] = useState<ProposalIdentity>(
     () => identityFromSearchParams(searchParams),
   );
@@ -785,6 +805,21 @@ export default function ProposalEditPage() {
       .filter(Boolean) as ProposalProofAssetRecord[],
     [form.proofAssetIds, proofAssets],
   );
+  const hasRecordLink = Boolean(form.contactId || form.dealId || form.clientAccountProfileId);
+  const linkedRecordLabel = sourceData?.contact.name ||
+    sourceData?.clientAccount.name ||
+    loadedIdentity.contactName ||
+    loadedIdentity.clientAccountName ||
+    (hasRecordLink ? "Linked CRM record" : "No lead, deal or client linked yet");
+  const proposalNavItems = [
+    ["Story", "#proposal-story"],
+    ["Diagnosis", "#proposal-diagnosis"],
+    ["Numbers", "#proposal-commercial"],
+    ["Scope", "#proposal-scope"],
+    ["Proof", "#proposal-proof"],
+    ["Final copy", "#proposal-final-copy"],
+    ["Preview", "#proposal-live-preview"],
+  ];
 
   const proposalPreview = useMemo<ProposalPublicRecord>(() => ({
     proposalName: form.proposalName.trim() || "Untitled proposal",
@@ -872,7 +907,8 @@ export default function ProposalEditPage() {
           proposalId ? api.proposals.get(token, proposalId) : Promise.resolve(null),
         ]);
         if (!active) return;
-        const activeTemplates = templateRecords.length ? templateRecords : fallbackProposalTemplates;
+        const activeTemplates = (templateRecords.length ? templateRecords : fallbackProposalTemplates)
+          .map(normaliseProposalTemplate);
         setPackages(packageRecords);
         setProposalTemplates(activeTemplates);
         setProofAssets(proofAssetRecords);
@@ -1207,8 +1243,43 @@ export default function ProposalEditPage() {
               disabled={!canEditCurrentProposal}
               className="m-0 min-w-0 border-0 p-0 disabled:opacity-90"
             >
-            <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-              <section className="space-y-5">
+            {!proposalId ? (
+              <section className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b817a]">Create proposal</p>
+                    <h2 className="mt-2 text-xl font-semibold text-[#14231f]">Start with the client story, then confirm the commercial offer.</h2>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-[#5b7069]">
+                      Best route: open a lead or pipeline opportunity first, then create the proposal from there so the contact, Growth Score, package and activity history stay linked.
+                    </p>
+                  </div>
+                  <div className="rounded-[8px] border border-[#e3ece8] bg-[#f8fbf9] px-4 py-3 text-sm">
+                    <p className="font-semibold text-[#14231f]">{linkedRecordLabel}</p>
+                    <p className="mt-1 text-xs leading-5 text-[#5b7069]">
+                      {hasRecordLink ? "This proposal can pull CRM context." : "Create from a contact or pipeline record for the cleanest workflow."}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 grid gap-3 md:grid-cols-4">
+                  {[
+                    ["1", "Link the record", hasRecordLink ? "Connected" : "Start from contact or deal"],
+                    ["2", "Choose template", selectedTemplate.name],
+                    ["3", "Write proposal", form.personalIntroduction.trim() ? "Personal note added" : "Add a real opening note"],
+                    ["4", "Save and preview", proposalId || savedProposalId ? "Ready to preview" : "Save draft first"],
+                  ].map(([step, title, detail]) => (
+                    <div key={step} className="rounded-[8px] border border-[#e3ece8] bg-[#fbfdfc] p-4">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#315f51] text-xs font-bold text-white">{step}</span>
+                        <p className="text-sm font-semibold text-[#14231f]">{title}</p>
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-[#5b7069]">{detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+            <div className="space-y-5">
+              <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(320px,0.85fr)]">
                 <div className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
                   <div className="flex items-center gap-2">
                     <FileText className="h-5 w-5 text-[#315f51]" />
@@ -1221,8 +1292,12 @@ export default function ProposalEditPage() {
                       <input
                         value={form.proposalName}
                         onChange={(event) => updateForm({ proposalName: event.target.value })}
+                        placeholder="Personalised Growth Proposal for BristolDent Harbourside"
                         className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                       />
+                      <span className="mt-1 block text-xs font-normal leading-5 text-[#5b7069]">
+                        This is the internal proposal title. The public proposal title uses the clinic/account name.
+                      </span>
                     </label>
 
                     <label className="block text-sm font-medium text-[#354943]">
@@ -1257,83 +1332,91 @@ export default function ProposalEditPage() {
                           </option>
                         ))}
                       </select>
+                      <span className="mt-1 block text-xs font-normal leading-5 text-[#5b7069]">
+                        Selecting a package fills pricing and default proposal wording where available.
+                      </span>
                     </label>
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="block text-sm font-medium text-[#354943]">
-                        Package label
+                        Client-facing package label
                         <input
                           value={form.packageName}
                           onChange={(event) => updateForm({ packageName: event.target.value })}
+                          placeholder="Growth Engine"
                           className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                         />
                       </label>
                       <label className="block text-sm font-medium text-[#354943]">
-                        Value
+                        Total proposal value
                         <input
                           type="number"
                           min="0"
                           step="0.01"
                           value={form.value}
                           onChange={(event) => updateForm({ value: event.target.value })}
+                          placeholder="1995"
                           className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                         />
                       </label>
                     </div>
 
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <label className="block text-sm font-medium text-[#354943]">
-                        Status
-                        <select
-                          value={form.status}
-                          onChange={(event) => updateForm({ status: event.target.value as ProposalRecord["status"] })}
-                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                        >
-                          {isFinalProposalStatus(form.status) ? (
-                            <option value={form.status}>
-                              {statusLabel(form.status)} (locked)
-                            </option>
-                          ) : null}
-                          {statusOptions.map((status) => (
-                            <option key={status.value} value={status.value}>
-                              {status.label}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="mt-1 block text-xs font-normal leading-5 text-[#5b7069]">
-                          Record Accepted, Won or Lost from Preview & outcomes so the required evidence is saved.
-                        </span>
-                      </label>
-                      <label className="block text-sm font-medium text-[#354943]">
-                        Currency
-                        <input
-                          value={form.currency}
-                          onChange={(event) => updateForm({ currency: event.target.value.toUpperCase().slice(0, 3) })}
-                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                        />
-                      </label>
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <label className="block text-sm font-medium text-[#354943]">
-                        Follow-up
-                        <input
-                          type="datetime-local"
-                          value={form.followUpAt}
-                          onChange={(event) => updateForm({ followUpAt: event.target.value })}
-                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                        />
-                      </label>
-                      <label className="block text-sm font-medium text-[#354943]">
-                        Expires
-                        <input
-                          type="datetime-local"
-                          value={form.expiresAt}
-                          onChange={(event) => updateForm({ expiresAt: event.target.value })}
-                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                        />
-                      </label>
-                    </div>
+                    <details className="rounded-[8px] border border-[#e3ece8] bg-[#fbfdfc] p-3">
+                      <summary className="cursor-pointer text-sm font-semibold text-[#315f51]">
+                        Internal status and dates
+                      </summary>
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Status
+                          <select
+                            value={form.status}
+                            onChange={(event) => updateForm({ status: event.target.value as ProposalRecord["status"] })}
+                            className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          >
+                            {isFinalProposalStatus(form.status) ? (
+                              <option value={form.status}>
+                                {statusLabel(form.status)} (locked)
+                              </option>
+                            ) : null}
+                            {statusOptions.map((status) => (
+                              <option key={status.value} value={status.value}>
+                                {status.label}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="mt-1 block text-xs font-normal leading-5 text-[#5b7069]">
+                            Record Accepted, Won or Lost from Preview & outcomes so the required evidence is saved.
+                          </span>
+                        </label>
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Currency
+                          <input
+                            value={form.currency}
+                            onChange={(event) => updateForm({ currency: event.target.value.toUpperCase().slice(0, 3) })}
+                            placeholder="GBP"
+                            className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Follow-up
+                          <input
+                            type="datetime-local"
+                            value={form.followUpAt}
+                            onChange={(event) => updateForm({ followUpAt: event.target.value })}
+                            className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Expires
+                          <input
+                            type="datetime-local"
+                            value={form.expiresAt}
+                            onChange={(event) => updateForm({ expiresAt: event.target.value })}
+                            className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
+                      </div>
+                    </details>
                   </div>
                 </div>
 
@@ -1345,33 +1428,36 @@ export default function ProposalEditPage() {
                       <label className="block text-sm font-medium text-[#354943]">
                         Monthly fee
                         <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={form.monthlyFee}
-                          onChange={(event) => updateForm({ monthlyFee: event.target.value })}
-                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                        />
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.monthlyFee}
+                        onChange={(event) => updateForm({ monthlyFee: event.target.value })}
+                        placeholder="1995"
+                        className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
                       </label>
                       <label className="block text-sm font-medium text-[#354943]">
                         Setup fee
                         <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={form.setupFee}
-                          onChange={(event) => updateForm({ setupFee: event.target.value })}
-                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                        />
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={form.setupFee}
+                        onChange={(event) => updateForm({ setupFee: event.target.value })}
+                        placeholder="500"
+                        className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
                       </label>
                     </div>
 
                     <label className="block text-sm font-medium text-[#354943]">
                       Ad spend note
                       <textarea
-                        rows={3}
+                        rows={2}
                         value={form.adSpendNote}
                         onChange={(event) => updateForm({ adSpendNote: event.target.value })}
+                        placeholder="Advertising spend is paid directly by the client and agreed separately before launch. Recommended starting range: £2,000 to £4,000 per month."
                         className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                       />
                     </label>
@@ -1406,97 +1492,157 @@ export default function ProposalEditPage() {
                       <label className="block text-sm font-medium text-[#354943]">
                         Minimum term months
                         <input
-                          type="number"
-                          min="0"
-                          value={form.minimumTermMonths}
-                          onChange={(event) => updateForm({ minimumTermMonths: event.target.value })}
-                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                        />
+                        type="number"
+                        min="0"
+                        value={form.minimumTermMonths}
+                        onChange={(event) => updateForm({ minimumTermMonths: event.target.value })}
+                        placeholder="6"
+                        className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
                       </label>
                       <label className="block text-sm font-medium text-[#354943]">
                         Notice period days
                         <input
-                          type="number"
-                          min="0"
-                          value={form.noticePeriodDays}
-                          onChange={(event) => updateForm({ noticePeriodDays: event.target.value })}
-                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                        />
+                        type="number"
+                        min="0"
+                        value={form.noticePeriodDays}
+                        onChange={(event) => updateForm({ noticePeriodDays: event.target.value })}
+                        placeholder="30"
+                        className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                      />
                       </label>
                     </div>
 
-                    <label className="block text-sm font-medium text-[#354943]">
-                      Add-ons
-                      <textarea
-                        rows={3}
-                        value={form.addOns}
-                        onChange={(event) => updateForm({ addOns: event.target.value })}
-                        placeholder="One per line, e.g. Landing page | 750 | Optional launch asset"
-                        className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                      />
-                    </label>
+                    <details className="rounded-[8px] border border-[#e3ece8] bg-[#fbfdfc] p-3">
+                      <summary className="cursor-pointer text-sm font-semibold text-[#315f51]">
+                        Add-ons, discounts and internal margin notes
+                      </summary>
+                      <div className="mt-4 space-y-4">
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Add-ons
+                          <textarea
+                            rows={3}
+                            value={form.addOns}
+                            onChange={(event) => updateForm({ addOns: event.target.value })}
+                            placeholder="One per line, e.g. Landing page | 750 | Optional launch asset"
+                            className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
 
-                    <label className="block text-sm font-medium text-[#354943]">
-                      Discounts
-                      <textarea
-                        rows={3}
-                        value={form.discounts}
-                        onChange={(event) => updateForm({ discounts: event.target.value })}
-                        placeholder="One per line, e.g. Founder discount | 500 | First 3 months"
-                        className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                      />
-                    </label>
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Discounts
+                          <textarea
+                            rows={3}
+                            value={form.discounts}
+                            onChange={(event) => updateForm({ discounts: event.target.value })}
+                            placeholder="One per line, e.g. Founder discount | 500 | First 3 months"
+                            className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
 
-                    <label className="block text-sm font-medium text-[#354943]">
-                      Internal margin note
-                      <textarea
-                        rows={3}
-                        value={form.internalMarginNote}
-                        onChange={(event) => updateForm({ internalMarginNote: event.target.value })}
-                        className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-[#fff8ed] px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                      />
-                    </label>
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Internal margin note
+                          <textarea
+                            rows={3}
+                            value={form.internalMarginNote}
+                            onChange={(event) => updateForm({ internalMarginNote: event.target.value })}
+                            placeholder="Internal only: delivery capacity, pricing sensitivity, discount reason or margin risk. This will never appear in the client-facing proposal."
+                            className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-[#fff8ed] px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
+                      </div>
+                    </details>
                   </div>
                 </div>
 
-                <div className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
-                  <h2 className="text-base font-semibold text-[#14231f]">Record links</h2>
-                  <p className="mt-1 text-sm text-[#5b7069]">A proposal must link to a lead/contact or deal.</p>
-                  <div className="mt-4 space-y-4">
-                    <label className="block text-sm font-medium text-[#354943]">
-                      Contact / lead ID
-                      <input
-                        value={form.contactId}
-                        onChange={(event) => updateForm({ contactId: event.target.value })}
-                        className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                      />
-                    </label>
-                    <label className="block text-sm font-medium text-[#354943]">
-                      Deal ID
-                      <input
-                        value={form.dealId}
-                        onChange={(event) => updateForm({ dealId: event.target.value })}
-                        className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                      />
-                    </label>
-                    <label className="block text-sm font-medium text-[#354943]">
-                      Client account profile ID
-                      <input
-                        value={form.clientAccountProfileId}
-                        onChange={(event) => updateForm({ clientAccountProfileId: event.target.value })}
-                        className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
-                      />
-                    </label>
+                <div id="proposal-records" className="scroll-mt-24 rounded-[8px] border border-[#d8e4df] bg-white p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-base font-semibold text-[#14231f]">CRM link and source data</h2>
+                      <p className="mt-1 text-sm leading-6 text-[#5b7069]">
+                        Create proposals from a contact, pipeline opportunity or client account wherever possible. Manual IDs are only for fixing or recovering a draft.
+                      </p>
+                    </div>
+                    {hasRecordLink ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#e4f5ec] px-2.5 py-1 text-xs font-semibold text-[#256148]">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Linked
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-[#fff8ed] px-2.5 py-1 text-xs font-semibold text-[#775a22]">
+                        Not linked
+                      </span>
+                    )}
                   </div>
+
+                  <div className="mt-4 rounded-[8px] border border-[#e3ece8] bg-[#f8fbf9] p-4">
+                    <p className="text-sm font-semibold text-[#14231f]">{linkedRecordLabel}</p>
+                    <p className="mt-1 text-xs leading-5 text-[#5b7069]">
+                      {hasRecordLink
+                        ? "Use the pull button to refresh contact, Growth Score and package context."
+                        : "Open a lead/contact or pipeline opportunity and choose create proposal from there for the cleanest setup."}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link href="/app/crm/contacts" className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]">
+                        Contacts
+                      </Link>
+                      <Link href="/app/crm/pipeline" className="inline-flex items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]">
+                        Pipeline
+                      </Link>
+                    </div>
+                  </div>
+
                   <button
                     type="button"
-                    disabled={isPullingSourceData || !canEditCurrentProposal}
+                    disabled={isPullingSourceData || !canEditCurrentProposal || !hasRecordLink}
                     onClick={() => void pullProposalSourceData()}
                     className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[8px] bg-[#315f51] px-3 py-2 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isPullingSourceData ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                     Pull CRM, audit and Growth Score data
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAdvancedLinksOpen((open) => !open)}
+                    className="mt-4 inline-flex w-full items-center justify-between rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]"
+                    aria-expanded={advancedLinksOpen}
+                  >
+                    Advanced manual link fields
+                    <ChevronDown className={`h-4 w-4 transition ${advancedLinksOpen ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {advancedLinksOpen ? (
+                    <div className="mt-4 space-y-4 rounded-[8px] border border-[#e3ece8] bg-[#fbfdfc] p-4">
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Contact / lead ID
+                        <input
+                          value={form.contactId}
+                          onChange={(event) => updateForm({ contactId: event.target.value })}
+                          placeholder="Paste contact ID only if the proposal was not opened from the contact record"
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Deal ID
+                        <input
+                          value={form.dealId}
+                          onChange={(event) => updateForm({ dealId: event.target.value })}
+                          placeholder="Paste pipeline deal ID when recovering a draft"
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                      <label className="block text-sm font-medium text-[#354943]">
+                        Client account profile ID
+                        <input
+                          value={form.clientAccountProfileId}
+                          onChange={(event) => updateForm({ clientAccountProfileId: event.target.value })}
+                          placeholder="Paste client profile ID only for accepted/client proposals"
+                          className="mt-1 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                    </div>
+                  ) : null}
                 </div>
 
                 {sourceData ? (
@@ -1538,8 +1684,19 @@ export default function ProposalEditPage() {
 
               <section className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
                 <h2 className="text-base font-semibold text-[#14231f]">Editable proposal sections</h2>
-                <div className="mt-5 space-y-4">
-                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {proposalNavItems.map(([label, href]) => (
+                    <a
+                      key={href}
+                      href={href}
+                      className="rounded-full border border-[#d8e4df] bg-[#f8fbf9] px-3 py-1.5 text-xs font-semibold text-[#315f51] hover:border-[#8cb8a6] hover:bg-white"
+                    >
+                      {label}
+                    </a>
+                  ))}
+                </div>
+                <div className="mt-5 space-y-5">
+                  <div id="proposal-story" className="scroll-mt-24 rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
                     <h3 className="text-sm font-semibold text-[#14231f]">Personal note and clinic summary</h3>
                     <div className="mt-4 space-y-3">
                       <label className="block text-sm font-medium text-[#354943]">
@@ -1548,24 +1705,25 @@ export default function ProposalEditPage() {
                           rows={4}
                           value={form.personalIntroduction}
                           onChange={(event) => updateForm({ personalIntroduction: event.target.value })}
-                          placeholder="Hi [First Name], thank you for taking the time..."
+                          placeholder="Hi Alex, thanks for speaking with me about the clinic's growth goals. I have pulled this together around the main opportunities we discussed: stronger local visibility, clearer tracking, faster lead follow-up and a plan that can turn more enquiries into booked consultations."
                           className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                         />
                       </label>
-                      <div className="grid gap-3 md:grid-cols-2">
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                         {[
-                          ["Primary goal", "primaryGoal"],
-                          ["Current position", "currentPosition"],
-                          ["Available capacity", "availableCapacity"],
-                          ["Priority treatments", "priorityTreatments"],
-                          ["Target area", "targetArea"],
-                          ["Desired outcome/timeframe", "desiredOutcome"],
-                        ].map(([label, key]) => (
+                          ["Primary goal", "primaryGoal", "Increase predictable enquiries and booked consultations from the existing local market."],
+                          ["Current position", "currentPosition", "There is demand available, but visibility, conversion, follow-up and measurement need to work together more consistently."],
+                          ["Available capacity", "availableCapacity", "The clinic has capacity for additional consultations once lead quality and response speed are under control."],
+                          ["Priority treatments", "priorityTreatments", "Dental implants, Invisalign and higher-value private treatment enquiries."],
+                          ["Target area", "targetArea", "A 15 to 20 mile radius around the clinic, prioritising the strongest local search locations."],
+                          ["Desired outcome/timeframe", "desiredOutcome", "A clearer growth system within the first 90 days, then scalable monthly improvement from better data."],
+                        ].map(([label, key, placeholder]) => (
                           <label key={key} className="block text-sm font-medium text-[#354943]">
                             {label}
                             <input
                               value={formTextValue(form, key as keyof ProposalForm)}
                               onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
+                              placeholder={placeholder}
                               className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                             />
                           </label>
@@ -1585,7 +1743,7 @@ export default function ProposalEditPage() {
                         <input
                           value={form.introVideoTitle}
                           onChange={(event) => updateForm({ introVideoTitle: event.target.value })}
-                          placeholder="A message from ClinicGrower"
+                          placeholder="A short proposal walkthrough from Max"
                           className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                         />
                       </label>
@@ -1594,7 +1752,7 @@ export default function ProposalEditPage() {
                         <input
                           value={form.introVideoUrl}
                           onChange={(event) => updateForm({ introVideoUrl: event.target.value })}
-                          placeholder="https://vimeo.com/..."
+                          placeholder="https://vimeo.com/1008757315"
                           className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                         />
                       </label>
@@ -1604,15 +1762,15 @@ export default function ProposalEditPage() {
                       <input
                         value={form.fallbackVideoUrl}
                         onChange={(event) => updateForm({ fallbackVideoUrl: event.target.value })}
-                        placeholder="https://..."
+                        placeholder="https://clinicgrower.co.uk/proposal-video-backup"
                         className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                       />
                     </label>
                   </div>
 
-                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                  <div id="proposal-diagnosis" className="scroll-mt-24 rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
                     <h3 className="text-sm font-semibold text-[#14231f]">Growth diagnosis</h3>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-7">
                       {[
                         ["Overall score", "growthScoreOverall"],
                         ["Visibility", "visibilityScore"],
@@ -1635,18 +1793,19 @@ export default function ProposalEditPage() {
                         </label>
                       ))}
                     </div>
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <div className="mt-4 grid gap-3 lg:grid-cols-3">
                       {[
-                        ["Biggest current risk", "biggestRisk"],
-                        ["Biggest opportunity", "biggestOpportunity"],
-                        ["First recommended fix", "firstRecommendedFix"],
-                      ].map(([label, key]) => (
+                        ["Biggest current risk", "biggestRisk", "The clinic is generating interest, but incomplete tracking and inconsistent follow-up make it hard to see which enquiries are turning into booked patients."],
+                        ["Biggest opportunity", "biggestOpportunity", "There is room to capture more high-intent local demand and convert it more reliably before increasing media spend."],
+                        ["First recommended fix", "firstRecommendedFix", "Fix tracking, lead source visibility and response handling before scaling campaigns."],
+                      ].map(([label, key, placeholder]) => (
                         <label key={key} className="block text-sm font-medium text-[#354943]">
                           {label}
                           <textarea
                             rows={3}
                             value={formTextValue(form, key as keyof ProposalForm)}
                             onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
+                            placeholder={placeholder}
                             className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                           />
                         </label>
@@ -1654,28 +1813,29 @@ export default function ProposalEditPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                  <div id="proposal-commercial" className="scroll-mt-24 rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
                     <h3 className="text-sm font-semibold text-[#14231f]">Commercial opportunity</h3>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       {[
-                        ["Monthly enquiries", "currentMonthlyEnquiries"],
-                        ["Monthly booked patients", "currentMonthlyBookedPatients"],
-                        ["Target bookings", "targetBookings"],
-                        ["Consultation value", "consultationValue"],
-                        ["Average treatment value", "averageTreatmentValue"],
-                        ["Commercial capacity", "availableCommercialCapacity"],
-                        ["Recommended ad spend", "recommendedAdSpend"],
-                        ["Estimated cost per lead", "estimatedCostPerLead"],
-                        ["Estimated leads", "estimatedLeads"],
-                        ["Estimated booked patients", "estimatedBookedPatients"],
-                        ["Break-even bookings", "breakEvenBookings"],
-                        ["Data source/label", "commercialDataSource"],
-                      ].map(([label, key]) => (
+                        ["Monthly enquiries", "currentMonthlyEnquiries", "Around 45 to 60 website, GBP and paid enquiries per month."],
+                        ["Monthly booked patients", "currentMonthlyBookedPatients", "Estimated 18 to 25 booked consultations from current enquiry volume."],
+                        ["Target bookings", "targetBookings", "Increase to 35+ qualified booked consultations per month."],
+                        ["Consultation value", "consultationValue", "Typical first appointment value or consultation value to be confirmed."],
+                        ["Average treatment value", "averageTreatmentValue", "Example: £2,500 to £4,500 depending on treatment mix."],
+                        ["Commercial capacity", "availableCommercialCapacity", "The clinic can support additional private consultations without stretching diary capacity."],
+                        ["Recommended ad spend", "recommendedAdSpend", "Recommended starting ad spend: £2,000 to £4,000 per month."],
+                        ["Estimated cost per lead", "estimatedCostPerLead", "Target range: £35 to £85 per qualified enquiry once campaigns settle."],
+                        ["Estimated leads", "estimatedLeads", "Forecast 40 to 70 qualified enquiries per month after launch period."],
+                        ["Estimated booked patients", "estimatedBookedPatients", "Forecast 20 to 35 booked consultations if response and booking process are followed."],
+                        ["Break-even bookings", "breakEvenBookings", "Usually one or two accepted high-value cases can cover the monthly programme cost."],
+                        ["Data source/label", "commercialDataSource", "Based on current visibility, available clinic data, market demand and agreed assumptions."],
+                      ].map(([label, key, placeholder]) => (
                         <label key={key} className="block text-sm font-medium text-[#354943]">
                           {label}
                           <input
                             value={formTextValue(form, key as keyof ProposalForm)}
                             onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
+                            placeholder={placeholder}
                             className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                           />
                         </label>
@@ -1683,7 +1843,7 @@ export default function ProposalEditPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                  <div id="proposal-scope" className="scroll-mt-24 rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-sm font-semibold text-[#14231f]">Scope and deliverables</h3>
@@ -1705,7 +1865,7 @@ export default function ProposalEditPage() {
                     <div className="mt-4 space-y-4">
                       {form.scopeItems.length ? form.scopeItems.map((item, index) => (
                         <div key={`${item.sortOrder}-${index}`} className="rounded-[8px] border border-[#d8e4df] bg-white p-4">
-                          <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto]">
+                          <div className="grid gap-3 lg:grid-cols-[minmax(180px,0.5fr)_minmax(280px,1fr)_auto]">
                             <label className="block text-sm font-medium text-[#354943]">
                               Category
                               <select
@@ -1723,6 +1883,7 @@ export default function ProposalEditPage() {
                               <input
                                 value={item.title}
                                 onChange={(event) => updateScopeItem(index, { title: event.target.value })}
+                                placeholder="Google Ads campaign restructure"
                                 className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                               />
                             </label>
@@ -1743,16 +1904,18 @@ export default function ProposalEditPage() {
                               rows={3}
                               value={item.clientDescription}
                               onChange={(event) => updateScopeItem(index, { clientDescription: event.target.value })}
+                              placeholder="We will rebuild the campaign structure around the priority services, improve search intent quality, reduce wasted spend and report on the enquiries that matter commercially."
                               className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                             />
                           </label>
 
-                          <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+                          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                             <label className="block text-sm font-medium text-[#354943]">
                               Frequency
                               <input
                                 value={item.frequency || ""}
                                 onChange={(event) => updateScopeItem(index, { frequency: event.target.value })}
+                                placeholder="Ongoing monthly"
                                 className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                               />
                             </label>
@@ -1761,6 +1924,7 @@ export default function ProposalEditPage() {
                               <input
                                 value={item.quantityLimit || ""}
                                 onChange={(event) => updateScopeItem(index, { quantityLimit: event.target.value })}
+                                placeholder="Subject to agreed ad spend"
                                 className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                               />
                             </label>
@@ -1786,7 +1950,7 @@ export default function ProposalEditPage() {
                                 <option value="one_off">One-off</option>
                               </select>
                             </label>
-                            <label className="flex min-h-11 items-center gap-2 self-end rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-medium text-[#354943]">
+                            <label className="flex min-h-11 items-center gap-2 self-end rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm font-medium text-[#354943] xl:col-span-4">
                               <input
                                 type="checkbox"
                                 checked={item.isOptionalAddOn}
@@ -1805,7 +1969,7 @@ export default function ProposalEditPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                  <div id="proposal-proof" className="scroll-mt-24 rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
                     <div>
                       <h3 className="text-sm font-semibold text-[#14231f]">Proof and credibility blocks</h3>
                       <p className="mt-1 text-sm leading-6 text-[#5b7069]">
@@ -1873,6 +2037,7 @@ export default function ProposalEditPage() {
                           <input
                             value={proofAssetDraft.title}
                             onChange={(event) => setProofAssetDraft((current) => ({ ...current, title: event.target.value }))}
+                            placeholder="Private clinic growth case study"
                             className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                           />
                         </label>
@@ -1883,6 +2048,7 @@ export default function ProposalEditPage() {
                           rows={3}
                           value={proofAssetDraft.copy}
                           onChange={(event) => setProofAssetDraft((current) => ({ ...current, copy: event.target.value }))}
+                          placeholder="A relevant example showing how clearer tracking, stronger campaign structure and better lead handling helped a clinic understand which enquiries were becoming booked consultations."
                           className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                         />
                       </label>
@@ -1892,7 +2058,7 @@ export default function ProposalEditPage() {
                           <input
                             value={proofAssetDraft.mediaUrl}
                             onChange={(event) => setProofAssetDraft((current) => ({ ...current, mediaUrl: event.target.value }))}
-                            placeholder="https://..."
+                            placeholder="https://clinicgrower.co.uk/results"
                             className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                           />
                         </label>
@@ -1901,7 +2067,7 @@ export default function ProposalEditPage() {
                           <input
                             value={proofAssetDraft.sectorTags}
                             onChange={(event) => setProofAssetDraft((current) => ({ ...current, sectorTags: event.target.value }))}
-                            placeholder="aesthetics, implants"
+                            placeholder="dentistry, implants, private healthcare"
                             className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                           />
                         </label>
@@ -1918,36 +2084,46 @@ export default function ProposalEditPage() {
                     </div>
                   </div>
 
+                  <div id="proposal-final-copy" className="scroll-mt-24 rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                    <h3 className="text-sm font-semibold text-[#14231f]">Final proposal copy</h3>
+                    <p className="mt-1 text-sm leading-6 text-[#5b7069]">
+                      These sections control the longer proposal wording. They stay full width so editing does not feel cramped.
+                    </p>
+                    <div className="mt-4 space-y-4">
                   {[
-                    ["Executive summary", "executiveSummary"],
-                    ["Current diagnosis", "diagnosis"],
-                    ["Recommended plan", "recommendedPlan"],
-                    ["Strategy points", "strategyPoints"],
-                    ["Included features fallback", "includedFeatures"],
-                    ["Success metrics", "successMetrics"],
-                    ["ClinicGrower responsibilities", "clinicGrowerResponsibilities"],
-                    ["Client responsibilities", "clientResponsibilities"],
-                    ["Delivery timeline", "timeline"],
-                    ["Terms summary", "termsSummary"],
-                    ["Investment notes", "investmentNotes"],
-                    ["Next steps", "nextSteps"],
-                  ].map(([label, key]) => (
+                    ["Executive summary", "executiveSummary", "This proposal sets out the clearest route to improve enquiry quality, booked consultations and performance visibility without adding unnecessary complexity."],
+                    ["Current diagnosis", "diagnosis", "The main gap is not only traffic volume. The clinic needs clearer tracking, stronger local visibility, better conversion points and tighter lead follow-up so growth can be measured and improved."],
+                    ["Recommended plan", "recommendedPlan", "Build a joined-up growth system across website conversion, Google visibility, paid search, call/form tracking, lead response and monthly performance reviews."],
+                    ["Strategy points", "strategyPoints", "Capture high-intent demand from search and maps.\nImprove the path from page visit to enquiry.\nTrack calls, forms and WhatsApp enquiries through to booked outcomes.\nReduce lead-handling leakage with clearer follow-up visibility."],
+                    ["Included features fallback", "includedFeatures", "Clinic Growth Score review and opportunity map\nWebsite and conversion audit\nSEO, GBP and paid lead source review\nTracking and reporting setup guidance\nLead handling and follow-up recommendations"],
+                    ["Success metrics", "successMetrics", "Qualified enquiries | Baseline to establish | Lead tracking and call tracking\nBooked consultations | Directional improvement | Booking and CRM data\nResponse time | Under 10 minutes where practical | Call and lead data"],
+                    ["ClinicGrower responsibilities", "clinicGrowerResponsibilities", "Deliver the agreed scope and raise blockers quickly.\nTrack agreed conversion events and report on the patient journey.\nOptimise based on reliable data, lead quality and booked outcomes."],
+                    ["Client responsibilities", "clientResponsibilities", "Provide access, approvals and required assets promptly.\nRespond to enquiries quickly and maintain appointment capacity.\nShare accurate booking and sales outcome data where available."],
+                    ["Delivery timeline", "timeline", "Days 1 to 14: confirm access, validate tracking and review priority pages.\nDays 15 to 45: launch agreed improvements and review first lead quality signals.\nDays 46 to 90: scale what is working and agree the next growth priority."],
+                    ["Terms summary", "termsSummary", "Monthly service with agreed minimum term, notice period, payment timing, VAT position and ad spend arrangements confirmed before launch."],
+                    ["Investment notes", "investmentNotes", "The recommended investment is designed around the work needed to create a controlled, measurable growth system rather than isolated marketing activity."],
+                    ["Next steps", "nextSteps", "Review the proposal, confirm any questions, approve the recommended programme and schedule the onboarding call."],
+                  ].map(([label, key, placeholder]) => (
                     <label key={key} className="block text-sm font-medium text-[#354943]">
                       {label}
                       <textarea
                         rows={key === "includedFeatures" || key === "timeline" ? 5 : 4}
                         value={formTextValue(form, key as keyof ProposalForm)}
                         onChange={(event) => updateForm({ [key]: event.target.value } as Partial<ProposalForm>)}
+                        placeholder={placeholder}
                         className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                       />
                     </label>
                   ))}
+                    </div>
+                  </div>
                   <label className="block text-sm font-medium text-[#354943]">
                     Internal notes
                     <textarea
                       rows={3}
                       value={form.notes}
                       onChange={(event) => updateForm({ notes: event.target.value })}
+                      placeholder="Internal only: decision maker context, pricing sensitivity, approval notes or follow-up reminders. This will not appear in the client-facing proposal."
                       className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
                     />
                   </label>
@@ -1955,7 +2131,7 @@ export default function ProposalEditPage() {
               </section>
             </div>
             </fieldset>
-            <section aria-labelledby="proposal-live-preview-title" className="space-y-3 pt-2">
+            <section id="proposal-live-preview" aria-labelledby="proposal-live-preview-title" className="scroll-mt-24 space-y-3 pt-2">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">

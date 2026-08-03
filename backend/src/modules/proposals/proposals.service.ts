@@ -1331,7 +1331,7 @@ export class ProposalsService {
         : null,
       sectionContent: {
         executiveSummary: `This proposal brings together what we understand about ${accountName}, the priority growth gaps identified so far and the ClinicGrower programme recommended as the next step.`,
-        personalIntroduction: `Hi ${contactName ? contactName.split(/\s+/)[0] : "there"}, thank you for taking the time to explain how the clinic currently operates, what is working and where you want to grow. This proposal sets out what we believe is currently restricting growth, what should be fixed first, and the ClinicGrower programme we recommend.`,
+        personalIntroduction: `Hi ${contactName ? contactName.split(/\s+/)[0] : "there"}, thanks again for taking the time to talk through where ${accountName} is now and what you want growth to look like. I have pulled this proposal together around the main opportunities we discussed: improving local visibility, tightening the enquiry journey, making tracking clearer, and giving the team a practical plan for turning more of the right enquiries into booked consultations.`,
         introVideoTitle: "A short message from ClinicGrower",
         introVideoUrl: "https://vimeo.com/1008757315?fl=pl&fe=sh",
         primaryGoal: packageName ? `Move forward with ${packageName}.` : "Improve patient acquisition and conversion.",

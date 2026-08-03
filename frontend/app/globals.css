@@ -286,6 +286,10 @@
     background: #ffffff !important;
   }
 
+  .proposal-screen-only {
+    display: none !important;
+  }
+
   body * {
     visibility: hidden;
   }
@@ -307,6 +311,16 @@
     color: #14231f !important;
     overflow: visible !important;
     padding-bottom: 18mm;
+  }
+
+  .proposal-cover-page,
+  .proposal-intro-page {
+    min-height: 252mm !important;
+  }
+
+  .proposal-cover-page {
+    break-after: page;
+    page-break-after: always;
   }
 
   .proposal-print-root header,
@@ -378,4 +392,14 @@
 
 .proposal-print-footer {
   display: none;
+}
+
+.proposal-cover-shape {
+  background:
+    linear-gradient(165deg, transparent 0 42%, rgba(103, 195, 189, 0.12) 42% 52%, rgba(16, 43, 47, 0.06) 52% 100%);
+  bottom: -8rem;
+  height: 22rem;
+  left: 0;
+  position: absolute;
+  right: 0;
 }
