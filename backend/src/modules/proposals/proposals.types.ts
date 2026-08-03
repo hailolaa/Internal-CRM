@@ -24,6 +24,18 @@ export const proposalPublicStatuses = [
 
 export type ProposalPublicStatus = typeof proposalPublicStatuses[number];
 
+export const proposalProofAssetTypes = [
+  "award",
+  "testimonial",
+  "testimonial_video",
+  "case_study",
+  "client_logo",
+  "performance_result",
+  "team_image",
+] as const;
+
+export type ProposalProofAssetType = typeof proposalProofAssetTypes[number];
+
 export interface ProposalLinkAccess {
   canManageAllClientAccounts: boolean;
 }
@@ -226,6 +238,8 @@ export interface ProposalSectionContent {
   breakEvenBookings?: string | null;
   commercialDataSource?: string | null;
   recommendedPlan?: string | null;
+  proofAssetIds?: string[];
+  proofAssets?: ProposalProofAssetResponse[];
   scopeItems?: ProposalScopeItem[];
   strategyPoints?: string[];
   includedFeatures?: string[];
@@ -267,6 +281,29 @@ export interface ProposalTemplateResponse {
   defaultTerms: string | null;
   defaultSuccessMetrics: string[];
   defaultScopeItems: ProposalScopeItem[];
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProposalProofAssetMutationDTO {
+  type: ProposalProofAssetType;
+  title: string;
+  copy: string;
+  mediaUrl?: string | null;
+  sectorTags?: string[] | null;
+  sortOrder?: number | null;
+  isActive?: boolean;
+}
+
+export interface ProposalProofAssetResponse {
+  id: string;
+  type: ProposalProofAssetType;
+  title: string;
+  copy: string;
+  mediaUrl: string | null;
+  sectorTags: string[];
   sortOrder: number;
   isActive: boolean;
   createdAt: string;

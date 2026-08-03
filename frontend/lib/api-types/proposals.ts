@@ -12,6 +12,15 @@ export type ProposalStatus =
   | "expired"
   | "archived";
 
+export type ProposalProofAssetType =
+  | "award"
+  | "testimonial"
+  | "testimonial_video"
+  | "case_study"
+  | "client_logo"
+  | "performance_result"
+  | "team_image";
+
 export interface ProposalRecord {
   id: string;
   contactId: string | null;
@@ -181,6 +190,8 @@ export interface ProposalSectionContent {
   breakEvenBookings?: string | null;
   commercialDataSource?: string | null;
   recommendedPlan?: string | null;
+  proofAssetIds?: string[];
+  proofAssets?: ProposalProofAssetRecord[];
   scopeItems?: ProposalScopeItem[];
   strategyPoints?: string[];
   includedFeatures?: string[];
@@ -226,6 +237,29 @@ export interface ProposalTemplateRecord {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProposalProofAssetRecord {
+  id: string;
+  type: ProposalProofAssetType;
+  title: string;
+  copy: string;
+  mediaUrl: string | null;
+  sectorTags: string[];
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProposalProofAssetPayload {
+  type: ProposalProofAssetType;
+  title: string;
+  copy: string;
+  mediaUrl?: string | null;
+  sectorTags?: string[] | null;
+  sortOrder?: number | null;
+  isActive?: boolean;
 }
 
 export interface ProposalShareRecord {

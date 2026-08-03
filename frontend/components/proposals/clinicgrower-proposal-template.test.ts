@@ -215,4 +215,39 @@ describe("ClinicGrowerProposalTemplate", () => {
     expect(html).toContain("Recurring");
     expect(html).not.toContain("Do not show this delivery note publicly.");
   });
+
+  it("renders only selected proof assets in the public proposal", () => {
+    const html = renderToStaticMarkup(
+      ClinicGrowerProposalTemplate({
+        proposal: {
+          ...publicProposal,
+          sectionContent: {
+            proofAssetIds: ["proof-selected"],
+            proofAssets: [
+              {
+                id: "proof-selected",
+                type: "case_study",
+                title: "Booked-consultation case study",
+                copy: "A selected proof block shown on this proposal.",
+                mediaUrl: "https://example.com/case-study",
+                sectorTags: ["aesthetics", "growth"],
+                sortOrder: 10,
+                isActive: true,
+                createdAt: "2026-08-03T09:00:00.000Z",
+                updatedAt: "2026-08-03T09:00:00.000Z",
+              },
+            ],
+          },
+        },
+        packageRecord: null,
+        previewMode: false,
+      }),
+    );
+
+    expect(html).toContain("Booked-consultation case study");
+    expect(html).toContain("A selected proof block shown on this proposal.");
+    expect(html).toContain("https://example.com/case-study");
+    expect(html).not.toContain("Trusted by clinics");
+    expect(html).not.toContain("Dr Tanja Phillips");
+  });
 });

@@ -4,6 +4,7 @@ import { authorizeAnyPermission, authorizePermission } from "../../middleware/au
 import { validate } from "../../middleware/validate.js";
 import { proposalsController } from "./proposals.controller.js";
 import {
+  createProofAssetValidator,
   createProposalValidator,
   createProposalSignatureRequestValidator,
   exportProposalsValidator,
@@ -63,6 +64,20 @@ router.get(
   "/templates",
   authorizePermission("proposals:read"),
   proposalsController.listProposalTemplates,
+);
+
+router.get(
+  "/proof-assets",
+  authorizePermission("proposals:read"),
+  proposalsController.listProofAssets,
+);
+
+router.post(
+  "/proof-assets",
+  authorizePermission("proposals:write"),
+  createProofAssetValidator,
+  validate,
+  proposalsController.createProofAsset,
 );
 
 router.get(

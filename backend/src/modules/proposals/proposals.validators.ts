@@ -1,5 +1,5 @@
 import { body, param, query } from "express-validator";
-import { proposalStatuses } from "./proposals.types.js";
+import { proposalProofAssetTypes, proposalStatuses } from "./proposals.types.js";
 import { salesLossReasons, salesObjectionTypes } from "../sales-outcomes/sales-outcomes.constants.js";
 
 const idValidator = (field: string) =>
@@ -78,6 +78,7 @@ const sectionContentValidator = body("sectionContent")
       "breakEvenBookings",
       "commercialDataSource",
       "recommendedPlan",
+      "proofAssetIds",
       "scopeItems",
       "strategyPoints",
       "includedFeatures",
@@ -179,6 +180,15 @@ const sectionContentValidator = body("sectionContent")
         if (fieldValue.length > 40) throw new Error(`${key} can include up to 40 items`);
         for (const item of fieldValue) {
           if (String(item).length > 500) throw new Error(`${key} items can be up to 500 characters`);
+        }
+      }
+      if (key === "proofAssetIds") {
+        if (!Array.isArray(fieldValue)) throw new Error("proofAssetIds must be a list");
+        if (fieldValue.length > 20) throw new Error("proofAssetIds can include up to 20 records");
+        for (const item of fieldValue) {
+          if (typeof item !== "string" || item.trim().length === 0 || item.length > 36) {
+            throw new Error("proofAssetIds entries must be valid record identifiers");
+          }
         }
       }
       if (key === "scopeItems") {
@@ -337,6 +347,40 @@ export const updateProposalValidator = [
   commercialItemsValidator("discounts"),
   body("internalMarginNote").optional({ nullable: true }).trim().isLength({ max: 5000 }),
   sectionContentValidator,
+];
+
+export const createProofAssetValidator = [
+  body("type").isIn(proposalProofAssetTypes).withMessage("Proof asset type is not supported"),
+  body("title").trim().notEmpty().withMessage("Proof title is required").isLength({ max: 180 }),
+  body("copy").trim().notEmpty().withMessage("Proof copy is required").isLength({ max: 5000 }),
+  body("mediaUrl")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 1000 })
+    .custom((value) => {
+      if (!value) return true;
+      try {
+        const parsed = new URL(value);
+        if (!["https:", "http:"].includes(parsed.protocol)) throw new Error("invalid protocol");
+      } catch {
+        throw new Error("mediaUrl must be a valid URL");
+      }
+      return true;
+    }),
+  body("sectorTags")
+    .optional({ nullable: true })
+    .isArray({ max: 20 })
+    .withMessage("sectorTags must be a list of up to 20 tags")
+    .custom((tags) => {
+      for (const tag of tags || []) {
+        if (typeof tag !== "string" || !tag.trim() || tag.length > 80) {
+          throw new Error("sectorTags must contain non-empty tags up to 80 characters");
+        }
+      }
+      return true;
+    }),
+  body("sortOrder").optional({ nullable: true }).isInt({ min: 0, max: 100000 }).toInt(),
+  body("isActive").optional({ nullable: true }).isBoolean(),
 ];
 
 export const sendProposalValidator = [

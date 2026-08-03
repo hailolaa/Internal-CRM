@@ -1,11 +1,9 @@
 import {
   ArrowRight,
-  BarChart3,
   CalendarClock,
   CheckCircle2,
   FileText,
   LineChart,
-  MousePointerClick,
   PlayCircle,
   Search,
   ShieldCheck,
@@ -297,6 +295,9 @@ export function ClinicGrowerProposalTemplate({
       : defaultFeatures;
   const scopeItems = (sectionContent.scopeItems || [])
     .filter((item) => item.title && item.clientDescription)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
+  const proofAssets = (sectionContent.proofAssets || [])
+    .filter((asset) => asset.title && asset.copy)
     .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
   const proposalWording =
     sectionContent.recommendedPlan ||
@@ -736,39 +737,40 @@ export function ClinicGrowerProposalTemplate({
         </div>
       </section>
 
-      <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
-        <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Proof and credibility</p>
-        <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">Why clinics choose ClinicGrower</h2>
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <div className="rounded-[8px] bg-[#edf5f1] p-5">
-            <BarChart3 className="h-5 w-5 text-[#2f7665]" />
-            <p className="mt-4 text-sm font-semibold text-[#14231f]">Trusted by clinics</p>
-            <p className="mt-2 text-sm leading-6 text-[#5b7069]">ClinicGrower is positioned around specialist clinic growth, with public proof including 50+ clinics, Google Partner status and Aesthetics Awards recognition.</p>
+      {proofAssets.length ? (
+        <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
+          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Proof and credibility</p>
+          <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">Why this recommendation is credible</h2>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {proofAssets.map((asset) => (
+              <div key={asset.id} className="rounded-[8px] border border-[#e2ebe7] bg-white p-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-[#edf5f1] px-2 py-1 text-xs font-semibold capitalize text-[#315f51]">
+                    {asset.type.replace(/_/g, " ")}
+                  </span>
+                  {asset.sectorTags.slice(0, 3).map((tag) => (
+                    <span key={tag} className="rounded-full bg-[#f3f7f4] px-2 py-1 text-xs font-semibold text-[#6b817a]">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <h3 className="mt-4 text-lg font-semibold text-[#14231f]">{asset.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-[#5b7069]">{asset.copy}</p>
+                {asset.mediaUrl ? (
+                  <a
+                    href={asset.mediaUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-4 inline-flex text-sm font-semibold text-[#315f51] hover:text-[#24483d]"
+                  >
+                    Open proof asset
+                  </a>
+                ) : null}
+              </div>
+            ))}
           </div>
-          <div className="rounded-[8px] bg-[#f4f0e8] p-5">
-            <MousePointerClick className="h-5 w-5 text-[#8a6630]" />
-            <p className="mt-4 text-sm font-semibold text-[#14231f]">Booked-outcome focus</p>
-            <p className="mt-2 text-sm leading-6 text-[#5b7069]">The method focuses on lead quality, booked consultations, response speed, cost per booked patient and treatment-level economics.</p>
-          </div>
-          <div className="rounded-[8px] bg-[#eef2fb] p-5">
-            <ShieldCheck className="h-5 w-5 text-[#4f63a5]" />
-            <p className="mt-4 text-sm font-semibold text-[#14231f]">Delivery accountability</p>
-            <p className="mt-2 text-sm leading-6 text-[#5b7069]">Weekly optimisation, transparent reporting and fast support are part of the core ClinicGrower promise.</p>
-          </div>
-        </div>
-        <div className="mt-5 grid gap-3 lg:grid-cols-3">
-          {[
-            ["Dr Tanja Phillips", "Increased patient bookings and strong week-on-week lead generation are used as public proof points."],
-            ["Victoria Parsons", "The website positions ClinicGrower as a partner that understands the clinic sector and drives measurable growth."],
-            ["Elisabeth Thorhallsdottir", "ClinicGrower proof focuses on measurable growth and practical healthcare-sector marketing strategy."],
-          ].map(([name, quote]) => (
-            <div key={name} className="rounded-[8px] border border-[#e2ebe7] bg-white p-4">
-              <p className="text-sm font-semibold text-[#14231f]">{name}</p>
-              <p className="mt-2 text-sm leading-6 text-[#5b7069]">{quote}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+        </section>
+      ) : null}
 
       <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
         <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">How success will be measured</p>

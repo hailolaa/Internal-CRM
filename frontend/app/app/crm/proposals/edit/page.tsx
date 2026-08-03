@@ -8,7 +8,7 @@ import { AlertBanner, PageHeader } from "@/components/ui";
 import { ClinicGrowerProposalTemplate } from "@/components/proposals/clinicgrower-proposal-template";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { GrowthPackageRecord, ProposalCommercialItem, ProposalPayload, ProposalPublicRecord, ProposalRecord, ProposalScopeItem, ProposalSectionContent, ProposalSourceDataRecord, ProposalTemplateRecord } from "@/lib/api-types";
+import type { GrowthPackageRecord, ProposalCommercialItem, ProposalPayload, ProposalProofAssetRecord, ProposalProofAssetType, ProposalPublicRecord, ProposalRecord, ProposalScopeItem, ProposalSectionContent, ProposalSourceDataRecord, ProposalTemplateRecord } from "@/lib/api-types";
 import {
   PROPOSAL_EDITOR_STATUSES,
   isCurrentProposalRequest,
@@ -36,6 +36,16 @@ const scopeCategories = [
   "Conversion",
   "Retention",
   "Support",
+];
+
+const proofAssetTypes: Array<{ value: ProposalProofAssetType; label: string }> = [
+  { value: "award", label: "Award" },
+  { value: "testimonial", label: "Testimonial" },
+  { value: "testimonial_video", label: "Testimonial video" },
+  { value: "case_study", label: "Case study" },
+  { value: "client_logo", label: "Client logo" },
+  { value: "performance_result", label: "Performance result" },
+  { value: "team_image", label: "Team image" },
 ];
 
 const fallbackGrowthEngineScopeItems: ProposalScopeItem[] = [
@@ -245,6 +255,7 @@ type ProposalForm = {
   breakEvenBookings: string;
   commercialDataSource: string;
   recommendedPlan: string;
+  proofAssetIds: string[];
   scopeItems: ProposalScopeItem[];
   strategyPoints: string;
   includedFeatures: string;
@@ -255,6 +266,22 @@ type ProposalForm = {
   termsSummary: string;
   investmentNotes: string;
   nextSteps: string;
+};
+
+type ProofAssetDraft = {
+  type: ProposalProofAssetType;
+  title: string;
+  copy: string;
+  mediaUrl: string;
+  sectorTags: string;
+};
+
+const emptyProofAssetDraft: ProofAssetDraft = {
+  type: "testimonial",
+  title: "",
+  copy: "",
+  mediaUrl: "",
+  sectorTags: "",
 };
 
 function toDateTimeLocal(value: string | null | undefined) {
@@ -378,6 +405,7 @@ function sectionContentFromForm(form: ProposalForm): ProposalSectionContent {
     breakEvenBookings: form.breakEvenBookings.trim() || null,
     commercialDataSource: form.commercialDataSource.trim() || null,
     recommendedPlan: form.recommendedPlan.trim() || null,
+    proofAssetIds: form.proofAssetIds,
     scopeItems: cleanScopeItems(form.scopeItems),
     strategyPoints: textLines(form.strategyPoints),
     includedFeatures: textLines(form.includedFeatures),
@@ -453,6 +481,7 @@ function formFromProposal(proposal: ProposalRecord): ProposalForm {
     breakEvenBookings: sections.breakEvenBookings || "",
     commercialDataSource: sections.commercialDataSource || "",
     recommendedPlan: sections.recommendedPlan || "",
+    proofAssetIds: Array.isArray(sections.proofAssetIds) ? sections.proofAssetIds : [],
     scopeItems: cleanScopeItems(sections.scopeItems),
     strategyPoints: (sections.strategyPoints || []).join("\n"),
     includedFeatures: (sections.includedFeatures || []).join("\n"),
@@ -529,6 +558,7 @@ function createInitialForm(searchParams: URLSearchParams): ProposalForm {
     breakEvenBookings: "",
     commercialDataSource: "",
     recommendedPlan: "",
+    proofAssetIds: [],
     scopeItems: [],
     strategyPoints: "",
     includedFeatures: "",
@@ -713,6 +743,9 @@ export default function ProposalEditPage() {
   const [form, setForm] = useState<ProposalForm>(() => createInitialForm(searchParams));
   const [packages, setPackages] = useState<GrowthPackageRecord[]>([]);
   const [proposalTemplates, setProposalTemplates] = useState<ProposalTemplateRecord[]>(fallbackProposalTemplates);
+  const [proofAssets, setProofAssets] = useState<ProposalProofAssetRecord[]>([]);
+  const [proofAssetDraft, setProofAssetDraft] = useState<ProofAssetDraft>(emptyProofAssetDraft);
+  const [isCreatingProofAsset, setIsCreatingProofAsset] = useState(false);
   const [isLoading, setIsLoading] = useState(Boolean(proposalId));
   const [isSaving, setIsSaving] = useState(false);
   const [isPullingSourceData, setIsPullingSourceData] = useState(false);
@@ -746,6 +779,13 @@ export default function ProposalEditPage() {
     [form.recommendedPackageId, packages],
   );
 
+  const selectedProofAssets = useMemo(
+    () => form.proofAssetIds
+      .map((assetId) => proofAssets.find((asset) => asset.id === assetId))
+      .filter(Boolean) as ProposalProofAssetRecord[],
+    [form.proofAssetIds, proofAssets],
+  );
+
   const proposalPreview = useMemo<ProposalPublicRecord>(() => ({
     proposalName: form.proposalName.trim() || "Untitled proposal",
     templateKey: form.templateKey,
@@ -762,7 +802,10 @@ export default function ProposalEditPage() {
     expiresAt: fromDateTimeLocal(form.expiresAt),
     addOns: commercialItemsFromText(form.addOns),
     discounts: commercialItemsFromText(form.discounts),
-    sectionContent: sectionContentFromForm(form),
+    sectionContent: {
+      ...sectionContentFromForm(form),
+      proofAssets: selectedProofAssets,
+    },
     contactName: sourceData?.contact.name || loadedIdentity.contactName,
     accountName:
       sourceData?.clientAccount.name ||
@@ -771,7 +814,7 @@ export default function ProposalEditPage() {
       loadedIdentity.accountName,
     clientAccountName:
       sourceData?.clientAccount.name || loadedIdentity.clientAccountName,
-  }), [form, loadedIdentity, selectedPackage, sourceData]);
+  }), [form, loadedIdentity, selectedPackage, selectedProofAssets, sourceData]);
 
   const updateForm = (patch: Partial<ProposalForm>) => {
     if (!canEditCurrentProposal) return;
@@ -802,6 +845,9 @@ export default function ProposalEditPage() {
       setForm(createInitialForm(routeSearchParams));
       setPackages([]);
       setProposalTemplates(fallbackProposalTemplates);
+      setProofAssets([]);
+      setProofAssetDraft(emptyProofAssetDraft);
+      setIsCreatingProofAsset(false);
       setSavedProposalId("");
       setSourceData(null);
       setLoadedIdentity(identityFromSearchParams(routeSearchParams));
@@ -817,17 +863,19 @@ export default function ProposalEditPage() {
 
       setIsLoading(true);
       try {
-        const [packageRecords, templateRecords, proposalRecord] = await Promise.all([
+        const [packageRecords, templateRecords, proofAssetRecords, proposalRecord] = await Promise.all([
           loadOptionalProposalPackages(
             () => api.packages.list(token, { includeInactive: true }),
           ),
           api.proposals.templates(token).catch(() => fallbackProposalTemplates),
+          api.proposals.proofAssets(token).catch(() => []),
           proposalId ? api.proposals.get(token, proposalId) : Promise.resolve(null),
         ]);
         if (!active) return;
         const activeTemplates = templateRecords.length ? templateRecords : fallbackProposalTemplates;
         setPackages(packageRecords);
         setProposalTemplates(activeTemplates);
+        setProofAssets(proofAssetRecords);
         if (proposalRecord) {
           setForm(formFromProposal(proposalRecord));
           setSavedProposalId(proposalRecord.id);
@@ -912,6 +960,54 @@ export default function ProposalEditPage() {
       ...current,
       scopeItems: current.scopeItems.filter((_, itemIndex) => itemIndex !== index),
     }));
+  };
+
+  const toggleProofAsset = (assetId: string) => {
+    if (!canEditCurrentProposal) return;
+    setForm((current) => ({
+      ...current,
+      proofAssetIds: current.proofAssetIds.includes(assetId)
+        ? current.proofAssetIds.filter((id) => id !== assetId)
+        : [...current.proofAssetIds, assetId],
+    }));
+  };
+
+  const createProofAsset = async () => {
+    if (!token || !canEditCurrentProposal || isCreatingProofAsset) return;
+    const title = proofAssetDraft.title.trim();
+    const copy = proofAssetDraft.copy.trim();
+    if (!title || !copy) {
+      setError("Proof title and copy are required.");
+      return;
+    }
+
+    setIsCreatingProofAsset(true);
+    setError("");
+    setMessage("");
+    try {
+      const created = await api.proposals.createProofAsset(token, {
+        type: proofAssetDraft.type,
+        title,
+        copy,
+        mediaUrl: proofAssetDraft.mediaUrl.trim() || null,
+        sectorTags: proofAssetDraft.sectorTags
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+        sortOrder: proofAssets.length ? Math.max(...proofAssets.map((asset) => asset.sortOrder || 0)) + 10 : 10,
+      });
+      setProofAssets((current) => [...current, created].sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title)));
+      setForm((current) => ({
+        ...current,
+        proofAssetIds: [...current.proofAssetIds, created.id],
+      }));
+      setProofAssetDraft(emptyProofAssetDraft);
+      setMessage("Proof asset created and selected for this proposal.");
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not create proof asset.");
+    } finally {
+      setIsCreatingProofAsset(false);
+    }
   };
 
   const pullProposalSourceData = useCallback(async () => {
@@ -1706,6 +1802,119 @@ export default function ProposalEditPage() {
                           No structured scope items are selected yet. Choose a template or add scope items before sending.
                         </div>
                       )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[8px] border border-[#edf2ef] bg-[#f8fbf9] p-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#14231f]">Proof and credibility blocks</h3>
+                      <p className="mt-1 text-sm leading-6 text-[#5b7069]">
+                        Select the proof blocks that should appear publicly in this proposal.
+                      </p>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                      {proofAssets.length ? proofAssets.map((asset) => {
+                        const selected = form.proofAssetIds.includes(asset.id);
+                        return (
+                          <button
+                            key={asset.id}
+                            type="button"
+                            onClick={() => toggleProofAsset(asset.id)}
+                            disabled={!canEditCurrentProposal}
+                            aria-pressed={selected}
+                            className={`rounded-[8px] border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                              selected
+                                ? "border-[#315f51] bg-[#edf5f1]"
+                                : "border-[#d8e4df] bg-white hover:border-[#8cb8a6]"
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold capitalize text-[#315f51]">
+                                {asset.type.replace(/_/g, " ")}
+                              </span>
+                              {asset.sectorTags.slice(0, 3).map((tag) => (
+                                <span key={tag} className="rounded-full bg-[#f3f7f4] px-2 py-1 text-xs font-semibold text-[#6b817a]">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                            <p className="mt-3 text-sm font-semibold text-[#14231f]">{asset.title}</p>
+                            <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#5b7069]">{asset.copy}</p>
+                            {asset.mediaUrl ? (
+                              <p className="mt-2 truncate text-xs font-semibold text-[#315f51]">{asset.mediaUrl}</p>
+                            ) : null}
+                          </button>
+                        );
+                      }) : (
+                        <div className="rounded-[8px] border border-dashed border-[#b8c8c2] bg-white p-5 text-sm text-[#5b7069]">
+                          No proof assets exist yet. Create the first proof block below.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-5 rounded-[8px] border border-[#d8e4df] bg-white p-4">
+                      <h4 className="text-sm font-semibold text-[#14231f]">Create proof asset</h4>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Type
+                          <select
+                            value={proofAssetDraft.type}
+                            onChange={(event) => setProofAssetDraft((current) => ({ ...current, type: event.target.value as ProposalProofAssetType }))}
+                            className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          >
+                            {proofAssetTypes.map((type) => (
+                              <option key={type.value} value={type.value}>{type.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Title
+                          <input
+                            value={proofAssetDraft.title}
+                            onChange={(event) => setProofAssetDraft((current) => ({ ...current, title: event.target.value }))}
+                            className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
+                      </div>
+                      <label className="mt-3 block text-sm font-medium text-[#354943]">
+                        Client-facing copy
+                        <textarea
+                          rows={3}
+                          value={proofAssetDraft.copy}
+                          onChange={(event) => setProofAssetDraft((current) => ({ ...current, copy: event.target.value }))}
+                          className="mt-1 w-full resize-y rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm leading-6 text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                        />
+                      </label>
+                      <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)_auto]">
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Media URL
+                          <input
+                            value={proofAssetDraft.mediaUrl}
+                            onChange={(event) => setProofAssetDraft((current) => ({ ...current, mediaUrl: event.target.value }))}
+                            placeholder="https://..."
+                            className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
+                        <label className="block text-sm font-medium text-[#354943]">
+                          Sector tags
+                          <input
+                            value={proofAssetDraft.sectorTags}
+                            onChange={(event) => setProofAssetDraft((current) => ({ ...current, sectorTags: event.target.value }))}
+                            placeholder="aesthetics, implants"
+                            className="mt-1 min-h-11 w-full rounded-[8px] border border-[#d8e4df] bg-white px-3 py-2 text-sm text-[#14231f] outline-none focus:border-[#315f51] focus:ring-2 focus:ring-[#315f51]/15"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => void createProofAsset()}
+                          disabled={!canEditCurrentProposal || isCreatingProofAsset}
+                          className="mt-6 inline-flex min-h-11 items-center justify-center gap-2 rounded-[8px] bg-[#315f51] px-4 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isCreatingProofAsset ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                          Create
+                        </button>
+                      </div>
                     </div>
                   </div>
 

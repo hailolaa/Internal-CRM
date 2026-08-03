@@ -27,6 +27,9 @@ import type {
   ProposalListQuery,
   ProposalPublicPreviewResponse,
   ProposalMutationDTO,
+  ProposalProofAssetMutationDTO,
+  ProposalProofAssetResponse,
+  ProposalProofAssetType,
   ProposalResponse,
   ProposalSectionContent,
   ProposalSendDTO,
@@ -343,6 +346,12 @@ function mapProposal(row: any): ProposalResponse {
   };
 }
 
+function parseProofAssetIds(value: unknown): string[] {
+  if (!value || typeof value !== "object") return [];
+  const ids = (value as ProposalSectionContent).proofAssetIds;
+  return Array.isArray(ids) ? ids.map((id) => cleanString(id)).filter(Boolean) as string[] : [];
+}
+
 function mapProposalTemplate(row: any): ProposalTemplateResponse {
   return {
     id: row.id,
@@ -373,6 +382,21 @@ function mapProposalScopeItem(row: any): ProposalScopeItem {
     deliveryType: row.deliveryType === "one_off" ? "one_off" : "recurring",
     isOptionalAddOn: Boolean(row.isOptionalAddOn),
     sortOrder: Number(row.sortOrder || 0),
+  };
+}
+
+function mapProposalProofAsset(row: any): ProposalProofAssetResponse {
+  return {
+    id: row.id,
+    type: row.type as ProposalProofAssetType,
+    title: row.title,
+    copy: row.copy,
+    mediaUrl: row.mediaUrl || null,
+    sectorTags: parseJsonArray(row.sectorTags),
+    sortOrder: Number(row.sortOrder || 0),
+    isActive: Boolean(row.isActive),
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.updatedAt).toISOString(),
   };
 }
 
@@ -581,6 +605,79 @@ function isTruthy(value: unknown) {
 }
 
 export class ProposalsService {
+  async listProofAssets(clinicId: string, includeInactive = false): Promise<ProposalProofAssetResponse[]> {
+    const filters = includeInactive ? "" : "AND is_active = 1";
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              type,
+              title,
+              copy,
+              media_url as mediaUrl,
+              sector_tags as sectorTags,
+              sort_order as sortOrder,
+              is_active as isActive,
+              created_at as createdAt,
+              updated_at as updatedAt
+       FROM proposal_proof_asset
+       WHERE clinic_id = ?
+         AND deleted_at IS NULL
+         ${filters}
+       ORDER BY sort_order ASC, title ASC`,
+      [clinicId],
+    );
+
+    return rows.map(mapProposalProofAsset);
+  }
+
+  async createProofAsset(
+    clinicId: string,
+    userId: string,
+    data: ProposalProofAssetMutationDTO,
+  ): Promise<ProposalProofAssetResponse> {
+    const id = uuidv4();
+    const sectorTags = Array.isArray(data.sectorTags)
+      ? data.sectorTags.map((tag) => cleanString(tag)).filter(Boolean)
+      : [];
+    await pool.execute(
+      `INSERT INTO proposal_proof_asset
+        (id, clinic_id, type, title, copy, media_url, sector_tags, sort_order, is_active, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        clinicId,
+        data.type,
+        cleanString(data.title),
+        cleanString(data.copy),
+        cleanString(data.mediaUrl),
+        JSON.stringify(sectorTags),
+        data.sortOrder ?? 0,
+        data.isActive === false ? 0 : 1,
+        userId,
+        userId,
+      ],
+    );
+
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              type,
+              title,
+              copy,
+              media_url as mediaUrl,
+              sector_tags as sectorTags,
+              sort_order as sortOrder,
+              is_active as isActive,
+              created_at as createdAt,
+              updated_at as updatedAt
+       FROM proposal_proof_asset
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [id, clinicId],
+    );
+    return mapProposalProofAsset(rows[0]);
+  }
+
   async listProposalTemplates(clinicId: string, includeInactive = false): Promise<ProposalTemplateResponse[]> {
     const filters = includeInactive ? "" : "AND is_active = 1";
     const [rows]: any = await pool.execute(
@@ -723,7 +820,7 @@ export class ProposalsService {
       [proposalId, clinicId],
     );
     if (rows.length === 0) throw ApiError.notFound("Proposal not found");
-    return mapProposal(rows[0]);
+    return this.hydrateSelectedProofAssets(clinicId, mapProposal(rows[0]), executor);
   }
 
   async createProposalShare(clinicId: string, userId: string, proposalId: string): Promise<ProposalShareResponse> {
@@ -946,7 +1043,10 @@ export class ProposalsService {
     );
     if (refreshedRows.length === 0) throw ApiError.notFound("Proposal link not found");
 
-    const internalProposal = mapProposal(refreshedRows[0]);
+    const internalProposal = await this.hydrateSelectedProofAssets(
+      refreshedRows[0].clinicId,
+      mapProposal(refreshedRows[0]),
+    );
     if (!isProposalPubliclyVisible(internalProposal.status, internalProposal.expiresAt)) {
       throw ApiError.notFound("Proposal link not found");
     }
@@ -1230,6 +1330,7 @@ export class ProposalsService {
     const valueCents = data.valueCents ?? recommendedPackage?.priceCents ?? null;
     const monthlyFeeCents = data.monthlyFeeCents ?? (recommendedPackage?.billingFrequency === "monthly" ? recommendedPackage?.priceCents : null);
     const setupFeeCents = data.setupFeeCents ?? recommendedPackage?.setupFeeCents ?? null;
+    await this.validateProofAssetIds(clinicId, data.sectionContent);
     await this.validateRelatedDealOutcome(clinicId, {
       dealId: links.dealId,
       status,
@@ -1413,6 +1514,9 @@ export class ProposalsService {
     const outcomeValueCents = Object.prototype.hasOwnProperty.call(data, "valueCents")
       ? data.valueCents
       : recommendedPackage?.priceCents ?? existing.valueCents;
+    if (Object.prototype.hasOwnProperty.call(data, "sectionContent")) {
+      await this.validateProofAssetIds(clinicId, data.sectionContent);
+    }
     await this.validateRelatedDealOutcome(clinicId, {
       dealId: links.dealId,
       status,
@@ -2463,6 +2567,68 @@ export class ProposalsService {
     );
     if (rows.length === 0) throw ApiError.badRequest("Recommended package must be available to this workspace");
     return rows[0] as { id: string; name: string; priceCents: number | null; setupFeeCents: number | null; billingFrequency: string | null; currency: string };
+  }
+
+  private async validateProofAssetIds(clinicId: string, sectionContent: ProposalSectionContent | null | undefined) {
+    const ids = parseProofAssetIds(sectionContent);
+    if (ids.length === 0) return;
+    const uniqueIds = [...new Set(ids)];
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    const [rows]: any = await pool.execute(
+      `SELECT id
+       FROM proposal_proof_asset
+       WHERE clinic_id = ?
+         AND id IN (${placeholders})
+         AND is_active = 1
+         AND deleted_at IS NULL`,
+      [clinicId, ...uniqueIds],
+    );
+    if (rows.length !== uniqueIds.length) {
+      throw ApiError.badRequest("Selected proof assets must be active and available to this workspace");
+    }
+  }
+
+  private async hydrateSelectedProofAssets(
+    clinicId: string,
+    proposal: ProposalResponse,
+    executor: QueryExecutor = pool,
+  ): Promise<ProposalResponse> {
+    const sectionContent = proposal.sectionContent;
+    const ids = parseProofAssetIds(sectionContent);
+    if (ids.length === 0) return proposal;
+    const uniqueIds = [...new Set(ids)];
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    const [rows]: any = await executor.execute(
+      `SELECT id,
+              type,
+              title,
+              copy,
+              media_url as mediaUrl,
+              sector_tags as sectorTags,
+              sort_order as sortOrder,
+              is_active as isActive,
+              created_at as createdAt,
+              updated_at as updatedAt
+       FROM proposal_proof_asset
+       WHERE clinic_id = ?
+         AND id IN (${placeholders})
+         AND is_active = 1
+         AND deleted_at IS NULL`,
+      [clinicId, ...uniqueIds],
+    );
+    const assetsById = new Map(rows.map((row: any) => [row.id, mapProposalProofAsset(row)]));
+    const selectedAssets = ids
+      .map((id) => assetsById.get(id))
+      .filter(Boolean) as ProposalProofAssetResponse[];
+
+    return {
+      ...proposal,
+      sectionContent: {
+        ...(sectionContent || {}),
+        proofAssetIds: ids,
+        proofAssets: selectedAssets,
+      },
+    };
   }
 
   private async syncProposalFollowUpTask(

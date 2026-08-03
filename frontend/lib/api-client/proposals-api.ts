@@ -1,6 +1,8 @@
 import type {
   ProposalListParams,
   ProposalPayload,
+  ProposalProofAssetPayload,
+  ProposalProofAssetRecord,
   ProposalPublicPreviewRecord,
   ProposalRecord,
   ProposalSendPayload,
@@ -65,6 +67,22 @@ export function createProposalsApi(apiRequest: ApiRequest) {
           `/api/proposals/templates${query ? `?${query}` : ""}`,
           { token },
         );
+        return response.data!;
+      },
+      async proofAssets(token: string, params: { includeInactive?: boolean } = {}) {
+        const query = toQuery(params);
+        const response = await apiRequest<ProposalProofAssetRecord[]>(
+          `/api/proposals/proof-assets${query ? `?${query}` : ""}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async createProofAsset(token: string, payload: ProposalProofAssetPayload) {
+        const response = await apiRequest<ProposalProofAssetRecord>("/api/proposals/proof-assets", {
+          method: "POST",
+          token,
+          body: JSON.stringify(payload),
+        });
         return response.data!;
       },
       async create(token: string, payload: ProposalPayload) {

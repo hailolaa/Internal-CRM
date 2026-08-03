@@ -24,6 +24,27 @@ export class ProposalsController {
     }
   };
 
+  listProofAssets = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const includeInactive = req.query.includeInactive === "true";
+      const assets = await proposalsService.listProofAssets(clinicId, includeInactive);
+      res.status(200).json({ status: "success", data: assets });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createProofAsset = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const asset = await proposalsService.createProofAsset(clinicId, userId, req.body);
+      res.status(201).json({ status: "success", data: asset });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listProposalTemplates = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId } = (req as any).user;
