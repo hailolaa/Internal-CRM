@@ -42,6 +42,9 @@ export interface CallRecord {
   recordingUrl: string | null;
   treatment: string;
   source: string;
+  clientAccountProfileId?: string | null;
+  clientClinicId?: string | null;
+  clientName?: string | null;
   createdAt: string; // relative time label
   timestamp: string; // ISO-ish for sorting
 }

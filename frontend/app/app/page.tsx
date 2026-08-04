@@ -52,6 +52,7 @@ import {
 import { DashboardKpiCardLink } from "@/components/dashboard-kpi-card-link";
 import type {
   CalendarMeetingRecord,
+  CallLogRecord,
   ClientAccountServiceRecord,
   ClientAccountSummaryRecord,
   ContactRecord,
@@ -92,6 +93,14 @@ type TaskOwnerRow = {
 };
 
 type MeetingRow = {
+  id: string;
+  title: string;
+  detail: string;
+  date: string;
+  href: string;
+};
+
+type CallIssueRow = {
   id: string;
   title: string;
   detail: string;
@@ -322,6 +331,7 @@ export default function AppPage() {
   const [tasks, setTasks] = useState<InternalTaskRecord[]>([]);
   const [proposals, setProposals] = useState<ProposalRecord[]>([]);
   const [meetings, setMeetings] = useState<CalendarMeetingRecord[]>([]);
+  const [callIssues, setCallIssues] = useState<CallLogRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -339,8 +349,9 @@ export default function AppPage() {
       api.internalTasks.list(token, { includeArchived: false }),
       api.proposals.list(token, { includeArchived: false, limit: 250 }),
       api.calendar.listMeetings(token, { upcoming: true, limit: 12 }),
+      api.calls.list(token, { missedOnly: true }),
     ])
-      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult, proposalResult, meetingResult]) => {
+      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult, proposalResult, meetingResult, callResult]) => {
         if (!isMounted) return;
 
         setDeals(dealResult.status === "fulfilled" ? dealResult.value.deals : []);
@@ -353,6 +364,7 @@ export default function AppPage() {
         setTasks(taskResult.status === "fulfilled" ? taskResult.value : []);
         setProposals(proposalResult.status === "fulfilled" ? proposalResult.value : []);
         setMeetings(meetingResult.status === "fulfilled" ? meetingResult.value : []);
+        setCallIssues(callResult.status === "fulfilled" ? callResult.value : []);
 
         const failedSources = [
           dealResult.status === "rejected" ? "sales pipeline" : "",
@@ -363,6 +375,7 @@ export default function AppPage() {
           taskResult.status === "rejected" ? "internal tasks" : "",
           proposalResult.status === "rejected" ? "proposal follow-ups" : "",
           meetingResult.status === "rejected" ? "calendar meetings" : "",
+          callResult.status === "rejected" ? "call response issues" : "",
         ].filter(Boolean);
 
         setLoadError(
@@ -791,6 +804,21 @@ export default function AppPage() {
       .sort((a, b) => (parseDate(a.date)?.getTime() || 0) - (parseDate(b.date)?.getTime() || 0))
       .slice(0, 6);
   }, [meetings]);
+
+  const callIssueRows = useMemo<CallIssueRow[]>(() => {
+    return callIssues
+      .map((call) => ({
+        id: call.id,
+        title: call.contactName || call.phone || "Missed call",
+        detail: [call.clientName, call.phone, call.source].filter(Boolean).join(" - ") || "Call response needed",
+        date: call.createdAt || call.timestamp,
+        href: call.contactId
+          ? `/app/crm/contacts/detail?id=${encodeURIComponent(call.contactId)}&from=dashboard`
+          : "/app/comms/calls?missed=1&from=dashboard",
+      }))
+      .sort((a, b) => (parseDate(b.date)?.getTime() || 0) - (parseDate(a.date)?.getTime() || 0))
+      .slice(0, 6);
+  }, [callIssues]);
 
   const taskOwnerRows = useMemo<TaskOwnerRow[]>(() => {
     const rows = new Map<string, TaskOwnerRow>();
@@ -1358,7 +1386,7 @@ export default function AppPage() {
           ))}
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-4">
           <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h3 className="text-sm font-semibold text-[#151f21]">Proposal follow-ups due</h3>
@@ -1433,6 +1461,45 @@ export default function AppPage() {
               ))}
               {!isLoading && upcomingMeetingRows.length === 0 && (
                 <p className="text-sm text-[#5e8a8d]">No synced upcoming meetings.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-[#151f21]">Call response issues</h3>
+              <Link
+                href="/app/comms/calls?missed=1&from=dashboard"
+                className="text-sm font-medium text-[#5e8a8d] hover:text-[#151f21]"
+              >
+                Calls
+              </Link>
+            </div>
+            <div className="space-y-2">
+              {isLoading &&
+                Array.from({ length: 3 }, (_, index) => (
+                  <SkeletonLine key={index} className="h-14 w-full" />
+                ))}
+              {!isLoading && callIssueRows.map((call) => (
+                <Link
+                  key={call.id}
+                  href={call.href}
+                  className="block rounded-xl border border-[#edf2ef] bg-[#FAF8F5] p-3 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62]"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="line-clamp-2 text-sm font-semibold text-[#151f21]">{call.title}</p>
+                    <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                      Missed
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5e8a8d]">
+                    <span>{call.detail}</span>
+                    <span>{formatDate(call.date)}</span>
+                  </div>
+                </Link>
+              ))}
+              {!isLoading && callIssueRows.length === 0 && (
+                <p className="text-sm text-[#5e8a8d]">No missed-call issues loaded.</p>
               )}
             </div>
           </div>

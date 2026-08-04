@@ -21,7 +21,7 @@ const outcomeOptions: Array<{ value: CallCommercialOutcome; label: string }> = [
 ];
 
 function contactLabel(contact: ContactRecord) {
-  return [contact.name, contact.phone, contact.email].filter(Boolean).join(" · ");
+  return [contact.name, contact.phone, contact.email].filter(Boolean).join(" - ");
 }
 
 function toIsoDateTime(value: string) {
@@ -57,7 +57,7 @@ export function LogCallModal({
   useEffect(() => {
     let mounted = true;
     api.contacts
-      .list(token, { pageSize: 50 })
+      .list(token, { pageSize: 250 })
       .then((result) => {
         if (!mounted) return;
         setContacts(result.contacts);

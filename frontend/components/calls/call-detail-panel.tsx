@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { X, Phone, Clock, User, FileText, Headphones, Sparkles, Send, Save, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { X, Phone, Clock, User, FileText, Headphones, Sparkles, Send, Save, Loader2, ArrowUpRight, CheckSquare } from "lucide-react";
 import type { CallRecord } from "@/lib/call-data";
 import { formatCallDuration } from "@/lib/call-data";
 import {
@@ -38,6 +39,11 @@ export function CallDetailPanel({
   const isGenerating = actionKey === "generate";
   const isTranscribing = actionKey === "transcribe";
   const isFollowingUp = actionKey === "follow-up";
+  const canCreateRecoveryTask =
+    call.missedCall ||
+    call.outcome === "no_answer" ||
+    call.commercialOutcome === "missed_no_answer" ||
+    call.commercialOutcome === "follow_up_required";
 
   const handleSaveNotes = async () => {
     await onSaveNotes(call, notesDraft);
@@ -106,6 +112,35 @@ export function CallDetailPanel({
         <DetailItem icon={FileText} label="Disposition">
           <CallDispositionBadge disposition={call.disposition} />
         </DetailItem>
+        {call.clientName && (
+          <DetailItem icon={User} label="Client account">
+            <span className="text-sm" style={{ color: "#252421" }}>
+              {call.clientName}
+            </span>
+          </DetailItem>
+        )}
+      </div>
+
+      <div className="px-5 pb-4">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <RecordLink href={`/app/crm/contacts/detail?id=${encodeURIComponent(call.contactId)}&from=calls`}>
+            <User className="h-3.5 w-3.5" /> Contact
+          </RecordLink>
+          <RecordLink href={`/app/crm/tasks?contactId=${encodeURIComponent(call.contactId)}&from=calls`}>
+            <CheckSquare className="h-3.5 w-3.5" /> Tasks
+          </RecordLink>
+          {call.clientClinicId ? (
+            <RecordLink href={`/app/ops/client-accounts/detail?id=${encodeURIComponent(call.clientClinicId)}&from=calls`}>
+              <ArrowUpRight className="h-3.5 w-3.5" /> Client
+            </RecordLink>
+          ) : (
+            <span
+              className="flex items-center justify-center gap-1 rounded-xl border border-dashed border-[#E5DED6] px-3 py-2 text-xs font-medium text-[#A8A39B]"
+            >
+              No client linked
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Notes */}
@@ -333,7 +368,7 @@ export function CallDetailPanel({
           )}
           Generate AI
         </button>
-        {call.missedCall && (
+        {canCreateRecoveryTask && (
           <button
             onClick={() => onFollowUp(call)}
             disabled={isFollowingUp}
@@ -349,11 +384,28 @@ export function CallDetailPanel({
             ) : (
               <Send className="w-3.5 h-3.5" />
             )}
-            Queue Missed-Call Follow-up
+            Create Recovery Task
           </button>
         )}
       </div>
     </div>
+  );
+}
+
+function RecordLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center justify-center gap-1 rounded-xl border border-[#E5DED6] bg-[#F7F5F2] px-3 py-2 text-xs font-medium text-[#5F5A52] transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62]"
+    >
+      {children}
+    </Link>
   );
 }
 

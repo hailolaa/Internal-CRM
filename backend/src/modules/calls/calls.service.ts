@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import crypto from "node:crypto";
 import pool from "../../config/database.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
@@ -34,6 +35,10 @@ function initials(name: string) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+function fullName(firstName?: string | null, lastName?: string | null) {
+  return [firstName, lastName].filter(Boolean).join(" ").trim();
 }
 
 function toMysqlDateTimeValue(value: unknown) {
@@ -218,6 +223,9 @@ export class CallsService {
               cl.disposition,
               cl.source,
               cl.missed_call as missedCall,
+              cac.client_account_profile_id as clientAccountProfileId,
+              client.id as clientClinicId,
+              client.name as clientName,
               cl.transcript,
               cl.ai_summary as aiSummary,
               cl.sentiment,
@@ -237,6 +245,20 @@ export class CallsService {
        FROM \` call \` cl
        JOIN contact c ON c.id = cl.contact_id
        LEFT JOIN user u ON u.id = cl.user_id
+       LEFT JOIN client_account_contact cac
+         ON cac.id = (
+           SELECT latest_cac.id
+           FROM client_account_contact latest_cac
+           WHERE latest_cac.contact_id = c.id
+             AND latest_cac.clinic_id = c.clinic_id
+           ORDER BY latest_cac.created_at DESC
+           LIMIT 1
+         )
+       LEFT JOIN client_account_profile cap
+         ON cap.id = cac.client_account_profile_id
+       LEFT JOIN clinic client
+         ON client.id = cap.clinic_id
+        AND client.deleted_at IS NULL
        LEFT JOIN call_recording_deletion_request rdr
          ON rdr.id = (
            SELECT latest.id
@@ -272,7 +294,7 @@ export class CallsService {
       treatmentMentioned: row.treatmentMentioned || "",
       qualityScore: row.qualityScore === null || row.qualityScore === undefined ? null : Number(row.qualityScore),
       summaryGeneratedAt: row.summaryGeneratedAt ? new Date(row.summaryGeneratedAt).toISOString() : null,
-      assignedTo: row.assignedTo.trim() || "Clinic user",
+      assignedTo: row.assignedTo.trim() || "Internal team",
       recordingUrl: row.recordingUrl,
       recordingDuration: row.recordingDuration === null || row.recordingDuration === undefined ? null : Number(row.recordingDuration),
       recordingStatus: row.recordingStatus || null,
@@ -282,15 +304,18 @@ export class CallsService {
       consentTimestamp: row.consentTimestamp ? new Date(row.consentTimestamp).toISOString() : null,
       retentionDeadline: formatDateOnlyValue(row.retentionDeadline),
       recordingDeletionRequest: formatRecordingDeletionRequest(row),
-      treatment: "Consultation",
+      treatment: "Service/package",
       source: row.source || "Call log",
+      clientAccountProfileId: row.clientAccountProfileId || null,
+      clientClinicId: row.clientClinicId || null,
+      clientName: row.clientName || null,
       createdAt: new Date(row.createdAt).toISOString(),
       timestamp: new Date(row.createdAt).toISOString(),
     }));
 
   }
 
-  // Create or queue a missed-call SMS follow-up linked to the call and contact.
+  // Create an internal missed-call recovery task and keep the SMS follow-up trail.
   async createMissedCallFollowUp(
     clinicId: string,
     userId: string,
@@ -300,7 +325,7 @@ export class CallsService {
   ) {
     // Verify call exists and belongs to clinic
     const [callRows]: any = await pool.execute(
-      `SELECT id, contact_id as contactId, missed_call as missedCall
+      `SELECT id, contact_id as contactId, missed_call as missedCall, direction, duration, outcome as commercialOutcome
        FROM ` + "` call `" + `
        WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL
        LIMIT 1`,
@@ -309,23 +334,15 @@ export class CallsService {
 
     const callRow = callRows[0];
     if (!callRow) throw ApiError.notFound("Call not found");
-    if (!callRow.missedCall) {
-      throw ApiError.badRequest("Missed-call follow-up can only be created for missed calls");
+    const isRecoveryEligible =
+      Boolean(callRow.missedCall) ||
+      Number(callRow.duration || 0) === 0 ||
+      ["missed_no_answer", "follow_up_required"].includes(String(callRow.commercialOutcome || ""));
+    if (!isRecoveryEligible) {
+      throw ApiError.badRequest("Call recovery tasks can only be created for missed, no-answer, or follow-up-required calls");
     }
 
     const contactId = callRow.contactId;
-
-    // Prevent accidental duplicate follow-ups for same call
-    const [existingSms]: any = await pool.execute(
-      `SELECT id, status
-       FROM sms
-       WHERE call_id = ? AND call_followup = 1 AND deleted_at IS NULL
-       LIMIT 1`,
-      [callId],
-    );
-    if (existingSms[0] && existingSms[0].status !== "failed") {
-      throw ApiError.conflict("A missed-call follow-up has already been queued or sent for this call");
-    }
 
     // Load contact info for rendering
     const [contactRows]: any = await pool.execute(
@@ -336,6 +353,8 @@ export class CallsService {
       [contactId, clinicId],
     );
     const contact = contactRows[0] || { firstName: null, lastName: null, phone: null, email: null };
+    const contactName = fullName(contact.firstName, contact.lastName) || contact.phone || contact.email || "Unknown contact";
+    const clientAccountProfileId = await this.findClientAccountProfileForContact(clinicId, contactId);
 
     // Optional: load clinic name
     const [clinicRows]: any = await pool.execute(`SELECT name FROM clinic WHERE id = ? LIMIT 1`, [clinicId]);
@@ -368,37 +387,143 @@ export class CallsService {
     const status = sendNow ? "sent" : "queued";
     const providerMessageId = sendNow ? "log-provider" : null;
     const providerResponse = sendNow ? JSON.stringify({ provider: "log" }) : null;
+    const taskId = uuidv4();
+    const templateKey = `missed_call_followup:${callId}`;
+    let resultSmsId: string | null = null;
+    let resultTaskId: string | null = null;
 
-    await pool.execute(
-      `INSERT INTO sms (id, clinic_id, contact_id, user_id, message, direction, status, call_id, call_followup, provider_message_id, provider_response)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-      [smsId, clinicId, contactId, userId || null, renderedBody, "outbound", status, callId, providerMessageId, providerResponse],
-    );
+    const connection = await pool.getConnection();
+    const lockName = `mcf:${crypto.createHash("sha256").update(`${clinicId}:${callId}`).digest("hex").slice(0, 48)}`;
+    let lockAcquired = false;
+    try {
+      const [lockRows]: any = await connection.execute("SELECT GET_LOCK(?, 5) as acquired", [lockName]);
+      lockAcquired = Number(lockRows[0]?.acquired || 0) === 1;
+      if (!lockAcquired) {
+        throw ApiError.conflict("A missed-call recovery task is already being created for this call");
+      }
+
+      await connection.beginTransaction();
+
+      const [existingTask]: any = await connection.execute(
+        `SELECT id
+         FROM task
+         WHERE clinic_id = ?
+           AND is_internal = 1
+           AND template_key = ?
+           AND deleted_at IS NULL
+           AND archived_at IS NULL
+         LIMIT 1`,
+        [clinicId, templateKey],
+      );
+
+      if (existingTask[0]) {
+        resultTaskId = existingTask[0].id;
+      } else {
+        await connection.execute(
+          `INSERT INTO task
+            (id, clinic_id, is_internal, title, description, priority, status, category, board_key, service_type,
+             client_account_profile_id, contact_id, contact_name, due_label, due_date, assigned_to,
+             assigned_user_id, template_key, missed_task, escalation_flag, created_by)
+           VALUES (?, ?, 1, ?, ?, 'high', 'pending', 'call_response', 'sales', 'strategy',
+             ?, ?, ?, 'Today', CURRENT_DATE, ?, ?, ?, 1, 1, ?)`,
+          [
+            taskId,
+            clinicId,
+            "Follow up missed call",
+            `Missed inbound call from ${contactName}. Call back, update the outcome, and add notes to the contact timeline.`,
+            clientAccountProfileId,
+            contactId,
+            contactName,
+            "Internal team",
+            userId || null,
+            templateKey,
+            userId || null,
+          ],
+        );
+        resultTaskId = taskId;
+      }
+
+      const [existingSms]: any = await connection.execute(
+        `SELECT id, status
+         FROM sms
+         WHERE call_id = ? AND call_followup = 1 AND deleted_at IS NULL
+         LIMIT 1`,
+        [callId],
+      );
+
+      if (existingSms[0] && existingSms[0].status !== "failed") {
+        resultSmsId = existingSms[0].id;
+      } else {
+        await connection.execute(
+          `INSERT INTO sms (id, clinic_id, contact_id, user_id, message, direction, status, call_id, call_followup, provider_message_id, provider_response)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+          [smsId, clinicId, contactId, userId || null, renderedBody, "outbound", status, callId, providerMessageId, providerResponse],
+        );
+        resultSmsId = smsId;
+      }
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      if (lockAcquired) {
+        await connection.execute("SELECT RELEASE_LOCK(?)", [lockName]);
+      }
+      connection.release();
+    }
 
     // Log timeline activity linking to the call and contact
     await logTimelineActivity({
       clinicId,
       contactId,
       userId,
-      type: "SMS",
+      type: "Note",
       metadata: buildTimelineMetadata({
-        action: "missed_call.followup",
+        action: "missed_call.followup_task",
         source: "call",
-        recordId: smsId,
-        changes: { callId, templateId: templateId || null, status },
+        recordId: resultTaskId || taskId,
+        changes: { callId, taskId: resultTaskId, templateId: templateId || null, status },
       }),
     });
 
-    await logAuditEvent({ clinicId, userId, action: "MISSED_CALL_FOLLOWUP_CREATED", entityType: "sms", entityId: smsId, changes: { callId, templateId: templateId || null, status } });
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "MISSED_CALL_FOLLOWUP_TASK_CREATED",
+      entityType: "task",
+      entityId: resultTaskId || taskId,
+      changes: { callId, contactId, clientAccountProfileId, templateId: templateId || null, smsId: resultSmsId, smsStatus: status },
+    });
 
     return {
-      id: smsId,
+      id: resultSmsId,
+      smsId: resultSmsId,
+      taskId: resultTaskId,
       clinicId,
       contactId,
       callId,
       status,
       providerMessageId,
     };
+  }
+
+  private async findClientAccountProfileForContact(clinicId: string, contactId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT cac.client_account_profile_id as clientAccountProfileId
+       FROM client_account_contact cac
+       JOIN client_account_profile cap
+         ON cap.id = cac.client_account_profile_id
+       JOIN clinic client
+         ON client.id = cap.clinic_id
+        AND client.deleted_at IS NULL
+       WHERE cac.clinic_id = ?
+         AND cac.contact_id = ?
+       ORDER BY cac.created_at DESC
+       LIMIT 1`,
+      [clinicId, contactId],
+    );
+    return rows[0]?.clientAccountProfileId || null;
   }
 
   async getCall(clinicId: string, callId: string) {

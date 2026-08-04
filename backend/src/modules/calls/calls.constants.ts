@@ -15,7 +15,7 @@ export const defaultCallOutcomeOptions = [
   { value: "not_suitable", label: "Not suitable" },
   { value: "missed_no_answer", label: "No answer / missed" },
   { value: "follow_up_required", label: "Follow-up required" },
-  { value: "existing_patient", label: "Existing patient" },
+  { value: "existing_patient", label: "Existing client/contact" },
   { value: "spam", label: "Spam" },
   { value: "lost", label: "Lost" },
 ] as const;

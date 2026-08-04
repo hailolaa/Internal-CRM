@@ -291,7 +291,7 @@ export function createCommsCallsApi(apiRequest: ApiRequest) {
         callId: string,
         payload: { templateId?: string; sendNow?: boolean } = {},
       ) {
-        const response = await apiRequest<{ id?: string; smsId?: string }>(
+        const response = await apiRequest<{ id?: string | null; smsId?: string | null; taskId?: string | null }>(
           `/api/calls/${callId}/follow-up`,
           {
             method: "POST",

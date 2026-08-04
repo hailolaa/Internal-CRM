@@ -120,6 +120,9 @@ function toCallRecord(call: CallLogRecord): CallRecord {
     recordingUrl: call.recordingUrl,
     treatment: call.treatment || call.treatmentMentioned || "Service/package",
     source: call.source || "Unknown",
+    clientAccountProfileId: call.clientAccountProfileId || null,
+    clientClinicId: call.clientClinicId || null,
+    clientName: call.clientName || null,
     createdAt: new Intl.DateTimeFormat("en-GB", {
       day: "2-digit",
       month: "short",
@@ -322,7 +325,7 @@ export default function CallsPage() {
         async () => {
           await api.calls.followUp(session!.token, call.id, { sendNow: false });
         },
-        "Missed-call follow-up queued.",
+        "Missed-call recovery task created.",
       );
     },
     [runCallAction, session],
@@ -357,7 +360,7 @@ export default function CallsPage() {
         subtitle={
           isLoading
             ? "Loading calls from the backend..."
-            : "Review calls, outcomes, AI notes and follow-up actions."
+            : "Review sales calls, missed enquiries, AI notes and recovery tasks."
         }
         icon={Phone}
         iconColor="text-[#4A7A8A]"

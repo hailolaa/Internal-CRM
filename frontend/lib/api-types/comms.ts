@@ -259,6 +259,9 @@ export interface CallLogRecord {
   recordingDeletionRequest: RecordingDeletionRequestRecord | null;
   treatment: string;
   source: string;
+  clientAccountProfileId?: string | null;
+  clientClinicId?: string | null;
+  clientName?: string | null;
   createdAt: string;
   timestamp: string;
 }
