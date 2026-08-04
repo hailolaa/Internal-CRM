@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
+  CalendarClock,
   CheckCircle,
   CreditCard,
   HardDrive,
@@ -15,7 +16,7 @@ import {
 } from "lucide-react";
 import { AlertBanner, Card, PageHeader } from "@/components/ui";
 import { api, ApiClientError } from "@/lib/api-client";
-import type { GoogleDriveConnectionRecord } from "@/lib/api-types";
+import type { CalendarConnectionStatus, GoogleDriveConnectionRecord } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 
 type SecondaryIntegration = {
@@ -50,6 +51,7 @@ function getInitialOAuthNotice() {
   if (typeof window === "undefined") return null;
   const searchParams = new URLSearchParams(window.location.search);
   const drive = searchParams.get("drive");
+  const calendar = searchParams.get("calendar");
   if (drive === "connected") {
     return {
       message: "Google Drive is connected for the selected Workspace account.",
@@ -59,6 +61,18 @@ function getInitialOAuthNotice() {
   if (drive === "error") {
     return {
       message: searchParams.get("message") || "Google Drive could not be connected.",
+      variant: "warning" as const,
+    };
+  }
+  if (calendar === "connected") {
+    return {
+      message: "Google Calendar is connected for agreed calls and meetings.",
+      variant: "info" as const,
+    };
+  }
+  if (calendar === "error") {
+    return {
+      message: searchParams.get("message") || "Google Calendar could not be connected.",
       variant: "warning" as const,
     };
   }
@@ -84,8 +98,11 @@ export default function IntegrationsPage() {
   const [initialOAuthNotice] = useState(getInitialOAuthNotice);
   const [driveConnection, setDriveConnection] =
     useState<GoogleDriveConnectionRecord | null>(null);
+  const [calendarConnection, setCalendarConnection] =
+    useState<CalendarConnectionStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDriveBusy, setIsDriveBusy] = useState(false);
+  const [isCalendarBusy, setIsCalendarBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(
     initialOAuthNotice?.message || null,
@@ -94,9 +111,10 @@ export default function IntegrationsPage() {
     initialOAuthNotice?.variant || "info",
   );
 
-  const loadDriveStatus = useCallback(async () => {
+  const loadIntegrationStatus = useCallback(async () => {
     if (!token || !isAdmin) {
       setDriveConnection(null);
+      setCalendarConnection(null);
       setIsLoading(false);
       return;
     }
@@ -104,12 +122,17 @@ export default function IntegrationsPage() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      setDriveConnection(await api.clientAccounts.getDriveOAuthStatus(token));
+      const [driveStatus, calendarStatus] = await Promise.all([
+        api.clientAccounts.getDriveOAuthStatus(token),
+        api.calendar.getStatus(token),
+      ]);
+      setDriveConnection(driveStatus);
+      setCalendarConnection(calendarStatus);
     } catch (error) {
       setLoadError(
         error instanceof ApiClientError
           ? error.message
-          : "Google Drive status could not load.",
+          : "Integration status could not load.",
       );
     } finally {
       setIsLoading(false);
@@ -117,9 +140,9 @@ export default function IntegrationsPage() {
   }, [token, isAdmin]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadDriveStatus(), 0);
+    const timer = window.setTimeout(() => void loadIntegrationStatus(), 0);
     return () => window.clearTimeout(timer);
-  }, [loadDriveStatus, clinicId]);
+  }, [loadIntegrationStatus, clinicId]);
 
   useEffect(() => {
     if (!initialOAuthNotice) return;
@@ -142,6 +165,68 @@ export default function IntegrationsPage() {
       );
       setStatusVariant("warning");
       setIsDriveBusy(false);
+    }
+  };
+
+  const connectGoogleCalendar = async () => {
+    if (!token || isCalendarBusy) return;
+    setIsCalendarBusy(true);
+    setStatusMessage("Starting secure Google Calendar connection...");
+    setStatusVariant("info");
+    try {
+      const flow = await api.calendar.startOAuth(token);
+      window.location.assign(flow.authorizeUrl);
+    } catch (error) {
+      setStatusMessage(
+        error instanceof ApiClientError
+          ? error.message
+          : "Could not start Google Calendar authorization.",
+      );
+      setStatusVariant("warning");
+      setIsCalendarBusy(false);
+    }
+  };
+
+  const syncGoogleCalendar = async () => {
+    if (!token || isCalendarBusy) return;
+    setIsCalendarBusy(true);
+    setStatusMessage("Syncing upcoming Google Calendar meetings...");
+    setStatusVariant("info");
+    try {
+      const result = await api.calendar.sync(token);
+      setStatusMessage(`Google Calendar synced ${result.synced} upcoming meetings.`);
+      await loadIntegrationStatus();
+    } catch (error) {
+      setStatusMessage(
+        error instanceof ApiClientError
+          ? error.message
+          : "Google Calendar meetings could not be synced.",
+      );
+      setStatusVariant("warning");
+    } finally {
+      setIsCalendarBusy(false);
+    }
+  };
+
+  const revokeGoogleCalendar = async () => {
+    if (!token || isCalendarBusy) return;
+    const confirmed = window.confirm("Disconnect Google Calendar from Mission Control?");
+    if (!confirmed) return;
+    setIsCalendarBusy(true);
+    try {
+      await api.calendar.revoke(token);
+      setStatusMessage("Google Calendar has been disconnected.");
+      setStatusVariant("info");
+      await loadIntegrationStatus();
+    } catch (error) {
+      setStatusMessage(
+        error instanceof ApiClientError
+          ? error.message
+          : "Google Calendar could not be disconnected.",
+      );
+      setStatusVariant("warning");
+    } finally {
+      setIsCalendarBusy(false);
     }
   };
 
@@ -170,7 +255,7 @@ export default function IntegrationsPage() {
         right={
           <button
             type="button"
-            onClick={() => void loadDriveStatus()}
+            onClick={() => void loadIntegrationStatus()}
             disabled={isLoading || !token}
             className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#d8ddda] bg-[#FFFCF9] px-4 py-2.5 text-sm font-semibold text-[#5e8a8d] transition-colors hover:bg-[#eaedeb] disabled:opacity-60"
           >
@@ -248,6 +333,76 @@ export default function IntegrationsPage() {
                 )}
                 {driveConnection?.connected ? "Reconnect Drive" : "Connect Google Drive"}
               </button>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex h-full flex-col">
+              <div className="flex items-start justify-between gap-4">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#6E6AE8]/10 text-[#4845a8]">
+                  <CalendarClock className="h-6 w-6" aria-hidden="true" />
+                </span>
+                <span
+                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                    calendarConnection?.connected
+                      ? "border-[#60b4af]/30 bg-[#60b4af]/10 text-[#346866]"
+                      : "border-[#d8ddda] bg-[#eaedeb] text-[#5e8a8d]"
+                  }`}
+                >
+                  {isLoading ? "Checking" : calendarConnection?.connected ? "Connected" : "Not connected"}
+                </span>
+              </div>
+              <h3 className="mt-5 font-semibold text-[#151f21]">Google Calendar</h3>
+              <p className="mt-1 text-sm leading-6 text-[#5e8a8d]">
+                Pull agreed calls and meetings into Mission Control so dashboards and records show what is coming next.
+              </p>
+              {calendarConnection?.connectedEmail && (
+                <p className="mt-3 text-xs text-[#5e8a8d]">
+                  Connected as <span className="font-semibold text-[#151f21]">{calendarConnection.connectedEmail}</span>
+                  {calendarConnection.lastSync ? ` · Last sync ${formatDateTime(calendarConnection.lastSync)}` : ""}
+                </p>
+              )}
+              {calendarConnection?.lastSyncError && (
+                <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  {calendarConnection.lastSyncError}
+                </p>
+              )}
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => void connectGoogleCalendar()}
+                  disabled={!token || isLoading || isCalendarBusy}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#102427] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1d393c] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isCalendarBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <CalendarClock className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  {calendarConnection?.connected ? "Reconnect Calendar" : "Connect Calendar"}
+                </button>
+                {calendarConnection?.connected && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void syncGoogleCalendar()}
+                      disabled={!token || isCalendarBusy}
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d8ddda] bg-[#FFFCF9] px-4 py-2.5 text-sm font-semibold text-[#5e8a8d] transition-colors hover:bg-[#eaedeb] disabled:opacity-60"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${isCalendarBusy ? "animate-spin" : ""}`} aria-hidden="true" />
+                      Sync meetings
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void revokeGoogleCalendar()}
+                      disabled={!token || isCalendarBusy}
+                      className="inline-flex min-h-11 items-center justify-center rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
+                    >
+                      Disconnect
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </Card>
 

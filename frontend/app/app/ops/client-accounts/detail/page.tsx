@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   BriefcaseBusiness,
+  CalendarClock,
   CheckSquare2,
   ExternalLink,
   FileCheck2,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AlertBanner, Badge, Card, ProgressBar, SkeletonLine, StatusBadge } from "@/components/ui";
+import { RecordMeetingsPanel } from "@/components/calendar/record-meetings-panel";
 import { api } from "@/lib/api-client";
 import type {
   ClientAccountLinkedRecords,
@@ -151,6 +153,7 @@ const clientAccountRecordTabs = [
   { id: "access", label: "Access/assets", panelId: "account-access-assets" },
   { id: "onboarding", label: "Onboarding", panelId: "account-onboarding" },
   { id: "tasks", label: "Tasks", panelId: "account-tasks" },
+  { id: "meetings", label: "Meetings", panelId: "account-meetings" },
   { id: "issues", label: "Issues/Support", panelId: "account-issues" },
 ] as const;
 
@@ -1389,6 +1392,18 @@ export default function ClientAccountDetailPage() {
           </Card>
           </div>
           ) : null}
+
+          {activeRecordTab === "meetings" ? (
+          <div
+            id="account-meetings"
+            role="tabpanel"
+            aria-labelledby="account-meetings-tab"
+            tabIndex={0}
+            className="scroll-mt-24"
+          >
+            <RecordMeetingsPanel clientAccountProfileId={account.id} />
+          </div>
+          ) : null}
         </div>
 
         <aside className="space-y-6 xl:sticky xl:top-20 xl:self-start">
@@ -1436,6 +1451,7 @@ export default function ClientAccountDetailPage() {
                 [ShieldCheck, "Access/assets", "#account-access-assets"],
                 [NotebookText, "Notes", "#account-notes"],
                 [CheckSquare2, "Tasks", "#account-tasks"],
+                [CalendarClock, "Meetings", "#account-meetings"],
                 [ShieldCheck, "Audits", `/app/admin?clinicId=${account.clinicId}`],
                 [FileCheck2, "Proposals", `/app/crm/pipeline?account=${encodeURIComponent(account.clinicName)}&view=proposals`],
               ].map(([Icon, label, href]) => {

@@ -4,6 +4,7 @@ import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { OAuthProvider } from "./auth.types.js";
 import { googleDriveOAuthService } from "../client-accounts/google-drive-oauth.service.js";
+import { calendarService } from "../calendar/calendar.service.js";
 
 function isOAuthProvider(value: string | undefined): value is OAuthProvider {
     return value === "google" || value === "facebook" || value === "apple";
@@ -27,6 +28,13 @@ function redirectDriveOAuthError(res: Response, error: unknown) {
     const frontendUrl = config.frontendUrl.replace(/\/$/, "");
     const message = error instanceof Error ? error.message : "Google Drive connection failed";
     const params = new URLSearchParams({ drive: "error", message });
+    res.redirect(`${frontendUrl}/app/integrations?${params.toString()}`);
+}
+
+function redirectCalendarOAuthError(res: Response, error: unknown) {
+    const frontendUrl = config.frontendUrl.replace(/\/$/, "");
+    const message = error instanceof Error ? error.message : "Google Calendar connection failed";
+    const params = new URLSearchParams({ calendar: "error", message });
     res.redirect(`${frontendUrl}/app/integrations?${params.toString()}`);
 }
 
@@ -62,6 +70,11 @@ export class AuthController {
                 res.redirect(`${frontendUrl}/app/integrations?drive=connected`);
                 return;
             }
+            if (provider === "google" && calendarService.isCalendarOAuthState(state)) {
+                await calendarService.completeOAuth(code, state, getRequestMeta(req));
+                res.redirect(`${frontendUrl}/app/integrations?calendar=connected`);
+                return;
+            }
             const result = await authService.handleOAuthCallback(provider, code, state, appleUser, getRequestMeta(req));
             const user = Buffer.from(JSON.stringify(result.user), "utf8").toString("base64url");
             const hash = new URLSearchParams({
@@ -77,6 +90,10 @@ export class AuthController {
         } catch (error) {
             if (provider === "google" && googleDriveOAuthService.isDriveOAuthState(state)) {
                 redirectDriveOAuthError(res, error);
+                return;
+            }
+            if (provider === "google" && calendarService.isCalendarOAuthState(state)) {
+                redirectCalendarOAuthError(res, error);
                 return;
             }
             redirectOAuthError(res, error);

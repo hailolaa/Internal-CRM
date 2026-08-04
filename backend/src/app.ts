@@ -67,6 +67,7 @@ import performanceOsRoutes from "./modules/performance-os/performance-os.routes.
 import integrationInputsRoutes from "./modules/integration-inputs/integration-inputs.routes.js";
 import commandPaletteRoutes from "./modules/command-palette/command-palette.routes.js";
 import clickUpRoutes from "./modules/clickup/clickup.routes.js";
+import calendarRoutes from "./modules/calendar/calendar.routes.js";
 
 const app = express();
 
@@ -161,6 +162,7 @@ app.use("/api/performance-os", performanceOsRoutes);
 app.use("/api/integration-inputs", integrationInputsRoutes);
 app.use("/api/command-palette", commandPaletteRoutes);
 app.use("/api/clickup", clickUpRoutes);
+app.use("/api/calendar", calendarRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/health", healthRoutes);
 

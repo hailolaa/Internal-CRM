@@ -19,6 +19,7 @@ import { createBillingSecurityApi } from "@/lib/api-client/billing-security-api"
 import { createClinicSetupApi } from "@/lib/api-client/clinic-setup-api";
 import { createCommandPaletteApi } from "@/lib/api-client/command-palette-api";
 import { createCatalogApi } from "@/lib/api-client/catalog-api";
+import { createCalendarApi } from "@/lib/api-client/calendar-api";
 import { createComplianceApi } from "@/lib/api-client/compliance-api";
 import { createContactsApi } from "@/lib/api-client/contacts-api";
 import { createDeveloperSettingsApi } from "@/lib/api-client/developer-settings-api";
@@ -237,6 +238,7 @@ export const api = {
   ...createClinicSetupApi(apiRequest),
   ...createCommandPaletteApi(apiRequest),
   ...createCatalogApi(apiRequest),
+  ...createCalendarApi(apiRequest),
   ...createComplianceApi(apiRequest),
   ...createContactsApi(apiRequest),
   ...createDeveloperSettingsApi(apiRequest),

@@ -35,6 +35,7 @@ import {
   SkeletonLine,
   StatusBadge,
 } from "@/components/ui";
+import { RecordMeetingsPanel } from "@/components/calendar/record-meetings-panel";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import type {
@@ -1250,6 +1251,8 @@ export default function ContactDetailPage() {
               ))}
             </div>
           </Card>
+
+          <RecordMeetingsPanel contactId={contact.id} />
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <Card padding="p-5 sm:p-6">

@@ -2,6 +2,7 @@ export * from "@/lib/api-types/account";
 export * from "@/lib/api-types/ai";
 export * from "@/lib/api-types/audit";
 export * from "@/lib/api-types/auth";
+export * from "@/lib/api-types/calendar";
 export * from "@/lib/api-types/catalog";
 export * from "@/lib/api-types/comms";
 export * from "@/lib/api-types/compliance";

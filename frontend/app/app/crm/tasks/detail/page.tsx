@@ -12,6 +12,7 @@ import { api } from "@/lib/api-client";
 import type { ClientAccountSummaryRecord, GoogleDriveFolderBrowserRecord, GoogleDriveFolderRecord, InternalTaskRecord, TaskActivityRecord, TaskAttachmentRecord, TaskCommentRecord, TeamMember } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { AlertBanner, SkeletonLine } from "@/components/ui";
+import { RecordMeetingsPanel } from "@/components/calendar/record-meetings-panel";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
@@ -276,6 +277,8 @@ export default function TaskDetailPage() {
           </div>
 
           <aside className="space-y-5">
+            <RecordMeetingsPanel taskId={task.id} />
+
             <section className="rounded-[26px] border border-black/[0.06] bg-[#FFFCF9] p-5">
               <div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 font-semibold text-[#1E1C1A]"><Paperclip className="h-5 w-5 text-[#6E6AE8]" /> Files</h2><span className="text-xs text-[#8A837C]">{attachments.length}</span></div>
               <input ref={fileInput} type="file" className="hidden" onChange={(event) => setPendingFile(event.target.files?.[0] || null)} />

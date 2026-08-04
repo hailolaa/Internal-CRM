@@ -203,6 +203,18 @@ export const config = {
         ),
     },
 
+    googleCalendar: {
+        oauthEnabled: parseBoolean(
+            process.env.GOOGLE_CALENDAR_OAUTH_ENABLED,
+            false,
+        ),
+        scopes: (process.env.GOOGLE_CALENDAR_SCOPES || "https://www.googleapis.com/auth/calendar.readonly")
+            .split(",")
+            .map((scope) => scope.trim())
+            .filter(Boolean),
+        syncWindowDays: parseInt(process.env.GOOGLE_CALENDAR_SYNC_WINDOW_DAYS || "30", 10),
+    },
+
     stripe: {
         secretKey: (process.env.STRIPE_SECRET_KEY || "").trim(),
         webhookSecret: (process.env.STRIPE_WEBHOOK_SECRET || "").trim(),
@@ -303,6 +315,14 @@ export function getProductionConfigIssues() {
 
     if (config.clickup.clientId && !config.credentials.encryptionKey) {
         issues.push("CREDENTIAL_ENCRYPTION_KEY must be set before ClickUp OAuth credentials can be stored.");
+    }
+
+    if (config.googleCalendar.oauthEnabled && (!config.oauth.google.clientId || !config.oauth.google.clientSecret)) {
+        issues.push("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set when GOOGLE_CALENDAR_OAUTH_ENABLED=true.");
+    }
+
+    if (config.googleCalendar.oauthEnabled && !config.credentials.encryptionKey) {
+        issues.push("CREDENTIAL_ENCRYPTION_KEY must be set before Google Calendar OAuth credentials can be stored.");
     }
 
     if (

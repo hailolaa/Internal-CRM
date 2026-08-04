@@ -51,6 +51,7 @@ import {
 } from "@/lib/operations-drilldowns";
 import { DashboardKpiCardLink } from "@/components/dashboard-kpi-card-link";
 import type {
+  CalendarMeetingRecord,
   ClientAccountServiceRecord,
   ClientAccountSummaryRecord,
   ContactRecord,
@@ -87,6 +88,14 @@ type TaskOwnerRow = {
   dueToday: number;
   upcoming: number;
   totalOpen: number;
+  href: string;
+};
+
+type MeetingRow = {
+  id: string;
+  title: string;
+  detail: string;
+  date: string;
   href: string;
 };
 
@@ -312,6 +321,7 @@ export default function AppPage() {
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [tasks, setTasks] = useState<InternalTaskRecord[]>([]);
   const [proposals, setProposals] = useState<ProposalRecord[]>([]);
+  const [meetings, setMeetings] = useState<CalendarMeetingRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -328,8 +338,9 @@ export default function AppPage() {
       api.clientAccounts.listServices(token, { includeArchived: false }),
       api.internalTasks.list(token, { includeArchived: false }),
       api.proposals.list(token, { includeArchived: false, limit: 250 }),
+      api.calendar.listMeetings(token, { upcoming: true, limit: 12 }),
     ])
-      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult, proposalResult]) => {
+      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult, proposalResult, meetingResult]) => {
         if (!isMounted) return;
 
         setDeals(dealResult.status === "fulfilled" ? dealResult.value.deals : []);
@@ -341,6 +352,7 @@ export default function AppPage() {
         setServices(serviceResult.status === "fulfilled" ? serviceResult.value : []);
         setTasks(taskResult.status === "fulfilled" ? taskResult.value : []);
         setProposals(proposalResult.status === "fulfilled" ? proposalResult.value : []);
+        setMeetings(meetingResult.status === "fulfilled" ? meetingResult.value : []);
 
         const failedSources = [
           dealResult.status === "rejected" ? "sales pipeline" : "",
@@ -350,6 +362,7 @@ export default function AppPage() {
           serviceResult.status === "rejected" ? "active projects" : "",
           taskResult.status === "rejected" ? "internal tasks" : "",
           proposalResult.status === "rejected" ? "proposal follow-ups" : "",
+          meetingResult.status === "rejected" ? "calendar meetings" : "",
         ].filter(Boolean);
 
         setLoadError(
@@ -756,6 +769,28 @@ export default function AppPage() {
       .sort((a, b) => (parseDate(a.date)?.getTime() || 0) - (parseDate(b.date)?.getTime() || 0))
       .slice(0, 6);
   }, [proposals]);
+
+  const upcomingMeetingRows = useMemo<MeetingRow[]>(() => {
+    return meetings
+      .map((meeting) => {
+        const href = meeting.contactId
+          ? `/app/crm/contacts/detail?id=${encodeURIComponent(meeting.contactId)}&from=dashboard`
+          : meeting.clientAccountProfileId
+            ? `/app/ops/client-accounts/detail?id=${encodeURIComponent(meeting.clientAccountProfileId)}&from=dashboard`
+            : meeting.taskId
+              ? getDashboardTaskDetailHref(meeting.taskId)
+              : "/app/integrations?from=dashboard";
+        return {
+          id: meeting.id,
+          title: meeting.title,
+          detail: meeting.contactName || meeting.clientName || meeting.organizerEmail || "Google Calendar",
+          date: meeting.startsAt,
+          href,
+        };
+      })
+      .sort((a, b) => (parseDate(a.date)?.getTime() || 0) - (parseDate(b.date)?.getTime() || 0))
+      .slice(0, 6);
+  }, [meetings]);
 
   const taskOwnerRows = useMemo<TaskOwnerRow[]>(() => {
     const rows = new Map<string, TaskOwnerRow>();
@@ -1323,7 +1358,7 @@ export default function AppPage() {
           ))}
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
           <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h3 className="text-sm font-semibold text-[#151f21]">Proposal follow-ups due</h3>
@@ -1359,6 +1394,45 @@ export default function AppPage() {
               ))}
               {!isLoading && proposalFollowUpRows.length === 0 && (
                 <p className="text-sm text-[#5e8a8d]">No proposal follow-ups due.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-[#151f21]">Upcoming agreed meetings</h3>
+              <Link
+                href="/app/integrations?from=dashboard"
+                className="text-sm font-medium text-[#5e8a8d] hover:text-[#151f21]"
+              >
+                Calendar
+              </Link>
+            </div>
+            <div className="space-y-2">
+              {isLoading &&
+                Array.from({ length: 3 }, (_, index) => (
+                  <SkeletonLine key={index} className="h-14 w-full" />
+                ))}
+              {!isLoading && upcomingMeetingRows.map((meeting) => (
+                <Link
+                  key={meeting.id}
+                  href={meeting.href}
+                  className="block rounded-xl border border-[#edf2ef] bg-[#FAF8F5] p-3 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62]"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="line-clamp-2 text-sm font-semibold text-[#151f21]">{meeting.title}</p>
+                    <span className="shrink-0 rounded-full bg-cyan-50 px-2 py-0.5 text-xs font-semibold text-cyan-700">
+                      Meeting
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5e8a8d]">
+                    <span>{meeting.detail}</span>
+                    <span>{formatDate(meeting.date)}</span>
+                  </div>
+                </Link>
+              ))}
+              {!isLoading && upcomingMeetingRows.length === 0 && (
+                <p className="text-sm text-[#5e8a8d]">No synced upcoming meetings.</p>
               )}
             </div>
           </div>
