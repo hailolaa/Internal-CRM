@@ -42,6 +42,9 @@ export interface WebsiteLeadCapturePayload {
   doNotContact?: boolean | string | number | null;
   do_not_contact?: boolean | string | number | null;
   eventId?: string | null;
+  calendlyEventId?: string | null;
+  calendlyEventUri?: string | null;
+  calendlyInviteeUri?: string | null;
   fbclid?: string | null;
   firstName?: string | null;
   firstSource?: string | null;
@@ -64,6 +67,16 @@ export interface WebsiteLeadCapturePayload {
   location?: string | null;
   marketingConsent?: boolean | string | number | null;
   message?: string | null;
+  chatbotConversationId?: string | null;
+  conversationId?: string | null;
+  conversationTranscript?: string | null;
+  transcript?: string | null;
+  scheduledAt?: string | null;
+  scheduleAt?: string | null;
+  scheduled_at?: string | null;
+  eventStartTime?: string | null;
+  startTime?: string | null;
+  start_time?: string | null;
   msclkid?: string | null;
   name?: string | null;
   notes?: string | null;
@@ -117,8 +130,11 @@ export interface WebsiteLeadCapturePayload {
 export interface WebsiteLeadCaptureResult {
   accepted: boolean;
   contactId: string | null;
+  dealId?: string | null;
   duplicateCandidates: unknown[];
   duplicateEvent: boolean;
+  chatbotActivityId?: string | null;
   nextActionTaskId?: string | null;
+  salesCallDemoId?: string | null;
   rawPayloadId: string;
 }

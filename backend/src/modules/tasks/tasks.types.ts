@@ -58,6 +58,7 @@ export type UpdateTaskDTO = Partial<CreateTaskDTO>;
 export interface InternalTaskListQuery {
   boardKey?: string;
   serviceType?: InternalTaskServiceType;
+  contactId?: string;
   clientAccountProfileId?: string;
   clientAccountServiceId?: string;
   assignedUserId?: string;

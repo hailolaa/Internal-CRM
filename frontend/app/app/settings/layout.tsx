@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
+  KeyRound,
   Package,
   Users,
   Shield,
@@ -13,6 +14,7 @@ const SETTINGS_NAV = [
   { label: "Mission Control Profile", href: "/app/settings/clinic", icon: Building2 },
   { label: "Packages", href: "/app/settings/packages", icon: Package },
   { label: "Team Members", href: "/app/settings/team", icon: Users },
+  { label: "API Keys", href: "/app/settings/api", icon: KeyRound },
   { label: "Security", href: "/app/settings/security", icon: Shield },
 ];
 

@@ -60,6 +60,7 @@ export const taskIdParamValidator = [
 export const listInternalTasksValidator = [
   query("boardKey").optional().trim().isLength({ max: 100 }),
   query("serviceType").optional().isIn(serviceTypes),
+  query("contactId").optional().isUUID(),
   query("clientAccountProfileId").optional().isUUID(),
   query("clientAccountServiceId").optional().isUUID(),
   query("assignedUserId").optional().isUUID(),

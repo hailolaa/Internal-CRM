@@ -70,6 +70,33 @@ test("contact form and manual referral sources are supported", () => {
   assert.equal(referral.leadType, "referral");
 });
 
+test("Calendly and schedule-call submissions map to scheduled sales calls", () => {
+  const result = mapWebsiteLeadIntent({
+    source: "website",
+    calendlyEventUri: "https://api.calendly.com/scheduled_events/event-123",
+    ctaClicked: "Book a Growth Engine call",
+    scheduledAt: "2026-08-05T10:00:00.000Z",
+  });
+
+  assert.equal(result.source, "website_schedule_call");
+  assert.equal(result.leadType, "schedule_call");
+  assert.equal(result.packageInterest, "Growth Engine");
+  assert.ok(result.tags.includes("website_schedule_call"));
+});
+
+test("chatbot submissions map to chatbot lead capture", () => {
+  const result = mapWebsiteLeadIntent({
+    source: "website",
+    chatbotConversationId: "chat-123",
+    conversationTranscript: "I need help with Performance OS and reporting.",
+  });
+
+  assert.equal(result.source, "website_chatbot");
+  assert.equal(result.leadType, "chatbot");
+  assert.equal(result.packageInterest, "Performance OS");
+  assert.ok(result.tags.includes("website_chatbot"));
+});
+
 test("website submissions map consent values into CRM contact permissions", () => {
   const permissions = buildWebsiteLeadContactPermissions({
     consent: {

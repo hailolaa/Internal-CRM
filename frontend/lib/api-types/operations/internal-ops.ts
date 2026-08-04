@@ -608,6 +608,7 @@ export interface TaskActivityRecord {
 export interface InternalTaskListParams {
   boardKey?: string;
   serviceType?: ClientAccountServiceType | "all";
+  contactId?: string;
   clientAccountProfileId?: string;
   clientAccountServiceId?: string;
   assignedUserId?: string;

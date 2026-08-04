@@ -209,6 +209,7 @@ export default function TasksPage() {
   const { session } = useAuth();
   const searchParams = useSearchParams();
   const requestedTaskId = searchParams.get("taskId");
+  const requestedContactId = searchParams.get("contactId");
   const requestedClientAccountProfileId = searchParams.get("clientAccountProfileId");
   const requestedDueFilter = searchParams.get("due");
   const requestedWorkFilter = searchParams.get("work");
@@ -261,6 +262,7 @@ export default function TasksPage() {
     Promise.allSettled([
       api.internalTasks.list(token, {
         includeArchived: false,
+        contactId: requestedContactId || undefined,
         clientAccountProfileId: requestedClientAccountProfileId || undefined,
       }),
       api.clientAccounts.list(token),
@@ -302,7 +304,7 @@ export default function TasksPage() {
     return () => {
       isMounted = false;
     };
-  }, [requestedClientAccountProfileId, token]);
+  }, [requestedClientAccountProfileId, requestedContactId, token]);
 
   const filteredTasks = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -364,6 +366,7 @@ export default function TasksPage() {
     try {
       const result = await api.internalTasks.exportCsv(token, {
         includeArchived: false,
+        contactId: requestedContactId || undefined,
         clientAccountProfileId: requestedClientAccountProfileId || undefined,
         overdue: dueFilter === "overdue" ? true : undefined,
         completed: dueFilter === "all" ? undefined : false,
@@ -534,6 +537,18 @@ export default function TasksPage() {
       />
 
       <DashboardReturnLink visible={searchParams.get("from") === "dashboard"} />
+
+      {requestedContactId && (
+        <div className="flex flex-col gap-3 rounded-[16px] border border-[#D8D0C7] bg-[#FFFCF9] px-4 py-3 text-sm text-[#4B4640] sm:flex-row sm:items-center sm:justify-between">
+          <span>Showing tasks linked to this lead/contact only.</span>
+          <Link
+            href="/app/crm/tasks"
+            className="font-semibold text-[#6E6AE8] hover:text-[#5A56D4]"
+          >
+            View all tasks
+          </Link>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div

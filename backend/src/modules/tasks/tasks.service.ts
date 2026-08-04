@@ -281,6 +281,11 @@ export class TasksService {
       values.push(query.serviceType);
     }
 
+    if (query.contactId) {
+      conditions.push("contact_id = ?");
+      values.push(query.contactId);
+    }
+
     if (query.clientAccountProfileId) {
       await this.ensureClientAccountProfileAvailable(clinicId, query.clientAccountProfileId, access);
       conditions.push("client_account_profile_id = ?");

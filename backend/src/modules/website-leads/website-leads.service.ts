@@ -1,8 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
 import { ApiError } from "../../utils/ApiError.js";
+import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { contactsService } from "../contacts/contacts.service.js";
+import { pipelineService } from "../pipeline/pipeline.service.js";
 import type { WebsiteLeadCapturePayload, WebsiteLeadCaptureResult } from "./website-leads.types.js";
 
 const PAYLOAD_SOURCE = "website_lead_capture";
@@ -77,9 +79,31 @@ function buildIntentSearchText(data: WebsiteLeadCapturePayload) {
     pick(data, "guideName", "guideTitle"),
     pick(data, "packageInterest", "package_interest", "package", "serviceInterest"),
     pick(data, "source"),
+    pick(data, "calendlyEventId", "calendlyEventUri", "calendlyInviteeUri"),
+    pick(data, "scheduledAt", "scheduleAt", "scheduled_at", "eventStartTime", "startTime", "start_time"),
+    pick(data, "chatbotConversationId", "conversationId"),
+    pick(data, "conversationTranscript", "transcript"),
     pick(data, "landingPage", "landing_page", "pageUrl", "page_url"),
     pick(data, "utmCampaign", "utm_campaign", "campaign"),
   ].filter(Boolean).join(" "));
+}
+
+function inferPackageInterest(text: string) {
+  if (/\b(market leader|market leadership|dominant market)\b/.test(text)) return PACKAGE_NAMES.marketLeader;
+  if (/\b(growth engine|engine call|engine demo)\b/.test(text)) return PACKAGE_NAMES.growthEngine;
+  if (/\b(performance os|performance demo|os demo|demo performance)\b/.test(text)) return PACKAGE_NAMES.performanceOs;
+  if (/\b(lead concierge|concierge)\b/.test(text)) return PACKAGE_NAMES.leadConcierge;
+  if (/\b(growth diagnostic|diagnostic)\b/.test(text)) return PACKAGE_NAMES.growthDiagnostic;
+  if (/\b(clinic growth score|growth score|free audit|audit form|score form)\b/.test(text)) return PACKAGE_NAMES.growthScore;
+  return null;
+}
+
+function specificInboundSource(data: WebsiteLeadCapturePayload, fallback: string) {
+  const source = pick(data, "source");
+  if (!source || ["website", "site", "web", "contact form"].includes(source.toLowerCase())) {
+    return fallback;
+  }
+  return source;
 }
 
 function toIsoDateTime(value: string | null) {
@@ -98,6 +122,13 @@ function tomorrowDateOnly() {
   return date.toISOString().slice(0, 10);
 }
 
+function dateOnlyFromDateTime(value: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
 export function buildGuideDownloadContext(data: WebsiteLeadCapturePayload): GuideDownloadContext {
   return {
     downloadedAt: toIsoDateTime(pick(data, "downloadedAt", "downloaded_at", "downloadAt", "download_at", "downloadDate", "download_date")),
@@ -109,7 +140,28 @@ export function buildGuideDownloadContext(data: WebsiteLeadCapturePayload): Guid
 export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLeadIntentMapping {
   const text = buildIntentSearchText(data);
   const explicitPackage = pick(data, "packageInterest", "package_interest", "package", "serviceInterest");
+  const packageInterest = explicitPackage || inferPackageInterest(text);
   const explicitLeadType = pick(data, "leadType");
+  const hasChatbotSignal = Boolean(pick(data, "chatbotConversationId", "conversationId", "conversationTranscript", "transcript"));
+  const hasScheduleSignal = Boolean(pick(data, "calendlyEventId", "calendlyEventUri", "calendlyInviteeUri", "scheduledAt", "scheduleAt", "scheduled_at", "eventStartTime", "startTime", "start_time"));
+
+  if (hasChatbotSignal || /\b(chatbot|chat bot|live chat|chat conversation|chat widget)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "chatbot",
+      packageInterest,
+      source: specificInboundSource(data, "website_chatbot"),
+      tags: ["website_chatbot", "lead_type:chatbot"],
+    };
+  }
+
+  if (hasScheduleSignal || /\b(calendly|schedule call|scheduled call|book a call|booked call|call booked|discovery booked)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "schedule_call",
+      packageInterest,
+      source: specificInboundSource(data, "website_schedule_call"),
+      tags: ["website_schedule_call", "lead_type:schedule_call"],
+    };
+  }
 
   if (/\b(market leader|market leadership|dominant market)\b/.test(text)) {
     return {
@@ -318,9 +370,16 @@ export function buildWebsiteLeadContactPermissions(data: WebsiteLeadCapturePaylo
 
 function buildNotes(data: WebsiteLeadCapturePayload, mapping: WebsiteLeadIntentMapping) {
   const guideContext = mapping.leadType === "lead_magnet_nurture" ? buildGuideDownloadContext(data) : null;
+  const scheduledAt = pick(data, "scheduledAt", "scheduleAt", "scheduled_at", "eventStartTime", "startTime", "start_time");
+  const conversationId = pick(data, "chatbotConversationId", "conversationId");
+  const conversationTranscript = pick(data, "conversationTranscript", "transcript");
   const lines = [
     pick(data, "message", "notes"),
     `Lead type: ${mapping.leadType}`,
+    scheduledAt ? `Scheduled call: ${toIsoDateTime(scheduledAt)}` : null,
+    pick(data, "calendlyEventUri") ? `Calendly event: ${pick(data, "calendlyEventUri")}` : null,
+    conversationId ? `Chatbot conversation ID: ${conversationId}` : null,
+    conversationTranscript ? `Chatbot transcript:\n${conversationTranscript}` : null,
     guideContext ? `Guide downloaded: ${guideContext.guideName}` : null,
     guideContext ? `Guide downloaded at: ${guideContext.downloadedAt}` : null,
     guideContext ? `Recommended next action: ${guideContext.nextAction}` : null,
@@ -453,15 +512,33 @@ export class WebsiteLeadsService {
   ): Promise<WebsiteLeadCaptureResult> {
     const normalizedPayload =
       payload && typeof payload === "object" ? payload : {} as WebsiteLeadCapturePayload;
-    const eventId = pick(normalizedPayload, "eventId", "submissionId");
+    const eventId = pick(
+      normalizedPayload,
+      "eventId",
+      "submissionId",
+      "calendlyEventId",
+      "calendlyEventUri",
+      "chatbotConversationId",
+      "conversationId",
+    );
     const rawPayload = await this.createPayloadLog(clinicId, eventId, normalizedPayload, apiKeyId);
 
     if (rawPayload.duplicateEvent && rawPayload.contactId) {
+      const mapping = mapWebsiteLeadIntent(normalizedPayload);
+      const nextActionTaskId = await this.ensureInboundFollowUpTask(
+        clinicId,
+        rawPayload.contactId,
+        rawPayload.id,
+        normalizedPayload,
+        mapping,
+      );
+
       return {
         accepted: true,
         contactId: rawPayload.contactId,
         duplicateCandidates: [],
         duplicateEvent: true,
+        nextActionTaskId,
         rawPayloadId: rawPayload.id,
       };
     }
@@ -475,15 +552,36 @@ export class WebsiteLeadsService {
         toContactPayload(normalizedPayload, rawPayload.id),
         meta,
       );
-      const nextActionTaskId = await this.applyGuideDownloadFlow(
+      const contactId = result.contact.id;
+      const dealId = await this.ensureInboundPipelineDeal(
         clinicId,
-        result.contact.id,
+        contactId,
+        normalizedPayload,
+        mapping,
+      );
+      const salesCallDemoId = await this.applyScheduleCallFlow(
+        clinicId,
+        contactId,
+        rawPayload.id,
+        normalizedPayload,
+        mapping,
+      );
+      const chatbotActivityId = await this.applyChatbotFlow(
+        clinicId,
+        contactId,
+        rawPayload.id,
+        normalizedPayload,
+        mapping,
+      );
+      const nextActionTaskId = await this.ensureInboundFollowUpTask(
+        clinicId,
+        contactId,
         rawPayload.id,
         normalizedPayload,
         mapping,
       );
 
-      await this.markPayloadProcessed(clinicId, rawPayload.id, result.contact.id);
+      await this.markPayloadProcessed(clinicId, rawPayload.id, contactId);
 
       await logAuditEvent({
         clinicId,
@@ -499,6 +597,9 @@ export class WebsiteLeadsService {
           packageInterest: mapping.packageInterest,
           guideName: pick(normalizedPayload, "guideName"),
           nextActionTaskId,
+          dealId,
+          salesCallDemoId,
+          chatbotActivityId,
         },
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
@@ -506,10 +607,13 @@ export class WebsiteLeadsService {
 
       return {
         accepted: true,
-        contactId: result.contact.id,
+        contactId,
         duplicateCandidates: result.duplicateCandidates || [],
         duplicateEvent: false,
+        dealId,
         nextActionTaskId,
+        salesCallDemoId,
+        chatbotActivityId,
         rawPayloadId: rawPayload.id,
       };
     } catch (error) {
@@ -531,14 +635,98 @@ export class WebsiteLeadsService {
     }
   }
 
-  private async applyGuideDownloadFlow(
+  private async ensureInboundFollowUpTask(
     clinicId: string,
     contactId: string,
     rawPayloadId: string,
     payload: WebsiteLeadCapturePayload,
     mapping: WebsiteLeadIntentMapping,
   ) {
-    if (mapping.leadType !== "lead_magnet_nurture") return null;
+    if (mapping.leadType === "lead_magnet_nurture") {
+      return this.applyGuideDownloadFlow(clinicId, contactId, rawPayloadId, payload);
+    }
+
+    const contact = await contactsService.getContact(clinicId, contactId);
+    const scheduledAt = pick(payload, "scheduledAt", "scheduleAt", "scheduled_at", "eventStartTime", "startTime", "start_time");
+    const taskPlan = this.getInboundTaskPlan(mapping, payload, scheduledAt);
+    const [existingRows]: any = await pool.execute(
+      `SELECT id
+       FROM task
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND title = ?
+         AND is_internal = 1
+         AND status <> 'completed'
+         AND deleted_at IS NULL
+       ORDER BY created_at ASC
+       LIMIT 1`,
+      [clinicId, contactId, taskPlan.title],
+    );
+    if (existingRows[0]?.id) return existingRows[0].id as string;
+
+    const taskId = uuidv4();
+    await pool.execute(
+      `INSERT INTO task
+        (id, clinic_id, is_internal, title, description, priority, status, category, board_key, service_type,
+         contact_id, contact_name, due_label, due_date, assigned_to, created_by)
+       VALUES (?, ?, 1, ?, ?, ?, 'pending', 'sales_follow_up', 'sales', 'strategy', ?, ?, ?, ?, NULL, NULL)`,
+      [
+        taskId,
+        clinicId,
+        taskPlan.title,
+        taskPlan.description,
+        taskPlan.priority,
+        contactId,
+        contact.name,
+        taskPlan.dueLabel,
+        taskPlan.dueDate,
+      ],
+    );
+
+    await logTimelineActivity({
+      clinicId,
+      contactId,
+      userId: null,
+      type: "Note",
+      metadata: buildTimelineMetadata({
+        action: "inbound_follow_up_task_created",
+        source: "contact",
+        recordId: taskId,
+        title: taskPlan.title,
+        changes: {
+          rawPayloadId,
+          leadType: mapping.leadType,
+          source: mapping.source,
+          dueDate: taskPlan.dueDate,
+          internal: true,
+          visibility: "internal",
+        },
+      }),
+    });
+
+    await logAuditEvent({
+      clinicId,
+      userId: null,
+      action: "INBOUND_LEAD_FOLLOW_UP_TASK_CREATED",
+      entityType: "task",
+      entityId: taskId,
+      changes: {
+        contactId,
+        rawPayloadId,
+        leadType: mapping.leadType,
+        source: mapping.source,
+      },
+    });
+
+    return taskId;
+  }
+
+  private async applyGuideDownloadFlow(
+    clinicId: string,
+    contactId: string,
+    rawPayloadId: string,
+    payload: WebsiteLeadCapturePayload,
+  ) {
 
     const guideContext = buildGuideDownloadContext(payload);
     const contact = await contactsService.getContact(clinicId, contactId);
@@ -587,6 +775,295 @@ export class WebsiteLeadsService {
     return this.ensureGuideNextActionTask(clinicId, contactId, contact.name, guideContext);
   }
 
+  private getInboundTaskPlan(
+    mapping: WebsiteLeadIntentMapping,
+    payload: WebsiteLeadCapturePayload,
+    scheduledAt: string | null,
+  ) {
+    if (mapping.leadType === "schedule_call") {
+      return {
+        title: "Prepare for scheduled discovery call",
+        description: [
+          "Schedule-call lead captured from website/Calendly.",
+          scheduledAt ? `Scheduled at: ${toIsoDateTime(scheduledAt)}` : null,
+          pick(payload, "calendlyEventUri") ? `Calendly event: ${pick(payload, "calendlyEventUri")}` : null,
+          mapping.packageInterest ? `Package interest: ${mapping.packageInterest}` : null,
+        ].filter(Boolean).join("\n"),
+        priority: "high",
+        dueLabel: "Before call",
+        dueDate: dateOnlyFromDateTime(scheduledAt) || tomorrowDateOnly(),
+      };
+    }
+
+    if (mapping.leadType === "chatbot") {
+      return {
+        title: "Review chatbot conversation and follow up",
+        description: [
+          "Chatbot lead captured from the website.",
+          pick(payload, "chatbotConversationId", "conversationId") ? `Conversation ID: ${pick(payload, "chatbotConversationId", "conversationId")}` : null,
+          mapping.packageInterest ? `Package interest: ${mapping.packageInterest}` : null,
+        ].filter(Boolean).join("\n"),
+        priority: "high",
+        dueLabel: "Review today",
+        dueDate: tomorrowDateOnly(),
+      };
+    }
+
+    return {
+      title: "Follow up new inbound lead",
+      description: [
+        "Inbound lead captured from the website.",
+        `Source: ${mapping.source}`,
+        `Lead type: ${mapping.leadType}`,
+        mapping.packageInterest ? `Package interest: ${mapping.packageInterest}` : null,
+      ].filter(Boolean).join("\n"),
+      priority: "medium",
+      dueLabel: "Next follow-up",
+      dueDate: tomorrowDateOnly(),
+    };
+  }
+
+  private async applyScheduleCallFlow(
+    clinicId: string,
+    contactId: string,
+    rawPayloadId: string,
+    payload: WebsiteLeadCapturePayload,
+    mapping: WebsiteLeadIntentMapping,
+  ) {
+    if (mapping.leadType !== "schedule_call") return null;
+
+    const scheduledAt = toMysqlDateTime(
+      pick(payload, "scheduledAt", "scheduleAt", "scheduled_at", "eventStartTime", "startTime", "start_time"),
+    );
+    const externalEventId = pick(payload, "calendlyEventId", "calendlyEventUri", "eventId", "submissionId") || rawPayloadId;
+
+    const [existingRows]: any = await pool.execute(
+      `SELECT id
+       FROM sales_call_demo
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND notes LIKE ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [clinicId, contactId, `%${externalEventId}%`],
+    );
+    if (existingRows[0]?.id) return existingRows[0].id as string;
+
+    const id = uuidv4();
+    const notes = [
+      `Captured from schedule-call flow.`,
+      `External event ID: ${externalEventId}`,
+      pick(payload, "calendlyEventUri") ? `Calendly event: ${pick(payload, "calendlyEventUri")}` : null,
+      pick(payload, "calendlyInviteeUri") ? `Calendly invitee: ${pick(payload, "calendlyInviteeUri")}` : null,
+      pick(payload, "message", "notes"),
+    ].filter(Boolean).join("\n");
+
+    await pool.execute(
+      `INSERT INTO sales_call_demo
+        (id, clinic_id, contact_id, booked, scheduled_at, type, package_interest,
+         attended, no_show, rescheduled, outcome, next_step, notes, created_by, updated_by)
+       VALUES (?, ?, ?, 1, ?, 'discovery_call', ?, 0, 0, 0, NULL, 'Prepare and complete discovery call', ?, NULL, NULL)`,
+      [id, clinicId, contactId, scheduledAt, mapping.packageInterest, notes],
+    );
+
+    await logTimelineActivity({
+      clinicId,
+      contactId,
+      userId: null,
+      type: "Call",
+      timestamp: scheduledAt,
+      metadata: buildTimelineMetadata({
+        action: "schedule_call_captured",
+        source: "call",
+        recordId: id,
+        title: "Discovery call booked",
+        changes: {
+          rawPayloadId,
+          scheduledAt,
+          packageInterest: mapping.packageInterest,
+          externalEventId,
+          internal: true,
+          visibility: "internal",
+        },
+      }),
+    });
+
+    await logAuditEvent({
+      clinicId,
+      userId: null,
+      action: "SCHEDULE_CALL_CAPTURED",
+      entityType: "sales_call_demo",
+      entityId: id,
+      changes: { contactId, rawPayloadId, scheduledAt, externalEventId },
+    });
+
+    return id;
+  }
+
+  private async applyChatbotFlow(
+    clinicId: string,
+    contactId: string,
+    rawPayloadId: string,
+    payload: WebsiteLeadCapturePayload,
+    mapping: WebsiteLeadIntentMapping,
+  ) {
+    if (mapping.leadType !== "chatbot") return null;
+
+    const contact = await contactsService.getContact(clinicId, contactId);
+    const conversationId = pick(payload, "chatbotConversationId", "conversationId") || rawPayloadId;
+    const transcript = pick(payload, "conversationTranscript", "transcript", "message", "notes");
+    const marker = `[Chatbot conversation ${conversationId}]`;
+    const note = [
+      marker,
+      transcript ? `Transcript:\n${transcript}` : "Conversation captured without transcript text.",
+      mapping.packageInterest ? `Package interest: ${mapping.packageInterest}` : null,
+    ].filter(Boolean).join("\n");
+    const notes = contact.notes?.includes(marker)
+      ? contact.notes
+      : [contact.notes, note].filter(Boolean).join("\n\n");
+
+    await pool.execute(
+      `UPDATE contact
+       SET notes = ?,
+           latest_source = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+      [notes, mapping.source, contactId, clinicId],
+    );
+
+    await logTimelineActivity({
+      clinicId,
+      contactId,
+      userId: null,
+      type: "Note",
+      metadata: buildTimelineMetadata({
+        action: "chatbot_conversation_captured",
+        source: "contact",
+        recordId: rawPayloadId,
+        title: "Chatbot conversation captured",
+        changes: {
+          rawPayloadId,
+          conversationId,
+          hasTranscript: Boolean(transcript),
+          packageInterest: mapping.packageInterest,
+          internal: true,
+          visibility: "internal",
+        },
+      }),
+    });
+
+    await logAuditEvent({
+      clinicId,
+      userId: null,
+      action: "CHATBOT_CONVERSATION_CAPTURED",
+      entityType: "contact",
+      entityId: contactId,
+      changes: { rawPayloadId, conversationId, hasTranscript: Boolean(transcript) },
+    });
+
+    return rawPayloadId;
+  }
+
+  private getPipelineStageName(mapping: WebsiteLeadIntentMapping) {
+    if (mapping.leadType === "schedule_call") return "Discovery Booked";
+    if (mapping.leadType === "lead_magnet_nurture") return "Nurture";
+    if (mapping.leadType === "free_audit") return "Free Audit Needed";
+    return "New Lead";
+  }
+
+  private async ensureInboundPipelineDeal(
+    clinicId: string,
+    contactId: string,
+    payload: WebsiteLeadCapturePayload,
+    mapping: WebsiteLeadIntentMapping,
+  ) {
+    const [existingRows]: any = await pool.execute(
+      `SELECT id
+       FROM deal
+       WHERE clinic_id = ?
+         AND contact_id = ?
+         AND status = 'open'
+         AND deleted_at IS NULL
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [clinicId, contactId],
+    );
+    if (existingRows[0]?.id) return existingRows[0].id as string;
+
+    const pipelineId = await pipelineService.ensureDefaultPipeline(clinicId, null);
+    const stageName = this.getPipelineStageName(mapping);
+    const [stageRows]: any = await pool.execute(
+      `SELECT id, name
+       FROM pipeline_stage
+       WHERE clinic_id = ?
+         AND pipeline_id = ?
+         AND deleted_at IS NULL
+       ORDER BY
+         CASE WHEN name = ? THEN 0 WHEN position = 1 THEN 1 ELSE 2 END,
+         position ASC,
+         created_at ASC
+       LIMIT 1`,
+      [clinicId, pipelineId, stageName],
+    );
+    const stage = stageRows[0];
+    if (!stage?.id) return null;
+
+    const contact = await contactsService.getContact(clinicId, contactId);
+    const dealId = uuidv4();
+    const packageInterest = mapping.packageInterest || contact.packageInterest || contact.treatmentInterests?.[0] || null;
+    const title = `${contact.accountName || contact.name} - ${packageInterest || "Inbound opportunity"}`;
+
+    await pool.execute(
+      `INSERT INTO deal
+        (id, clinic_id, contact_id, pipeline_id, pipeline_stage_id, title, value,
+         stage, probability, expected_close_date, owner_id, source, treatment,
+         status, stage_changed_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, ?, ?, 'open', CURRENT_TIMESTAMP, NULL)`,
+      [
+        dealId,
+        clinicId,
+        contactId,
+        pipelineId,
+        stage.id,
+        title.slice(0, 255),
+        stage.name,
+        mapping.source,
+        packageInterest,
+      ],
+    );
+
+    await logTimelineActivity({
+      clinicId,
+      contactId,
+      userId: null,
+      type: "StatusChange",
+      metadata: buildTimelineMetadata({
+        action: "inbound_pipeline_opportunity_created",
+        source: "pipeline",
+        recordId: dealId,
+        title: "Inbound opportunity created",
+        changes: {
+          stage: stage.name,
+          source: mapping.source,
+          leadType: mapping.leadType,
+          packageInterest,
+          ctaClicked: pick(payload, "ctaClicked", "cta_clicked", "cta"),
+        },
+      }),
+    });
+
+    await logAuditEvent({
+      clinicId,
+      userId: null,
+      action: "INBOUND_PIPELINE_OPPORTUNITY_CREATED",
+      entityType: "deal",
+      entityId: dealId,
+      changes: { contactId, stage: stage.name, source: mapping.source, leadType: mapping.leadType },
+    });
+
+    return dealId;
+  }
+
   private async ensureGuideNextActionTask(
     clinicId: string,
     contactId: string,
@@ -600,6 +1077,7 @@ export class WebsiteLeadsService {
        WHERE clinic_id = ?
          AND contact_id = ?
          AND title = ?
+         AND is_internal = 1
          AND status <> 'completed'
          AND deleted_at IS NULL
        ORDER BY created_at ASC
@@ -611,9 +1089,9 @@ export class WebsiteLeadsService {
     const taskId = uuidv4();
     await pool.execute(
       `INSERT INTO task
-        (id, clinic_id, title, description, priority, status, category,
+        (id, clinic_id, is_internal, title, description, priority, status, category, board_key, service_type,
          contact_id, contact_name, due_label, due_date, assigned_to, created_by)
-       VALUES (?, ?, ?, ?, 'medium', 'pending', 'sales_follow_up', ?, ?, 'Next action', ?, NULL, NULL)`,
+       VALUES (?, ?, 1, ?, ?, 'medium', 'pending', 'sales_follow_up', 'sales', 'strategy', ?, ?, 'Next action', ?, NULL, NULL)`,
       [
         taskId,
         clinicId,
@@ -649,13 +1127,17 @@ export class WebsiteLeadsService {
     apiKeyId: string,
   ) {
     const id = uuidv4();
+    const payloadJson = JSON.stringify({
+      ...(payload || {}),
+      _apiKeyId: apiKeyId,
+    });
 
     try {
       await pool.execute(
         `INSERT INTO integration_raw_payload
           (id, clinic_id, source, source_event_id, payload, status, created_by)
          VALUES (?, ?, ?, ?, ?, 'received', ?)`,
-        [id, clinicId, PAYLOAD_SOURCE, eventId, JSON.stringify(payload || {}), apiKeyId],
+        [id, clinicId, PAYLOAD_SOURCE, eventId, payloadJson, null],
       );
       return { id, duplicateEvent: false, contactId: null as string | null };
     } catch (error: any) {
@@ -688,7 +1170,7 @@ export class WebsiteLeadsService {
              created_by = ?,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND clinic_id = ?`,
-        [JSON.stringify(payload || {}), apiKeyId, existing.id, clinicId],
+        [payloadJson, null, existing.id, clinicId],
       );
 
       return { id: existing.id as string, duplicateEvent: false, contactId: null as string | null };

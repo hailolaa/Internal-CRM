@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   Building2,
+  KeyRound,
   Users,
   Shield,
 } from "lucide-react";
@@ -31,6 +32,14 @@ const settingsItems = [
     icon: Users,
     color:
       "text-[#4A6A8A] bg-[rgba(74,106,138,0.1)] border border-[rgba(74,106,138,0.2)]",
+  },
+  {
+    name: "API Keys",
+    desc: "Manage approved inbound integration keys for website and automation inputs.",
+    href: "/app/settings/api",
+    icon: KeyRound,
+    color:
+      "text-[#6E6AE8] bg-[rgba(110,106,232,0.08)] border border-[rgba(110,106,232,0.18)]",
   },
   {
     name: "Security",
@@ -90,6 +99,7 @@ export default function SettingsPage() {
     "Team Members": teamMembers.length
       ? `${teamMembers.length} members and invitations`
       : "No team summary yet",
+    "API Keys": "Website, Calendly and chatbot access",
     Security: security
       ? security.twoFactorEnabled
         ? "2FA enabled"
