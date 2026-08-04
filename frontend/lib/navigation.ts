@@ -57,7 +57,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Automation Engine", href: "/app/ops/automations", icon: Bot },
       { label: "Internal Tasks", href: "/app/crm/tasks", icon: CheckSquare },
-      { label: "Delivery Work", href: "/app/ops/delivery", icon: FolderKanban },
+      { label: "SOPs", href: "/app/ops/sops", icon: FileText },
     ],
   },
   {
@@ -96,7 +96,7 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: "Team & Admin",
+    title: "Admin",
     colorClass: "text-[#7A746A]/60",
     items: [
       { label: "Admin Console", href: "/app/admin", icon: Shield },

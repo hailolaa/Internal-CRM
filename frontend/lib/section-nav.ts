@@ -47,7 +47,6 @@ export const CLIENT_DELIVERY_NAV: SubNavItem[] = [
 export const OPERATIONS_NAV: SubNavItem[] = [
   { label: "Automation Engine", href: "/app/ops/automations", icon: Bot },
   { label: "Internal Tasks", href: "/app/crm/tasks", icon: CheckSquare },
-  { label: "Delivery Work", href: "/app/ops/delivery", icon: FolderKanban },
   { label: "SOPs", href: "/app/ops/sops", icon: FileText },
 ];
 

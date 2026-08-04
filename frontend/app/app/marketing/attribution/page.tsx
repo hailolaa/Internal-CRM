@@ -1060,7 +1060,7 @@ export default function AttributionPage() {
   return (
     <ReportPageTemplate
       title="Attribution"
-      subtitle="Track where your leads and bookings come from."
+      subtitle="Track where leads, calls and client opportunities come from."
       metrics={isLoading ? undefined : liveMetrics}
       dateRanges={[...REPORT_DATE_RANGES]}
       selectedDateRange={dateRange}

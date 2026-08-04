@@ -153,7 +153,7 @@ export function getAttributionSourceNextAction(
     if (!options.canManageConnectors) {
       return {
         message:
-          "A clinic owner needs to connect or sync spend data for this source." +
+          "A team member with integration access needs to connect or sync spend data for this source." +
           remainingCrmGapMessage,
         action: {
           label: "Review campaigns",
