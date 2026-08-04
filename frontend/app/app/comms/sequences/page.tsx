@@ -294,12 +294,6 @@ export default function SequencesPage() {
         </div>
       )}
 
-      <div className="rounded-lg border border-[rgba(110,106,232,0.14)] bg-[rgba(110,106,232,0.06)] px-4 py-3 text-sm text-[#5A56D4]">
-        Sequence enrollment and due-step execution are wired to the backend.
-        Email/SMS steps run through the communication tables with opt-out,
-        timezone, weekend, and duplicate-send safeguards.
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {isLoading ? (
           Array.from({ length: 4 }).map((_, index) => (

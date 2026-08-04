@@ -115,6 +115,21 @@ export class ReviewsController {
       next(error);
     }
   };
+
+  reply = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const data = await reviewsService.recordDirectReply(
+        clinicId,
+        userId,
+        String(req.params.id),
+        String(req.body.comment || ""),
+      );
+      res.status(200).json({ status: "success", data });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const reviewsController = new ReviewsController();

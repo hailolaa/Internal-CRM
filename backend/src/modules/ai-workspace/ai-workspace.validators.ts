@@ -31,6 +31,10 @@ export const aiProjectIdParamValidator = [
   param("id").isUUID().withMessage("Invalid project ID format"),
 ];
 
+export const aiRunIdParamValidator = [
+  param("id").isUUID().withMessage("Invalid AI run ID format"),
+];
+
 export const generateGrowthBriefValidator = [
   body("startDate").optional({ nullable: true }).isISO8601().withMessage("startDate must be a valid date"),
   body("endDate").optional({ nullable: true }).isISO8601().withMessage("endDate must be a valid date"),

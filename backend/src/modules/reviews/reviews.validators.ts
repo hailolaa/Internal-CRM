@@ -8,3 +8,8 @@ export const updateReviewStatusValidator = [
 export const reviewIdParamValidator = [
   param("id").isUUID().withMessage("Invalid review ID format"),
 ];
+
+export const replyReviewValidator = [
+  param("id").isUUID().withMessage("Invalid review ID format"),
+  body("comment").trim().notEmpty().withMessage("Reply comment is required").isLength({ max: 4000 }),
+];

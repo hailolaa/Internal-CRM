@@ -794,6 +794,34 @@ export class ReportsService {
     };
   }
 
+  async getAttributionSourceCoverage(clinicId: string, query: { startDate?: string; endDate?: string } = {}) {
+    const range = getDateRange(query);
+    const dateFilter = buildCreatedRangeClause("c", range);
+
+    const [rows]: any = await pool.execute(
+      `SELECT COUNT(*) as totalContacts,
+              SUM(CASE WHEN c.source IS NOT NULL AND TRIM(c.source) <> '' THEN 1 ELSE 0 END) as contactsWithKnownSource
+       FROM contact c
+       WHERE c.clinic_id = ?
+         AND c.deleted_at IS NULL${dateFilter.sql}`,
+      [clinicId, ...dateFilter.values],
+    );
+
+    const totalContacts = Number(rows[0]?.totalContacts || 0);
+    const contactsWithKnownSource = Number(rows[0]?.contactsWithKnownSource || 0);
+    const contactsMissingSource = Math.max(0, totalContacts - contactsWithKnownSource);
+
+    return {
+      range,
+      totalContacts,
+      contactsWithKnownSource,
+      contactsMissingSource,
+      coveragePercent: totalContacts > 0
+        ? Math.round((contactsWithKnownSource / totalContacts) * 100)
+        : 0,
+    };
+  }
+
   async getRevenueByChannel(clinicId: string, query: { startDate?: string; endDate?: string } = {}) {
     const range = getDateRange(query);
     const spendFilter = buildSpendOverlapClause(range);

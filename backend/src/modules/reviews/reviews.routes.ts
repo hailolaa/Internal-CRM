@@ -3,7 +3,7 @@ import { reviewsController } from "./reviews.controller.js";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
-import { reviewIdParamValidator, updateReviewStatusValidator } from "./reviews.validators.js";
+import { replyReviewValidator, reviewIdParamValidator, updateReviewStatusValidator } from "./reviews.validators.js";
 
 const router = Router();
 
@@ -29,6 +29,11 @@ router.post("/reply-suggestion", authorizePermission("marketing:read"), reviewsC
 // @desc    Return direct reply capability or external GBP handoff URL
 // @access  Private
 router.post("/:id/reply-handoff", authorizePermission("marketing:write"), reviewIdParamValidator, validate, reviewsController.replyHandoff);
+
+// @route   POST /api/reviews/:id/reply
+// @desc    Record a direct Google Business Profile reply when configured
+// @access  Private
+router.post("/:id/reply", authorizePermission("marketing:write"), replyReviewValidator, validate, reviewsController.reply);
 
 // @route   GET /api/reviews
 // @desc    List clinic reviews

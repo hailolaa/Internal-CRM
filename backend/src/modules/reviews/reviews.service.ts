@@ -308,6 +308,46 @@ export class ReviewsService {
     return response;
   }
 
+  async recordDirectReply(clinicId: string, userId: string, reviewId: string, comment: string) {
+    const [reviewRows]: any = await pool.execute(
+      `SELECT id, source
+       FROM review
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL
+       LIMIT 1`,
+      [reviewId, clinicId],
+    );
+
+    const review = reviewRows[0];
+    if (!review) throw ApiError.notFound("Review not found");
+
+    const gbpContext = await this.getGbpContext(clinicId);
+    if (!isGoogleSource(review.source) || !gbpContext.directReplyAvailable) {
+      throw ApiError.badRequest("Direct Google Business Profile replies are not available for this review. Use the reply handoff instead.");
+    }
+
+    await pool.execute(
+      `UPDATE review
+       SET status = 'replied', updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+      [reviewId, clinicId],
+    );
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "REVIEW_REPLY_POSTED",
+      entityType: "review",
+      entityId: reviewId,
+      changes: {
+        source: review.source || null,
+        replyLength: comment.trim().length,
+        status: "replied",
+      },
+    });
+
+    return { reviewId, status: "replied" };
+  }
+
   private async getGbpContext(clinicId: string) {
     const [settingRows]: any = await pool.execute(
       `SELECT google_review_link as googleReviewLink

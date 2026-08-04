@@ -59,6 +59,17 @@ export class AiWorkspaceController {
     }
   };
 
+  // DELETE /api/ai/runs/:id
+  deleteRun = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      await aiWorkspaceService.deleteRun(clinicId, userId, req.params.id as string);
+      res.status(200).json({ status: "success", message: "AI run deleted successfully" });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   // POST /api/ai/growth-brief/generate
   generateGrowthBrief = async (req: Request, res: Response, next: NextFunction) => {
     try {

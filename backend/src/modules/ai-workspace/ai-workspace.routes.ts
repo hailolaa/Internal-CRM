@@ -5,6 +5,7 @@ import { validate } from "../../middleware/validate.js";
 import { aiWorkspaceController } from "./ai-workspace.controller.js";
 import {
   aiProjectIdParamValidator,
+  aiRunIdParamValidator,
   createAiProjectValidator,
   createAiRunValidator,
   generateCampaignAnalystValidator,
@@ -109,6 +110,11 @@ router.post(
 // @desc    Create AI run history entry
 // @access  Private
 router.post("/runs", authorizePermission("settings:write"), createAiRunValidator, validate, aiWorkspaceController.createRun);
+
+// @route   DELETE /api/ai/runs/:id
+// @desc    Soft-delete one AI run history entry
+// @access  Private
+router.delete("/runs/:id", authorizePermission("settings:write"), aiRunIdParamValidator, validate, aiWorkspaceController.deleteRun);
 
 // Keep this validator imported so project IDs share one route-level contract.
 void aiProjectIdParamValidator;

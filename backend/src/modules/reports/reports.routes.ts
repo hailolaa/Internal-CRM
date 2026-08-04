@@ -50,6 +50,11 @@ router.get("/dashboard/summary", authorizePermission("reports:read"), reportsCon
 // @access  Private
 router.get("/dashboard/funnel", authorizePermission("reports:read"), reportsController.getDashboardFunnel);
 
+// @route   GET /api/reports/dashboard/attribution-source-coverage
+// @desc    Lead/contact source coverage for attribution QA
+// @access  Private
+router.get("/dashboard/attribution-source-coverage", authorizePermission("reports:read"), reportsController.getAttributionSourceCoverage);
+
 // @route   GET /api/reports/dashboard/revenue-by-channel
 // @desc    Live dashboard revenue by channel
 // @access  Private

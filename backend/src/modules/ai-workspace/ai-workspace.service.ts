@@ -262,6 +262,25 @@ export class AiWorkspaceService {
     return id;
   }
 
+  async deleteRun(clinicId: string, userId: string, runId: string) {
+    const [result]: any = await pool.execute(
+      `UPDATE ai_run
+       SET deleted_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
+      [runId, clinicId],
+    );
+
+    if (result.affectedRows === 0) throw ApiError.notFound("AI run not found");
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "AI_RUN_DELETED",
+      entityType: "ai_run",
+      entityId: runId,
+    });
+  }
+
   private async saveGeneratedRun(
     clinicId: string,
     userId: string,

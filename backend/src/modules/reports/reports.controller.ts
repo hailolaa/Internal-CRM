@@ -146,6 +146,17 @@ export class ReportsController {
     }
   };
 
+  // GET /api/reports/dashboard/attribution-source-coverage
+  getAttributionSourceCoverage = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const coverage = await reportsService.getAttributionSourceCoverage(clinicId, pickDashboardQuery(req.query as Record<string, unknown>));
+      res.status(200).json({ status: "success", data: coverage });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   // GET /api/reports/dashboard/revenue-by-channel
   getRevenueByChannel = async (req: Request, res: Response, next: NextFunction) => {
     try {
