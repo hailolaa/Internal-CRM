@@ -92,6 +92,11 @@ export interface DashboardSummaryRecord {
     totalRevenue: number;
     spend: number;
     spendProvenance?: string;
+    spendAllocation?: {
+      method: "calendar_day_proration";
+      description: string;
+      proratedRows: number;
+    };
     roas: number;
     costPerLead: number;
     costPerBookedConsult: number;
@@ -117,6 +122,14 @@ export interface DashboardFunnelRecord {
     attendedToSoldRate: number;
   };
   emptyState: boolean;
+}
+
+export interface AttributionSourceCoverageRecord {
+  range: DashboardRange;
+  totalContacts: number;
+  contactsWithKnownSource: number;
+  contactsMissingSource: number;
+  coveragePercent: number;
 }
 
 export interface BenchmarkSummaryRecord {
@@ -151,6 +164,11 @@ export interface BenchmarkSummaryRecord {
 
 export interface RevenueByChannelRecord {
   range: DashboardRange;
+  spendAllocation?: {
+    method: "calendar_day_proration";
+    description: string;
+    proratedRows: number;
+  };
   totals: {
     spend: number;
     revenue: number;

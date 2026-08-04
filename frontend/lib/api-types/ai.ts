@@ -1,3 +1,33 @@
+export interface AiGenerationProvenance {
+  workflow?: string | null;
+  source?: string | null;
+  provider?: "openai" | "deterministic" | (string & {}) | null;
+  method?: string | null;
+  model?: string | null;
+  responseId?: string | null;
+  fallbackReason?: string | null;
+  generatedAt?: string | null;
+  tokens?: number | null;
+  externalProcessing?: boolean | null;
+  consentScope?: string | null;
+  consentCaptured?: boolean | null;
+  persisted?: boolean | null;
+  clinicScoped?: boolean | null;
+  openAiRequired?: boolean | null;
+  fallbackAvailable?: boolean | null;
+  mockData?: boolean | null;
+  calibrated?: boolean | null;
+  algorithmVersion?: string | null;
+  scoreMeaning?: string | null;
+  legacyAliases?: Record<string, string> | null;
+  inputMode?: "live" | "manual" | (string & {}) | null;
+  sources?: Record<string, string> | null;
+  range?: {
+    startDate?: string | null;
+    endDate?: string | null;
+  } | null;
+}
+
 export interface AiProjectRecord {
   id: string;
   title: string;
@@ -13,10 +43,15 @@ export interface AiRunRecord {
   agentName: string;
   agentKey: string;
   task: string;
-  input: string | null;
+  input: unknown;
   output: unknown;
   status: "success" | "error" | "running";
   tokens: number;
+  provider?: string | null;
+  model?: string | null;
+  responseId?: string | null;
+  fallbackReason?: string | null;
+  errorCode?: string | null;
   createdAt: string;
 }
 
@@ -63,6 +98,8 @@ export interface AiShowRateRiskRow {
     status: string | null;
   } | null;
   reminderSent: boolean;
+  appointmentRiskSignal?: "high" | "medium" | "low";
+  priorityScore?: number;
   riskScore: number;
   riskLevel: "high" | "medium" | "low";
   reasons: string[];
@@ -70,6 +107,7 @@ export interface AiShowRateRiskRow {
 }
 
 export interface AiShowRateOutput {
+  provenance?: AiGenerationProvenance | null;
   summary: {
     totalAppointments: number;
     highRisk: number;
@@ -104,6 +142,7 @@ export interface AiSalesAssistantFollowUp {
 }
 
 export interface AiSalesAssistantOutput {
+  provenance?: AiGenerationProvenance | null;
   recommendation: string;
   summary: string;
   lead: {
@@ -117,6 +156,9 @@ export interface AiSalesAssistantOutput {
     valueCents: number;
   };
   scores: {
+    followUpFrictionScore?: number;
+    followUpReadinessScore?: number;
+    followUpPriorityScore?: number;
     coldLeadScore: number;
     conversionProbability: number;
     urgency: "high" | "medium" | "low";
@@ -154,6 +196,7 @@ export interface AiSalesAssistantGenerateResult {
 }
 
 export interface AiCampaignAnalystOutput {
+  provenance?: AiGenerationProvenance | null;
   underperforming: Array<{ name: string; issue: string; action: string }>;
   highROI: Array<{ name: string; roas: string; recommendation: string }>;
   budgetShifts: Array<{ from: string; to: string; amount: string; reason: string }>;
@@ -172,9 +215,22 @@ export interface AiCampaignAnalystGenerateResult {
 }
 
 export interface AiLtvOptimiserOutput {
+  provenance?: AiGenerationProvenance | null;
+  recommendationSample?: {
+    maxContacts: number;
+    sampledContacts: number;
+    recommendationEligibleContacts: number;
+    completedActivityContacts: number;
+    contactsWithFutureBooking: number;
+    eligibility: string;
+    ranking: string;
+    recommendationsExcludeFutureBookings: boolean;
+  };
   summary: {
     averageLtv: number;
+    averageRevenuePerSoldTreatment?: number;
     repeatProxyRate: number;
+    rebookingCoverageRate?: number;
     openDealValue: number;
     totalTreatmentRevenue: number;
     totalPatientRecommendations: number;

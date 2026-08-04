@@ -10,6 +10,7 @@ export * from "@/lib/api-types/core";
 export * from "@/lib/api-types/crm";
 export * from "@/lib/api-types/growth-scores";
 export * from "@/lib/api-types/insights";
+export * from "@/lib/api-types/integration-inputs";
 export * from "@/lib/api-types/marketing";
 export * from "@/lib/api-types/monthly-action-plans";
 export * from "@/lib/api-types/operations";

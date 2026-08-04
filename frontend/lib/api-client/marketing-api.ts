@@ -34,6 +34,17 @@ export function createMarketingApi(apiRequest: ApiRequest) {
         );
         return response.data!;
       },
+      async reply(token: string, reviewId: string, comment: string) {
+        const response = await apiRequest<{ reviewId: string; status: string }>(
+          `/api/reviews/${reviewId}/reply`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify({ comment }),
+          },
+        );
+        return response.data!;
+      },
       async summary(token: string) {
         const response = await apiRequest<ReputationSummaryRecord>(
           "/api/reviews/summary",

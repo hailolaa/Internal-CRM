@@ -797,8 +797,8 @@ export default function InboxPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Inbox"
-        subtitle="All your conversations in one place."
+        title="Communications Centre"
+        subtitle="Internal inbox for WhatsApp, email and follow-up conversations."
         right={
           <div className="flex items-center gap-2">
             <span className="text-sm text-[#6B7280]">{unreadCount} unread</span>

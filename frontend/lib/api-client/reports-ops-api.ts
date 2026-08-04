@@ -1,4 +1,5 @@
 import type {
+  AttributionSourceCoverageRecord,
   BackgroundJobsResponse,
   BenchmarkSummaryRecord,
   CampaignMetricRecord,
@@ -194,6 +195,16 @@ export function createReportsOpsApi(apiRequest: ApiRequest) {
       async dashboardFunnel(token: string, params?: DashboardQueryParams) {
         const response = await apiRequest<DashboardFunnelRecord>(
           `/api/reports/dashboard/funnel${buildQuery(params)}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async attributionSourceCoverage(
+        token: string,
+        params?: DashboardQueryParams,
+      ) {
+        const response = await apiRequest<AttributionSourceCoverageRecord>(
+          `/api/reports/dashboard/attribution-source-coverage${buildQuery(params)}`,
           { token },
         );
         return response.data!;

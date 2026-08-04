@@ -52,16 +52,17 @@ export const PAGE_TITLES: Record<string, string> = {
 
   // Marketing
   "/app/marketing/attribution": "Attribution Reporting",
-  "/app/marketing/campaigns": "Campaign Visibility",
+  "/app/marketing/campaigns": "Campaigns",
   "/app/marketing/offers": "Offers",
-  "/app/marketing/reviews": "Legacy Marketing Tools",
+  "/app/marketing/reviews": "Review & GBP Signals",
+  "/app/marketing": "Marketing",
 
   // Communications
-  "/app/comms/inbox": "Communication Centre",
+  "/app/comms/inbox": "Communications Centre",
   "/app/comms/calls/analysis": "Legacy Communications Analysis",
   "/app/comms/calls/analytics": "Legacy Communications Analytics",
   "/app/comms/calls/compliance": "Legacy Communications Compliance",
-  "/app/comms/calls": "Call Log",
+  "/app/comms/calls": "Call Intelligence",
   "/app/comms/templates": "Templates",
   "/app/comms/sequences": "Follow-Up Sequences",
 
@@ -76,13 +77,13 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/ops/sops": "SOPs",
 
   // AI Growth Insights
-  "/app/ai/growth-brief": "Weekly Growth Brief",
-  "/app/ai/campaign-analyst": "Campaign Analysis",
-  "/app/ai/sales-assistant": "Conversion Tracking",
-  "/app/ai/show-rate": "Missed Opportunity Tracking",
+  "/app/ai/growth-brief": "Growth Brief",
+  "/app/ai/campaign-analyst": "Campaign Analyst",
+  "/app/ai/sales-assistant": "Sales Assistant",
+  "/app/ai/show-rate": "Missed Opportunity",
   "/app/ai/ltv-optimiser": "ROI Reporting",
-  "/app/ai/agents": "AI Growth Insights",
-  "/app/ai": "AI Growth Insights",
+  "/app/ai/agents": "AI Agents",
+  "/app/ai": "Intelligence",
 
   // Reports
   "/app/reports/overview": "Legacy Reports",

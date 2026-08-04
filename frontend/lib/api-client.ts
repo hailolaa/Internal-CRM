@@ -13,18 +13,25 @@ import {
   toStoredSession,
 } from "@/lib/api-client/auth-session";
 import { createAccountApi } from "@/lib/api-client/account-api";
+import { createAiApi } from "@/lib/api-client/ai-api";
 import { createAutomationsApi } from "@/lib/api-client/automations-api";
+import { createBillingSecurityApi } from "@/lib/api-client/billing-security-api";
 import { createClinicSetupApi } from "@/lib/api-client/clinic-setup-api";
 import { createCommandPaletteApi } from "@/lib/api-client/command-palette-api";
 import { createCatalogApi } from "@/lib/api-client/catalog-api";
 import { createComplianceApi } from "@/lib/api-client/compliance-api";
+import { createContactsApi } from "@/lib/api-client/contacts-api";
 import { createDeveloperSettingsApi } from "@/lib/api-client/developer-settings-api";
 import { createFormsApi } from "@/lib/api-client/forms-api";
 import { createGrowthScoresApi } from "@/lib/api-client/growth-scores-api";
+import { createIntegrationInputsApi } from "@/lib/api-client/integration-inputs-api";
 import { createLocationsIntegrationsApi } from "@/lib/api-client/locations-integrations-api";
+import { createMarketingApi } from "@/lib/api-client/marketing-api";
 import { createOperationsApi } from "@/lib/api-client/operations-api";
 import { createPackagesApi } from "@/lib/api-client/packages-api";
 import { createProposalsApi } from "@/lib/api-client/proposals-api";
+import { createReportsOpsApi } from "@/lib/api-client/reports-ops-api";
+import { createRevenueApi } from "@/lib/api-client/revenue-api";
 import { createSequencesApi } from "@/lib/api-client/sequences-api";
 import { createSopsApi } from "@/lib/api-client/sops-api";
 
@@ -224,18 +231,25 @@ const accountApi = createAccountApi({
 
 export const api = {
   ...accountApi,
+  ...createAiApi(apiRequest),
   ...createAutomationsApi(apiRequest),
+  ...createBillingSecurityApi(apiRequest),
   ...createClinicSetupApi(apiRequest),
   ...createCommandPaletteApi(apiRequest),
   ...createCatalogApi(apiRequest),
   ...createComplianceApi(apiRequest),
+  ...createContactsApi(apiRequest),
   ...createDeveloperSettingsApi(apiRequest),
+  ...createIntegrationInputsApi(apiRequest),
   ...createOperationsApi(apiRequest),
   ...createPackagesApi(apiRequest),
   ...createProposalsApi(apiRequest),
   ...createLocationsIntegrationsApi(apiRequest),
   ...createFormsApi(apiRequest),
   ...createGrowthScoresApi(apiRequest),
+  ...createMarketingApi(apiRequest),
+  ...createReportsOpsApi(apiRequest),
+  ...createRevenueApi(apiRequest),
   ...createSequencesApi(apiRequest),
   ...createSopsApi(apiRequest),
 };

@@ -3,6 +3,8 @@ export interface ReviewRecord {
   rating: number | null;
   comment: string | null;
   source: string | null;
+  providerReviewId?: string | null;
+  providerReviewName?: string | null;
   status: string | null;
   author: string;
   createdAt: string;

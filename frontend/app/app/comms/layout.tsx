@@ -1,7 +1,7 @@
 "use client";
 
 import { SubNav } from "@/components/sub-nav";
-import { SALES_NAV } from "@/lib/section-nav";
+import { COMMUNICATIONS_NAV } from "@/lib/section-nav";
 
 export default function CommsLayout({
   children,
@@ -10,7 +10,7 @@ export default function CommsLayout({
 }) {
   return (
     <div>
-      <SubNav items={SALES_NAV} />
+      <SubNav items={COMMUNICATIONS_NAV} />
       {children}
     </div>
   );

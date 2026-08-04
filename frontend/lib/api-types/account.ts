@@ -124,6 +124,7 @@ export interface ConnectorStatusRecord {
   oauthAuthorizeUrl: string | null;
   dataFreshness: ConnectorDataFreshness;
   manualFallbackAvailable: boolean;
+  backfillSupported?: boolean;
   supportedMetrics: string[];
 }
 

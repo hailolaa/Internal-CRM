@@ -353,11 +353,11 @@ export default function CallsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Call Log"
+        title="Call Intelligence"
         subtitle={
           isLoading
             ? "Loading calls from the backend..."
-            : "Track, log, and review all call activity."
+            : "Review calls, outcomes, AI notes and follow-up actions."
         }
         icon={Phone}
         iconColor="text-[#4A7A8A]"

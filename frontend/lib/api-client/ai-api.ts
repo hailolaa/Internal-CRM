@@ -63,6 +63,12 @@ export function createAiApi(apiRequest: ApiRequest) {
         );
         return response.data!;
       },
+      async deleteRun(token: string, runId: string) {
+        await apiRequest<never>(`/api/ai/runs/${runId}`, {
+          method: "DELETE",
+          token,
+        });
+      },
       async generateGrowthBrief(
         token: string,
         payload: { startDate?: string; endDate?: string } = {},
@@ -113,6 +119,9 @@ export function createAiApi(apiRequest: ApiRequest) {
       async generateCampaignAnalyst(
         token: string,
         payload: {
+          startDate?: string;
+          endDate?: string;
+          inputMode?: "manual" | "live";
           googleSpend?: number;
           metaSpend?: number;
           leads?: number;

@@ -51,3 +51,8 @@ export {
   normaliseProvenance,
   provenanceConfig,
 } from "./provenance";
+export {
+  AiGenerationProvenance,
+  coerceAiGenerationProvenance,
+  coerceAiRunProvenance,
+} from "./ai-generation-provenance";

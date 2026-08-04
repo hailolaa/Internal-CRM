@@ -390,7 +390,7 @@ export default function AutomationsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Automation Engine"
-        subtitle="Build automated workflows that run 24/7."
+        subtitle="Create internal lead, proposal, client and delivery workflow rules."
         right={
           <button onClick={openCreateEditor} className="btn-primary w-fit">
             <Plus className="w-4 h-4" /> Create Automation
