@@ -7,6 +7,7 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   CheckSquare2,
+  CreditCard,
   ExternalLink,
   FileCheck2,
   FolderOpen,
@@ -41,6 +42,9 @@ import type {
   ClientIssueStatus,
   ContactRecord,
   GrowthScoreSnapshotList,
+  QuickBooksClientCustomerMappingRecord,
+  QuickBooksConnectionStatus,
+  QuickBooksCustomerRecord,
   TeamMember,
 } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
@@ -198,6 +202,18 @@ export default function ClientAccountDetailPage() {
   const [accessActionType, setAccessActionType] = useState<string | null>(null);
   const [filesStatusMessage, setFilesStatusMessage] = useState("");
   const [accessStatusMessage, setAccessStatusMessage] = useState("");
+  const [quickBooksStatus, setQuickBooksStatus] = useState<QuickBooksConnectionStatus | null>(null);
+  const [quickBooksMapping, setQuickBooksMapping] = useState<QuickBooksClientCustomerMappingRecord | null>(null);
+  const [quickBooksCustomers, setQuickBooksCustomers] = useState<QuickBooksCustomerRecord[]>([]);
+  const [quickBooksSearch, setQuickBooksSearch] = useState("");
+  const [quickBooksForm, setQuickBooksForm] = useState({
+    customerId: "",
+    customerName: "",
+    companyName: "",
+    email: "",
+  });
+  const [isQuickBooksBusy, setIsQuickBooksBusy] = useState(false);
+  const [quickBooksMessage, setQuickBooksMessage] = useState("");
   const [activeRecordTab, setActiveRecordTab] = useState<ClientAccountRecordTab>("files");
   const [isLoading, setIsLoading] = useState(!missingAccountId);
   const [loadError, setLoadError] = useState(missingAccountId ? "No client account id was provided." : "");
@@ -264,6 +280,35 @@ export default function ClientAccountDetailPage() {
       .finally(() => setIsLoading(false));
   }, [canAssignIssueOwners, clinicId, token]);
 
+  useEffect(() => {
+    if (!token || !account?.id) return;
+    let isMounted = true;
+    Promise.allSettled([
+      api.quickbooks.getStatus(token),
+      api.quickbooks.getClientMapping(token, account.id),
+    ]).then(([statusResult, mappingResult]) => {
+      if (!isMounted) return;
+      const status = statusResult.status === "fulfilled" ? statusResult.value : null;
+      const mapping = mappingResult.status === "fulfilled" ? mappingResult.value : null;
+      setQuickBooksStatus(status);
+      setQuickBooksMapping(mapping);
+      if (mapping) {
+        setQuickBooksForm({
+          customerId: mapping.quickbooksCustomerId,
+          customerName: mapping.quickbooksCustomerName,
+          companyName: mapping.quickbooksCompanyName || "",
+          email: mapping.quickbooksEmail || "",
+        });
+      }
+      if (statusResult.status === "rejected" || mappingResult.status === "rejected") {
+        setQuickBooksMessage("QuickBooks mapping status could not be loaded. Manual finance fields are still available.");
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [account?.id, token]);
+
   const activeServices = useMemo(() => services.filter((service) => service.status === "active"), [services]);
   const linkedContacts = useMemo(() => linkedRecords?.contacts || [], [linkedRecords?.contacts]);
   const linkedEmailContacts = useMemo(
@@ -284,6 +329,73 @@ export default function ClientAccountDetailPage() {
     () => completedTasks.filter(isCanonicalWonClientOnboardingTask),
     [completedTasks],
   );
+
+  const searchQuickBooksCustomers = async () => {
+    if (!token || isQuickBooksBusy) return;
+    setIsQuickBooksBusy(true);
+    setQuickBooksMessage("");
+    try {
+      const customers = await api.quickbooks.listCustomers(token, quickBooksSearch);
+      setQuickBooksCustomers(customers);
+      if (customers.length === 0) {
+        setQuickBooksMessage("No QuickBooks customers matched that search.");
+      }
+    } catch (error) {
+      setQuickBooksMessage(error instanceof Error ? error.message : "QuickBooks customer search failed.");
+    } finally {
+      setIsQuickBooksBusy(false);
+    }
+  };
+
+  const selectQuickBooksCustomer = (customer: QuickBooksCustomerRecord) => {
+    setQuickBooksForm({
+      customerId: customer.id,
+      customerName: customer.displayName,
+      companyName: customer.companyName || "",
+      email: customer.email || "",
+    });
+    setQuickBooksCustomers([]);
+    setQuickBooksSearch("");
+  };
+
+  const saveQuickBooksMapping = async () => {
+    if (!token || !account?.id || isQuickBooksBusy || !canWriteClientAccounts) return;
+    setIsQuickBooksBusy(true);
+    setQuickBooksMessage("");
+    try {
+      const mapping = await api.quickbooks.saveClientMapping(token, account.id, {
+        quickbooksCustomerId: quickBooksForm.customerId,
+        quickbooksCustomerName: quickBooksForm.customerName,
+        quickbooksCompanyName: quickBooksForm.companyName || null,
+        quickbooksEmail: quickBooksForm.email || null,
+        mappingStatus: "active",
+        mappingSource: quickBooksStatus?.connected ? "quickbooks_lookup" : "manual",
+      });
+      setQuickBooksMapping(mapping);
+      setQuickBooksMessage("QuickBooks customer mapping saved. Manual invoice and payment fields were not changed.");
+    } catch (error) {
+      setQuickBooksMessage(error instanceof Error ? error.message : "QuickBooks customer mapping could not be saved.");
+    } finally {
+      setIsQuickBooksBusy(false);
+    }
+  };
+
+  const removeQuickBooksMapping = async () => {
+    if (!token || !account?.id || isQuickBooksBusy || !canWriteClientAccounts) return;
+    const confirmed = window.confirm("Remove the QuickBooks customer mapping for this client?");
+    if (!confirmed) return;
+    setIsQuickBooksBusy(true);
+    try {
+      await api.quickbooks.deleteClientMapping(token, account.id);
+      setQuickBooksMapping(null);
+      setQuickBooksForm({ customerId: "", customerName: "", companyName: "", email: "" });
+      setQuickBooksMessage("QuickBooks customer mapping removed. Manual invoice and payment fields were not changed.");
+    } catch (error) {
+      setQuickBooksMessage(error instanceof Error ? error.message : "QuickBooks customer mapping could not be removed.");
+    } finally {
+      setIsQuickBooksBusy(false);
+    }
+  };
   const onboardingChecklistTasks = useMemo(
     () => [...onboardingOpenTasks, ...onboardingCompletedTasks],
     [onboardingOpenTasks, onboardingCompletedTasks],
@@ -708,6 +820,133 @@ export default function ClientAccountDetailPage() {
                 {account.paymentNotes}
               </p>
             ) : null}
+
+            <div className="mt-5 rounded-2xl border border-[#E7E1DA] bg-[#FFFCF9] p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-[#151f21]">
+                    <CreditCard className="h-4 w-4 text-[#315f62]" />
+                    QuickBooks customer mapping
+                  </h3>
+                  <p className="mt-1 text-xs leading-5 text-[#7A746A]">
+                    Link this Mission Control client to the matching QuickBooks customer. Manual invoice and payment fields stay unchanged.
+                  </p>
+                </div>
+                <Badge variant={quickBooksMapping ? "success" : "neutral"}>
+                  {quickBooksMapping ? "Mapped" : quickBooksStatus?.connected ? "Ready" : "Manual fallback"}
+                </Badge>
+              </div>
+
+              {quickBooksMapping ? (
+                <div className="mt-4 rounded-xl border border-[#d8ddda] bg-[#FAF8F5] p-3 text-sm text-[#5e8a8d]">
+                  <p className="font-semibold text-[#151f21]">{quickBooksMapping.quickbooksCustomerName}</p>
+                  <p className="mt-1 break-all text-xs">
+                    ID {quickBooksMapping.quickbooksCustomerId}
+                    {quickBooksMapping.quickbooksEmail ? ` - ${quickBooksMapping.quickbooksEmail}` : ""}
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto]">
+                <input
+                  value={quickBooksSearch}
+                  onChange={(event) => setQuickBooksSearch(event.target.value)}
+                  placeholder="Search QuickBooks customers"
+                  className="min-h-11 rounded-xl border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                  disabled={!quickBooksStatus?.connected || isQuickBooksBusy}
+                />
+                <button
+                  type="button"
+                  onClick={() => void searchQuickBooksCustomers()}
+                  disabled={!quickBooksStatus?.connected || isQuickBooksBusy}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d8ddda] bg-white px-4 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isQuickBooksBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  Search
+                </button>
+              </div>
+
+              {quickBooksCustomers.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {quickBooksCustomers.slice(0, 5).map((customer) => (
+                    <button
+                      key={customer.id}
+                      type="button"
+                      onClick={() => selectQuickBooksCustomer(customer)}
+                      className="block w-full rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-3 text-left text-sm hover:border-[#b9cfcb] hover:bg-[#edf5f3]"
+                    >
+                      <span className="block font-semibold text-[#151f21]">{customer.displayName}</span>
+                      <span className="mt-1 block text-xs text-[#7A746A]">
+                        {customer.companyName || "No company name"} {customer.email ? `- ${customer.email}` : ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <input
+                  value={quickBooksForm.customerId}
+                  onChange={(event) => setQuickBooksForm((current) => ({ ...current, customerId: event.target.value }))}
+                  placeholder="QuickBooks customer ID"
+                  className="min-h-11 rounded-xl border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                />
+                <input
+                  value={quickBooksForm.customerName}
+                  onChange={(event) => setQuickBooksForm((current) => ({ ...current, customerName: event.target.value }))}
+                  placeholder="QuickBooks customer name"
+                  className="min-h-11 rounded-xl border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                />
+                <input
+                  value={quickBooksForm.companyName}
+                  onChange={(event) => setQuickBooksForm((current) => ({ ...current, companyName: event.target.value }))}
+                  placeholder="Company name"
+                  className="min-h-11 rounded-xl border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                />
+                <input
+                  value={quickBooksForm.email}
+                  onChange={(event) => setQuickBooksForm((current) => ({ ...current, email: event.target.value }))}
+                  placeholder="Billing email"
+                  className="min-h-11 rounded-xl border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                />
+              </div>
+
+              {quickBooksMessage ? (
+                <p className="mt-3 rounded-xl border border-[#d8ddda] bg-[#FAF8F5] p-3 text-xs leading-5 text-[#5e8a8d]">
+                  {quickBooksMessage}
+                </p>
+              ) : null}
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => void saveQuickBooksMapping()}
+                  disabled={!canWriteClientAccounts || isQuickBooksBusy || !quickBooksForm.customerId.trim() || !quickBooksForm.customerName.trim()}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#315f62] px-4 text-sm font-semibold text-white hover:bg-[#264f51] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isQuickBooksBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                  Save mapping
+                </button>
+                {quickBooksMapping ? (
+                  <button
+                    type="button"
+                    onClick={() => void removeQuickBooksMapping()}
+                    disabled={!canWriteClientAccounts || isQuickBooksBusy}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Unlink className="h-4 w-4" />
+                    Remove mapping
+                  </button>
+                ) : null}
+                <Link
+                  href="/app/integrations"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d8ddda] bg-white px-4 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3]"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Manage QuickBooks
+                </Link>
+              </div>
+            </div>
           </Card>
 
           <Card padding="p-5 sm:p-6">

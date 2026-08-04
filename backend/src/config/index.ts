@@ -132,6 +132,22 @@ export const config = {
         appAuthUrl: process.env.CLICKUP_APP_AUTH_URL || "https://app.clickup.com/api",
     },
 
+    quickbooks: {
+        oauthEnabled: parseBoolean(process.env.QUICKBOOKS_OAUTH_ENABLED, false),
+        clientId: process.env.QUICKBOOKS_CLIENT_ID || "",
+        clientSecret: process.env.QUICKBOOKS_CLIENT_SECRET || "",
+        environment: (process.env.QUICKBOOKS_ENVIRONMENT || "sandbox").toLowerCase(),
+        scopes: (process.env.QUICKBOOKS_SCOPES || "com.intuit.quickbooks.accounting")
+            .split(",")
+            .map((scope) => scope.trim())
+            .filter(Boolean),
+        authorizeUrl: process.env.QUICKBOOKS_AUTHORIZE_URL || "https://appcenter.intuit.com/connect/oauth2",
+        tokenUrl: process.env.QUICKBOOKS_TOKEN_URL || "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+        sandboxApiBaseUrl: process.env.QUICKBOOKS_SANDBOX_API_BASE_URL || "https://sandbox-quickbooks.api.intuit.com",
+        productionApiBaseUrl: process.env.QUICKBOOKS_PRODUCTION_API_BASE_URL || "https://quickbooks.api.intuit.com",
+        customerPageSize: parseInt(process.env.QUICKBOOKS_CUSTOMER_PAGE_SIZE || "50", 10),
+    },
+
     backups: {
         directory: process.env.BACKUP_DIR || "backups",
         retentionDays: parseInt(process.env.BACKUP_RETENTION_DAYS || "14", 10),
@@ -315,6 +331,18 @@ export function getProductionConfigIssues() {
 
     if (config.clickup.clientId && !config.credentials.encryptionKey) {
         issues.push("CREDENTIAL_ENCRYPTION_KEY must be set before ClickUp OAuth credentials can be stored.");
+    }
+
+    if (config.quickbooks.oauthEnabled && (!config.quickbooks.clientId || !config.quickbooks.clientSecret)) {
+        issues.push("QUICKBOOKS_CLIENT_ID and QUICKBOOKS_CLIENT_SECRET must be set when QUICKBOOKS_OAUTH_ENABLED=true.");
+    }
+
+    if (config.quickbooks.oauthEnabled && !["sandbox", "production"].includes(config.quickbooks.environment)) {
+        issues.push("QUICKBOOKS_ENVIRONMENT must be sandbox or production.");
+    }
+
+    if (config.quickbooks.oauthEnabled && !config.credentials.encryptionKey) {
+        issues.push("CREDENTIAL_ENCRYPTION_KEY must be set before QuickBooks OAuth credentials can be stored.");
     }
 
     if (config.googleCalendar.oauthEnabled && (!config.oauth.google.clientId || !config.oauth.google.clientSecret)) {

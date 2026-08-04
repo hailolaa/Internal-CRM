@@ -31,6 +31,7 @@ import { createMarketingApi } from "@/lib/api-client/marketing-api";
 import { createOperationsApi } from "@/lib/api-client/operations-api";
 import { createPackagesApi } from "@/lib/api-client/packages-api";
 import { createProposalsApi } from "@/lib/api-client/proposals-api";
+import { createQuickBooksApi } from "@/lib/api-client/quickbooks-api";
 import { createReportsOpsApi } from "@/lib/api-client/reports-ops-api";
 import { createRevenueApi } from "@/lib/api-client/revenue-api";
 import { createSequencesApi } from "@/lib/api-client/sequences-api";
@@ -246,6 +247,7 @@ export const api = {
   ...createOperationsApi(apiRequest),
   ...createPackagesApi(apiRequest),
   ...createProposalsApi(apiRequest),
+  ...createQuickBooksApi(apiRequest),
   ...createLocationsIntegrationsApi(apiRequest),
   ...createFormsApi(apiRequest),
   ...createGrowthScoresApi(apiRequest),

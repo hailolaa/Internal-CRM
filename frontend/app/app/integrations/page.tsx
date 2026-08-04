@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { AlertBanner, Card, PageHeader } from "@/components/ui";
 import { api, ApiClientError } from "@/lib/api-client";
-import type { CalendarConnectionStatus, GoogleDriveConnectionRecord } from "@/lib/api-types";
+import type { CalendarConnectionStatus, GoogleDriveConnectionRecord, QuickBooksConnectionStatus } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 
 type SecondaryIntegration = {
@@ -35,7 +35,7 @@ const SECONDARY_INTEGRATIONS: SecondaryIntegration[] = [
   },
   {
     name: "Stripe",
-    description: "Billing support exists elsewhere in the CRM, but no account connection is exposed here yet.",
+    description: "Legacy Stripe billing support exists elsewhere in the CRM. QuickBooks is the active finance integration path for Mission Control.",
     category: "Payments",
     icon: CreditCard,
   },
@@ -52,6 +52,7 @@ function getInitialOAuthNotice() {
   const searchParams = new URLSearchParams(window.location.search);
   const drive = searchParams.get("drive");
   const calendar = searchParams.get("calendar");
+  const quickbooks = searchParams.get("quickbooks");
   if (drive === "connected") {
     return {
       message: "Google Drive is connected for the selected Workspace account.",
@@ -73,6 +74,18 @@ function getInitialOAuthNotice() {
   if (calendar === "error") {
     return {
       message: searchParams.get("message") || "Google Calendar could not be connected.",
+      variant: "warning" as const,
+    };
+  }
+  if (quickbooks === "connected") {
+    return {
+      message: "QuickBooks is connected for finance visibility and client customer mapping.",
+      variant: "info" as const,
+    };
+  }
+  if (quickbooks === "error") {
+    return {
+      message: searchParams.get("message") || "QuickBooks could not be connected.",
       variant: "warning" as const,
     };
   }
@@ -100,9 +113,12 @@ export default function IntegrationsPage() {
     useState<GoogleDriveConnectionRecord | null>(null);
   const [calendarConnection, setCalendarConnection] =
     useState<CalendarConnectionStatus | null>(null);
+  const [quickBooksConnection, setQuickBooksConnection] =
+    useState<QuickBooksConnectionStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDriveBusy, setIsDriveBusy] = useState(false);
   const [isCalendarBusy, setIsCalendarBusy] = useState(false);
+  const [isQuickBooksBusy, setIsQuickBooksBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(
     initialOAuthNotice?.message || null,
@@ -115,6 +131,7 @@ export default function IntegrationsPage() {
     if (!token || !isAdmin) {
       setDriveConnection(null);
       setCalendarConnection(null);
+      setQuickBooksConnection(null);
       setIsLoading(false);
       return;
     }
@@ -122,12 +139,14 @@ export default function IntegrationsPage() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [driveStatus, calendarStatus] = await Promise.all([
+      const [driveStatus, calendarStatus, quickBooksStatus] = await Promise.all([
         api.clientAccounts.getDriveOAuthStatus(token),
         api.calendar.getStatus(token),
+        api.quickbooks.getStatus(token),
       ]);
       setDriveConnection(driveStatus);
       setCalendarConnection(calendarStatus);
+      setQuickBooksConnection(quickBooksStatus);
     } catch (error) {
       setLoadError(
         error instanceof ApiClientError
@@ -230,6 +249,47 @@ export default function IntegrationsPage() {
     }
   };
 
+  const connectQuickBooks = async () => {
+    if (!token || isQuickBooksBusy) return;
+    setIsQuickBooksBusy(true);
+    setStatusMessage("Starting secure QuickBooks connection...");
+    setStatusVariant("info");
+    try {
+      const flow = await api.quickbooks.startOAuth(token);
+      window.location.assign(flow.authorizeUrl);
+    } catch (error) {
+      setStatusMessage(
+        error instanceof ApiClientError
+          ? error.message
+          : "Could not start QuickBooks authorization.",
+      );
+      setStatusVariant("warning");
+      setIsQuickBooksBusy(false);
+    }
+  };
+
+  const revokeQuickBooks = async () => {
+    if (!token || isQuickBooksBusy) return;
+    const confirmed = window.confirm("Disconnect QuickBooks from Mission Control?");
+    if (!confirmed) return;
+    setIsQuickBooksBusy(true);
+    try {
+      await api.quickbooks.revoke(token);
+      setStatusMessage("QuickBooks has been disconnected. Manual invoice and payment fields are unchanged.");
+      setStatusVariant("info");
+      await loadIntegrationStatus();
+    } catch (error) {
+      setStatusMessage(
+        error instanceof ApiClientError
+          ? error.message
+          : "QuickBooks could not be disconnected.",
+      );
+      setStatusVariant("warning");
+    } finally {
+      setIsQuickBooksBusy(false);
+    }
+  };
+
   const driveStatus = driveConnection?.connected
     ? driveConnection.accessLevel === "full"
       ? "Full access"
@@ -317,7 +377,7 @@ export default function IntegrationsPage() {
               {driveConnection?.connectedEmail && (
                 <p className="mt-3 text-xs text-[#5e8a8d]">
                   Connected as <span className="font-semibold text-[#151f21]">{driveConnection.connectedEmail}</span>
-                  {driveConnection.connectedAt ? ` · ${formatDateTime(driveConnection.connectedAt)}` : ""}
+                  {driveConnection.connectedAt ? ` - ${formatDateTime(driveConnection.connectedAt)}` : ""}
                 </p>
               )}
               <button
@@ -359,7 +419,7 @@ export default function IntegrationsPage() {
               {calendarConnection?.connectedEmail && (
                 <p className="mt-3 text-xs text-[#5e8a8d]">
                   Connected as <span className="font-semibold text-[#151f21]">{calendarConnection.connectedEmail}</span>
-                  {calendarConnection.lastSync ? ` · Last sync ${formatDateTime(calendarConnection.lastSync)}` : ""}
+                  {calendarConnection.lastSync ? ` - Last sync ${formatDateTime(calendarConnection.lastSync)}` : ""}
                 </p>
               )}
               {calendarConnection?.lastSyncError && (
@@ -401,6 +461,72 @@ export default function IntegrationsPage() {
                       Disconnect
                     </button>
                   </>
+                )}
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex h-full flex-col">
+              <div className="flex items-start justify-between gap-4">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
+                  <CreditCard className="h-6 w-6" aria-hidden="true" />
+                </span>
+                <span
+                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                    quickBooksConnection?.connected
+                      ? "border-[#60b4af]/30 bg-[#60b4af]/10 text-[#346866]"
+                      : quickBooksConnection?.enabled
+                        ? "border-[#b7672e]/25 bg-[#b7672e]/10 text-[#7a3f16]"
+                        : "border-[#d8ddda] bg-[#eaedeb] text-[#5e8a8d]"
+                  }`}
+                >
+                  {isLoading ? "Checking" : quickBooksConnection?.connected ? "Connected" : quickBooksConnection?.enabled ? "Ready to connect" : "Env disabled"}
+                </span>
+              </div>
+              <h3 className="mt-5 font-semibold text-[#151f21]">QuickBooks</h3>
+              <p className="mt-1 text-sm leading-6 text-[#5e8a8d]">
+                Connect QuickBooks so client accounts can be mapped to the right customer while manual invoice and payment fields remain available.
+              </p>
+              {quickBooksConnection?.connected && (
+                <div className="mt-3 rounded-xl border border-[#d8ddda] bg-[#FFFCF9] p-3 text-xs leading-5 text-[#5e8a8d]">
+                  <p>
+                    Company: <span className="font-semibold text-[#151f21]">{quickBooksConnection.companyName || quickBooksConnection.realmId}</span>
+                  </p>
+                  <p>
+                    Environment: <span className="font-semibold text-[#151f21]">{quickBooksConnection.environment}</span>
+                    {quickBooksConnection.connectedAt ? ` - ${formatDateTime(quickBooksConnection.connectedAt)}` : ""}
+                  </p>
+                </div>
+              )}
+              {quickBooksConnection?.lastError && (
+                <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  {quickBooksConnection.lastError}
+                </p>
+              )}
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => void connectQuickBooks()}
+                  disabled={!token || isLoading || isQuickBooksBusy}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#102427] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1d393c] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isQuickBooksBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <CreditCard className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  {quickBooksConnection?.connected ? "Reconnect QuickBooks" : "Connect QuickBooks"}
+                </button>
+                {quickBooksConnection?.connected && (
+                  <button
+                    type="button"
+                    onClick={() => void revokeQuickBooks()}
+                    disabled={!token || isQuickBooksBusy}
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
+                  >
+                    Disconnect
+                  </button>
                 )}
               </div>
             </div>
