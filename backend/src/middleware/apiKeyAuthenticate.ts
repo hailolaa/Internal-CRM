@@ -19,7 +19,15 @@ export const authenticateApiKey = async (
     }
 
     const [rows]: any = await pool.execute(
-      `SELECT id, clinic_id as clinicId
+      `SELECT id,
+              clinic_id as clinicId,
+              purpose,
+              source_key as sourceKey,
+              source_label as sourceLabel,
+              default_source as defaultSource,
+              initial_stage_name as initialStageName,
+              owner_user_id as ownerUserId,
+              follow_up_enabled as followUpEnabled
        FROM api_key
        WHERE key_hash = ? AND revoked_at IS NULL
        LIMIT 1`,
@@ -39,6 +47,13 @@ export const authenticateApiKey = async (
     (req as any).apiKey = {
       id: key.id,
       clinicId: key.clinicId,
+      purpose: key.purpose || "general",
+      sourceKey: key.sourceKey || null,
+      sourceLabel: key.sourceLabel || null,
+      defaultSource: key.defaultSource || null,
+      initialStageName: key.initialStageName || null,
+      ownerUserId: key.ownerUserId || null,
+      followUpEnabled: key.followUpEnabled === undefined ? true : Boolean(key.followUpEnabled),
     };
 
     next();

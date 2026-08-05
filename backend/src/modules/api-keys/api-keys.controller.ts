@@ -43,6 +43,18 @@ export class ApiKeysController {
     }
   };
 
+  // POST /api/settings/api-keys/:id/rotate
+  // Rotate the secret and return the new raw key once
+  rotateApiKey = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const key = await apiKeysService.rotateApiKey(clinicId, userId, req.params.id as string);
+      res.status(200).json({ status: "success", data: key });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   // DELETE /api/settings/api-keys/:id
   // Revoke a key without deleting its audit history
   revokeApiKey = async (req: Request, res: Response, next: NextFunction) => {

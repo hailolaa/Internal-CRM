@@ -43,3 +43,14 @@ export const oauthRateLimit = rateLimit({
     message: "Too many OAuth attempts. Please try again shortly.",
   },
 });
+
+export const landingPageLeadRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    status: "error",
+    message: "Too many lead submissions. Please try again shortly.",
+  },
+});

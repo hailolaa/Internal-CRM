@@ -30,6 +30,21 @@ interface GuideDownloadContext {
   nextAction: string;
 }
 
+export interface WebsiteLeadSourceConfig {
+  apiKeyId: string;
+  sourceKey?: string | null;
+  sourceLabel?: string | null;
+  defaultSource?: string | null;
+  initialStageName?: string | null;
+  ownerUserId?: string | null;
+  followUpEnabled?: boolean;
+}
+
+export interface WebsiteLeadCaptureOptions {
+  payloadSource?: string;
+  sourceConfig?: WebsiteLeadSourceConfig;
+}
+
 function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -61,6 +76,29 @@ function pick(data: WebsiteLeadCapturePayload, ...keys: string[]) {
     if (value) return value;
   }
   return null;
+}
+
+function withSourceConfig(
+  payload: WebsiteLeadCapturePayload,
+  sourceConfig?: WebsiteLeadSourceConfig,
+) {
+  if (!sourceConfig) return payload;
+
+  const configuredSource = cleanString(sourceConfig.defaultSource) || cleanString(sourceConfig.sourceKey);
+  if (!configuredSource) return payload;
+
+  const submittedSource = pick(payload, "source");
+  return {
+    ...payload,
+    source: configuredSource,
+    firstSource: pick(payload, "firstSource", "first_source") || configuredSource,
+    latestSource: configuredSource,
+    convertingSource: pick(payload, "convertingSource", "converting_source") || configuredSource,
+    _submittedSource: submittedSource,
+    _configuredSource: configuredSource,
+    _sourceKey: cleanString(sourceConfig.sourceKey),
+    _sourceLabel: cleanString(sourceConfig.sourceLabel),
+  };
 }
 
 function normalizeText(value: string | null) {
@@ -142,6 +180,7 @@ export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLe
   const explicitPackage = pick(data, "packageInterest", "package_interest", "package", "serviceInterest");
   const packageInterest = explicitPackage || inferPackageInterest(text);
   const explicitLeadType = pick(data, "leadType");
+  const configuredSource = pick(data, "_configuredSource");
   const hasChatbotSignal = Boolean(pick(data, "chatbotConversationId", "conversationId", "conversationTranscript", "transcript"));
   const hasScheduleSignal = Boolean(pick(data, "calendlyEventId", "calendlyEventUri", "calendlyInviteeUri", "scheduledAt", "scheduleAt", "scheduled_at", "eventStartTime", "startTime", "start_time"));
 
@@ -167,7 +206,7 @@ export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLe
     return {
       leadType: explicitLeadType || "package_interest",
       packageInterest: PACKAGE_NAMES.marketLeader,
-      source: "website_market_leader_cta",
+      source: configuredSource || "website_market_leader_cta",
       tags: ["website_cta", "lead_type:package_interest", "package:market_leader"],
     };
   }
@@ -176,7 +215,7 @@ export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLe
     return {
       leadType: explicitLeadType || "package_interest",
       packageInterest: PACKAGE_NAMES.growthEngine,
-      source: "website_growth_engine_cta",
+      source: configuredSource || "website_growth_engine_cta",
       tags: ["website_cta", "lead_type:package_interest", "package:growth_engine"],
     };
   }
@@ -186,7 +225,7 @@ export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLe
     return {
       leadType,
       packageInterest: PACKAGE_NAMES.performanceOs,
-      source: "website_performance_os_demo",
+      source: configuredSource || "website_performance_os_demo",
       tags: ["website_cta", `lead_type:${leadType}`, "package:performance_os"],
     };
   }
@@ -195,7 +234,7 @@ export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLe
     return {
       leadType: explicitLeadType || "package_interest",
       packageInterest: PACKAGE_NAMES.leadConcierge,
-      source: "website_lead_concierge_cta",
+      source: configuredSource || "website_lead_concierge_cta",
       tags: ["website_cta", "lead_type:package_interest", "package:lead_concierge"],
     };
   }
@@ -204,7 +243,7 @@ export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLe
     return {
       leadType: explicitLeadType || "package_interest",
       packageInterest: PACKAGE_NAMES.growthDiagnostic,
-      source: "website_growth_diagnostic_cta",
+      source: configuredSource || "website_growth_diagnostic_cta",
       tags: ["website_cta", "lead_type:package_interest", "package:growth_diagnostic"],
     };
   }
@@ -213,7 +252,7 @@ export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLe
     return {
       leadType: explicitLeadType || "free_audit",
       packageInterest: PACKAGE_NAMES.growthScore,
-      source: "website_growth_score_form",
+      source: configuredSource || "website_growth_score_form",
       tags: ["website_form", "lead_type:free_audit", "package:clinic_growth_score"],
     };
   }
@@ -222,7 +261,7 @@ export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLe
     return {
       leadType: explicitLeadType || "lead_magnet_nurture",
       packageInterest: explicitPackage,
-      source: "website_lead_magnet",
+      source: configuredSource || "website_lead_magnet",
       tags: ["website_form", "lead_type:lead_magnet_nurture"],
     };
   }
@@ -509,11 +548,17 @@ export class WebsiteLeadsService {
     apiKeyId: string,
     payload: WebsiteLeadCapturePayload,
     meta: { ipAddress?: string | null; userAgent?: string | null } = {},
+    options: WebsiteLeadCaptureOptions = {},
   ): Promise<WebsiteLeadCaptureResult> {
     const normalizedPayload =
-      payload && typeof payload === "object" ? payload : {} as WebsiteLeadCapturePayload;
+      withSourceConfig(
+        payload && typeof payload === "object" ? payload : {} as WebsiteLeadCapturePayload,
+        options.sourceConfig,
+      );
     const eventId = pick(
       normalizedPayload,
+      "idempotencyKey",
+      "idempotency_key",
       "eventId",
       "submissionId",
       "calendlyEventId",
@@ -521,7 +566,13 @@ export class WebsiteLeadsService {
       "chatbotConversationId",
       "conversationId",
     );
-    const rawPayload = await this.createPayloadLog(clinicId, eventId, normalizedPayload, apiKeyId);
+    const rawPayload = await this.createPayloadLog(
+      clinicId,
+      eventId,
+      normalizedPayload,
+      apiKeyId,
+      options.payloadSource,
+    );
 
     if (rawPayload.duplicateEvent && rawPayload.contactId) {
       const mapping = mapWebsiteLeadIntent(normalizedPayload);
@@ -531,6 +582,7 @@ export class WebsiteLeadsService {
         rawPayload.id,
         normalizedPayload,
         mapping,
+        options.sourceConfig,
       );
 
       return {
@@ -558,6 +610,7 @@ export class WebsiteLeadsService {
         contactId,
         normalizedPayload,
         mapping,
+        options.sourceConfig,
       );
       const salesCallDemoId = await this.applyScheduleCallFlow(
         clinicId,
@@ -579,6 +632,7 @@ export class WebsiteLeadsService {
         rawPayload.id,
         normalizedPayload,
         mapping,
+        options.sourceConfig,
       );
 
       await this.markPayloadProcessed(clinicId, rawPayload.id, contactId);
@@ -641,14 +695,18 @@ export class WebsiteLeadsService {
     rawPayloadId: string,
     payload: WebsiteLeadCapturePayload,
     mapping: WebsiteLeadIntentMapping,
+    sourceConfig?: WebsiteLeadSourceConfig,
   ) {
+    if (sourceConfig?.followUpEnabled === false) return null;
+
     if (mapping.leadType === "lead_magnet_nurture") {
-      return this.applyGuideDownloadFlow(clinicId, contactId, rawPayloadId, payload);
+      return this.applyGuideDownloadFlow(clinicId, contactId, rawPayloadId, payload, sourceConfig);
     }
 
     const contact = await contactsService.getContact(clinicId, contactId);
     const scheduledAt = pick(payload, "scheduledAt", "scheduleAt", "scheduled_at", "eventStartTime", "startTime", "start_time");
     const taskPlan = this.getInboundTaskPlan(mapping, payload, scheduledAt);
+    const owner = await this.getOwnerAssignment(clinicId, sourceConfig?.ownerUserId || null);
     const [existingRows]: any = await pool.execute(
       `SELECT id
        FROM task
@@ -668,8 +726,8 @@ export class WebsiteLeadsService {
     await pool.execute(
       `INSERT INTO task
         (id, clinic_id, is_internal, title, description, priority, status, category, board_key, service_type,
-         contact_id, contact_name, due_label, due_date, assigned_to, created_by)
-       VALUES (?, ?, 1, ?, ?, ?, 'pending', 'sales_follow_up', 'sales', 'strategy', ?, ?, ?, ?, NULL, NULL)`,
+         contact_id, contact_name, due_label, due_date, assigned_to, assigned_user_id, created_by)
+       VALUES (?, ?, 1, ?, ?, ?, 'pending', 'sales_follow_up', 'sales', 'strategy', ?, ?, ?, ?, ?, ?, NULL)`,
       [
         taskId,
         clinicId,
@@ -680,6 +738,8 @@ export class WebsiteLeadsService {
         contact.name,
         taskPlan.dueLabel,
         taskPlan.dueDate,
+        owner.label,
+        owner.userId,
       ],
     );
 
@@ -698,6 +758,7 @@ export class WebsiteLeadsService {
           leadType: mapping.leadType,
           source: mapping.source,
           dueDate: taskPlan.dueDate,
+          assignedUserId: owner.userId,
           internal: true,
           visibility: "internal",
         },
@@ -715,6 +776,7 @@ export class WebsiteLeadsService {
         rawPayloadId,
         leadType: mapping.leadType,
         source: mapping.source,
+        assignedUserId: owner.userId,
       },
     });
 
@@ -726,6 +788,7 @@ export class WebsiteLeadsService {
     contactId: string,
     rawPayloadId: string,
     payload: WebsiteLeadCapturePayload,
+    sourceConfig?: WebsiteLeadSourceConfig,
   ) {
 
     const guideContext = buildGuideDownloadContext(payload);
@@ -772,7 +835,7 @@ export class WebsiteLeadsService {
       [guideContext.guideName, guideContext.downloadedAt, guideContext.nextAction, rawPayloadId, clinicId],
     );
 
-    return this.ensureGuideNextActionTask(clinicId, contactId, contact.name, guideContext);
+    return this.ensureGuideNextActionTask(clinicId, contactId, contact.name, guideContext, sourceConfig);
   }
 
   private getInboundTaskPlan(
@@ -964,7 +1027,9 @@ export class WebsiteLeadsService {
     return rawPayloadId;
   }
 
-  private getPipelineStageName(mapping: WebsiteLeadIntentMapping) {
+  private getPipelineStageName(mapping: WebsiteLeadIntentMapping, sourceConfig?: WebsiteLeadSourceConfig) {
+    const configuredStage = cleanString(sourceConfig?.initialStageName);
+    if (configuredStage) return configuredStage;
     if (mapping.leadType === "schedule_call") return "Discovery Booked";
     if (mapping.leadType === "lead_magnet_nurture") return "Nurture";
     if (mapping.leadType === "free_audit") return "Free Audit Needed";
@@ -976,6 +1041,7 @@ export class WebsiteLeadsService {
     contactId: string,
     payload: WebsiteLeadCapturePayload,
     mapping: WebsiteLeadIntentMapping,
+    sourceConfig?: WebsiteLeadSourceConfig,
   ) {
     const [existingRows]: any = await pool.execute(
       `SELECT id
@@ -991,7 +1057,7 @@ export class WebsiteLeadsService {
     if (existingRows[0]?.id) return existingRows[0].id as string;
 
     const pipelineId = await pipelineService.ensureDefaultPipeline(clinicId, null);
-    const stageName = this.getPipelineStageName(mapping);
+    const stageName = this.getPipelineStageName(mapping, sourceConfig);
     const [stageRows]: any = await pool.execute(
       `SELECT id, name
        FROM pipeline_stage
@@ -1018,7 +1084,7 @@ export class WebsiteLeadsService {
         (id, clinic_id, contact_id, pipeline_id, pipeline_stage_id, title, value,
          stage, probability, expected_close_date, owner_id, source, treatment,
          status, stage_changed_at, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL, NULL, ?, ?, 'open', CURRENT_TIMESTAMP, NULL)`,
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0, NULL, ?, ?, ?, 'open', CURRENT_TIMESTAMP, NULL)`,
       [
         dealId,
         clinicId,
@@ -1027,6 +1093,7 @@ export class WebsiteLeadsService {
         stage.id,
         title.slice(0, 255),
         stage.name,
+        sourceConfig?.ownerUserId || null,
         mapping.source,
         packageInterest,
       ],
@@ -1047,6 +1114,7 @@ export class WebsiteLeadsService {
           source: mapping.source,
           leadType: mapping.leadType,
           packageInterest,
+          ownerUserId: sourceConfig?.ownerUserId || null,
           ctaClicked: pick(payload, "ctaClicked", "cta_clicked", "cta"),
         },
       }),
@@ -1058,7 +1126,7 @@ export class WebsiteLeadsService {
       action: "INBOUND_PIPELINE_OPPORTUNITY_CREATED",
       entityType: "deal",
       entityId: dealId,
-      changes: { contactId, stage: stage.name, source: mapping.source, leadType: mapping.leadType },
+      changes: { contactId, stage: stage.name, source: mapping.source, leadType: mapping.leadType, ownerUserId: sourceConfig?.ownerUserId || null },
     });
 
     return dealId;
@@ -1069,6 +1137,7 @@ export class WebsiteLeadsService {
     contactId: string,
     contactName: string,
     guideContext: GuideDownloadContext,
+    sourceConfig?: WebsiteLeadSourceConfig,
   ) {
     const title = "Request/calculate Clinic Growth Score";
     const [existingRows]: any = await pool.execute(
@@ -1087,11 +1156,12 @@ export class WebsiteLeadsService {
     if (existingRows[0]?.id) return existingRows[0].id as string;
 
     const taskId = uuidv4();
+    const owner = await this.getOwnerAssignment(clinicId, sourceConfig?.ownerUserId || null);
     await pool.execute(
       `INSERT INTO task
         (id, clinic_id, is_internal, title, description, priority, status, category, board_key, service_type,
-         contact_id, contact_name, due_label, due_date, assigned_to, created_by)
-       VALUES (?, ?, 1, ?, ?, 'medium', 'pending', 'sales_follow_up', 'sales', 'strategy', ?, ?, 'Next action', ?, NULL, NULL)`,
+         contact_id, contact_name, due_label, due_date, assigned_to, assigned_user_id, created_by)
+       VALUES (?, ?, 1, ?, ?, 'medium', 'pending', 'sales_follow_up', 'sales', 'strategy', ?, ?, 'Next action', ?, ?, ?, NULL)`,
       [
         taskId,
         clinicId,
@@ -1100,6 +1170,8 @@ export class WebsiteLeadsService {
         contactId,
         contactName,
         tomorrowDateOnly(),
+        owner.label,
+        owner.userId,
       ],
     );
 
@@ -1114,10 +1186,34 @@ export class WebsiteLeadsService {
         guideName: guideContext.guideName,
         downloadedAt: guideContext.downloadedAt,
         nextAction: guideContext.nextAction,
+        assignedUserId: owner.userId,
       },
     });
 
     return taskId;
+  }
+
+  private async getOwnerAssignment(clinicId: string, ownerUserId: string | null) {
+    if (!ownerUserId) return { userId: null as string | null, label: null as string | null };
+
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              first_name as firstName,
+              last_name as lastName,
+              email
+       FROM user
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+         AND is_active = 1
+       LIMIT 1`,
+      [ownerUserId, clinicId],
+    );
+    const owner = rows[0];
+    if (!owner?.id) return { userId: null as string | null, label: null as string | null };
+
+    const label = [owner.firstName, owner.lastName].filter(Boolean).join(" ").trim() || owner.email || null;
+    return { userId: owner.id as string, label };
   }
 
   private async createPayloadLog(
@@ -1125,6 +1221,7 @@ export class WebsiteLeadsService {
     eventId: string | null,
     payload: WebsiteLeadCapturePayload,
     apiKeyId: string,
+    payloadSource = PAYLOAD_SOURCE,
   ) {
     const id = uuidv4();
     const payloadJson = JSON.stringify({
@@ -1137,7 +1234,7 @@ export class WebsiteLeadsService {
         `INSERT INTO integration_raw_payload
           (id, clinic_id, source, source_event_id, payload, status, created_by)
          VALUES (?, ?, ?, ?, ?, 'received', ?)`,
-        [id, clinicId, PAYLOAD_SOURCE, eventId, payloadJson, null],
+        [id, clinicId, payloadSource, eventId, payloadJson, null],
       );
       return { id, duplicateEvent: false, contactId: null as string | null };
     } catch (error: any) {
@@ -1150,7 +1247,7 @@ export class WebsiteLeadsService {
          FROM integration_raw_payload
          WHERE clinic_id = ? AND source = ? AND source_event_id = ?
          LIMIT 1`,
-        [clinicId, PAYLOAD_SOURCE, eventId],
+        [clinicId, payloadSource, eventId],
       );
       const existing = rows[0];
       if (!existing?.id) {

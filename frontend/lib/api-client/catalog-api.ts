@@ -1,5 +1,6 @@
 import type {
   ApiKeyRecord,
+  CreateApiKeyPayload,
   TreatmentCatalogItem,
   TreatmentCatalogPayload,
 } from "@/lib/api-types";
@@ -15,13 +16,31 @@ export function createCatalogApi(apiRequest: ApiRequest) {
         );
         return response.data!;
       },
-      async create(token: string, name: string) {
+      async create(token: string, payload: string | CreateApiKeyPayload) {
+        const body = typeof payload === "string" ? { name: payload } : payload;
         const response = await apiRequest<ApiKeyRecord>(
           "/api/settings/api-keys",
           {
             method: "POST",
             token,
-            body: JSON.stringify({ name }),
+            body: JSON.stringify(body),
+          },
+        );
+        return response.data!;
+      },
+      async update(token: string, apiKeyId: string, payload: Partial<CreateApiKeyPayload>) {
+        return apiRequest<never>(`/api/settings/api-keys/${apiKeyId}`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify(payload),
+        });
+      },
+      async rotate(token: string, apiKeyId: string) {
+        const response = await apiRequest<ApiKeyRecord>(
+          `/api/settings/api-keys/${apiKeyId}/rotate`,
+          {
+            method: "POST",
+            token,
           },
         );
         return response.data!;

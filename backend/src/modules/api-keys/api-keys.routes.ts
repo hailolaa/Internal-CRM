@@ -36,6 +36,17 @@ router.patch(
   apiKeysController.updateApiKey,
 );
 
+// @route   POST /api/settings/api-keys/:id/rotate
+// @desc    Rotate an API key and return the replacement secret once
+// @access  Private
+router.post(
+  "/:id/rotate",
+  authorizePermission("settings:write"),
+  apiKeyIdParamValidator,
+  validate,
+  apiKeysController.rotateApiKey,
+);
+
 // @route   DELETE /api/settings/api-keys/:id
 // @desc    Revoke an API key
 // @access  Private
