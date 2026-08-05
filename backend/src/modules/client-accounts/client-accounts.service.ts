@@ -933,6 +933,11 @@ export class ClientAccountsService {
     }
 
     const contact = rows[0];
+    const existingLinkedAccount = await this.findLinkedClientAccountForContact(sourceClinicId, data.contactId);
+    if (existingLinkedAccount?.clinicId) {
+      return this.getAccountSummary(existingLinkedAccount.clinicId, sourceClinicId);
+    }
+
     const contactName = [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim();
     const treatmentInterests = parseServices(contact.treatmentInterests);
     const recommendedPackage =
@@ -1245,6 +1250,87 @@ export class ClientAccountsService {
           throw ApiError.badRequest("Only won opportunities can be converted to client accounts");
         }
 
+        const existingLinkedAccount = await this.findLinkedClientAccountForContact(
+          sourceClinicId,
+          deal.contactId,
+          connection,
+        );
+        if (existingLinkedAccount?.profileId && existingLinkedAccount?.clinicId) {
+          existingClinicId = existingLinkedAccount.clinicId;
+
+          const [dealUpdate]: any = await connection.execute(
+            `UPDATE deal
+             SET client_account_profile_id = ?,
+                 client_converted_at = COALESCE(client_converted_at, CURRENT_TIMESTAMP),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+               AND clinic_id = ?
+               AND client_account_profile_id IS NULL
+               AND deleted_at IS NULL`,
+            [existingLinkedAccount.profileId, data.dealId, sourceClinicId],
+          );
+          if (dealUpdate.affectedRows !== 1) {
+            throw ApiError.conflict("Won opportunity was already converted");
+          }
+
+          await connection.execute(
+            `UPDATE proposal
+             SET client_account_profile_id = COALESCE(client_account_profile_id, ?),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE clinic_id = ?
+               AND deleted_at IS NULL
+               AND (deal_id = ? OR contact_id = ?)`,
+            [existingLinkedAccount.profileId, sourceClinicId, data.dealId, deal.contactId],
+          );
+
+          await connection.execute(
+            `UPDATE proposal_acceptance_record
+             SET client_account_profile_id = COALESCE(client_account_profile_id, ?)
+             WHERE clinic_id = ?
+               AND (deal_id = ? OR contact_id = ?)`,
+            [existingLinkedAccount.profileId, sourceClinicId, data.dealId, deal.contactId],
+          );
+
+          await connection.execute(
+            `UPDATE growth_score_snapshot
+             SET client_account_profile_id = COALESCE(client_account_profile_id, ?)
+             WHERE clinic_id = ?
+               AND contact_id = ?`,
+            [existingLinkedAccount.profileId, sourceClinicId, deal.contactId],
+          );
+
+          await connection.execute(
+            `UPDATE contact
+             SET status = 'active',
+                 lead_status = 'converted',
+                 account_name = COALESCE(account_name, ?),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+               AND clinic_id = ?
+               AND deleted_at IS NULL`,
+            [existingLinkedAccount.clinicName || deal.accountName || null, deal.contactId, sourceClinicId],
+          );
+
+          await this.linkContactRelation(
+            sourceClinicId,
+            existingLinkedAccount.profileId,
+            deal.contactId,
+            userId,
+            connection,
+          );
+
+          await this.createConversionOnboardingTasks(
+            sourceClinicId,
+            userId,
+            {
+              id: existingLinkedAccount.profileId,
+              clinicName: existingLinkedAccount.clinicName || deal.accountName || "Client Account",
+            },
+            deal,
+            connection,
+          );
+        } else {
+
         const contactName = [deal.firstName, deal.lastName].filter(Boolean).join(" ").trim();
         const treatmentInterests = parseServices(deal.treatmentInterests);
         const activeServices = (
@@ -1401,6 +1487,7 @@ export class ClientAccountsService {
           createdProfileId,
           accountPayload,
         });
+        }
       }
 
       await transactionHooks.afterConversion?.(connection);
@@ -3657,6 +3744,37 @@ export class ClientAccountsService {
     );
 
     return rows[0]?.id || relationId;
+  }
+
+  private async findLinkedClientAccountForContact(
+    sourceClinicId: string,
+    contactId: string,
+    executor: Pick<PoolConnection, "execute"> = pool,
+  ): Promise<{ profileId: string; clinicId: string; clinicName: string | null } | null> {
+    const [rows]: any = await executor.execute(
+      `SELECT cac.client_account_profile_id as profileId,
+              cap.clinic_id as clinicId,
+              c.name as clinicName
+       FROM client_account_contact cac
+       JOIN client_account_profile cap
+         ON cap.id = cac.client_account_profile_id
+       JOIN clinic c
+         ON c.id = cap.clinic_id
+        AND c.deleted_at IS NULL
+       WHERE cac.clinic_id = ?
+         AND cac.contact_id = ?
+       ORDER BY cac.created_at DESC
+       LIMIT 1`,
+      [sourceClinicId, contactId],
+    );
+
+    return rows[0]
+      ? {
+          profileId: String(rows[0].profileId),
+          clinicId: String(rows[0].clinicId),
+          clinicName: rows[0].clinicName ? String(rows[0].clinicName) : null,
+        }
+      : null;
   }
 
   private async listLinkedTasks(sourceClinicId: string, clientAccountProfileId: string): Promise<ClientAccountLinkedTaskResponse[]> {

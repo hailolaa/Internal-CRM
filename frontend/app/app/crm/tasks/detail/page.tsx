@@ -7,9 +7,10 @@ import {
   ArrowLeft, CalendarDays, CheckCircle2, ChevronRight, Circle, Download, File, Folder,
   FolderPlus, HardDrive, MessageSquare, Paperclip, Send, Tag, Trash2, Upload,
   UserRound, Activity as ActivityIcon, X,
+  ExternalLink,
 } from "lucide-react";
 import { api } from "@/lib/api-client";
-import type { ClientAccountSummaryRecord, GoogleDriveFolderBrowserRecord, GoogleDriveFolderRecord, InternalTaskRecord, TaskActivityRecord, TaskAttachmentRecord, TaskCommentRecord, TeamMember } from "@/lib/api-types";
+import type { ClickUpCategoryKey, ClickUpCategoryMappingRecord, ClickUpMemberRecord, ClickUpTaskMappingRecord, ClientAccountSummaryRecord, GoogleDriveFolderBrowserRecord, GoogleDriveFolderRecord, InternalTaskRecord, TaskActivityRecord, TaskAttachmentRecord, TaskCommentRecord, TeamMember } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { AlertBanner, SkeletonLine } from "@/components/ui";
 import { RecordMeetingsPanel } from "@/components/calendar/record-meetings-panel";
@@ -45,6 +46,30 @@ function activityLabel(action: string) {
   return labels[action] || action.toLowerCase().replaceAll("_", " ");
 }
 
+const clickUpCategories: Array<{ key: ClickUpCategoryKey; label: string }> = [
+  { key: "development", label: "Development" },
+  { key: "seo", label: "SEO" },
+  { key: "gmb_local_seo", label: "GMB / Local SEO" },
+  { key: "ppc", label: "PPC" },
+  { key: "managerial", label: "Managerial" },
+  { key: "reporting", label: "Reporting" },
+  { key: "account_control", label: "Account Control" },
+];
+
+function defaultClickUpCategory(task: InternalTaskRecord | null): ClickUpCategoryKey {
+  const service = task?.serviceType || task?.boardKey || "";
+  if (service === "seo") return "seo";
+  if (service === "gbp") return "gmb_local_seo";
+  if (service === "ppc") return "ppc";
+  if (service === "website" || service === "landing_pages") return "development";
+  if (service === "strategy") return "managerial";
+  return "development";
+}
+
+function clickUpMemberLabel(member: ClickUpMemberRecord) {
+  return member.email ? `${member.username} (${member.email})` : member.username;
+}
+
 export default function TaskDetailPage() {
   const { session } = useAuth();
   const searchParams = useSearchParams();
@@ -69,6 +94,18 @@ export default function TaskDetailPage() {
   const [drivePath, setDrivePath] = useState<Array<Pick<GoogleDriveFolderRecord, "id" | "name">>>([]);
   const [newDriveFolder, setNewDriveFolder] = useState("");
   const [loadingDrive, setLoadingDrive] = useState(false);
+  const [clickUpMembers, setClickUpMembers] = useState<ClickUpMemberRecord[]>([]);
+  const [clickUpCategoryMappings, setClickUpCategoryMappings] = useState<ClickUpCategoryMappingRecord[]>([]);
+  const [clickUpMappings, setClickUpMappings] = useState<ClickUpTaskMappingRecord[]>([]);
+  const [clickUpCategory, setClickUpCategory] = useState<ClickUpCategoryKey>("development");
+  const [clickUpTitle, setClickUpTitle] = useState("");
+  const [clickUpDescription, setClickUpDescription] = useState("");
+  const [clickUpDueDate, setClickUpDueDate] = useState("");
+  const [clickUpPriority, setClickUpPriority] = useState<"low" | "medium" | "high" | "urgent">("medium");
+  const [clickUpAssigneeIds, setClickUpAssigneeIds] = useState<string[]>([]);
+  const [clickUpLinks, setClickUpLinks] = useState<Array<{ label: string; url: string }>>([{ label: "Mission Control task", url: "" }]);
+  const [clickUpFiles, setClickUpFiles] = useState<File[]>([]);
+  const [clickUpBusy, setClickUpBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !taskId) return;
@@ -82,6 +119,11 @@ export default function TaskDetailPage() {
       setTask(taskRecord); setComments(commentRecords); setAttachments(attachmentRecords); setActivity(activityRecords);
       setMembers(teamRecords.filter((member) => !member.isInvitation && member.status === "active"));
       setClientAccounts(accountRecords);
+      setClickUpCategory(defaultClickUpCategory(taskRecord));
+      setClickUpTitle(taskRecord.title);
+      setClickUpDescription(taskRecord.description || "");
+      setClickUpDueDate(taskRecord.dueDate || "");
+      setClickUpPriority(taskRecord.priority);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "The task could not be loaded."); }
     finally { setLoading(false); }
   }, [taskId, token]);
@@ -98,6 +140,22 @@ export default function TaskDetailPage() {
     () => clientAccounts.find((account) => account.id === task?.clientAccountProfileId) || null,
     [clientAccounts, task?.clientAccountProfileId],
   );
+  const activeClickUpMapping = useMemo(
+    () => clickUpMappings.find((mapping) => mapping.internalTaskId === task?.id && mapping.mappingStatus === "active") || null,
+    [clickUpMappings, task?.id],
+  );
+  const activeCategoryMapping = useMemo(
+    () => clickUpCategoryMappings.find((mapping) => mapping.categoryKey === clickUpCategory && mapping.mappingStatus === "active") || null,
+    [clickUpCategory, clickUpCategoryMappings],
+  );
+  const hasAnyAssignees = clickUpAssigneeIds.length > 0 || Boolean(activeCategoryMapping?.defaultAssigneeIds?.length);
+  const clickUpConfigError = !task?.clientAccountProfileId
+    ? "Link this task to a client account before creating it in ClickUp."
+    : !activeCategoryMapping
+      ? "Missing ClickUp category mapping. Configure this client/category in Integrations before creating a task."
+      : !hasAnyAssignees
+        ? "Missing ClickUp assignees for this category. Configure category assignees in Integrations first."
+        : "";
   const isDashboardJourney = searchParams.get("from") === "dashboard";
   const isDeliveryTask = searchParams.get("from") === "delivery" || Boolean(task?.clientAccountProfileId || task?.clientAccountServiceId);
   const backHref = isDashboardJourney
@@ -154,6 +212,40 @@ export default function TaskDetailPage() {
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [driveBrowser, linkedClient, loadDriveFolder, syncToDrive]);
+
+  useEffect(() => {
+    if (!token || !task?.clientAccountProfileId) return;
+    const id = window.setTimeout(async () => {
+      try {
+        const [status, mappings, categoryRows] = await Promise.all([
+          api.clickup.getStatus(token),
+          api.clickup.listTaskMappings(token, task.clientAccountProfileId!),
+          api.clickup.listCategoryMappings(token, task.clientAccountProfileId!),
+        ]);
+        setClickUpMappings(mappings);
+        setClickUpCategoryMappings(categoryRows);
+        const connection = status.connections.find((item) => item.status === "connected");
+        if (connection?.workspaceId) setClickUpMembers(await api.clickup.listMembers(token, connection.workspaceId));
+      } catch {
+        setClickUpMembers([]);
+      }
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [task?.clientAccountProfileId, token]);
+
+  useEffect(() => {
+    const assigneeIds = activeCategoryMapping?.defaultAssigneeIds || [];
+    const id = window.setTimeout(() => setClickUpAssigneeIds(assigneeIds), 0);
+    return () => window.clearTimeout(id);
+  }, [clickUpCategory, activeCategoryMapping?.id, activeCategoryMapping?.defaultAssigneeIds]);
+
+  useEffect(() => {
+    if (!task) return;
+    const id = window.setTimeout(() => {
+      setClickUpLinks([{ label: "Mission Control task", url: `${window.location.origin}/app/crm/tasks/detail?id=${encodeURIComponent(task.id)}` }]);
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [task]);
 
   function resetUpload() {
     setPendingFile(null); setSyncToDrive(false); setDriveBrowser(null); setDrivePath([]); setNewDriveFolder("");
@@ -215,6 +307,33 @@ export default function TaskDetailPage() {
     finally { setBusy(false); }
   }
 
+  async function createClickUpTask() {
+    if (!token || !task) return;
+    setClickUpBusy(true);
+    setError("");
+    setStatusMessage("");
+    try {
+      const mapping = await api.clickup.createTask(token, {
+        internalTaskId: task.id,
+        categoryKey: clickUpCategory,
+        title: clickUpTitle,
+        description: clickUpDescription,
+        dueDate: clickUpDueDate || null,
+        priority: clickUpPriority,
+        assigneeIds: clickUpAssigneeIds,
+        links: clickUpLinks.filter((link) => link.url.trim()),
+      }, clickUpFiles);
+      setClickUpMappings((current) => [...current.filter((item) => item.internalTaskId !== task.id), mapping]);
+      setClickUpFiles([]);
+      setStatusMessage("ClickUp task created and linked.");
+      setActivity(await api.internalTasks.listActivity(token, task.id));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "ClickUp task could not be created.");
+    } finally {
+      setClickUpBusy(false);
+    }
+  }
+
   if (!taskId) return <AlertBanner variant="error" title="No task selected" description="Return to Internal Tasks and choose a task." />;
 
   return (
@@ -247,7 +366,7 @@ export default function TaskDetailPage() {
           </div>
         </header>
 
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,0.85fr)]">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(460px,0.9fr)]">
           <div className="space-y-5">
             <section className="rounded-[26px] border border-black/[0.06] bg-[#FFFCF9] p-6">
               <p className="mb-3 text-xs font-bold uppercase tracking-[0.16em] text-[#8A837C]">Task brief</p>
@@ -278,6 +397,115 @@ export default function TaskDetailPage() {
 
           <aside className="space-y-5">
             <RecordMeetingsPanel taskId={task.id} />
+
+            <section className="rounded-[26px] border border-black/[0.06] bg-[#FFFCF9] p-5">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold text-[#1E1C1A]">ClickUp delivery task</h2>
+                  <p className="mt-1 text-xs leading-5 text-[#817B75]">Create once, then ClickUp owns ongoing task status and field changes.</p>
+                </div>
+                {activeClickUpMapping?.clickupUrl && (
+                  <a href={activeClickUpMapping.clickupUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center gap-2 rounded-xl bg-[#EDEBFF] px-3 text-xs font-semibold text-[#5A56D4]">
+                    Open <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
+              </div>
+              {activeClickUpMapping ? (
+                <div className="rounded-2xl border border-[#b9e2d6] bg-[#E7F5F0] p-4 text-sm text-[#31735F]">
+                  <p className="font-semibold">Linked to ClickUp</p>
+                  <p className="mt-1 break-all text-xs">Task ID: {activeClickUpMapping.clickupTaskId}</p>
+                </div>
+              ) : task.clientAccountProfileId ? (
+                <div className="space-y-3">
+                  {clickUpConfigError && (
+                    <p className="rounded-xl border border-[#F1DEC3] bg-[#FFF8EC] p-3 text-xs leading-5 text-[#8A6428]">
+                      {clickUpConfigError} <Link href="/app/integrations/clickup" className="font-semibold underline">Open ClickUp settings</Link>.
+                    </p>
+                  )}
+                  <label className="space-y-1.5 text-xs font-semibold text-[#625F5A]">
+                    Category
+                    <select value={clickUpCategory} onChange={(event) => {
+                      const nextCategory = event.target.value as ClickUpCategoryKey;
+                      setClickUpCategory(nextCategory);
+                    }} className="min-h-10 w-full rounded-xl border border-black/[0.1] bg-white px-3 text-sm outline-none focus:border-[#6E6AE8]">
+                      {clickUpCategories.map((category) => <option key={category.key} value={category.key}>{category.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="space-y-1.5 text-xs font-semibold text-[#625F5A]">
+                    Title
+                    <input value={clickUpTitle} onChange={(event) => setClickUpTitle(event.target.value)} className="min-h-10 w-full rounded-xl border border-black/[0.1] bg-white px-3 text-sm outline-none focus:border-[#6E6AE8]" />
+                  </label>
+                  <label className="space-y-1.5 text-xs font-semibold text-[#625F5A]">
+                    Description
+                    <textarea value={clickUpDescription} onChange={(event) => setClickUpDescription(event.target.value)} rows={4} className="w-full rounded-xl border border-black/[0.1] bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-[#6E6AE8]" />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1.5 text-xs font-semibold text-[#625F5A]">
+                      Due date
+                      <input type="date" value={clickUpDueDate} onChange={(event) => setClickUpDueDate(event.target.value)} className="min-h-10 w-full rounded-xl border border-black/[0.1] bg-white px-3 text-sm outline-none focus:border-[#6E6AE8]" />
+                    </label>
+                    <label className="space-y-1.5 text-xs font-semibold text-[#625F5A]">
+                      Priority
+                      <select value={clickUpPriority} onChange={(event) => setClickUpPriority(event.target.value as typeof clickUpPriority)} className="min-h-10 w-full rounded-xl border border-black/[0.1] bg-white px-3 text-sm outline-none focus:border-[#6E6AE8]">
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold text-[#625F5A]">Assignees</p>
+                      <span className="text-[11px] text-[#817B75]">{clickUpAssigneeIds.length} selected</span>
+                    </div>
+                    <div className="max-h-44 space-y-2 overflow-y-auto rounded-2xl border border-black/[0.08] bg-white p-2">
+                      {clickUpMembers.length === 0 && (
+                        <p className="rounded-xl bg-[#FFF8EC] px-3 py-2 text-xs leading-5 text-[#8A6428]">
+                          No ClickUp members loaded yet. Check the ClickUp connection, then refresh this page.
+                        </p>
+                      )}
+                      {clickUpMembers.map((member) => {
+                        const checked = clickUpAssigneeIds.includes(member.id);
+                        return (
+                          <label key={member.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm transition ${checked ? "border-[#A9A4E9] bg-[#F5F4FF] text-[#302D2A]" : "border-transparent text-[#5F5A55] hover:bg-[#F7F4F0]"}`}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) => setClickUpAssigneeIds((current) => event.target.checked ? [...new Set([...current, member.id])] : current.filter((id) => id !== member.id))}
+                              className="h-4 w-4 rounded border-[#AAA5D8] text-[#6E6AE8]"
+                            />
+                            <span className="min-w-0 flex-1 truncate">{clickUpMemberLabel(member)}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] leading-5 text-[#817B75]">Prefilled from the selected category mapping. You can edit before creating the ClickUp task.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#625F5A]">Relevant links</p>
+                    {clickUpLinks.map((link, index) => (
+                      <div key={index} className="grid gap-2 sm:grid-cols-[0.8fr_1.2fr_auto]">
+                        <input value={link.label} onChange={(event) => setClickUpLinks((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, label: event.target.value } : row))} placeholder="Label" className="min-h-10 rounded-xl border border-black/[0.1] px-3 text-sm outline-none focus:border-[#6E6AE8]" />
+                        <input value={link.url} onChange={(event) => setClickUpLinks((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, url: event.target.value } : row))} placeholder="https://..." className="min-h-10 rounded-xl border border-black/[0.1] px-3 text-sm outline-none focus:border-[#6E6AE8]" />
+                        <button onClick={() => setClickUpLinks((rows) => rows.filter((_, rowIndex) => rowIndex !== index))} className="min-h-10 rounded-xl border border-black/[0.08] px-3 text-xs font-semibold text-[#817B75]">Remove</button>
+                      </div>
+                    ))}
+                    <button onClick={() => setClickUpLinks((rows) => [...rows, { label: "", url: "" }])} className="text-xs font-semibold text-[#5A56D4]">Add another link</button>
+                  </div>
+                  <label className="block rounded-2xl border border-dashed border-[#A9A4E9] bg-[#F5F4FF] p-4 text-center text-sm font-semibold text-[#5A56D4]">
+                    Add ClickUp attachments
+                    <input type="file" multiple className="hidden" onChange={(event) => setClickUpFiles(Array.from(event.target.files || []).slice(0, 5))} />
+                    {clickUpFiles.length > 0 && <span className="mt-1 block text-xs font-normal text-[#817B75]">{clickUpFiles.length} file(s) selected</span>}
+                  </label>
+                  <button onClick={() => void createClickUpTask()} disabled={clickUpBusy || !clickUpTitle.trim() || Boolean(clickUpConfigError)} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#171615] px-4 text-sm font-semibold text-white hover:bg-[#302E2B] disabled:opacity-50">
+                    <Send className="h-4 w-4" /> {clickUpBusy ? "Creating in ClickUp..." : "Create ClickUp task"}
+                  </button>
+                </div>
+              ) : (
+                <p className="rounded-2xl border border-[#F1DEC3] bg-[#FFF8EC] p-4 text-sm leading-6 text-[#8A6428]">Link this task to a client account before creating it in ClickUp.</p>
+              )}
+            </section>
 
             <section className="rounded-[26px] border border-black/[0.06] bg-[#FFFCF9] p-5">
               <div className="mb-4 flex items-center justify-between"><h2 className="flex items-center gap-2 font-semibold text-[#1E1C1A]"><Paperclip className="h-5 w-5 text-[#6E6AE8]" /> Files</h2><span className="text-xs text-[#8A837C]">{attachments.length}</span></div>

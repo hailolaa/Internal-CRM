@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   CalendarClock,
   CheckCircle,
+  ClipboardList,
   CreditCard,
   HardDrive,
   Loader2,
@@ -16,7 +18,12 @@ import {
 } from "lucide-react";
 import { AlertBanner, Card, PageHeader } from "@/components/ui";
 import { api, ApiClientError } from "@/lib/api-client";
-import type { CalendarConnectionStatus, GoogleDriveConnectionRecord, QuickBooksConnectionStatus } from "@/lib/api-types";
+import type {
+  CalendarConnectionStatus,
+  ClickUpIntegrationStatus,
+  GoogleDriveConnectionRecord,
+  QuickBooksConnectionStatus,
+} from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 
 type SecondaryIntegration = {
@@ -53,6 +60,7 @@ function getInitialOAuthNotice() {
   const drive = searchParams.get("drive");
   const calendar = searchParams.get("calendar");
   const quickbooks = searchParams.get("quickbooks");
+  const clickup = searchParams.get("clickup");
   if (drive === "connected") {
     return {
       message: "Google Drive is connected for the selected Workspace account.",
@@ -89,6 +97,18 @@ function getInitialOAuthNotice() {
       variant: "warning" as const,
     };
   }
+  if (clickup === "connected") {
+    return {
+      message: "ClickUp is connected for client delivery mapping.",
+      variant: "info" as const,
+    };
+  }
+  if (clickup === "error") {
+    return {
+      message: searchParams.get("message") || "ClickUp could not be connected.",
+      variant: "warning" as const,
+    };
+  }
   return null;
 }
 
@@ -115,10 +135,14 @@ export default function IntegrationsPage() {
     useState<CalendarConnectionStatus | null>(null);
   const [quickBooksConnection, setQuickBooksConnection] =
     useState<QuickBooksConnectionStatus | null>(null);
+  const [clickUpConnection, setClickUpConnection] =
+    useState<ClickUpIntegrationStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDriveBusy, setIsDriveBusy] = useState(false);
   const [isCalendarBusy, setIsCalendarBusy] = useState(false);
   const [isQuickBooksBusy, setIsQuickBooksBusy] = useState(false);
+  const [isClickUpBusy, setIsClickUpBusy] = useState(false);
+  const [hasTriedClickUpApiToken, setHasTriedClickUpApiToken] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(
     initialOAuthNotice?.message || null,
@@ -132,6 +156,7 @@ export default function IntegrationsPage() {
       setDriveConnection(null);
       setCalendarConnection(null);
       setQuickBooksConnection(null);
+      setClickUpConnection(null);
       setIsLoading(false);
       return;
     }
@@ -139,14 +164,16 @@ export default function IntegrationsPage() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [driveStatus, calendarStatus, quickBooksStatus] = await Promise.all([
+      const [driveStatus, calendarStatus, quickBooksStatus, clickUpStatus] = await Promise.all([
         api.clientAccounts.getDriveOAuthStatus(token),
         api.calendar.getStatus(token),
         api.quickbooks.getStatus(token),
+        api.clickup.getStatus(token),
       ]);
       setDriveConnection(driveStatus);
       setCalendarConnection(calendarStatus);
       setQuickBooksConnection(quickBooksStatus);
+      setClickUpConnection(clickUpStatus);
     } catch (error) {
       setLoadError(
         error instanceof ApiClientError
@@ -290,11 +317,63 @@ export default function IntegrationsPage() {
     }
   };
 
+  const connectClickUpApiToken = async () => {
+    if (!token || isClickUpBusy) return;
+    setHasTriedClickUpApiToken(true);
+    if (!clickUpConnection?.apiTokenConfigured) {
+      setStatusMessage("Add CLICKUP_API_TOKEN, CLICKUP_TEAM_ID and CREDENTIAL_ENCRYPTION_KEY to the backend environment, then restart the backend and try again.");
+      setStatusVariant("warning");
+      return;
+    }
+    setIsClickUpBusy(true);
+    setStatusMessage("Connecting ClickUp using the configured backend API token...");
+    setStatusVariant("info");
+    try {
+      const connection = await api.clickup.connectConfiguredApiToken(token);
+      setStatusMessage(`ClickUp connected to ${connection.workspaceName || "the approved workspace"}.`);
+      setStatusVariant("info");
+      await loadIntegrationStatus();
+    } catch (error) {
+      setStatusMessage(
+        error instanceof ApiClientError
+          ? error.message
+          : "ClickUp could not be connected with the configured API token.",
+      );
+      setStatusVariant("warning");
+    } finally {
+      setIsClickUpBusy(false);
+    }
+  };
+
+  const revokeClickUp = async () => {
+    if (!token || isClickUpBusy) return;
+    const confirmed = window.confirm("Disconnect ClickUp from Mission Control?");
+    if (!confirmed) return;
+    setIsClickUpBusy(true);
+    try {
+      await api.clickup.revoke(token);
+      setStatusMessage("ClickUp has been disconnected. Existing client/task mapping rows remain auditable.");
+      setStatusVariant("info");
+      await loadIntegrationStatus();
+    } catch (error) {
+      setStatusMessage(
+        error instanceof ApiClientError
+          ? error.message
+          : "ClickUp could not be disconnected.",
+      );
+      setStatusVariant("warning");
+    } finally {
+      setIsClickUpBusy(false);
+    }
+  };
+
   const driveStatus = driveConnection?.connected
     ? driveConnection.accessLevel === "full"
       ? "Full access"
       : "Limited access"
     : "Not connected";
+  const activeClickUpConnection =
+    clickUpConnection?.connections.find((connection) => connection.status === "connected") || null;
 
   if (!isAdmin) {
     return (
@@ -529,6 +608,95 @@ export default function IntegrationsPage() {
                   </button>
                 )}
               </div>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex h-full flex-col">
+              <div className="flex items-start justify-between gap-4">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#102427]/10 text-[#102427]">
+                  <ClipboardList className="h-6 w-6" aria-hidden="true" />
+                </span>
+                <span
+                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                    activeClickUpConnection
+                      ? "border-[#60b4af]/30 bg-[#60b4af]/10 text-[#346866]"
+                      : clickUpConnection?.apiTokenConfigured || clickUpConnection?.oauthConfigured
+                        ? "border-[#b7672e]/25 bg-[#b7672e]/10 text-[#7a3f16]"
+                        : "border-[#d8ddda] bg-[#eaedeb] text-[#5e8a8d]"
+                  }`}
+                >
+                  {isLoading
+                    ? "Checking"
+                    : activeClickUpConnection
+                      ? "Connected"
+                      : clickUpConnection?.apiTokenConfigured || clickUpConnection?.oauthConfigured
+                        ? "Ready to connect"
+                        : "Env not configured"}
+                </span>
+              </div>
+              <h3 className="mt-5 font-semibold text-[#151f21]">ClickUp</h3>
+              <p className="mt-1 text-sm leading-6 text-[#5e8a8d]">
+                Connect the approved ClickUp workspace so Mission Control can map client accounts and internal tasks
+                to the right delivery structure without exposing ClickUp credentials.
+              </p>
+              {activeClickUpConnection && (
+                <div className="mt-3 rounded-xl border border-[#d8ddda] bg-[#FFFCF9] p-3 text-xs leading-5 text-[#5e8a8d]">
+                  <p>
+                    Workspace: <span className="font-semibold text-[#151f21]">{activeClickUpConnection.workspaceName || "Connected workspace"}</span>
+                  </p>
+                  <p>
+                    Connected: <span className="font-semibold text-[#151f21]">{activeClickUpConnection.connectedAt ? formatDateTime(activeClickUpConnection.connectedAt) : "Stored"}</span>
+                  </p>
+                  <p>
+                    Mappings: <span className="font-semibold text-[#151f21]">{clickUpConnection?.clientMappingCount || 0} clients, {clickUpConnection?.taskMappingCount || 0} tasks</span>
+                  </p>
+                </div>
+              )}
+              {activeClickUpConnection?.lastError && (
+                <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  {activeClickUpConnection.lastError}
+                </p>
+              )}
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => void connectClickUpApiToken()}
+                  disabled={!token || isLoading || isClickUpBusy}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#102427] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1d393c] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isClickUpBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <ClipboardList className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  {activeClickUpConnection ? "Reconnect API Token" : "Connect API Token"}
+                </button>
+                {activeClickUpConnection && (
+                  <Link
+                    href="/app/integrations/clickup"
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#d8ddda] bg-[#FFFCF9] px-4 py-2.5 text-sm font-semibold text-[#5e8a8d] transition-colors hover:bg-[#eaedeb]"
+                  >
+                    Open mappings
+                  </Link>
+                )}
+                {activeClickUpConnection && (
+                  <button
+                    type="button"
+                    onClick={() => void revokeClickUp()}
+                    disabled={!token || isClickUpBusy}
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+              {hasTriedClickUpApiToken && !clickUpConnection?.apiTokenConfigured && (
+                <p className="mt-3 text-xs leading-5 text-[#5e8a8d]">
+                  Add `CLICKUP_API_TOKEN`, `CLICKUP_TEAM_ID` and `CREDENTIAL_ENCRYPTION_KEY` to the backend environment,
+                  then restart the backend and refresh this page.
+                </p>
+              )}
             </div>
           </Card>
 

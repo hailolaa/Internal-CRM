@@ -128,6 +128,8 @@ export const config = {
     clickup: {
         clientId: process.env.CLICKUP_CLIENT_ID || "",
         clientSecret: process.env.CLICKUP_CLIENT_SECRET || "",
+        apiToken: process.env.CLICKUP_API_TOKEN || "",
+        teamId: process.env.CLICKUP_TEAM_ID || "",
         apiBaseUrl: process.env.CLICKUP_API_BASE_URL || "https://api.clickup.com/api/v2",
         appAuthUrl: process.env.CLICKUP_APP_AUTH_URL || "https://app.clickup.com/api",
     },
@@ -331,6 +333,14 @@ export function getProductionConfigIssues() {
 
     if (config.clickup.clientId && !config.credentials.encryptionKey) {
         issues.push("CREDENTIAL_ENCRYPTION_KEY must be set before ClickUp OAuth credentials can be stored.");
+    }
+
+    if ((config.clickup.apiToken && !config.clickup.teamId) || (!config.clickup.apiToken && config.clickup.teamId)) {
+        issues.push("CLICKUP_API_TOKEN and CLICKUP_TEAM_ID must be configured together.");
+    }
+
+    if (config.clickup.apiToken && !config.credentials.encryptionKey) {
+        issues.push("CREDENTIAL_ENCRYPTION_KEY must be set before ClickUp API token credentials can be stored.");
     }
 
     if (config.quickbooks.oauthEnabled && (!config.quickbooks.clientId || !config.quickbooks.clientSecret)) {

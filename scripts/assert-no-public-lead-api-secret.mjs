@@ -23,12 +23,16 @@ const forbiddenPatterns = [
     pattern: /\bNEXT_PUBLIC_MISSION_CONTROL_LEAD_API_KEY\b/g,
     message: "Landing-page lead API key must not use a browser-public env var",
   },
+  {
+    pattern: /\bpk_(?!test_)[A-Za-z0-9_]{20,}\b/g,
+    message: "Raw ClickUp API token detected",
+  },
 ];
 
 const allowedMatches = new Map([
   ["backend/src/modules/api-keys/api-keys.service.ts", ["cg_live_"]],
   ["docs/landing-page-lead-capture-api.md", ["NEXT_PUBLIC_MISSION_CONTROL_LEAD_API_KEY"]],
-  ["scripts/assert-no-public-lead-api-secret.mjs", ["NEXT_PUBLIC_MISSION_CONTROL_LEAD_API_KEY"]],
+  ["scripts/assert-no-public-lead-api-secret.mjs", ["NEXT_PUBLIC_MISSION_CONTROL_LEAD_API_KEY", "CLICKUP_API_TOKEN", "pk_"]],
 ]);
 
 function normalisePath(path) {

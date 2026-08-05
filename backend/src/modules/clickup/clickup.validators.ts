@@ -3,6 +3,8 @@ import { body, param, query } from "express-validator";
 const mappingStatuses = ["active", "needs_review", "archived"];
 const mappingSources = ["manual", "oauth_lookup", "api_lookup"];
 const syncDirections = ["mission_control_to_clickup", "clickup_to_mission_control", "manual"];
+const categoryKeys = ["development", "seo", "gmb_local_seo", "ppc", "managerial", "reporting", "account_control"];
+const missionControlPriorities = ["low", "medium", "high", "urgent"];
 
 const optionalExternalId = (field: string, label: string) =>
   body(field)
@@ -39,6 +41,12 @@ export const clientAccountProfileIdParamValidator = [
   param("clientAccountProfileId").isString().trim().notEmpty().isLength({ max: 36 }),
 ];
 
+export const clickUpLookupQueryValidator = [
+  query("workspaceId").optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 64 }),
+  query("spaceId").optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 64 }),
+  query("folderId").optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 64 }),
+];
+
 export const saveClickUpClientMappingValidator = [
   ...clientAccountProfileIdParamValidator,
   requiredExternalId("workspaceId", "ClickUp workspace ID"),
@@ -71,4 +79,37 @@ export const saveClickUpTaskMappingValidator = [
 
 export const listClickUpTaskMappingsValidator = [
   query("clientAccountProfileId").isString().trim().notEmpty().isLength({ max: 36 }),
+];
+
+export const saveClickUpCategoryMappingValidator = [
+  ...clientAccountProfileIdParamValidator,
+  requiredExternalId("workspaceId", "ClickUp workspace ID"),
+  requiredExternalId("spaceId", "ClickUp space ID"),
+  optionalExternalId("connectionId", "ClickUp connection ID"),
+  optionalExternalId("folderId", "ClickUp folder ID"),
+  requiredExternalId("listId", "ClickUp list ID"),
+  body("categoryKey").isIn(categoryKeys).withMessage("Work category is not supported"),
+  body("defaultAssigneeIds").optional().isArray({ max: 20 }).withMessage("Default assignees must be a list"),
+  body("defaultAssigneeIds.*").optional().isString().trim().isLength({ min: 1, max: 64 }),
+  body("mappingStatus").optional().isIn(mappingStatuses),
+  body("mappingSource").optional().isIn(mappingSources),
+];
+
+export const saveClickUpPriorityMappingValidator = [
+  body("missionControlPriority").isIn(missionControlPriorities),
+  body("clickupPriority").isInt({ min: 1, max: 4 }).toInt(),
+];
+
+export const createClickUpTaskValidator = [
+  body("internalTaskId").isUUID().withMessage("A valid Mission Control task ID is required"),
+  body("categoryKey").isIn(categoryKeys).withMessage("A supported work category is required"),
+  body("title").isString().trim().isLength({ min: 1, max: 255 }).withMessage("Title is required"),
+  body("description").optional({ nullable: true, checkFalsy: true }).isString().trim().isLength({ max: 20000 }),
+  body("dueDate").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Due date must be valid"),
+  body("priority").isIn(missionControlPriorities),
+  body("assigneeIds").optional().isArray({ max: 20 }),
+  body("assigneeIds.*").optional().isString().trim().isLength({ min: 1, max: 64 }),
+  body("links").optional().isArray({ max: 20 }),
+  body("links.*.label").optional({ nullable: true, checkFalsy: true }).isString().trim().isLength({ max: 120 }),
+  body("links.*.url").optional().isURL({ require_protocol: true }).withMessage("Each relevant link must be a valid URL"),
 ];

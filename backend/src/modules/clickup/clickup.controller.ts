@@ -60,6 +60,22 @@ export class ClickUpController {
     }
   };
 
+  connectConfiguredApiToken = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.connectConfiguredApiToken(
+          user.clinicId,
+          user.userId,
+          this.auditContext(req),
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   completeOAuth = async (req: Request, res: Response, next: NextFunction) => {
     try {
       res.status(200).json({
@@ -163,6 +179,153 @@ export class ClickUpController {
           user.clinicId,
           String(req.query.clientAccountProfileId),
           await this.accessContext(user),
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listWorkspaces = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.listRemoteWorkspaces(user.clinicId),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listSpaces = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.listRemoteSpaces(user.clinicId, req.query.workspaceId ? String(req.query.workspaceId) : null),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listFolders = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.listRemoteFolders(
+          user.clinicId,
+          String(req.query.spaceId || ""),
+          req.query.workspaceId ? String(req.query.workspaceId) : null,
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listLists = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.listRemoteLists(user.clinicId, {
+          workspaceId: req.query.workspaceId ? String(req.query.workspaceId) : null,
+          spaceId: req.query.spaceId ? String(req.query.spaceId) : null,
+          folderId: req.query.folderId ? String(req.query.folderId) : null,
+        }),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listMembers = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.listRemoteMembers(user.clinicId, req.query.workspaceId ? String(req.query.workspaceId) : null),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listCategoryMappings = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.listCategoryMappings(
+          user.clinicId,
+          String(req.params.clientAccountProfileId),
+          await this.accessContext(user),
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  saveCategoryMapping = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.saveCategoryMapping(
+          user.clinicId,
+          user.userId,
+          String(req.params.clientAccountProfileId),
+          req.body,
+          await this.accessContext(user),
+          this.auditContext(req),
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listPriorityMappings = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.listPriorityMappings(user.clinicId),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  savePriorityMapping = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.savePriorityMapping(user.clinicId, user.userId, req.body, this.auditContext(req)),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createClickUpTask = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const rawPayload = typeof req.body.payload === "string" ? JSON.parse(req.body.payload) : req.body;
+      res.status(201).json({
+        status: "success",
+        data: await clickUpService.createClickUpTask(
+          user.clinicId,
+          user.userId,
+          rawPayload,
+          Array.isArray(req.files) ? req.files : [],
+          await this.accessContext(user),
+          this.auditContext(req),
         ),
       });
     } catch (error) {

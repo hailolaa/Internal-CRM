@@ -20,6 +20,7 @@ import { createClinicSetupApi } from "@/lib/api-client/clinic-setup-api";
 import { createCommandPaletteApi } from "@/lib/api-client/command-palette-api";
 import { createCatalogApi } from "@/lib/api-client/catalog-api";
 import { createCalendarApi } from "@/lib/api-client/calendar-api";
+import { createClickUpApi } from "@/lib/api-client/clickup-api";
 import { createComplianceApi } from "@/lib/api-client/compliance-api";
 import { createContactsApi } from "@/lib/api-client/contacts-api";
 import { createDeveloperSettingsApi } from "@/lib/api-client/developer-settings-api";
@@ -88,6 +89,10 @@ export type {
   AppointmentUpdatePayload,
   BillingCheckoutSession,
   BillingStatus,
+  ClickUpConnectionRecord,
+  ClickUpConnectionStatusValue,
+  ClickUpIntegrationStatus,
+  ClickUpOAuthStartRecord,
   ClinicProfile,
   ComplianceDocumentRecord,
   ComplianceSettingsRecord,
@@ -240,6 +245,7 @@ export const api = {
   ...createCommandPaletteApi(apiRequest),
   ...createCatalogApi(apiRequest),
   ...createCalendarApi(apiRequest),
+  ...createClickUpApi(apiRequest),
   ...createComplianceApi(apiRequest),
   ...createContactsApi(apiRequest),
   ...createDeveloperSettingsApi(apiRequest),
