@@ -11,6 +11,8 @@ import type {
   ClickUpTaskCreatePayload,
   ClickUpTaskMappingRecord,
   ClickUpWorkspaceRecord,
+  FailedTaskMapping,
+  CreateClickUpTaskResult,
 } from "@/lib/api-types";
 import type { ApiRequest } from "./core";
 
@@ -102,17 +104,35 @@ export function createClickUpApi(apiRequest: ApiRequest) {
           const body = new FormData();
           body.set("payload", JSON.stringify(payload));
           attachments.slice(0, 5).forEach((file) => body.append("attachments", file));
-          const response = await apiRequest<ClickUpTaskMappingRecord>("/api/clickup/tasks/create", {
+          const response = await apiRequest<CreateClickUpTaskResult>("/api/clickup/tasks/create", {
             method: "POST",
             token,
             body,
           });
           return response.data!;
         }
-        const response = await apiRequest<ClickUpTaskMappingRecord>("/api/clickup/tasks/create", {
+        const response = await apiRequest<CreateClickUpTaskResult>("/api/clickup/tasks/create", {
           method: "POST",
           token,
           body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async listFailedTaskMappings(token: string) {
+        const response = await apiRequest<FailedTaskMapping[]>("/api/clickup/reconciliation/failed-tasks", { token });
+        return response.data!;
+      },
+      async replayFailedTaskMapping(token: string, mappingId: string) {
+        const response = await apiRequest<{ mapping: ClickUpTaskMappingRecord; message: string }>(`/api/clickup/reconciliation/failed-tasks/${encodeURIComponent(mappingId)}/replay`, {
+          method: "POST",
+          token,
+        });
+        return response.data!;
+      },
+      async dismissFailedTaskMapping(token: string, mappingId: string) {
+        const response = await apiRequest<{ success: boolean }>(`/api/clickup/reconciliation/failed-tasks/${encodeURIComponent(mappingId)}/dismiss`, {
+          method: "POST",
+          token,
         });
         return response.data!;
       },

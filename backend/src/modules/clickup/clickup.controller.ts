@@ -313,6 +313,53 @@ export class ClickUpController {
     }
   };
 
+  listFailedTaskMappings = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.listFailedTaskMappings(user.clinicId),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  replayFailedTaskMapping = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.replayTaskMapping(
+          user.clinicId,
+          String(req.params.mappingId),
+          user.userId,
+          await this.accessContext(user),
+          this.auditContext(req)
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  dismissFailedTaskMapping = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.dismissTaskMapping(
+          user.clinicId,
+          String(req.params.mappingId),
+          user.userId,
+          this.auditContext(req)
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   createClickUpTask = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;

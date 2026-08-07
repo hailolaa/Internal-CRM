@@ -114,3 +114,19 @@ export interface ClickUpTaskMappingRecord {
   mappingStatus: "active" | "needs_review" | "archived";
   updatedAt: string;
 }
+
+export interface FailedTaskMapping {
+  id: string;
+  internalTaskId: string | null;
+  internalTaskTitle: string | null;
+  clientAccountProfileId: string;
+  clientClinicId: string;
+  clientName: string;
+  clickupListId: string | null;
+  updatedAt: string;
+}
+
+export interface CreateClickUpTaskResult {
+  mapping: ClickUpTaskMappingRecord;
+  attachmentErrors: Array<{ filename: string; error: string }>;
+}

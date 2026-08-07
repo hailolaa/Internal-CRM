@@ -184,3 +184,19 @@ export interface CreateClickUpTaskDTO {
   assigneeIds?: string[];
   links?: Array<{ label?: string | null; url: string }>;
 }
+
+export interface FailedTaskMapping {
+  id: string;
+  internalTaskId: string | null;
+  internalTaskTitle: string | null;
+  clientAccountProfileId: string;
+  clientClinicId: string;
+  clientName: string;
+  clickupListId: string | null;
+  updatedAt: string;
+}
+
+export interface CreateClickUpTaskResult {
+  mapping: ClickUpTaskMappingResponse;
+  attachmentErrors: Array<{ filename: string; error: string }>;
+}

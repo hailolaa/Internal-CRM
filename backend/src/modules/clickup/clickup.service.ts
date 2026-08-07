@@ -22,6 +22,8 @@ import type {
   ClickUpPriorityMappingResponse,
   ClickUpTaskMappingResponse,
   StartClickUpOAuthResponse,
+  CreateClickUpTaskResult,
+  FailedTaskMapping,
 } from "./clickup.types.js";
 
 const OAUTH_STATE_TTL_MINUTES = 20;
@@ -942,7 +944,27 @@ export class ClickUpService {
       throw ApiError.badRequest("This ClickUp category does not have assignees configured. Add assignees in settings before creating the task.");
     }
 
-    const description = this.composeClickUpDescription(data.description || task.description || "", data.links || []);
+    const pendingMappingId = uuidv4();
+    const pendingClickupTaskId = this.pendingClickUpTaskId(data.internalTaskId);
+    const mapping = await this.saveTaskMapping(
+      clinicId,
+      userId,
+      {
+        clientAccountProfileId: task.clientAccountProfileId,
+        internalTaskId: data.internalTaskId,
+        connectionId: connection.id,
+        workspaceId: categoryMapping.workspaceId,
+        clickupTaskId: pendingClickupTaskId,
+        clickupListId: categoryMapping.listId,
+        clickupUrl: null,
+        syncDirection: "mission_control_to_clickup",
+        mappingStatus: "needs_review",
+      },
+      access,
+      auditContext,
+    );
+
+    const description = this.composeClickUpDescription(data.description || task.description || "", data.links || [], data.internalTaskId);
     const dueDate = data.dueDate || task.dueDate || null;
     const payload: Record<string, unknown> = {
       name: data.title.trim(),
@@ -961,11 +983,18 @@ export class ClickUpService {
     if (!clickupTaskId) throw ApiError.serviceUnavailable("ClickUp did not return a task ID.");
     const clickupUrl = cleanString(createdTask.url) || `https://app.clickup.com/t/${clickupTaskId}`;
 
+    await this.recoverTaskMappingAfterCreation(clinicId, data.internalTaskId, clickupTaskId, clickupUrl);
+
+    const attachmentErrors: string[] = [];
     for (const file of files.slice(0, 5)) {
-      await this.uploadClickUpAttachment(connection, clickupTaskId, file);
+      try {
+        await this.uploadClickUpAttachment(connection, clickupTaskId, file);
+      } catch (err) {
+        attachmentErrors.push(file.originalname);
+      }
     }
 
-    const mapping = await this.saveTaskMapping(
+    const updatedMapping = await this.saveTaskMapping(
       clinicId,
       userId,
       {
@@ -995,12 +1024,209 @@ export class ClickUpService {
         categoryKey: data.categoryKey,
         listId: categoryMapping.listId,
         attachmentCount: files.length,
+        attachmentErrors,
       },
       ipAddress: auditContext.ipAddress || null,
       userAgent: auditContext.userAgent || null,
     });
 
-    return mapping;
+    return { mapping: updatedMapping, attachmentErrors };
+  }
+
+  async listFailedTaskMappings(clinicId: string): Promise<FailedTaskMapping[]> {
+    const [rows] = await pool.execute<any[]>(
+      `SELECT m.id, m.internal_task_id, m.client_account_profile_id,
+              m.clickup_list_id, m.updated_at,
+              t.title as internal_task_title,
+              p.clinic_id as client_clinic_id,
+              c.name as client_name
+       FROM clickup_task_mapping m
+       LEFT JOIN task t ON m.internal_task_id = t.id
+       LEFT JOIN client_account_profile p ON m.client_account_profile_id = p.id
+       LEFT JOIN clinic c ON p.clinic_id = c.id
+       WHERE m.clinic_id = ? AND m.mapping_status = 'needs_review'
+       ORDER BY m.updated_at DESC`,
+      [clinicId]
+    );
+
+    return rows.map((row) => ({
+      id: row.id,
+      internalTaskId: row.internal_task_id,
+      internalTaskTitle: row.internal_task_title || "Unknown Task",
+      clientAccountProfileId: row.client_account_profile_id,
+      clientClinicId: row.client_clinic_id || clinicId,
+      clientName: row.client_name || "Unknown Client",
+      clickupListId: row.clickup_list_id,
+      updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+    }));
+  }
+
+  async replayTaskMapping(
+    clinicId: string,
+    mappingId: string,
+    userId: string,
+    access: ClickUpAccessContext,
+    auditContext: ClickUpAuditContext = {}
+  ): Promise<{ mapping: ClickUpTaskMappingResponse; message: string }> {
+    const [chkRows]: any = await pool.execute('SELECT id FROM clickup_task_mapping WHERE id = ? AND clinic_id = ?', [mappingId, clinicId]);
+    if (!chkRows[0]) throw ApiError.notFound("Task mapping not found.");
+    
+    const mapping = await this.getTaskMappingById(mappingId);
+    if (mapping.mappingStatus !== "needs_review") {
+      throw ApiError.badRequest("Only tasks in needs_review status can be replayed.");
+    }
+
+    const connection = await this.getActiveConnection(clinicId, mapping.workspaceId);
+    
+    if (!mapping.clickupTaskId.startsWith("pending:")) {
+      const updated = await this.saveTaskMapping(
+        clinicId,
+        userId,
+        {
+          clientAccountProfileId: mapping.clientAccountProfileId,
+          internalTaskId: mapping.internalTaskId!,
+          connectionId: mapping.connectionId,
+          workspaceId: mapping.workspaceId,
+          clickupTaskId: mapping.clickupTaskId,
+          clickupListId: mapping.clickupListId,
+          clickupUrl: mapping.clickupUrl,
+          syncDirection: "mission_control_to_clickup",
+          mappingStatus: "active",
+        },
+        access,
+        auditContext
+      );
+      return { mapping: updated, message: "Task was already created in ClickUp; mapping activated." };
+    }
+
+    if (!mapping.clickupListId || !mapping.internalTaskId) {
+      throw ApiError.badRequest("Mapping is missing list ID or internal task ID required for replay.");
+    }
+
+    const tasks = await this.clickUpRequest(
+      connection,
+      `/list/${encodeURIComponent(mapping.clickupListId)}/task?include_closed=true`,
+      { method: "GET" }
+    );
+
+    const match = (tasks.tasks || []).find((t: any) => 
+      t.description && t.description.includes(`[Mission Control Task ID: ${mapping.internalTaskId}]`)
+    );
+
+    if (match) {
+      const clickupTaskId = String(match.id);
+      const clickupUrl = cleanString(match.url) || `https://app.clickup.com/t/${clickupTaskId}`;
+      const updated = await this.saveTaskMapping(
+        clinicId,
+        userId,
+        {
+          clientAccountProfileId: mapping.clientAccountProfileId,
+          internalTaskId: mapping.internalTaskId,
+          connectionId: mapping.connectionId,
+          workspaceId: mapping.workspaceId,
+          clickupTaskId,
+          clickupListId: mapping.clickupListId,
+          clickupUrl,
+          syncDirection: "mission_control_to_clickup",
+          mappingStatus: "active",
+        },
+        access,
+        auditContext
+      );
+      return { mapping: updated, message: "Found existing ClickUp task and successfully linked it." };
+    }
+    
+    await pool.execute('DELETE FROM clickup_task_mapping WHERE id = ?', [mapping.id]);
+    
+    const [taskRows] = await pool.execute<any[]>(
+      'SELECT title, priority, description, due_date FROM task WHERE id = ?',
+      [mapping.internalTaskId]
+    );
+    if (!taskRows.length) throw ApiError.notFound("Internal task not found.");
+    const task = taskRows[0];
+    
+    const [catRows] = await pool.execute<any[]>(
+      'SELECT category_key FROM clickup_category_mapping WHERE clinic_id = ? AND client_account_profile_id = ? AND list_id = ?',
+      [clinicId, mapping.clientAccountProfileId, mapping.clickupListId]
+    );
+    if (!catRows.length) throw ApiError.badRequest("Cannot replay: category mapping for this list no longer exists.");
+    const categoryKey = catRows[0].category_key as ClickUpCategoryKey;
+    
+    const dueDateStr = task.due_date ? new Date(task.due_date).toISOString().split('T')[0] : null;
+    
+    const result = await this.createClickUpTask(
+      clinicId,
+      userId,
+      {
+        internalTaskId: mapping.internalTaskId,
+        categoryKey,
+        title: task.title,
+        priority: task.priority,
+        description: task.description,
+        dueDate: dueDateStr || null,
+      } as CreateClickUpTaskDTO,
+      [], // No attachments on replay
+      access,
+      auditContext
+    );
+    
+    return { mapping: result.mapping, message: "Task was successfully recreated in ClickUp. Please upload any attachments manually." };
+  }
+
+  async dismissTaskMapping(
+    clinicId: string,
+    mappingId: string,
+    userId: string,
+    auditContext: ClickUpAuditContext = {}
+  ): Promise<{ success: boolean }> {
+    const [chkRows]: any = await pool.execute('SELECT id FROM clickup_task_mapping WHERE id = ? AND clinic_id = ?', [mappingId, clinicId]);
+    if (!chkRows[0]) throw ApiError.notFound("Task mapping not found.");
+    
+    const mapping = await this.getTaskMappingById(mappingId);
+    if (mapping.mappingStatus !== "needs_review") {
+      throw ApiError.badRequest("Only tasks in needs_review status can be dismissed.");
+    }
+
+    await pool.execute(
+      `UPDATE clickup_task_mapping
+       SET mapping_status = 'archived',
+           updated_by = ?
+       WHERE id = ?`,
+      [userId, mappingId]
+    );
+
+    await insertAuditEvent(pool, {
+      clinicId,
+      userId,
+      action: "CLICKUP_TASK_MAPPING_DISMISSED",
+      entityType: "clickup_task_mapping",
+      entityId: mappingId,
+      changes: { mappingStatus: "archived" },
+      ipAddress: auditContext.ipAddress || null,
+      userAgent: auditContext.userAgent || null,
+    });
+
+    return { success: true };
+  }
+
+  private async recoverTaskMappingAfterCreation(
+    clinicId: string,
+    internalTaskId: string,
+    clickupTaskId: string,
+    clickupUrl: string,
+  ) {
+    await pool.execute(
+      `UPDATE clickup_task_mapping
+       SET clickup_task_id = ?,
+           clickup_url = ?
+       WHERE clinic_id = ?
+         AND internal_task_id = ?`,
+      [clickupTaskId, clickupUrl, clinicId, internalTaskId],
+    );
+  }
+
+  private pendingClickUpTaskId(internalTaskId: string) {
+    return `pending:${internalTaskId}`;
   }
 
   private oauthRedirectUri() {
@@ -1264,17 +1490,22 @@ export class ClickUpService {
     };
   }
 
-  private composeClickUpDescription(description: string, links: Array<{ label?: string | null; url: string }>) {
+  private composeClickUpDescription(description: string, links: Array<{ label?: string | null; url: string }>, internalTaskId?: string) {
     const cleanLinks = links
       .map((link) => ({ label: cleanString(link.label) || "Relevant link", url: cleanString(link.url) }))
       .filter((link): link is { label: string; url: string } => Boolean(link.url));
-    if (cleanLinks.length === 0) return description;
-    return [
-      description,
-      "",
-      "Relevant links:",
-      ...cleanLinks.map((link) => `- ${link.label}: ${link.url}`),
-    ].join("\n").trim();
+    
+    const parts = [description];
+    
+    if (cleanLinks.length > 0) {
+      parts.push("", "Relevant links:", ...cleanLinks.map((link) => `- ${link.label}: ${link.url}`));
+    }
+    
+    if (internalTaskId) {
+      parts.push("", `[Mission Control Task ID: ${internalTaskId}]`);
+    }
+    
+    return parts.join("\n").trim();
   }
 
   private async ensureConnectionAvailable(clinicId: string, connectionId: string | null, workspaceId: string) {
@@ -1449,3 +1680,4 @@ export class ClickUpService {
 }
 
 export const clickUpService = new ClickUpService();
+

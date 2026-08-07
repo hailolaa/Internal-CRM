@@ -18,6 +18,7 @@ import {
   saveClickUpClientMappingValidator,
   saveClickUpPriorityMappingValidator,
   saveClickUpTaskMappingValidator,
+  clickUpMappingIdParamValidator,
 } from "./clickup.validators.js";
 
 const router = Router();
@@ -194,12 +195,34 @@ router.post(
 
 router.post(
   "/tasks/create",
-  authorizeAnyPermission("internal_tasks:write", "client_accounts:write"),
+  authorizePermission("internal_tasks:write"),
   receiveClickUpTaskFiles,
   parseClickUpTaskPayload,
   createClickUpTaskValidator,
   validate,
   clickUpController.createClickUpTask,
+);
+
+router.get(
+  "/reconciliation/failed-tasks",
+  authorizePermission("internal_tasks:read"),
+  clickUpController.listFailedTaskMappings,
+);
+
+router.post(
+  "/reconciliation/failed-tasks/:mappingId/replay",
+  authorizePermission("internal_tasks:write"),
+  clickUpMappingIdParamValidator,
+  validate,
+  clickUpController.replayFailedTaskMapping,
+);
+
+router.post(
+  "/reconciliation/failed-tasks/:mappingId/dismiss",
+  authorizePermission("internal_tasks:write"),
+  clickUpMappingIdParamValidator,
+  validate,
+  clickUpController.dismissFailedTaskMapping,
 );
 
 export default router;

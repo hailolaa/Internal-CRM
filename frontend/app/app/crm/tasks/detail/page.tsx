@@ -88,6 +88,7 @@ export default function TaskDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [warningMessage, setWarningMessage] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [syncToDrive, setSyncToDrive] = useState(false);
   const [driveBrowser, setDriveBrowser] = useState<GoogleDriveFolderBrowserRecord | null>(null);
@@ -312,8 +313,9 @@ export default function TaskDetailPage() {
     setClickUpBusy(true);
     setError("");
     setStatusMessage("");
+    setWarningMessage("");
     try {
-      const mapping = await api.clickup.createTask(token, {
+      const result = await api.clickup.createTask(token, {
         internalTaskId: task.id,
         categoryKey: clickUpCategory,
         title: clickUpTitle,
@@ -323,9 +325,13 @@ export default function TaskDetailPage() {
         assigneeIds: clickUpAssigneeIds,
         links: clickUpLinks.filter((link) => link.url.trim()),
       }, clickUpFiles);
-      setClickUpMappings((current) => [...current.filter((item) => item.internalTaskId !== task.id), mapping]);
+      setClickUpMappings((current) => [...current.filter((item) => item.internalTaskId !== task.id), result.mapping]);
       setClickUpFiles([]);
-      setStatusMessage("ClickUp task created and linked.");
+      if (result.attachmentErrors && result.attachmentErrors.length > 0) {
+        setWarningMessage(`ClickUp task created, but ${result.attachmentErrors.length} file(s) failed to upload. Please manually upload them in ClickUp.`);
+      } else {
+        setStatusMessage("ClickUp task created and linked.");
+      }
       setActivity(await api.internalTasks.listActivity(token, task.id));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "ClickUp task could not be created.");
@@ -342,7 +348,8 @@ export default function TaskDetailPage() {
         <ArrowLeft className="h-4 w-4" /> {backLabel}
       </Link>
       {error && <AlertBanner variant="error" title="Task workspace issue" description={error} />}
-      {statusMessage && <AlertBanner variant="success" title={statusMessage} />}
+      {statusMessage && <AlertBanner variant="success" title={statusMessage} />} 
+      {warningMessage && <AlertBanner variant="warning" title="Partial success" description={warningMessage} />}
       {loading ? <div className="rounded-[28px] border border-black/[0.06] bg-[#FFFCF9] p-7"><SkeletonLine className="mb-4 h-8 w-1/2" /><SkeletonLine className="h-5 w-4/5" /></div> : task && <>
         <header className="relative overflow-hidden rounded-[30px] border border-black/[0.06] bg-[#FFFCF9] p-6 shadow-[0_14px_50px_rgba(49,45,90,0.08)] sm:p-8">
           <div className="absolute inset-y-0 left-0 w-1.5 bg-[#6E6AE8]" />
@@ -538,3 +545,5 @@ export default function TaskDetailPage() {
     </main>
   );
 }
+
+

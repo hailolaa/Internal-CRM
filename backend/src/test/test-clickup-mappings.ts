@@ -8,8 +8,10 @@ import pool from "../config/database.js";
 import { config } from "../config/index.js";
 import { clickUpService } from "../modules/clickup/clickup.service.js";
 import { hashPassword } from "../utils/helpers.js";
+import { encryptProviderCredential } from "../utils/provider-credentials.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
+const routesPath = resolve(currentDir, "../modules/clickup/clickup.routes.js");
 const migrationPaths = [
   resolve(currentDir, "../../scripts/migrations/20260730_add_clickup_oauth_and_mappings.sql"),
   resolve(currentDir, "../../scripts/migrations/20260805_add_clickup_category_priority_mappings.sql"),
@@ -107,6 +109,18 @@ test.before(async () => {
 
 test.after(async () => {
   await pool.end();
+});
+
+test("ClickUp task creation route requires internal task write permission", async () => {
+  const routesSource = await readFile(routesPath, "utf8");
+  assert.match(
+    routesSource,
+    /["']\/tasks\/create["'][\s\S]*?authorizePermission\(["']internal_tasks:write["']\)/,
+  );
+  assert.doesNotMatch(
+    routesSource,
+    /["']\/tasks\/create["'][\s\S]*?authorizeAnyPermission\(["']internal_tasks:write["'],\s*["']client_accounts:write["']\)/,
+  );
 });
 
 test("ClickUp client mapping is stable by client profile and rejects reused delivery structures", async () => {
@@ -457,5 +471,142 @@ test("ClickUp task creation blocks duplicate Mission Control task sends before p
     assert.equal(providerCalled, false);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("ClickUp task creation saves local mapping before attachment upload failures so retries cannot duplicate remote tasks", async () => {
+  const workspace = await createWorkspace("clickup-task-attachment-failure");
+  const client = await createClientAccount("clickup-attachment-failure");
+  const taskId = uuidv4();
+  const originalFetch = globalThis.fetch;
+  const originalConfig = {
+    encryptionKey: config.credentials.encryptionKey,
+  };
+  const mutableConfig = config as unknown as {
+    credentials: { encryptionKey: string };
+  };
+
+  mutableConfig.credentials.encryptionKey = "clickup-test-encryption-key-32-chars-minimum";
+
+  const connectionId = uuidv4();
+  await pool.execute(
+    `INSERT INTO clickup_connection
+      (id, clinic_id, workspace_id, workspace_name, status, encrypted_access_token, scopes, connected_by, connected_at)
+     VALUES (?, ?, 'cu-workspace-attachment-failure', 'Attachment Failure Workspace', 'connected', ?, ?, ?, CURRENT_TIMESTAMP)`,
+    [
+      connectionId,
+      workspace.clinicId,
+      encryptProviderCredential("pk_test_attachment_failure_token"),
+      JSON.stringify(["personal_api_token"]),
+      workspace.userId,
+    ],
+  );
+  await pool.execute(
+    `INSERT INTO task
+      (id, clinic_id, is_internal, title, description, priority, status, board_key, client_account_profile_id, created_by)
+     VALUES (?, ?, 1, 'Retry-safe ClickUp task', 'Attachment failure should not create duplicates.', 'high', 'pending', 'delivery', ?, ?)`,
+    [taskId, workspace.clinicId, client.profileId, workspace.userId],
+  );
+  await clickUpService.saveCategoryMapping(
+    workspace.clinicId,
+    workspace.userId,
+    client.profileId,
+    {
+      connectionId,
+      workspaceId: "cu-workspace-attachment-failure",
+      spaceId: "cu-space",
+      categoryKey: "development",
+      folderId: "cu-folder",
+      listId: "cu-list",
+      defaultAssigneeIds: ["101"],
+      mappingStatus: "active",
+      mappingSource: "api_lookup",
+    },
+    { canManageAllClientAccounts: true },
+  );
+  await clickUpService.savePriorityMapping(
+    workspace.clinicId,
+    workspace.userId,
+    { missionControlPriority: "high", clickupPriority: 2 },
+  );
+
+  let createdRemoteTaskCount = 0;
+  globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/list/cu-list/task") && init?.method === "POST") {
+      createdRemoteTaskCount += 1;
+      return new Response(JSON.stringify({
+        id: "cu-created-before-attachment-failure",
+        url: "https://app.clickup.com/t/cu-created-before-attachment-failure",
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url.endsWith("/task/cu-created-before-attachment-failure/attachment") && init?.method === "POST") {
+      return new Response(JSON.stringify({ err: "attachment upload failed" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ err: `Unexpected ClickUp request ${url}` }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () => clickUpService.createClickUpTask(
+        workspace.clinicId,
+        workspace.userId,
+        {
+          internalTaskId: taskId,
+          categoryKey: "development",
+          title: "Retry-safe ClickUp task",
+          description: "Send this once.",
+          priority: "high",
+          assigneeIds: ["101"],
+        },
+        [{
+          originalname: "handoff.txt",
+          mimetype: "text/plain",
+          buffer: Buffer.from("handoff"),
+        } as Express.Multer.File],
+        { canManageAllClientAccounts: true },
+      ),
+      /attachment upload failed/,
+    );
+
+    const mapping = await clickUpService.listTaskMappings(
+      workspace.clinicId,
+      client.profileId,
+      { canManageAllClientAccounts: true },
+    );
+    assert.equal(mapping.length, 1);
+    assert.equal(mapping[0].internalTaskId, taskId);
+    assert.equal(mapping[0].clickupTaskId, "cu-created-before-attachment-failure");
+    assert.equal(mapping[0].mappingStatus, "active");
+
+    await assert.rejects(
+      () => clickUpService.createClickUpTask(
+        workspace.clinicId,
+        workspace.userId,
+        {
+          internalTaskId: taskId,
+          categoryKey: "development",
+          title: "Retry-safe ClickUp task",
+          priority: "high",
+          assigneeIds: ["101"],
+        },
+        [],
+        { canManageAllClientAccounts: true },
+      ),
+      /already has a ClickUp task link/,
+    );
+    assert.equal(createdRemoteTaskCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    mutableConfig.credentials.encryptionKey = originalConfig.encryptionKey;
   }
 });

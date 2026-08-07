@@ -355,9 +355,14 @@ export default function ClickUpSettingsPage() {
 
   return (
     <main className="mx-auto max-w-[1320px] space-y-4 pb-12">
-      <Link href="/app/integrations" className="inline-flex min-h-10 items-center gap-2 rounded-xl px-2.5 text-sm font-semibold text-[#625FC7] hover:bg-[#EDEBFF]">
-        <ArrowLeft className="h-4 w-4" /> Back to integrations
-      </Link>
+      <div className="flex items-center justify-between">
+        <Link href="/app/integrations" className="inline-flex min-h-10 items-center gap-2 rounded-xl px-2.5 text-sm font-semibold text-[#625FC7] hover:bg-[#EDEBFF]">
+          <ArrowLeft className="h-4 w-4" /> Back to integrations
+        </Link>
+        <Link href="/app/integrations/clickup/reconciliation" className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#FFF8EC] px-3.5 text-sm font-semibold text-[#8A6428] hover:bg-[#FCECD4]">
+          View sync errors
+        </Link>
+      </div>
 
       <header className="overflow-hidden rounded-3xl border border-black/[0.06] bg-[#FFFCF9] shadow-[0_14px_44px_rgba(49,45,90,0.07)]">
         <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_390px] lg:items-center">
