@@ -3,11 +3,14 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import type { AddressInfo } from "node:net";
+import type { Server } from "node:http";
 import { v4 as uuidv4 } from "uuid";
 import pool from "../config/database.js";
 import { config } from "../config/index.js";
+import app from "../app.js";
 import { clickUpService } from "../modules/clickup/clickup.service.js";
-import { hashPassword } from "../utils/helpers.js";
+import { generateToken, hashPassword } from "../utils/helpers.js";
 import { encryptProviderCredential } from "../utils/provider-credentials.js";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -71,6 +74,54 @@ async function createWorkspace(prefix: string) {
   return { clinicId, userId };
 }
 
+async function createUserWithPermissions(clinicId: string, prefix: string, permissions: string[]) {
+  const userId = uuidv4();
+  const roleId = uuidv4();
+  const roleName = `${prefix}_${Date.now()}`;
+  const email = `${unique(prefix)}@clickup.test`;
+
+  await pool.execute(
+    `INSERT INTO role (id, clinic_id, name, display_name, is_system)
+     VALUES (?, ?, ?, ?, 0)`,
+    [roleId, clinicId, roleName, prefix],
+  );
+
+  if (permissions.length > 0) {
+    await pool.execute(
+      `INSERT INTO role_permission (role_id, permission_id)
+       SELECT ?, id FROM permission WHERE key_name IN (${permissions.map(() => "?").join(", ")})`,
+      [roleId, ...permissions],
+    );
+  }
+
+  await pool.execute(
+    `INSERT INTO user
+      (id, clinic_id, email, password_hash, first_name, last_name, role, email_verified_at, status, is_active)
+     VALUES (?, ?, ?, ?, ?, 'Tester', ?, CURRENT_TIMESTAMP, 'active', 1)`,
+    [userId, clinicId, email, await hashPassword("password123"), prefix, roleName],
+  );
+
+  await pool.execute(
+    `INSERT INTO clinic_membership (user_id, clinic_id, role, status, is_primary)
+     VALUES (?, ?, ?, 'active', 1)`,
+    [userId, clinicId, roleName],
+  );
+
+  return {
+    userId,
+    roleId,
+    token: generateToken({ userId, clinicId, role: roleName, email }),
+  };
+}
+
+async function closeServer(server: Server) {
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
 async function createClientAccount(prefix: string) {
   const clientClinicId = uuidv4();
   const profileId = uuidv4();
@@ -121,6 +172,43 @@ test("ClickUp task creation route requires internal task write permission", asyn
     routesSource,
     /["']\/tasks\/create["'][\s\S]*?authorizeAnyPermission\(["']internal_tasks:write["'],\s*["']client_accounts:write["']\)/,
   );
+});
+
+test("ClickUp task creation route rejects users with only client-account write permission", async () => {
+  const workspace = await createWorkspace("clickup-route-permission");
+  const clientOnlyUser = await createUserWithPermissions(
+    workspace.clinicId,
+    "clickup_client_only",
+    ["client_accounts:write"],
+  );
+  const server = app.listen(0);
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to start ClickUp route permission test server");
+  }
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${(address as AddressInfo).port}/api/clickup/tasks/create`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${clientOnlyUser.token}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        internalTaskId: uuidv4(),
+        categoryKey: "development",
+        title: "Should not create",
+        priority: "medium",
+      }),
+    });
+    const body = await response.json() as { message?: string };
+
+    assert.equal(response.status, 403);
+    assert.equal(body.message, "You do not have permission to perform this action");
+  } finally {
+    await closeServer(server);
+  }
 });
 
 test("ClickUp client mapping is stable by client profile and rejects reused delivery structures", async () => {
@@ -474,6 +562,55 @@ test("ClickUp task creation blocks duplicate Mission Control task sends before p
   }
 });
 
+test("ClickUp task creation blocks needs-review recovered mappings before provider call", async () => {
+  const workspace = await createWorkspace("clickup-task-needs-review");
+  const client = await createClientAccount("clickup-needs-review");
+  const taskId = uuidv4();
+
+  await pool.execute(
+    `INSERT INTO task
+      (id, clinic_id, is_internal, title, description, priority, status, board_key, client_account_profile_id, created_by)
+     VALUES (?, ?, 1, 'Needs-review ClickUp task', 'Remote creation was recovered but still needs review.', 'high', 'pending', 'delivery', ?, ?)`,
+    [taskId, workspace.clinicId, client.profileId, workspace.userId],
+  );
+  await pool.execute(
+    `INSERT INTO clickup_task_mapping
+      (id, clinic_id, client_account_profile_id, internal_task_id, workspace_id, clickup_task_id,
+       clickup_list_id, clickup_url, sync_direction, mapping_status, created_by, updated_by)
+     VALUES (?, ?, ?, ?, 'cu-workspace-needs-review', 'cu-created-needs-review',
+       'cu-list', 'https://app.clickup.com/t/cu-created-needs-review', 'mission_control_to_clickup', 'needs_review', ?, ?)`,
+    [uuidv4(), workspace.clinicId, client.profileId, taskId, workspace.userId, workspace.userId],
+  );
+
+  let providerCalled = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    providerCalled = true;
+    return new Response(JSON.stringify({ id: "should-not-create" }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () => clickUpService.createClickUpTask(
+        workspace.clinicId,
+        workspace.userId,
+        {
+          internalTaskId: taskId,
+          categoryKey: "development",
+          title: "Needs-review ClickUp task",
+          priority: "high",
+        },
+        [],
+        { canManageAllClientAccounts: true },
+      ),
+      /pending ClickUp creation that needs review/,
+    );
+    assert.equal(providerCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("ClickUp task creation saves local mapping before attachment upload failures so retries cannot duplicate remote tasks", async () => {
   const workspace = await createWorkspace("clickup-task-attachment-failure");
   const client = await createClientAccount("clickup-attachment-failure");
@@ -556,27 +693,27 @@ test("ClickUp task creation saves local mapping before attachment upload failure
   }) as typeof fetch;
 
   try {
-    await assert.rejects(
-      () => clickUpService.createClickUpTask(
-        workspace.clinicId,
-        workspace.userId,
-        {
-          internalTaskId: taskId,
-          categoryKey: "development",
-          title: "Retry-safe ClickUp task",
-          description: "Send this once.",
-          priority: "high",
-          assigneeIds: ["101"],
-        },
-        [{
-          originalname: "handoff.txt",
-          mimetype: "text/plain",
-          buffer: Buffer.from("handoff"),
-        } as Express.Multer.File],
-        { canManageAllClientAccounts: true },
-      ),
-      /attachment upload failed/,
+    const result = await clickUpService.createClickUpTask(
+      workspace.clinicId,
+      workspace.userId,
+      {
+        internalTaskId: taskId,
+        categoryKey: "development",
+        title: "Retry-safe ClickUp task",
+        description: "Send this once.",
+        priority: "high",
+        assigneeIds: ["101"],
+      },
+      [{
+        originalname: "handoff.txt",
+        mimetype: "text/plain",
+        buffer: Buffer.from("handoff"),
+      } as Express.Multer.File],
+      { canManageAllClientAccounts: true },
     );
+
+    assert.equal(result.mapping.clickupTaskId, "cu-created-before-attachment-failure");
+    assert.deepEqual(result.attachmentErrors, ["handoff.txt"]);
 
     const mapping = await clickUpService.listTaskMappings(
       workspace.clinicId,

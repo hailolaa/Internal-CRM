@@ -935,6 +935,9 @@ export class ClickUpService {
     if (existing?.mappingStatus === "active") {
       throw ApiError.conflict("This Mission Control task already has a ClickUp task link.");
     }
+    if (existing?.mappingStatus === "needs_review") {
+      throw ApiError.conflict("This Mission Control task already has a pending ClickUp creation that needs review before it can be retried.");
+    }
 
     const categoryMapping = await this.getActiveCategoryMapping(clinicId, task.clientAccountProfileId, data.categoryKey);
     const connection = await this.getActiveConnection(clinicId, categoryMapping.workspaceId);
