@@ -296,6 +296,8 @@
 
   .proposal-print-root,
   .proposal-print-root * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
     visibility: visible;
   }
 
@@ -311,6 +313,13 @@
     color: #14231f !important;
     overflow: visible !important;
     padding-bottom: 18mm;
+  }
+
+  .proposal-print-root img,
+  .proposal-logo-img {
+    display: block !important;
+    max-width: 100% !important;
+    visibility: visible !important;
   }
 
   .proposal-cover-page,
@@ -349,9 +358,35 @@
     display: none !important;
   }
 
+  .proposal-video-embed {
+    display: none !important;
+  }
+
+  .proposal-video-print-card {
+    display: flex !important;
+  }
+
+  .proposal-video-print-card,
+  .proposal-video-print-card * {
+    color: #ffffff !important;
+  }
+
+  .proposal-video-print-card [class*="text-[#9dd8d5]"] {
+    color: #9dd8d5 !important;
+  }
+
   .proposal-print-root a {
     color: #315f51 !important;
     text-decoration: none !important;
+  }
+
+  .proposal-print-root .proposal-video-print-card,
+  .proposal-print-root .proposal-video-print-card * {
+    color: #ffffff !important;
+  }
+
+  .proposal-print-root .proposal-video-print-card [class*="text-[#9dd8d5]"] {
+    color: #9dd8d5 !important;
   }
 
   .proposal-print-root [class*="shadow"],
@@ -363,6 +398,19 @@
   .proposal-print-root [class*="rounded-"] {
     break-inside: avoid-page;
     page-break-inside: avoid;
+  }
+
+  .proposal-page-section,
+  .proposal-cover-meta,
+  .proposal-timeline-card,
+  .proposal-acceptance-section {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .proposal-acceptance-section {
+    break-before: auto;
+    page-break-before: auto;
   }
 
   .proposal-print-footer {
@@ -380,10 +428,6 @@
     right: 0;
   }
 
-  .proposal-print-page-number::after {
-    content: counter(page);
-  }
-
   .proposal-video-fallback {
     break-inside: avoid-page;
     page-break-inside: avoid;
@@ -394,12 +438,161 @@
   display: none;
 }
 
+.proposal-client-document,
+.proposal-client-document * {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.proposal-logo-img {
+  display: block;
+  object-fit: contain;
+}
+
+.proposal-video-print-card {
+  display: none;
+}
+
+.proposal-video-thumbnail-img {
+  object-fit: cover;
+}
+
+.proposal-client-document {
+  --proposal-page-width: 794px;
+  --proposal-page-min-height: 1123px;
+  --proposal-page-padding-x: 40px;
+  --proposal-page-padding-y: 36px;
+  background: #e9edf1;
+  border: 0 !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+  padding: 24px 0;
+}
+
+.proposal-client-document > header,
+.proposal-client-document > section:not(.proposal-cover-page),
+.proposal-client-document > footer,
+.proposal-preview-banner {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: var(--proposal-page-width);
+  width: min(var(--proposal-page-width), calc(100% - 32px));
+}
+
+.proposal-client-document > header,
+.proposal-client-document > section {
+  border: 1px solid #d8e4df;
+  box-shadow: 0 18px 45px rgba(20, 35, 31, 0.08);
+  min-height: var(--proposal-page-min-height);
+}
+
+.proposal-client-document > header + section,
+.proposal-client-document > section + section,
+.proposal-client-document > section + header,
+.proposal-client-document > div + section,
+.proposal-preview-banner {
+  margin-top: 24px;
+}
+
+.proposal-client-document > header,
+.proposal-client-document > section:not(.proposal-cover-page) {
+  padding-left: var(--proposal-page-padding-x);
+  padding-right: var(--proposal-page-padding-x);
+  padding-bottom: var(--proposal-page-padding-y);
+  padding-top: var(--proposal-page-padding-y);
+}
+
+.proposal-client-document > footer {
+  padding-left: var(--proposal-page-padding-x);
+  padding-right: var(--proposal-page-padding-x);
+  width: min(var(--proposal-page-width), calc(100% - 32px));
+}
+
+.proposal-client-document > section:not(.proposal-cover-page) {
+  background-color: #ffffff;
+}
+
 .proposal-cover-shape {
   background:
-    linear-gradient(165deg, transparent 0 42%, rgba(103, 195, 189, 0.12) 42% 52%, rgba(16, 43, 47, 0.06) 52% 100%);
-  bottom: -8rem;
-  height: 22rem;
+    linear-gradient(165deg, transparent 0 43%, rgba(103, 195, 189, 0.10) 43% 52%, rgba(16, 43, 47, 0.05) 52% 100%);
+  bottom: -7rem;
+  height: 24rem;
   left: 0;
   position: absolute;
   right: 0;
+}
+
+.proposal-page-section,
+.proposal-cover-meta,
+.proposal-timeline-card {
+  break-inside: avoid;
+}
+
+@media (max-width: 640px) {
+  .proposal-client-document {
+    --proposal-page-padding-x: 24px;
+    --proposal-page-padding-y: 30px;
+    --proposal-page-min-height: 0;
+    padding: 12px 0;
+  }
+
+  .proposal-client-document > header,
+  .proposal-client-document > section:not(.proposal-cover-page),
+  .proposal-client-document > footer,
+  .proposal-preview-banner {
+    width: min(100% - 20px, var(--proposal-page-width));
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 8mm 8mm 13mm;
+  }
+
+  .proposal-client-document {
+    background: #ffffff !important;
+    --proposal-page-padding-x: 8mm;
+    --proposal-page-padding-y: 8mm;
+    --proposal-page-min-height: auto;
+    padding: 0 !important;
+  }
+
+  .proposal-client-document > header,
+  .proposal-client-document > section:not(.proposal-cover-page),
+  .proposal-client-document > footer,
+  .proposal-preview-banner {
+    border: 0 !important;
+    box-shadow: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    min-height: auto !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  .proposal-client-document > header + section,
+  .proposal-client-document > section + section,
+  .proposal-client-document > section + header,
+  .proposal-client-document > div + section,
+  .proposal-preview-banner {
+    margin-top: 0 !important;
+  }
+
+  .proposal-cover-page {
+    min-height: 252mm !important;
+    padding: 12mm 10mm !important;
+  }
+
+  .proposal-intro-page {
+    padding: 8mm !important;
+  }
+
+  .proposal-intro-page > div {
+    max-width: none !important;
+  }
+
+  .proposal-print-root {
+    padding-bottom: 13mm !important;
+  }
 }

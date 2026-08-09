@@ -170,6 +170,7 @@ export interface ProposalSectionContent {
   diagnosis?: string | null;
   introVideoUrl?: string | null;
   introVideoTitle?: string | null;
+  introVideoThumbnailUrl?: string | null;
   fallbackVideoUrl?: string | null;
   primaryGoal?: string | null;
   currentPosition?: string | null;

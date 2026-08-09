@@ -199,6 +199,7 @@ describe("ClinicGrowerProposalTemplate", () => {
     expect(html).toContain("proposal-print-footer");
     expect(html).toContain("Personalised Growth Proposal for Example Clinic");
     expect(html).toContain("ClinicGrower");
+    expect(html).toContain("clinic-grower-logo-inline");
     expect(html).not.toContain("Continue in Mission Control");
     expect(html).not.toContain("CRM preview mode");
   });

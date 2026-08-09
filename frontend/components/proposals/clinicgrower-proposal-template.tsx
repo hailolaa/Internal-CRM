@@ -1,8 +1,8 @@
+/* eslint-disable @next/next/no-img-element */
 import {
   ArrowRight,
   CalendarClock,
   CheckCircle2,
-  FileText,
   LineChart,
   PlayCircle,
   Search,
@@ -81,7 +81,7 @@ const bespokeSectionFlow = [
   },
   {
     title: "Phased delivery",
-    detail: "Dependencies, owners and delivery phases arranged around the clinic’s priorities and capacity.",
+    detail: "Dependencies, owners and delivery phases arranged around the clinic's priorities and capacity.",
     icon: CalendarClock,
   },
   {
@@ -126,7 +126,7 @@ const templateVariants = {
     eyebrow: "Bespoke Clinic Growth Plan",
     recommendedPlanLabel: "Tailored scope",
     defaultPlan:
-      "This bespoke plan combines the workstreams, delivery phases and commercial terms selected for this clinic’s specific growth objectives.",
+      "This bespoke plan combines the workstreams, delivery phases and commercial terms selected for this clinic's specific growth objectives.",
     internalSummary:
       "This custom proposal keeps the agreed scope, commercial assumptions and follow-up ownership attached to the CRM opportunity.",
     publicSummary:
@@ -149,11 +149,11 @@ const defaultFeatures = [
 ];
 
 const defaultStrategyPoints = [
-  "Capture high-intent demand from search, maps and paid channels.",
-  "Improve the conversion path from page visit to enquiry.",
-  "Track calls, forms and WhatsApp enquiries through to booked outcomes.",
-  "Reduce lead-handling leakage with clearer response and follow-up visibility.",
-  "Scale only once demand, conversion and reporting are stable.",
+  "Capture more high-intent demand from Google search, maps, paid traffic and the strongest local service pages.",
+  "Improve the path from visitor to enquiry so the website turns more existing traffic into calls, forms and booked conversations.",
+  "Track calls, forms, WhatsApp and booked outcomes clearly enough to see what is creating real commercial value.",
+  "Tighten response speed, contact attempts and follow-up so good enquiries are not lost after they arrive.",
+  "Scale spend and activity only once demand, conversion, tracking and operational follow-up are stable.",
 ];
 
 const defaultSuccessMetrics = [
@@ -165,17 +165,17 @@ const defaultSuccessMetrics = [
 ];
 
 const defaultClinicGrowerResponsibilities = [
-  "Deliver the agreed scope and raise blockers quickly.",
-  "Track agreed conversion events and report on the patient journey.",
-  "Optimise based on reliable data, lead quality and booked outcomes.",
-  "Provide reporting, recommendations and next actions.",
+  "Lead the agreed strategy, setup, optimisation and delivery rhythm.",
+  "Raise access, tracking, content or approval blockers quickly so momentum is not lost.",
+  "Track agreed conversion events and report on the full enquiry-to-booked journey.",
+  "Use lead quality, booked outcomes and commercial data to guide optimisation and next actions.",
 ];
 
 const defaultClientResponsibilities = [
-  "Provide access, approvals and required assets promptly.",
+  "Provide access, approvals, brand assets and service information promptly.",
   "Respond to enquiries quickly and maintain appointment capacity.",
   "Share accurate booking, sales and treatment outcome data where available.",
-  "Pay advertising spend directly and follow agreed clinical compliance rules.",
+  "Pay advertising spend directly and follow agreed clinical compliance and advertising rules.",
 ];
 
 const defaultTimeline = [
@@ -195,6 +195,9 @@ const defaultTimeline = [
     items: ["Scale working campaigns", "Reduce wasted spend", "Improve cost per booked patient", "Strengthen local visibility", "Produce the next growth plan"],
   },
 ];
+
+const clinicGrowerLogo = "/brand/clinic-grower-logo-inline.png";
+const clinicGrowerIcon = "/brand/clinic-grower-icon-light-circular.png";
 
 function linesFromText(value: string | null | undefined) {
   return (value || "")
@@ -255,21 +258,29 @@ function scoreWidth(value: number | null | undefined) {
 }
 
 function getVimeoEmbedUrl(value: string | null | undefined) {
+  const id = getVimeoVideoId(value);
+  return id ? `https://player.vimeo.com/video/${id}` : null;
+}
+
+function getVimeoVideoId(value: string | null | undefined) {
   if (!value) return null;
   try {
     const url = new URL(value);
     if (url.hostname.includes("player.vimeo.com")) {
-      const id = url.pathname.match(/\/video\/(\d+)/)?.[1];
-      return id ? `https://player.vimeo.com/video/${id}` : null;
+      return url.pathname.match(/\/video\/(\d+)/)?.[1] || null;
     }
     if (url.hostname.includes("vimeo.com")) {
-      const id = url.pathname.match(/\/(\d+)/)?.[1];
-      return id ? `https://player.vimeo.com/video/${id}` : null;
+      return url.pathname.match(/\/(\d+)/)?.[1] || null;
     }
   } catch {
     return null;
   }
   return null;
+}
+
+function getVimeoThumbnailUrl(value: string | null | undefined) {
+  const id = getVimeoVideoId(value);
+  return id ? `https://vumbnail.com/${id}.jpg` : null;
 }
 
 export function ClinicGrowerProposalTemplate({
@@ -313,11 +324,12 @@ export function ClinicGrowerProposalTemplate({
   const introVideoUrl = sectionContent.introVideoUrl || null;
   const introVideoTitle = sectionContent.introVideoTitle || "A short message from ClinicGrower";
   const introVideoEmbedUrl = getVimeoEmbedUrl(introVideoUrl);
+  const introVideoThumbnailUrl = sectionContent.introVideoThumbnailUrl || getVimeoThumbnailUrl(introVideoUrl);
   const fallbackVideoUrl = sectionContent.fallbackVideoUrl || null;
   const printableVideoUrl = fallbackVideoUrl || introVideoUrl;
   const personalIntro =
     sectionContent.personalIntroduction ||
-    `Hi ${firstName(contactName)}, thank you for taking the time to explain how the clinic currently operates, what is working and where you want to grow. This proposal sets out what we believe is currently restricting growth, what should be fixed first, and the ClinicGrower programme we recommend.`;
+    `Hi ${firstName(contactName)}, thank you for the conversation and for sharing where ${accountName} is now. I have kept this proposal focused on the parts that usually make the biggest commercial difference first: visibility, conversion, tracking, response speed and the follow-up process after an enquiry arrives. The aim is to show what we would fix, why it matters, and the programme I would recommend starting with.`;
   const understoodCards: Array<[string, string]> = [
     [
       "Primary goal",
@@ -374,6 +386,37 @@ export function ClinicGrowerProposalTemplate({
   const hasGrowthDiagnosis =
     diagnosisScores.some(([, score]) => score !== null && score !== undefined) ||
     Boolean(sectionContent.biggestRisk || sectionContent.biggestOpportunity || sectionContent.firstRecommendedFix || diagnosisLines.length);
+  const scoredDiagnosisRows = diagnosisScores.filter(([, score]) => score !== null && score !== undefined);
+  const diagnosisHighlights: Array<[string, string]> = [
+    [
+      "Where growth is leaking",
+      draftValue(
+        sectionContent.biggestRisk,
+        "The main risk is not only lead volume. It is the combination of visibility, conversion, response speed and follow-up not working as one controlled system.",
+      ),
+    ],
+    [
+      "Commercial upside",
+      draftValue(
+        sectionContent.biggestOpportunity,
+        "The opportunity is to turn more existing demand into booked conversations before adding unnecessary complexity or scaling spend.",
+      ),
+    ],
+    [
+      "First priority",
+      draftValue(
+        sectionContent.firstRecommendedFix,
+        "Establish reliable tracking, tighten the enquiry journey and fix the highest-impact conversion gaps first.",
+      ),
+    ],
+  ];
+  const diagnosisNarrativeLines = diagnosisLines.length
+    ? diagnosisLines
+    : [
+        "High-intent patients need a clearer route from search, website visit or advert through to enquiry and booking.",
+        "The team needs enough tracking visibility to know which channels, pages and follow-up actions create booked consultations.",
+        "Growth should be managed as one operating system: visibility, conversion, response, booking and optimisation.",
+      ];
   const opportunityRows = ([
     ["Current monthly enquiries", sectionContent.currentMonthlyEnquiries],
     ["Current monthly booked patients", sectionContent.currentMonthlyBookedPatients],
@@ -388,6 +431,22 @@ export function ClinicGrowerProposalTemplate({
     ["Break-even bookings", sectionContent.breakEvenBookings],
     ["Data source", sectionContent.commercialDataSource],
   ] satisfies Array<[string, string | null | undefined]>).filter(([, value]) => Boolean(value?.trim()));
+  const commercialOpportunityRows: Array<[string, string]> = opportunityRows.length
+    ? opportunityRows.map(([label, value]) => [label, value || "To be confirmed"])
+    : [
+        [
+          "Commercial opportunity",
+          "Improve the percentage of existing demand that becomes a qualified enquiry, booked call or consultation.",
+        ],
+        [
+          "Value driver",
+          "Reduce wasted traffic, missed calls, slow follow-up and unclear tracking before increasing spend.",
+        ],
+        [
+          "Measurement priority",
+          "Confirm the baseline for enquiries, booked consultations, response time and cost per booked opportunity during setup.",
+        ],
+      ];
   const strategyPoints = sectionContent.strategyPoints?.length ? sectionContent.strategyPoints : defaultStrategyPoints;
   const successMetrics = sectionContent.successMetrics?.length ? sectionContent.successMetrics : defaultSuccessMetrics;
   const clinicGrowerResponsibilities = sectionContent.clinicGrowerResponsibilities?.length
@@ -407,95 +466,97 @@ export function ClinicGrowerProposalTemplate({
     templateVariant.defaultNextStep;
 
   return (
-    <article className="proposal-print-root proposal-client-document mx-auto max-w-5xl overflow-hidden rounded-[8px] border border-[#d8e4df] bg-white text-[#1f332f] shadow-sm">
+    <article className="proposal-print-root proposal-client-document mx-auto max-w-5xl overflow-hidden rounded-[8px] border border-[#d8e4df] bg-[#e9edf1] text-[#1f332f] shadow-sm">
       <div className="proposal-print-footer" aria-hidden="true">
         <span>Personalised Growth Proposal for {accountName}</span>
         <span>
-          ClinicGrower | Valid until {formatDate(proposal.expiresAt)} | Page{" "}
-          <span className="proposal-print-page-number" />
+          ClinicGrower | Valid until {formatDate(proposal.expiresAt)}
         </span>
       </div>
-      <section className="proposal-cover-page relative min-h-[760px] overflow-hidden bg-white px-8 py-12 sm:px-14">
-        <div className="relative z-10 flex h-full min-h-[680px] flex-col">
-          <div className="inline-flex items-center gap-3">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-[#67c3bd] text-xl font-bold tracking-tight text-[#102b2f]">
-              CG
-            </div>
-            <div>
-              <p className="text-lg font-extrabold uppercase tracking-tight text-[#102b2f]">
-                <span className="text-[#67c3bd]">Clinic</span>Grower
-              </p>
-              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6f7d7f]">
-                Empowering Clinics To Thrive
-              </p>
-            </div>
+      <section className="proposal-cover-page relative min-h-[860px] overflow-hidden bg-white px-8 py-16 sm:px-16">
+        <div className="relative z-10 flex h-full min-h-[748px] flex-col">
+          <div className="w-fit">
+            <img
+              src={clinicGrowerLogo}
+              alt="ClinicGrower"
+              className="proposal-logo-img h-auto w-[152px]"
+            />
+            <p className="mt-3 text-[9px] font-semibold uppercase tracking-[0.16em] text-[#6f7d7f]">
+              Empowering Clinics To Thrive
+            </p>
           </div>
 
-          <div className="mt-28 max-w-xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#67a9a4]">
-              Personalised growth proposal
+          <div className="mt-36 max-w-3xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[#67a9a4]">
+              Personalised Growth Proposal
             </p>
-            <h1 className="mt-6 text-4xl font-light leading-tight text-[#22272a] sm:text-6xl">
+            <h1 className="text-5xl font-light leading-tight tracking-tight text-[#303436] sm:text-6xl">
               For {accountName}
             </h1>
-            <p className="mt-8 text-base text-[#4d5759]">Written by Max Sharpe</p>
+            <p className="mt-10 text-lg text-[#4d5759]">Written by Max Sharpe</p>
           </div>
 
-          <div className="mt-auto max-w-2xl border-t border-[#d8e4df] pt-6">
-            <p className="text-sm leading-7 text-[#4d5759]">
-              A focused plan for improving visibility, conversion, tracking and lead handling so growth can become more predictable and easier to manage.
+          <div className="proposal-cover-meta mt-auto max-w-2xl border-t border-[#d8e4df] pt-7">
+            <p className="text-sm leading-7 text-[#5b7069]">
+              {packageName} - a personalised growth plan focused on visibility, conversion, tracking and lead handling.
+            </p>
+            <p className="mt-6 text-xs font-semibold uppercase tracking-[0.1em] text-[#6b817a]">
+              Valid until {formatDate(proposal.expiresAt)}
             </p>
           </div>
         </div>
         <div className="proposal-cover-shape" aria-hidden="true" />
       </section>
 
-      <header className="proposal-intro-page border-b border-[#d8e4df] bg-white px-6 py-10 sm:px-12">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-2xl">
-            <div className="mb-8 flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#67c3bd] text-base font-bold text-[#102b2f]">
-                CG
-              </div>
-              <div>
-                <p className="text-base font-extrabold uppercase tracking-tight text-[#102b2f]">
-                  <span className="text-[#67c3bd]">Clinic</span>Grower
-                </p>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6f7d7f]">
-                  Empowering Clinics To Thrive
-                </p>
-              </div>
-            </div>
-            <div className="mb-5 inline-flex items-center gap-2 border border-[#d8e4df] bg-[#f8fbf9] px-3 py-2 text-xs font-semibold text-[#315f51]">
-              <FileText className="h-3.5 w-3.5" />
-              {packageName} - {proposal.adSpendNote || "growth system and conversion tracking"}
-            </div>
-            <h2 className="text-3xl font-light leading-tight text-[#22272a] sm:text-5xl">
-              Personalised Growth Proposal for {accountName}
-            </h2>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-[#4e635d]">
-              {executiveSummary}
+      <header className="proposal-intro-page border-b border-[#d8e4df] bg-[#e9edf1] px-6 py-10 sm:px-12">
+        <div className="mx-auto max-w-3xl border-t-4 border-[#67c3bd] bg-white px-6 py-10 sm:px-10">
+          <div className="mx-auto flex max-w-md flex-col items-center text-center">
+            <img
+              src={clinicGrowerIcon}
+              alt=""
+              className="proposal-logo-img h-24 w-24"
+            />
+            <img
+              src={clinicGrowerLogo}
+              alt="ClinicGrower"
+              className="proposal-logo-img mt-5 h-auto w-[260px]"
+            />
+            <div className="mt-3 h-px w-28 bg-[#d8e4df]" />
+            <p className="mt-3 text-sm font-semibold text-[#303436]">
+              Empowering Clinics To Thrive
             </p>
           </div>
 
-          <div className="min-w-[220px] border-l-4 border-[#67c3bd] bg-[#f8fbf9] p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Prepared for</p>
-            <p className="mt-2 text-lg font-semibold text-[#14231f]">{accountName}</p>
-            <p className="mt-1 text-sm text-[#5b7069]">{contactName}</p>
-            <div className="mt-4 border-t border-[#e2ebe7] pt-4 text-sm text-[#4e635d]">
-              <div className="flex justify-between gap-4">
-                <span>Recommended</span>
-                <span className="text-right font-semibold text-[#315f51]">{packageName}</span>
-              </div>
-              <div className="mt-2 flex justify-between gap-4">
-                <span>Prepared by</span>
-                <span className="font-semibold text-[#315f51]">Max Sharpe</span>
-              </div>
-              <div className="mt-2 flex justify-between gap-4">
-                <span>Valid until</span>
-                <span className="font-semibold text-[#315f51]">{formatDate(proposal.expiresAt)}</span>
-              </div>
+          <div className="mt-10 border border-[#e2ebe7] bg-[#f8fbf9] px-5 py-4 text-center text-sm leading-6 text-[#315f51]">
+            {packageName} - {proposal.adSpendNote || "growth system and conversion tracking"}
+          </div>
+
+          <div className="mt-7">
+            <h2 className="text-3xl font-light leading-tight text-[#303436] sm:text-4xl">
+              Personalised Growth Proposal for{" "}
+              <span className="block pt-2 uppercase tracking-[0.03em] text-[#67c3bd]">
+                {accountName}
+              </span>
+            </h2>
+            <p className="mt-6 text-base leading-8 text-[#303436]">{personalIntro}</p>
+            <p className="mt-4 text-base leading-8 text-[#4d5759]">{executiveSummary}</p>
+          </div>
+
+          <div className="mt-8 grid gap-3 border-t border-[#d8e4df] pt-5 text-sm text-[#4e635d] sm:grid-cols-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Prepared for</p>
+              <p className="mt-2 font-semibold text-[#14231f]">{contactName}</p>
             </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Prepared by</p>
+              <p className="mt-2 font-semibold text-[#14231f]">Max Sharpe</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Valid until</p>
+              <p className="mt-2 font-semibold text-[#14231f]">{formatDate(proposal.expiresAt)}</p>
+            </div>
+          </div>
+
             {previewMode && "status" in proposal ? (
               <div className="mt-4 border-t border-[#e2ebe7] pt-4 text-sm text-[#4e635d]">
                 <div className="flex justify-between gap-4">
@@ -512,65 +573,75 @@ export function ClinicGrowerProposalTemplate({
                 </div>
               </div>
             ) : null}
-          </div>
         </div>
       </header>
 
       {previewMode && (
-        <div className="border-b border-[#d8e4df] bg-[#fff8ed] px-6 py-3 text-sm font-medium text-[#775a22] sm:px-10">
-          CRM preview mode. Sending, signatures and client-facing access will be handled in later proposal cards.
+        <div className="proposal-preview-banner border border-[#ead7b3] bg-[#fff8ed] px-6 py-3 text-sm font-medium text-[#775a22] sm:px-10">
+          Internal preview mode. Public proposal links hide this banner and show the client-facing acceptance flow.
         </div>
       )}
 
-      <section className="grid gap-6 px-6 py-8 sm:px-10 lg:grid-cols-[0.8fr_1.2fr]">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Personal introduction</p>
-          <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">A note from Max</h2>
-        </div>
-        <div>
-          <p className="text-base leading-7 text-[#4e635d]">{personalIntro}</p>
-          {fallbackVideoUrl ? (
-            <a href={fallbackVideoUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#315f51] hover:text-[#24483d]">
-              <PlayCircle className="h-4 w-4" />
-              Open backup video link
-            </a>
-          ) : null}
+      <section className="proposal-page-section border-t border-[#d8e4df] bg-white px-6 py-9 sm:px-10">
+        <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">What we understood</p>
+        <h2 className="mt-2 text-3xl font-light tracking-tight text-[#303436]">Proposal snapshot</h2>
+        <div className="mt-6 border-l-4 border-[#67c3bd] bg-[#f8fbf9] px-5 py-5">
+          <p className="text-base leading-8 text-[#303436]">
+            <span className="font-semibold">Primary goal: </span>
+            {understoodCards[0][1]}
+          </p>
+          <p className="mt-3 text-base leading-8 text-[#303436]">
+            <span className="font-semibold">Operations reality: </span>
+            {understoodCards[1][1]}
+          </p>
+          <ul className="mt-5 space-y-3 text-base leading-7 text-[#303436]">
+            {understoodCards.slice(2).map(([label, value]) => (
+              <li key={label} className="flex gap-3">
+                <span className="mt-3 h-1.5 w-1.5 flex-none rounded-full bg-[#102b2f]" />
+                <span>
+                  <span className="font-semibold">{label}: </span>
+                  {value}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 
-      <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
-        <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">What we understood</p>
-        <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {understoodCards.map(([label, value]) => (
-            <div key={label} className="rounded-[8px] border border-[#e2ebe7] bg-[#f8fbf9] p-4">
+      <section className="proposal-page-section border-t border-[#d8e4df] bg-[#f8fbf9] px-6 py-9 sm:px-10">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Growth diagnosis</p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[#14231f]">Where growth is currently being lost</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#5b7069]">
+              Before the investment section, this proposal makes the diagnosis clear: what is restricting growth, what the commercial upside is, and what should be fixed first.
+            </p>
+          </div>
+          {hasGrowthDiagnosis && sectionContent.growthScoreOverall !== null && sectionContent.growthScoreOverall !== undefined ? (
+            <div className={`rounded-[8px] px-4 py-3 text-right font-semibold ${scoreTone(sectionContent.growthScoreOverall)}`}>
+              <p className="text-xs uppercase tracking-[0.08em]">Overall score</p>
+              <p className="text-2xl">{Math.round(sectionContent.growthScoreOverall)} / 100</p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          {diagnosisHighlights.map(([label, value]) => (
+            <div key={label} className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
               <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">{label}</p>
-              <p className="mt-2 text-sm font-semibold leading-6 text-[#14231f]">{value}</p>
+              <p className="mt-3 text-sm leading-6 text-[#354943]">{value}</p>
             </div>
           ))}
         </div>
-      </section>
 
-      {hasGrowthDiagnosis ? (
-        <section className="border-t border-[#d8e4df] bg-[#f8fbf9] px-6 py-8 sm:px-10">
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Growth diagnosis</p>
-              <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">Where growth is currently being lost</h2>
-            </div>
-            {sectionContent.growthScoreOverall !== null && sectionContent.growthScoreOverall !== undefined ? (
-              <div className={`rounded-[8px] px-4 py-3 text-right font-semibold ${scoreTone(sectionContent.growthScoreOverall)}`}>
-                <p className="text-xs uppercase tracking-[0.08em]">Overall score</p>
-                <p className="text-2xl">{Math.round(sectionContent.growthScoreOverall)} / 100</p>
-              </div>
-            ) : null}
-          </div>
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
-            {diagnosisScores.map(([label, score]) => (
+        {scoredDiagnosisRows.length ? (
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            {scoredDiagnosisRows.map(([label, score]) => (
               <div key={label} className="rounded-[8px] border border-[#d8e4df] bg-white p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-[#14231f]">{label}</p>
                   <span className={`rounded-full px-2 py-1 text-xs font-semibold ${scoreTone(score)}`}>
-                    {score === null || score === undefined ? "Not scored" : `${Math.round(score)} / 100`}
+                    {`${Math.round(score || 0)} / 100`}
                   </span>
                 </div>
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf2ef]">
@@ -579,58 +650,70 @@ export function ClinicGrowerProposalTemplate({
               </div>
             ))}
           </div>
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            {[
-              ["Biggest current risk", sectionContent.biggestRisk],
-              ["Biggest opportunity", sectionContent.biggestOpportunity],
-              ["First recommended fix", sectionContent.firstRecommendedFix],
-            ].map(([label, value]) => value ? (
-              <div key={label} className="rounded-[8px] border border-[#d8e4df] bg-white p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">{label}</p>
-                <p className="mt-2 text-sm leading-6 text-[#354943]">{value}</p>
-              </div>
-            ) : null)}
-          </div>
-          {diagnosisLines.length ? (
-            <ul className="mt-5 space-y-2 rounded-[8px] border border-[#d8e4df] bg-white p-5 text-sm leading-6 text-[#5b7069]">
-              {diagnosisLines.map((line) => (
-                <li key={line} className="flex gap-2">
-                  <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2f7665]" />
-                  <span>{line}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
-      ) : null}
+        ) : null}
 
-      {opportunityRows.length ? (
-        <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
-          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Commercial opportunity</p>
-          <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {opportunityRows.map(([label, value]) => (
+        <ul className="mt-5 space-y-2 rounded-[8px] border border-[#d8e4df] bg-white p-5 text-sm leading-6 text-[#5b7069]">
+          {diagnosisNarrativeLines.map((line) => (
+            <li key={line} className="flex gap-2">
+              <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2f7665]" />
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="proposal-page-section border-t border-[#d8e4df] px-6 py-9 sm:px-10">
+        <div className="grid gap-5 lg:grid-cols-[0.78fr_1.22fr] lg:items-start">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Commercial opportunity</p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[#14231f]">What this is worth fixing</h2>
+            <p className="mt-4 text-sm leading-6 text-[#5b7069]">
+              The commercial case is built around improving the full journey: demand, enquiry, response, booking, attendance and revenue visibility.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {commercialOpportunityRows.slice(0, 6).map(([label, value]) => (
               <div key={label} className="rounded-[8px] border border-[#e2ebe7] bg-[#f8fbf9] p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">{label}</p>
                 <p className="mt-2 text-sm font-semibold leading-6 text-[#14231f]">{value}</p>
               </div>
             ))}
           </div>
-          <p className="mt-5 rounded-[8px] bg-[#fff8ed] p-4 text-sm leading-6 text-[#775a22]">
-            Commercial forecasts are illustrative and are not guaranteed. Actual performance depends on demand, competition, advertising spend, response speed, follow-up, appointment availability and clinic conversion.
-          </p>
-        </section>
-      ) : null}
+        </div>
+        {commercialOpportunityRows.length > 6 ? (
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            {commercialOpportunityRows.slice(6).map(([label, value]) => (
+              <div key={label} className="rounded-[8px] border border-[#e2ebe7] bg-[#f8fbf9] p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">{label}</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-[#14231f]">{value}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <p className="mt-5 rounded-[8px] bg-[#fff8ed] p-4 text-sm leading-6 text-[#775a22]">
+          Commercial forecasts are illustrative and are not guaranteed. Actual performance depends on demand, competition, advertising spend, response speed, follow-up, appointment availability and clinic conversion.
+        </p>
+      </section>
 
-      <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
+      <section className="proposal-page-section border-t border-[#d8e4df] px-6 py-9 sm:px-10">
         <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Recommended strategy</p>
-            <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">What we recommend and why</h2>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[#14231f]">What we recommend and why</h2>
             <p className="mt-4 text-sm leading-6 text-[#5b7069]">{proposalWording}</p>
           </div>
           <div>
-            <div className="rounded-[8px] border border-[#d8e4df] bg-[#f8fbf9] p-4 text-center text-sm font-semibold text-[#315f51]">
-              Demand -&gt; Enquiry -&gt; Response -&gt; Booking -&gt; Attendance -&gt; Treatment -&gt; Revenue -&gt; Optimisation
+            <div className="rounded-[8px] border border-[#d8e4df] bg-[#f8fbf9] p-4">
+              <div className="grid gap-2 text-center text-xs font-semibold text-[#315f51] sm:grid-cols-4">
+                {["Demand", "Enquiry", "Booking", "Optimisation"].map((stage) => (
+                  <span key={stage} className="rounded-full bg-white px-3 py-2 shadow-sm">
+                    {stage}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-3 text-center text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">
+                Visibility - conversion - response - revenue visibility
+              </p>
             </div>
             <div className="mt-4 grid gap-3">
               {strategyPoints.map((point) => (
@@ -644,16 +727,23 @@ export function ClinicGrowerProposalTemplate({
         </div>
       </section>
 
-      <section className="border-y border-[#d8e4df] bg-[#f8fbf9] px-6 py-8 sm:px-10">
+      <section className="proposal-page-section border-y border-[#d8e4df] bg-[#f8fbf9] px-6 py-9 sm:px-10">
         <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">The first 90 days</p>
-        <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">A controlled route from diagnosis to growth</h2>
-        <div className="mt-5 grid gap-4 lg:grid-cols-3">
-          {timelinePhases.map((item) => (
-            <div key={`${item.title}-${item.phase}`} className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">{item.title}</p>
-              <h3 className="mt-2 text-lg font-semibold text-[#14231f]">{item.phase}</h3>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[#14231f]">A controlled route from diagnosis to growth</h2>
+        <div className="mt-7 grid gap-4 lg:grid-cols-3">
+          {timelinePhases.map((item, index) => (
+            <div key={`${item.title}-${item.phase}`} className="proposal-timeline-card relative rounded-[8px] border border-[#d8e4df] bg-white p-5 shadow-sm">
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-[#14231f] text-sm font-semibold text-white">
+                  {index + 1}
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">{item.title}</p>
+                  <h3 className="mt-2 text-lg font-semibold text-[#14231f]">{item.phase}</h3>
+                </div>
+              </div>
               {item.items.length ? (
-                <ul className="mt-3 space-y-2 text-sm leading-6 text-[#5b7069]">
+                <ul className="mt-4 space-y-2 border-l border-[#d8e4df] pl-4 text-sm leading-6 text-[#5b7069]">
                   {item.items.map((timelineItem) => (
                     <li key={timelineItem} className="flex gap-2">
                       <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-[#2f7665]" />
@@ -680,26 +770,72 @@ export function ClinicGrowerProposalTemplate({
                 Watch this before reviewing the scope and next steps. It gives context for the recommended growth plan and how ClinicGrower approaches the work.
               </p>
             </div>
-            <div className="overflow-hidden rounded-[8px] border border-[#d8e4df] bg-[#14231f]">
+            <div className="proposal-video-frame overflow-hidden rounded-[8px] border border-[#d8e4df] bg-[#14231f]">
               {introVideoEmbedUrl ? (
                 <iframe
                   src={introVideoEmbedUrl}
                   title={introVideoTitle}
                   allow="autoplay; fullscreen; picture-in-picture"
                   allowFullScreen
-                  className="aspect-video w-full"
+                  className="proposal-video-embed aspect-video w-full"
                 />
               ) : (
                 <a
                   href={introVideoUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex aspect-video w-full items-center justify-center gap-3 bg-[#14231f] px-6 text-center text-sm font-semibold text-white transition hover:bg-[#1f332f]"
+                  className="proposal-video-embed flex aspect-video w-full items-center justify-center gap-3 bg-[#14231f] px-6 text-center text-sm font-semibold text-white transition hover:bg-[#1f332f]"
                 >
                   <PlayCircle className="h-6 w-6" />
                   Open proposal video
                 </a>
               )}
+              {printableVideoUrl ? (
+                <a
+                  href={printableVideoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="proposal-video-print-card relative hidden aspect-video w-full overflow-hidden bg-[#14231f] p-8 text-white"
+                >
+                  {introVideoThumbnailUrl ? (
+                    <img
+                      src={introVideoThumbnailUrl}
+                      alt=""
+                      className="proposal-video-thumbnail-img absolute inset-0 h-full w-full object-cover"
+                    />
+                  ) : null}
+                  <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(20,35,31,0.62),rgba(49,95,81,0.56))]" />
+                  <div className="relative z-10 flex h-full flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={clinicGrowerIcon}
+                          alt=""
+                          className="proposal-logo-img h-12 w-12"
+                        />
+                        <p className="text-lg font-extrabold uppercase tracking-tight text-white">
+                          ClinicGrower
+                        </p>
+                      </div>
+                      <p className="mt-8 text-xs font-semibold uppercase tracking-[0.14em] text-[#9dd8d5]">
+                        Proposal video
+                      </p>
+                      <h3 className="mt-4 max-w-xl text-3xl font-semibold leading-tight text-white">
+                        {introVideoTitle}
+                      </h3>
+                    </div>
+                    <div className="flex items-end justify-between gap-6">
+                      <div className="max-w-md">
+                        <p className="text-sm font-semibold text-white">Watch the proposal walkthrough</p>
+                        <p className="mt-2 break-all text-xs leading-5 text-white/75">{printableVideoUrl}</p>
+                      </div>
+                      <span className="flex h-16 w-16 flex-none items-center justify-center rounded-full bg-[#67c3bd] text-[#102b2f]">
+                        <PlayCircle className="h-8 w-8" />
+                      </span>
+                    </div>
+                  </div>
+                </a>
+              ) : null}
             </div>
             {printableVideoUrl ? (
               <p className="proposal-video-fallback text-sm leading-6 text-[#5b7069]">
@@ -718,29 +854,32 @@ export function ClinicGrowerProposalTemplate({
         </section>
       ) : null}
 
-      <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
+      <section className="proposal-page-section border-t border-[#d8e4df] px-6 py-9 sm:px-10">
         <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Recommended programme and investment</p>
-        <div className="mt-5 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-[8px] border border-[#d8e4df] bg-[#f8fbf9] p-5">
+        <div className="mt-5 grid overflow-hidden rounded-[8px] border border-[#d8e4df] lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="bg-[#f8fbf9] p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">{templateVariant.recommendedPlanLabel}</p>
-            <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">{packageName}</h2>
-            <p className="mt-3 text-sm leading-6 text-[#5b7069]">
-              This is the recommended programme for the priorities identified above. Alternative packages are intentionally hidden by default so the proposal stays focused on the clearest recommendation.
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[#14231f]">{packageName}</h2>
+            <p className="mt-4 text-sm leading-6 text-[#5b7069]">
+              This is the programme I would recommend based on the priorities above. It keeps the proposal focused on the clearest route to measurable progress rather than presenting a menu of weaker options.
             </p>
+            <div className="mt-5 rounded-[8px] bg-white p-4 text-sm leading-6 text-[#354943]">
+              The investment is positioned after diagnosis, opportunity and strategy so the commercial decision is tied to the work that needs to happen first.
+            </div>
           </div>
-          <div className="rounded-[8px] border border-[#d8e4df] bg-[#14231f] p-5 text-white">
-            <p className="text-sm font-semibold text-white/75">Monthly programme fee</p>
-            <p className="mt-3 text-3xl font-semibold">{formatMoney(monthlyFee ?? mainPrice, currency)}</p>
-            <p className="mt-1 text-sm capitalize text-white/70">{formatBilling(packageRecord?.billingFrequency)}</p>
+          <div className="bg-[#14231f] p-6 text-white">
+            <p className="text-sm font-semibold text-white/75">Recommended monthly programme fee</p>
+            <p className="mt-3 text-4xl font-semibold tracking-tight">{formatMoney(monthlyFee ?? mainPrice, currency)}</p>
+            <p className="mt-1 text-sm capitalize text-white/70">{formatBilling(packageRecord?.billingFrequency) || "Programme fee"}</p>
             {setupFee ? (
-              <p className="mt-3 text-sm text-white/80">Setup and launch: {formatMoney(setupFee, currency)}</p>
+              <p className="mt-4 rounded-[8px] bg-white/10 p-3 text-sm text-white/85">Setup and launch: {formatMoney(setupFee, currency)}</p>
             ) : null}
             {proposal.adSpendNote ? (
               <p className="mt-3 text-sm leading-6 text-white/75">{proposal.adSpendNote}</p>
             ) : null}
           </div>
         </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
           {[
             ["Monthly fee", formatMoney(monthlyFee, currency)],
             ["Setup fee", formatMoney(setupFee, currency)],
@@ -750,7 +889,7 @@ export function ClinicGrowerProposalTemplate({
             ["Start date", proposal.startDate ? formatDate(proposal.startDate) : "To be agreed"],
             ["Expiry date", proposal.expiresAt ? formatDate(proposal.expiresAt) : "To be agreed"],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-[8px] border border-[#e2ebe7] bg-[#f8fbf9] p-4">
+            <div key={label} className="rounded-[8px] border border-[#e2ebe7] bg-white p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">{label}</p>
               <p className="mt-2 text-sm font-semibold capitalize text-[#14231f]">{value}</p>
             </div>
@@ -786,7 +925,7 @@ export function ClinicGrowerProposalTemplate({
         ) : null}
       </section>
 
-      <section className="grid gap-8 px-6 py-8 sm:px-10 lg:grid-cols-[0.85fr_1.15fr]">
+      <section className="proposal-page-section grid gap-8 px-6 py-9 sm:px-10 lg:grid-cols-[0.85fr_1.15fr]">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">What is included</p>
           <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">
@@ -843,32 +982,43 @@ export function ClinicGrowerProposalTemplate({
       </section>
 
       {proofAssets.length ? (
-        <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
-          <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Proof and credibility</p>
-          <h2 className="mt-2 text-2xl font-semibold text-[#14231f]">Why this recommendation is credible</h2>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {proofAssets.map((asset) => (
-              <div key={asset.id} className="rounded-[8px] border border-[#e2ebe7] bg-white p-5">
-                <div className="flex flex-wrap items-center gap-2">
+        <section className="proposal-page-section border-t border-[#d8e4df] bg-[#f8fbf9] px-6 py-9 sm:px-10">
+          <div className="max-w-2xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Proof and credibility</p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[#14231f]">Why this recommendation is credible</h2>
+            <p className="mt-3 text-sm leading-6 text-[#5b7069]">
+              Selected proof is included only where it supports this recommendation. It is kept separate from internal notes and delivery assumptions.
+            </p>
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {proofAssets.map((asset, index) => (
+              <div
+                key={asset.id}
+                className={`rounded-[8px] border border-[#d8e4df] bg-white p-5 shadow-sm ${index === 0 ? "md:col-span-2" : ""}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="rounded-full bg-[#edf5f1] px-2 py-1 text-xs font-semibold capitalize text-[#315f51]">
                     {asset.type.replace(/_/g, " ")}
                   </span>
-                  {asset.sectorTags.slice(0, 3).map((tag) => (
-                    <span key={tag} className="rounded-full bg-[#f3f7f4] px-2 py-1 text-xs font-semibold text-[#6b817a]">
-                      {tag}
-                    </span>
-                  ))}
+                  <div className="flex flex-wrap gap-2">
+                    {asset.sectorTags.slice(0, 3).map((tag) => (
+                      <span key={tag} className="rounded-full bg-[#f3f7f4] px-2 py-1 text-xs font-semibold text-[#6b817a]">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-                <h3 className="mt-4 text-lg font-semibold text-[#14231f]">{asset.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-[#5b7069]">{asset.copy}</p>
+                <h3 className="mt-5 text-xl font-semibold text-[#14231f]">{asset.title}</h3>
+                <p className="mt-3 text-base leading-7 text-[#354943]">{asset.copy}</p>
                 {asset.mediaUrl ? (
                   <a
                     href={asset.mediaUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-4 inline-flex text-sm font-semibold text-[#315f51] hover:text-[#24483d]"
+                    className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#315f51] hover:text-[#24483d]"
                   >
-                    Open proof asset
+                    View supporting proof
+                    <ArrowRight className="h-4 w-4" />
                   </a>
                 ) : null}
               </div>
@@ -877,7 +1027,7 @@ export function ClinicGrowerProposalTemplate({
         </section>
       ) : null}
 
-      <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
+      <section className="proposal-page-section border-t border-[#d8e4df] px-6 py-9 sm:px-10">
         <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">How success will be measured</p>
         <div className="mt-5 overflow-hidden rounded-[8px] border border-[#d8e4df]">
           {successMetrics.map((metric, index) => {
@@ -893,7 +1043,7 @@ export function ClinicGrowerProposalTemplate({
         </div>
       </section>
 
-      <section className="border-t border-[#d8e4df] bg-[#f8fbf9] px-6 py-8 sm:px-10">
+      <section className="proposal-page-section border-t border-[#d8e4df] bg-[#f8fbf9] px-6 py-9 sm:px-10">
         <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Roles and responsibilities</p>
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
           <div className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
@@ -921,7 +1071,7 @@ export function ClinicGrowerProposalTemplate({
         </div>
       </section>
 
-      <section className="border-t border-[#d8e4df] px-6 py-8 sm:px-10">
+      <section className="proposal-page-section border-t border-[#d8e4df] px-6 py-9 sm:px-10">
         <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Terms summary</p>
         <p className="mt-3 text-sm leading-6 text-[#5b7069]">{termsSummary}</p>
         <p className="mt-4 rounded-[8px] bg-[#fff8ed] p-4 text-sm leading-6 text-[#775a22]">
@@ -929,25 +1079,31 @@ export function ClinicGrowerProposalTemplate({
         </p>
       </section>
 
-      <section id="proposal-acceptance" className="border-t border-[#d8e4df] bg-[#f8fbf9] px-6 py-8 sm:px-10">
-        <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#6b817a]">Next steps and acceptance</p>
-        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_1fr]">
-          <div className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
-            <p className="text-base font-semibold text-[#14231f]">Accept proposal</p>
-            <p className="mt-2 text-sm leading-6 text-[#5b7069]">Confirm the recommendation, commercial terms and preferred start date so onboarding can begin.</p>
+      <section id="proposal-acceptance" className="proposal-acceptance-section border-t border-[#d8e4df] bg-[#14231f] px-6 py-10 text-white sm:px-10">
+        <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.08em] text-[#9dd8d5]">Next steps and acceptance</p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white">Ready to move forward</h2>
+            <p className="mt-4 text-sm leading-6 text-white/75">
+              Acceptance confirms the recommended scope, commercial terms and preferred start date so onboarding can begin with the right access, owners and priorities in place.
+            </p>
           </div>
-          <div className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
-            <p className="text-base font-semibold text-[#14231f]">Ask a question</p>
-            <p className="mt-2 text-sm leading-6 text-[#5b7069]">Raise any questions around scope, capacity, treatment focus, pricing or responsibilities before approval.</p>
-          </div>
-          <div className="rounded-[8px] border border-[#d8e4df] bg-white p-5">
-            <p className="text-base font-semibold text-[#14231f]">Book the kickoff call</p>
-            <p className="mt-2 text-sm leading-6 text-[#5b7069]">Once accepted, the next step is access setup, tracking confirmation and launch planning.</p>
+          <div className="grid gap-3">
+            {[
+              ["1", "Accept the proposal", "Confirm the recommendation, commercial terms and preferred start date."],
+              ["2", "Prepare access and assets", "Share the required accounts, approvals, brand assets and service information."],
+              ["3", "Start the launch rhythm", "Kickoff, tracking confirmation, campaign setup, weekly optimisation and monthly reporting."],
+            ].map(([step, title, copy]) => (
+              <div key={title} className="flex gap-4 rounded-[8px] border border-white/10 bg-white/[0.06] p-4">
+                <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-[#67c3bd] text-sm font-semibold text-[#102b2f]">{step}</span>
+                <div>
+                  <p className="text-base font-semibold text-white">{title}</p>
+                  <p className="mt-1 text-sm leading-6 text-white/75">{copy}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-        <p className="mt-5 rounded-[8px] bg-white p-4 text-sm leading-6 text-[#5b7069]">
-          On acceptance: onboarding call - access setup - tracking confirmed - campaigns live - weekly optimisation - monthly reporting.
-        </p>
       </section>
 
       <footer className="flex flex-col gap-4 border-t border-[#d8e4df] bg-[#14231f] px-6 py-6 text-white sm:px-10 md:flex-row md:items-center md:justify-between">
