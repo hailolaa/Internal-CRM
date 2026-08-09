@@ -387,7 +387,7 @@ export function getProductionConfigIssues() {
         !config.whatsapp.defaultWorkspaceId &&
         Object.keys(config.whatsapp.webhookWorkspaceMap).length === 0
     ) {
-        issues.push("WHATSAPP_WEBHOOK_WORKSPACE_ID or WHATSAPP_WEBHOOK_WORKSPACE_MAP must be set when WHATSAPP_PROVIDER=meta.");
+        issues.push("WHATSAPP_WEBHOOK_WORKSPACE_ID or WHATSAPP_WEBHOOK_WORKSPACE_MAP must be set when WHATSAPP_PROVIDER=meta or twilio.");
     }
 
     if (
