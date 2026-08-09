@@ -1,9 +1,11 @@
 "use client";
 
+import Image from "next/image";
+
 /**
  * ClinicGrowerLogo - shared app logo component.
  *
- * Full variant: CG icon mark + wordmark + Mission Control subtitle
+ * Full variant: ClinicGrower wordmark
  * Compact variant: CG icon mark only
  */
 
@@ -11,25 +13,24 @@ interface ClinicGrowerLogoProps {
   variant?: "full" | "compact";
 }
 
-const LOGO_ICON =
-  "https://eu.chat-img.sintra.ai/57e4b3da-c2ee-48f8-956d-828adc30d734/f09acbf8-3fb3-43fe-a5fb-8d82c035723f/IMG_3004.jpeg";
+const LOGO_INLINE = "/brand/clinic-grower-logo-inline.png";
+const LOGO_ICON = "/brand/clinic-grower-icon-light-circular.png";
 
 export default function ClinicGrowerLogo({
   variant = "full",
 }: ClinicGrowerLogoProps) {
-  const imgStyle: React.CSSProperties = {
+  const iconStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
     objectFit: "contain",
     display: "block",
-    filter: "hue-rotate(60deg)",
     imageRendering: "auto",
   };
 
   if (variant === "compact") {
     return (
       <div
-        aria-label="ClinicGrower Mission Control"
+        aria-label="ClinicGrower Internal CRM"
         style={{
           width: 36,
           height: 36,
@@ -37,55 +38,36 @@ export default function ClinicGrowerLogo({
           background: "transparent",
         }}
       >
-        <img src={LOGO_ICON} alt="ClinicGrower Mission Control" style={imgStyle} />
+        <Image
+          src={LOGO_ICON}
+          alt="ClinicGrower Internal CRM"
+          width={36}
+          height={36}
+          style={iconStyle}
+        />
       </div>
     );
   }
 
   return (
     <div
-      className="flex items-center"
-      style={{ gap: 10 }}
-      aria-label="ClinicGrower Mission Control"
+      className="flex flex-col"
+      style={{ gap: 3 }}
+      aria-label="ClinicGrower Internal CRM"
     >
-      <div
+      <Image
+        src={LOGO_INLINE}
+        alt="ClinicGrower"
+        width={186}
+        height={35}
         style={{
-          width: 36,
-          height: 36,
-          flexShrink: 0,
-          background: "transparent",
+          width: "clamp(130px, 20vw, 176px)",
+          maxWidth: "100%",
+          height: "auto",
+          display: "block",
+          objectFit: "contain",
         }}
-      >
-        <img src={LOGO_ICON} alt="ClinicGrower Mission Control" style={imgStyle} />
-      </div>
-
-      <div className="flex flex-col" style={{ gap: 0 }}>
-        <div
-          style={{
-            fontSize: 16,
-            lineHeight: 1.1,
-            letterSpacing: "0.02em",
-            color: "#151f21",
-          }}
-        >
-          <span style={{ fontWeight: 500 }}>Clinic</span>
-          <span style={{ fontWeight: 700 }}>Grower</span>
-        </div>
-        <div
-          className="hidden sm:block"
-          style={{
-            fontSize: 8.5,
-            lineHeight: 1,
-            letterSpacing: "0.16em",
-            color: "#5e8a8d",
-            fontWeight: 500,
-            textTransform: "uppercase" as const,
-            marginTop: 3,
-          }}
-        >
-          Mission Control
-        </div>
-      </div>
+      />
     </div>
   );
 }

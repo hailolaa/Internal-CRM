@@ -3,7 +3,7 @@
 // ============================================================
 
 export const LOGO_URL =
-  "https://eu.chat-img.sintra.ai/57e4b3da-c2ee-48f8-956d-828adc30d734/0588879f-1cbe-4b7a-8b40-812b6a74b739/Copy_20of_20Copy_20of_20Clinic-Grower-Logo-Trademark-Light-Centralised-NO-slogan-withBG.png";
+  "/brand/clinic-grower-logo-inline.png";
 
 export const APP_NAME = "ClinicGrower Mission Control";
 export const APP_TAGLINE = "Internal sales, client, and delivery operations";

@@ -1,59 +1,139 @@
 import Link from "next/link";
+import { ArrowRight, LockKeyhole, UsersRound } from "lucide-react";
+import ClinicGrowerLogo from "@/components/brand/ClinicGrowerLogo";
+
+const journey = [
+  {
+    stage: "Audit",
+    detail: "Capture the request, source, contact details and first action.",
+  },
+  {
+    stage: "Diagnosis",
+    detail: "Record Growth Score context, gaps, notes and recommended next step.",
+  },
+  {
+    stage: "Lead recovery",
+    detail: "Track response status, contact attempts, WhatsApp, calls and follow-up.",
+  },
+  {
+    stage: "Campaigns",
+    detail: "Link the prospect or client to proposals, packages and delivery tasks.",
+  },
+  {
+    stage: "Growth management",
+    detail: "Keep client ownership, onboarding, account tasks and retention notes visible.",
+  },
+];
+
+const primaryPaths = [
+  {
+    title: "Sales CRM",
+    copy: "Prospects, pipeline movement, notes, proposals and follow-up.",
+  },
+  {
+    title: "Client Delivery",
+    copy: "Client accounts, onboarding, access gaps, tasks and handover.",
+  },
+  {
+    title: "Communications",
+    copy: "Inbox, calls, lead replies and contact history.",
+  },
+  {
+    title: "Operations",
+    copy: "Daily dashboard, priorities, owners and internal accountability.",
+  },
+];
 
 export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-[#eaedeb] px-6 py-10 text-[#151f21]">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl flex-col justify-between">
-        <nav className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold">ClinicGrower Mission Control</p>
-            <p className="text-xs text-[#5e8a8d]">Internal CRM</p>
-          </div>
-          <Link
-            href="/login"
-            className="rounded-xl border border-[#d8ddda] bg-[#FFFCF9] px-4 py-2 text-sm font-semibold hover:bg-white"
-          >
-            Sign in
+    <main className="min-h-screen bg-[#F7F4EE] text-[#151F21]">
+      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-5 py-4 sm:px-8 lg:px-10">
+        <header className="flex min-h-12 items-center justify-between gap-4 border-b border-[rgba(21,31,33,0.08)] pb-4">
+          <Link href="/" aria-label="ClinicGrower Internal CRM home">
+            <ClinicGrowerLogo variant="full" />
           </Link>
-        </nav>
-
-        <section className="max-w-3xl py-20">
-          <p className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-[#5e8a8d]">
-            Internal operations workspace
-          </p>
-          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-            One CRM for sales pipeline, client accounts, and delivery work.
-          </h1>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-[#5e8a8d]">
-            Mission Control is the internal system for ClinicGrower team members
-            to manage prospects, accounts, tasks, projects, and daily operations.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="flex items-center gap-3">
             <Link
               href="/login"
-              className="rounded-xl bg-[#5e8a8d] px-5 py-3 text-sm font-semibold text-white hover:bg-[#507b7e]"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#151F21] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#253639]"
             >
-              Open Mission Control
-            </Link>
-            <Link
-              href="/app"
-              className="rounded-xl border border-[#d8ddda] bg-[#FFFCF9] px-5 py-3 text-sm font-semibold hover:bg-white"
-            >
-              Go to dashboard
+              <LockKeyhole className="h-4 w-4" />
+              Sign in
             </Link>
           </div>
-        </section>
+        </header>
 
-        <div className="grid gap-3 pb-8 sm:grid-cols-3">
-          {["Sales pipeline", "Client delivery", "Internal tasks"].map((item) => (
-            <div
-              key={item}
-              className="rounded-2xl border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-4 text-sm font-semibold"
-            >
-              {item}
+        <section className="grid flex-1 items-center gap-8 py-8 lg:grid-cols-[minmax(0,1fr)_440px] lg:py-9">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#9A5524]">
+              ClinicGrower Internal CRM
+            </p>
+            <h1 className="mt-4 max-w-4xl text-4xl font-semibold leading-[1.02] tracking-tight text-[#151F21] sm:text-5xl lg:text-[3.45rem]">
+              The internal CRM for the work behind clinic growth.
+            </h1>
+            <p className="mt-5 max-w-2xl text-base leading-7 text-[#5E6E70]">
+              Mission Control keeps the team aligned from first enquiry through
+              proposal, client onboarding, delivery ownership and follow-up.
+              It is the internal operating layer behind the public ClinicGrower
+              growth system.
+            </p>
+
+            <div className="mt-6">
+              <Link
+                href="/login"
+                className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-[#151F21] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#253639]"
+              >
+                Open Internal CRM
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
-          ))}
-        </div>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              {primaryPaths.map((path) => (
+                <article
+                  key={path.title}
+                  className="rounded-lg border border-[rgba(21,31,33,0.08)] bg-white p-3.5"
+                >
+                  <h2 className="text-sm font-semibold text-[#151F21]">{path.title}</h2>
+                  <p className="mt-2 text-sm leading-6 text-[#5E6E70]">{path.copy}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+
+          <aside className="rounded-lg border border-[rgba(21,31,33,0.08)] bg-[#151F21] p-4 text-white shadow-[0_20px_60px_rgba(21,31,33,0.14)]">
+            <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#9DD8D5]">
+                  Internal layer
+                </p>
+                <h2 className="mt-1.5 text-2xl font-semibold">How the work moves</h2>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/10">
+                <UsersRound className="h-5 w-5 text-[#9DD8D5]" />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              {journey.map((item, index) => (
+                <div
+                  key={item.stage}
+                  className="grid grid-cols-[32px_minmax(0,1fr)] gap-3 border-b border-white/10 py-2.5 first:pt-0 last:border-b-0 last:pb-0"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs font-bold text-[#9DD8D5]">
+                    {index + 1}
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-white">{item.stage}</p>
+                    <p className="mt-1 text-xs leading-5 text-[#D6E4E2]">
+                      {item.detail}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </aside>
+        </section>
       </div>
     </main>
   );
