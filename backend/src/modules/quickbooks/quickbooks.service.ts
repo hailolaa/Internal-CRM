@@ -256,6 +256,32 @@ export class QuickBooksService {
     }
   }
 
+  private async getCustomerById(clinicId: string, realmId: string, customerId: string): Promise<QuickBooksCustomerRecord | null> {
+    const accessToken = await this.getAccessToken(clinicId);
+    const escapedId = customerId.replace(/'/g, "\\'");
+    const query = `SELECT * FROM Customer WHERE Id = '${escapedId}' STARTPOSITION 1 MAXRESULTS 1`;
+    const url = `${this.apiBaseUrl}/v3/company/${encodeURIComponent(realmId)}/query?query=${encodeURIComponent(query)}&minorversion=75`;
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const payload = assertResponseObject(await response.json().catch(() => ({})));
+      if (!response.ok) {
+        throw new Error(payload.Fault?.Error?.[0]?.Message || `QuickBooks customer validation failed with ${response.status}`);
+      }
+      const customer = (payload.QueryResponse?.Customer || [])
+        .map(mapCustomer)
+        .find((item: QuickBooksCustomerRecord) => item.id === customerId);
+      return customer?.active ? customer : null;
+    } catch (error) {
+      await this.recordError(clinicId, error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }
+
   async getClientMapping(clinicId: string, clientAccountProfileId: string) {
     await this.ensureClientProfileAvailable(clinicId, clientAccountProfileId);
     const [rows]: any = await pool.execute(
@@ -281,7 +307,15 @@ export class QuickBooksService {
   ) {
     await this.ensureClientProfileAvailable(clinicId, clientAccountProfileId);
     const status = await this.getStatus(clinicId);
-    await this.ensureCustomerNotMappedElsewhere(clinicId, clientAccountProfileId, status.realmId, data.quickbooksCustomerId);
+    if (!status.connected || !status.realmId) {
+      throw ApiError.serviceUnavailable("QuickBooks must be connected before customer mapping. Manual invoice and payment fields remain usable.");
+    }
+    const quickbooksCustomerId = data.quickbooksCustomerId.trim();
+    const verifiedCustomer = await this.getCustomerById(clinicId, status.realmId, quickbooksCustomerId);
+    if (!verifiedCustomer) {
+      throw ApiError.badRequest("QuickBooks customer could not be found or is inactive.");
+    }
+    await this.ensureCustomerNotMappedElsewhere(clinicId, clientAccountProfileId, status.realmId, quickbooksCustomerId);
     const mappingId = uuidv4();
     await pool.execute(
       `INSERT INTO quickbooks_client_customer_mapping
@@ -306,13 +340,13 @@ export class QuickBooksService {
         mappingId,
         clinicId,
         clientAccountProfileId,
-        data.quickbooksCustomerId.trim(),
-        data.quickbooksCustomerName.trim(),
-        data.quickbooksCompanyName?.trim() || null,
-        data.quickbooksEmail?.trim() || null,
-        status.realmId || null,
+        verifiedCustomer.id,
+        verifiedCustomer.displayName,
+        verifiedCustomer.companyName,
+        verifiedCustomer.email,
+        status.realmId,
         data.mappingStatus || "active",
-        data.mappingSource || "manual",
+        data.mappingSource || "quickbooks_lookup",
         userId,
         userId,
       ],
@@ -324,8 +358,8 @@ export class QuickBooksService {
       entityType: "client_account_profile",
       entityId: clientAccountProfileId,
       changes: {
-        quickbooksCustomerId: data.quickbooksCustomerId,
-        quickbooksCustomerName: data.quickbooksCustomerName,
+        quickbooksCustomerId: verifiedCustomer.id,
+        quickbooksCustomerName: verifiedCustomer.displayName,
       },
       ...context,
     });

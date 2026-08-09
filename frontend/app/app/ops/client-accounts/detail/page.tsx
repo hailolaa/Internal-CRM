@@ -369,7 +369,7 @@ export default function ClientAccountDetailPage() {
         quickbooksCompanyName: quickBooksForm.companyName || null,
         quickbooksEmail: quickBooksForm.email || null,
         mappingStatus: "active",
-        mappingSource: quickBooksStatus?.connected ? "quickbooks_lookup" : "manual",
+        mappingSource: "quickbooks_lookup",
       });
       setQuickBooksMapping(mapping);
       setQuickBooksMessage("QuickBooks customer mapping saved. Manual invoice and payment fields were not changed.");
@@ -829,11 +829,11 @@ export default function ClientAccountDetailPage() {
                     QuickBooks customer mapping
                   </h3>
                   <p className="mt-1 text-xs leading-5 text-[#7A746A]">
-                    Link this Mission Control client to the matching QuickBooks customer. Manual invoice and payment fields stay unchanged.
+                    Link this Mission Control client to a verified QuickBooks customer. Manual invoice and payment fields stay unchanged.
                   </p>
                 </div>
                 <Badge variant={quickBooksMapping ? "success" : "neutral"}>
-                  {quickBooksMapping ? "Mapped" : quickBooksStatus?.connected ? "Ready" : "Manual fallback"}
+                  {quickBooksMapping ? "Mapped" : quickBooksStatus?.connected ? "Ready" : "Connect required"}
                 </Badge>
               </div>
 
@@ -890,24 +890,28 @@ export default function ClientAccountDetailPage() {
                   onChange={(event) => setQuickBooksForm((current) => ({ ...current, customerId: event.target.value }))}
                   placeholder="QuickBooks customer ID"
                   className="min-h-11 rounded-xl border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                  disabled={!quickBooksStatus?.connected || isQuickBooksBusy}
                 />
                 <input
                   value={quickBooksForm.customerName}
                   onChange={(event) => setQuickBooksForm((current) => ({ ...current, customerName: event.target.value }))}
                   placeholder="QuickBooks customer name"
                   className="min-h-11 rounded-xl border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                  disabled={!quickBooksStatus?.connected || isQuickBooksBusy}
                 />
                 <input
                   value={quickBooksForm.companyName}
                   onChange={(event) => setQuickBooksForm((current) => ({ ...current, companyName: event.target.value }))}
                   placeholder="Company name"
                   className="min-h-11 rounded-xl border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                  disabled={!quickBooksStatus?.connected || isQuickBooksBusy}
                 />
                 <input
                   value={quickBooksForm.email}
                   onChange={(event) => setQuickBooksForm((current) => ({ ...current, email: event.target.value }))}
                   placeholder="Billing email"
                   className="min-h-11 rounded-xl border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+                  disabled={!quickBooksStatus?.connected || isQuickBooksBusy}
                 />
               </div>
 
@@ -921,7 +925,7 @@ export default function ClientAccountDetailPage() {
                 <button
                   type="button"
                   onClick={() => void saveQuickBooksMapping()}
-                  disabled={!canWriteClientAccounts || isQuickBooksBusy || !quickBooksForm.customerId.trim() || !quickBooksForm.customerName.trim()}
+                  disabled={!canWriteClientAccounts || !quickBooksStatus?.connected || isQuickBooksBusy || !quickBooksForm.customerId.trim() || !quickBooksForm.customerName.trim()}
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#315f62] px-4 text-sm font-semibold text-white hover:bg-[#264f51] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isQuickBooksBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
