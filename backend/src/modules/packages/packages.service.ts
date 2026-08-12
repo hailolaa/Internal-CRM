@@ -15,6 +15,19 @@ function parseFeatures(value: unknown): string[] {
   }
 }
 
+function parseJsonObject(value: unknown): Record<string, unknown> | null {
+  if (!value) return null;
+  if (typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeMoney(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const numeric = Number(value);
@@ -35,6 +48,8 @@ function mapPackage(row: any): PackageRecord {
     sortOrder: Number(row.sortOrder || 0),
     status: row.status || "active",
     isDefault: row.isDefault === true || row.isDefault === 1,
+    catalogueVersion: row.catalogueVersion || null,
+    commercialNotes: parseJsonObject(row.commercialNotes),
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
   };
@@ -55,6 +70,8 @@ export class PackagesService {
               sort_order as sortOrder,
               status,
               is_default as isDefault,
+              catalogue_version as catalogueVersion,
+              commercial_notes as commercialNotes,
               created_at as createdAt,
               updated_at as updatedAt
        FROM growth_package
@@ -76,8 +93,8 @@ export class PackagesService {
     await pool.execute(
       `INSERT INTO growth_package
         (id, clinic_id, name, price_cents, currency, billing_frequency, setup_fee_cents,
-         included_features, internal_notes, proposal_wording, sort_order, status, is_default)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+         included_features, internal_notes, proposal_wording, sort_order, status, is_default, catalogue_version, commercial_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       [
         id,
         clinicId,
@@ -91,6 +108,8 @@ export class PackagesService {
         data.proposalWording || null,
         Number(data.sortOrder || 100),
         data.status || "active",
+        data.catalogueVersion || null,
+        data.commercialNotes ? JSON.stringify(data.commercialNotes) : null,
       ],
     );
 
@@ -125,6 +144,8 @@ export class PackagesService {
     addField("proposalWording", "proposal_wording", data.proposalWording || null);
     addField("sortOrder", "sort_order", data.sortOrder === null || data.sortOrder === undefined ? null : Number(data.sortOrder));
     addField("status", "status", data.status);
+    addField("catalogueVersion", "catalogue_version", data.catalogueVersion || null);
+    addField("commercialNotes", "commercial_notes", data.commercialNotes ? JSON.stringify(data.commercialNotes) : null);
 
     if (fields.length === 0) return this.getPackage(clinicId, packageId);
 
@@ -183,6 +204,8 @@ export class PackagesService {
               sort_order as sortOrder,
               status,
               is_default as isDefault,
+              catalogue_version as catalogueVersion,
+              commercial_notes as commercialNotes,
               created_at as createdAt,
               updated_at as updatedAt
        FROM growth_package

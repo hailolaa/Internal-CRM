@@ -14,6 +14,8 @@ export interface PackageRecord {
   sortOrder: number;
   status: PackageStatus;
   isDefault: boolean;
+  catalogueVersion: string | null;
+  commercialNotes: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -29,4 +31,6 @@ export interface PackagePayload {
   proposalWording?: string | null;
   sortOrder?: number | string | null;
   status?: PackageStatus | null;
+  catalogueVersion?: string | null;
+  commercialNotes?: Record<string, unknown> | null;
 }

@@ -1,9 +1,14 @@
 import type {
   ProposalListParams,
+  ProposalDiscoveryDraftResult,
+  ProposalDiscoverySessionRecord,
+  ProposalDiscoveryStartPayload,
+  ProposalDiscoveryUpdatePayload,
   ProposalPayload,
   ProposalProofAssetPayload,
   ProposalProofAssetRecord,
   ProposalPublicAcceptancePayload,
+  ProposalPublicEventPayload,
   ProposalPublicPreviewRecord,
   ProposalRecord,
   ProposalSendPayload,
@@ -64,6 +69,15 @@ export function createProposalsApi(apiRequest: ApiRequest) {
         );
         return response.data!;
       },
+      async trackShared(publicToken: string, payload: ProposalPublicEventPayload) {
+        await apiRequest<{ recorded: boolean }>(
+          `/api/proposals/shared/${encodeURIComponent(publicToken)}/events`,
+          {
+            method: "POST",
+            body: JSON.stringify(payload),
+          },
+        );
+      },
       async sourceData(token: string, params: ProposalSourceDataParams) {
         const query = toQuery(params);
         const response = await apiRequest<ProposalSourceDataRecord>(
@@ -94,6 +108,42 @@ export function createProposalsApi(apiRequest: ApiRequest) {
           token,
           body: JSON.stringify(payload),
         });
+        return response.data!;
+      },
+      async startDiscoverySession(token: string, payload: ProposalDiscoveryStartPayload) {
+        const response = await apiRequest<ProposalDiscoverySessionRecord>("/api/proposals/discovery-sessions/start", {
+          method: "POST",
+          token,
+          body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async getDiscoverySession(token: string, sessionId: string) {
+        const response = await apiRequest<ProposalDiscoverySessionRecord>(
+          `/api/proposals/discovery-sessions/${encodeURIComponent(sessionId)}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async updateDiscoverySession(token: string, sessionId: string, payload: ProposalDiscoveryUpdatePayload) {
+        const response = await apiRequest<ProposalDiscoverySessionRecord>(
+          `/api/proposals/discovery-sessions/${encodeURIComponent(sessionId)}`,
+          {
+            method: "PATCH",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async generateDiscoveryDraft(token: string, sessionId: string) {
+        const response = await apiRequest<ProposalDiscoveryDraftResult>(
+          `/api/proposals/discovery-sessions/${encodeURIComponent(sessionId)}/generate-draft`,
+          {
+            method: "POST",
+            token,
+          },
+        );
         return response.data!;
       },
       async create(token: string, payload: ProposalPayload) {

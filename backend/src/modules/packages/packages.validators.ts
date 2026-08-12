@@ -23,6 +23,8 @@ const packageBodyValidator = [
   body("proposalWording").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
   body("sortOrder").optional({ nullable: true }).isInt({ min: 0, max: 10000 }),
   body("status").optional({ nullable: true }).isIn(statuses),
+  body("catalogueVersion").optional({ nullable: true }).isString().trim().isLength({ max: 80 }),
+  body("commercialNotes").optional({ nullable: true }).isObject(),
 ];
 
 export const createPackageValidator = [

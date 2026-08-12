@@ -2,6 +2,12 @@ import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorizeAnyPermission, authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
+import { proposalDiscoveryController } from "./proposal-discovery.controller.js";
+import {
+  proposalDiscoverySessionIdParamValidator,
+  startProposalDiscoverySessionValidator,
+  updateProposalDiscoverySessionValidator,
+} from "./proposal-discovery.validators.js";
 import { proposalsController } from "./proposals.controller.js";
 import {
   createProofAssetValidator,
@@ -11,6 +17,7 @@ import {
   listProposalsValidator,
   proposalIdParamValidator,
   proposalPublicAcceptanceValidator,
+  proposalPublicEventValidator,
   proposalPublicTokenParamValidator,
   proposalStatusUpdateValidator,
   proposalSourceDataValidator,
@@ -32,6 +39,13 @@ router.post(
   proposalPublicAcceptanceValidator,
   validate,
   proposalsController.acceptSharedProposal,
+);
+
+router.post(
+  "/shared/:token/events",
+  proposalPublicEventValidator,
+  validate,
+  proposalsController.recordSharedProposalEvent,
 );
 
 router.use(authenticate);
@@ -86,6 +100,38 @@ router.post(
   createProofAssetValidator,
   validate,
   proposalsController.createProofAsset,
+);
+
+router.post(
+  "/discovery-sessions/start",
+  authorizePermission("proposals:write"),
+  startProposalDiscoverySessionValidator,
+  validate,
+  proposalDiscoveryController.startOrResumeSession,
+);
+
+router.get(
+  "/discovery-sessions/:sessionId",
+  authorizePermission("proposals:read"),
+  proposalDiscoverySessionIdParamValidator,
+  validate,
+  proposalDiscoveryController.getSession,
+);
+
+router.patch(
+  "/discovery-sessions/:sessionId",
+  authorizePermission("proposals:write"),
+  updateProposalDiscoverySessionValidator,
+  validate,
+  proposalDiscoveryController.updateSession,
+);
+
+router.post(
+  "/discovery-sessions/:sessionId/generate-draft",
+  authorizePermission("proposals:write"),
+  proposalDiscoverySessionIdParamValidator,
+  validate,
+  proposalDiscoveryController.generateDraftProposal,
 );
 
 router.get(

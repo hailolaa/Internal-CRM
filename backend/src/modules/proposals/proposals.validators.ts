@@ -15,6 +15,30 @@ const optionalDate = (field: string) =>
     .isISO8601()
     .withMessage(`${field} must be a valid date/time`);
 
+const proposalClinicTypeVariants = new Set([
+  "general",
+  "aesthetic_clinic",
+  "dental_clinic",
+  "cosmetic_surgery_clinic",
+  "dermatology_clinic",
+  "hair_transplant_clinic",
+  "wellness_clinic",
+  "private_gp_medical_clinic",
+  "medical_spa",
+]);
+
+const approvedInternalBrandAssetPrefixes = ["/brand/proposal/", "/brand/proof/"];
+
+const isApprovedInternalBrandAssetPath = (value: string) => {
+  const path = value.trim();
+  return (
+    approvedInternalBrandAssetPrefixes.some((prefix) => path.startsWith(prefix)) &&
+    !path.includes("..") &&
+    !path.includes("\\") &&
+    !/[\r\n<>]/.test(path)
+  );
+};
+
 const commercialItemsValidator = (field: string) =>
   body(field)
     .optional({ nullable: true })
@@ -43,14 +67,46 @@ const sectionContentValidator = body("sectionContent")
   .withMessage("sectionContent must be an object")
   .custom((value) => {
     const allowedKeys = new Set([
+      "proposalReference",
+      "proposalDate",
       "executiveSummary",
+      "clinicTypeVariant",
+      "clinicTypeAssetVersion",
+      "heroImageUrl",
+      "heroImageAlt",
+      "heroImageId",
+      "heroImageCropPosition",
+      "heroImageLicence",
+      "discoverySource",
+      "customerWording",
+      "evidenceConfidenceState",
+      "activeConstraintId",
+      "activeConstraintConfidenceState",
+      "economicUnit",
+      "clinicConfirmedContribution",
+      "contributionEvidenceSourceDate",
+      "contributionConfirmationState",
+      "selectedMediaSpend",
+      "paybackState",
+      "liveDataStatus",
+      "knownDataLimitations",
+      "sectorImageApprovalStatus",
+      "sectorImageProvenance",
+      "sectorImages",
       "personalIntroduction",
       "diagnosis",
       "introVideoUrl",
       "introVideoTitle",
+      "introVideoThumbnailUrl",
       "fallbackVideoUrl",
       "primaryGoal",
+      "clinicTypeAndLocations",
       "currentPosition",
+      "currentMarketingSpend",
+      "currentWebsiteCrmBookingSetup",
+      "problemsDiscussed",
+      "whyActNow",
+      "currentlyUnmeasured",
       "availableCapacity",
       "priorityTreatments",
       "targetArea",
@@ -67,16 +123,22 @@ const sectionContentValidator = body("sectionContent")
       "firstRecommendedFix",
       "currentMonthlyEnquiries",
       "currentMonthlyBookedPatients",
+      "currentBookingRate",
+      "attendanceRate",
+      "consultationToTreatmentConversionRate",
       "targetBookings",
       "consultationValue",
       "averageTreatmentValue",
       "availableCommercialCapacity",
+      "currentAcquisitionCost",
       "recommendedAdSpend",
       "estimatedCostPerLead",
       "estimatedLeads",
       "estimatedBookedPatients",
       "breakEvenBookings",
       "commercialDataSource",
+      "commercialChangeReason",
+      "commercialApprovalStatus",
       "recommendedPlan",
       "proofAssetIds",
       "scopeItems",
@@ -91,12 +153,41 @@ const sectionContentValidator = body("sectionContent")
       "nextSteps",
     ]);
     const textKeys = new Set([
+      "proposalReference",
+      "proposalDate",
       "executiveSummary",
+      "clinicTypeVariant",
+      "clinicTypeAssetVersion",
+      "heroImageAlt",
+      "heroImageId",
+      "heroImageCropPosition",
+      "heroImageLicence",
+      "discoverySource",
+      "customerWording",
+      "evidenceConfidenceState",
+      "activeConstraintId",
+      "activeConstraintConfidenceState",
+      "economicUnit",
+      "clinicConfirmedContribution",
+      "contributionEvidenceSourceDate",
+      "contributionConfirmationState",
+      "selectedMediaSpend",
+      "paybackState",
+      "liveDataStatus",
+      "knownDataLimitations",
+      "sectorImageApprovalStatus",
+      "sectorImageProvenance",
       "personalIntroduction",
       "diagnosis",
       "introVideoTitle",
       "primaryGoal",
+      "clinicTypeAndLocations",
       "currentPosition",
+      "currentMarketingSpend",
+      "currentWebsiteCrmBookingSetup",
+      "problemsDiscussed",
+      "whyActNow",
+      "currentlyUnmeasured",
       "availableCapacity",
       "priorityTreatments",
       "targetArea",
@@ -106,23 +197,36 @@ const sectionContentValidator = body("sectionContent")
       "firstRecommendedFix",
       "currentMonthlyEnquiries",
       "currentMonthlyBookedPatients",
+      "currentBookingRate",
+      "attendanceRate",
+      "consultationToTreatmentConversionRate",
       "targetBookings",
       "consultationValue",
       "averageTreatmentValue",
       "availableCommercialCapacity",
+      "currentAcquisitionCost",
       "recommendedAdSpend",
       "estimatedCostPerLead",
       "estimatedLeads",
       "estimatedBookedPatients",
       "breakEvenBookings",
       "commercialDataSource",
+      "commercialChangeReason",
+      "commercialApprovalStatus",
       "recommendedPlan",
       "timeline",
       "termsSummary",
       "investmentNotes",
       "nextSteps",
     ]);
-    const urlKeys = new Set(["introVideoUrl", "fallbackVideoUrl"]);
+    const urlKeys = new Set(["introVideoUrl", "introVideoThumbnailUrl", "fallbackVideoUrl", "heroImageUrl"]);
+    const internalBrandImageKeys = new Set(["heroImageUrl", "introVideoThumbnailUrl"]);
+    const confidenceStateKeys = new Set([
+      "evidenceConfidenceState",
+      "activeConstraintConfidenceState",
+      "contributionConfirmationState",
+      "paybackState",
+    ]);
     const scoreKeys = new Set([
       "growthScoreOverall",
       "visibilityScore",
@@ -156,6 +260,31 @@ const sectionContentValidator = body("sectionContent")
     ]);
     for (const [key, fieldValue] of Object.entries(value || {})) {
       if (!allowedKeys.has(key)) throw new Error(`Unsupported proposal section: ${key}`);
+      if (key === "clinicTypeVariant" && fieldValue !== null && fieldValue !== undefined && String(fieldValue).trim()) {
+        if (!proposalClinicTypeVariants.has(String(fieldValue).trim())) {
+          throw new Error("clinicTypeVariant is not supported");
+        }
+      }
+      if (key === "commercialApprovalStatus" && fieldValue !== null && fieldValue !== undefined && String(fieldValue).trim()) {
+        if (!["not_required", "pending", "approved", "rejected"].includes(String(fieldValue).trim())) {
+          throw new Error("commercialApprovalStatus is not supported");
+        }
+      }
+      if (confidenceStateKeys.has(key) && fieldValue !== null && fieldValue !== undefined && String(fieldValue).trim()) {
+        if (!["known", "confirmed_on_call", "working_diagnosis", "provisional", "to_confirm"].includes(String(fieldValue).trim())) {
+          throw new Error(`${key} is not supported`);
+        }
+      }
+      if (key === "liveDataStatus" && fieldValue !== null && fieldValue !== undefined && String(fieldValue).trim()) {
+        if (!["demo_data", "partially_connected", "live_connected", "not_connected"].includes(String(fieldValue).trim())) {
+          throw new Error("liveDataStatus is not supported");
+        }
+      }
+      if (key === "sectorImageApprovalStatus" && fieldValue !== null && fieldValue !== undefined && String(fieldValue).trim()) {
+        if (!["approved", "to_confirm"].includes(String(fieldValue).trim())) {
+          throw new Error("sectorImageApprovalStatus is not supported");
+        }
+      }
       if (textKeys.has(key) && fieldValue !== null && fieldValue !== undefined && String(fieldValue).length > 10000) {
         throw new Error(`${key} is too long`);
       }
@@ -163,6 +292,12 @@ const sectionContentValidator = body("sectionContent")
         const rawUrl = String(fieldValue).trim();
         if (rawUrl.length > 1000) throw new Error(`${key} is too long`);
         if (rawUrl) {
+          if (
+            internalBrandImageKeys.has(key) &&
+            isApprovedInternalBrandAssetPath(rawUrl)
+          ) {
+            continue;
+          }
           try {
             const parsed = new URL(rawUrl);
             if (!["https:", "http:"].includes(parsed.protocol)) throw new Error("invalid protocol");
@@ -210,6 +345,18 @@ const sectionContentValidator = body("sectionContent")
           if (scopeItem.quantityLimit !== null && scopeItem.quantityLimit !== undefined && String(scopeItem.quantityLimit).length > 120) {
             throw new Error("scopeItems quantityLimit can be up to 120 characters");
           }
+          for (const field of [
+            "treatmentsAndLocations",
+            "dependencies",
+            "clientResponsibilities",
+            "exclusions",
+            "thirdPartyCosts",
+            "changeReason",
+          ]) {
+            if (scopeItem[field] !== null && scopeItem[field] !== undefined && String(scopeItem[field]).length > 2000) {
+              throw new Error(`scopeItems ${field} can be up to 2000 characters`);
+            }
+          }
           if (!["included", "excluded"].includes(String(scopeItem.inclusionStatus || ""))) {
             throw new Error("scopeItems inclusionStatus must be included or excluded");
           }
@@ -217,7 +364,55 @@ const sectionContentValidator = body("sectionContent")
             throw new Error("scopeItems deliveryType must be recurring or one_off");
           }
           if (typeof scopeItem.isOptionalAddOn !== "boolean") throw new Error("scopeItems isOptionalAddOn must be true or false");
+          if (scopeItem.isCustom !== undefined && typeof scopeItem.isCustom !== "boolean") {
+            throw new Error("scopeItems isCustom must be true or false");
+          }
+          if (scopeItem.approvalStatus !== null && scopeItem.approvalStatus !== undefined) {
+            if (!["not_required", "pending", "approved", "rejected"].includes(String(scopeItem.approvalStatus))) {
+              throw new Error("scopeItems approvalStatus is not supported");
+            }
+          }
           if (!Number.isInteger(Number(scopeItem.sortOrder))) throw new Error("scopeItems sortOrder must be an integer");
+        }
+      }
+      if (key === "sectorImages") {
+        if (!Array.isArray(fieldValue)) throw new Error("sectorImages must be a list");
+        if (fieldValue.length > 4) throw new Error("sectorImages can include up to four image slots");
+        const seenSlots = new Set<string>();
+        for (const item of fieldValue) {
+          if (!item || typeof item !== "object") throw new Error("sectorImages entries must be objects");
+          const image = item as Record<string, unknown>;
+          const slot = String(image.slot || "");
+          if (!["cover", "journey", "proof", "close"].includes(slot)) {
+            throw new Error("sectorImages slot must be cover, journey, proof or close");
+          }
+          if (seenSlots.has(slot)) throw new Error("sectorImages slots must be unique");
+          seenSlots.add(slot);
+          for (const field of ["imageId", "cropPosition", "licence", "provenance"]) {
+            if (image[field] !== null && image[field] !== undefined && String(image[field]).length > 500) {
+              throw new Error(`sectorImages ${field} can be up to 500 characters`);
+            }
+          }
+          if (image.url !== null && image.url !== undefined) {
+            const rawUrl = String(image.url).trim();
+            if (rawUrl.length > 1000) throw new Error("sectorImages url is too long");
+            if (rawUrl) {
+              if (isApprovedInternalBrandAssetPath(rawUrl)) {
+                continue;
+              }
+              try {
+                const parsed = new URL(rawUrl);
+                if (!["https:", "http:"].includes(parsed.protocol)) throw new Error("invalid protocol");
+              } catch {
+                throw new Error("sectorImages url must be a valid URL");
+              }
+            }
+          }
+          if (image.approvalStatus !== null && image.approvalStatus !== undefined) {
+            if (!["approved", "to_confirm"].includes(String(image.approvalStatus))) {
+              throw new Error("sectorImages approvalStatus is not supported");
+            }
+          }
         }
       }
     }
@@ -249,6 +444,22 @@ export const proposalPublicAcceptanceValidator = [
     .notEmpty()
     .withMessage("Signature confirmation is required")
     .isLength({ max: 255 }),
+];
+
+export const proposalPublicEventValidator = [
+  ...proposalPublicTokenParamValidator,
+  body("eventType")
+    .trim()
+    .isIn([
+      "section_viewed",
+      "video_opened",
+      "pdf_download_clicked",
+      "acceptance_cta_clicked",
+      "question_clicked",
+      "book_call_clicked",
+    ])
+    .withMessage("Proposal event type is not supported"),
+  body("sectionKey").optional({ nullable: true }).trim().isLength({ max: 120 }),
 ];
 
 const proposalListValidators = (maximumLimit: number) => [
@@ -374,6 +585,7 @@ export const createProofAssetValidator = [
     .isLength({ max: 1000 })
     .custom((value) => {
       if (!value) return true;
+      if (isApprovedInternalBrandAssetPath(value)) return true;
       try {
         const parsed = new URL(value);
         if (!["https:", "http:"].includes(parsed.protocol)) throw new Error("invalid protocol");

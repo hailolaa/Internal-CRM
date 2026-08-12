@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { createHash } from "node:crypto";
+import QRCode from "qrcode";
 import type { PoolConnection } from "mysql2/promise";
 import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
@@ -15,19 +16,30 @@ import {
   movePipelineDealStage,
 } from "../pipeline/pipeline.deals.persistence.js";
 import {
+  assertPublicProposalV5Acceptable,
   buildProposalPublicUrl,
   isProposalPubliclyVisible,
   mapProposalPublicPackage,
   mapProposalPublicResponse,
   proposalViewTransitionStatuses,
 } from "./proposals.public.js";
+import {
+  buildProposalV5Snapshot,
+  isProposalV5Proposal,
+  parseProposalV5Snapshot,
+  proposalV5SnapshotVersion,
+  serializeProposalV5Snapshot,
+} from "./proposal-v5-snapshot.js";
 import { proposalPublicStatuses } from "./proposals.types.js";
 import type {
   ProposalCommercialItem,
+  ProposalCoreData,
+  ProposalDataState,
   ProposalLinkAccess,
   ProposalListQuery,
   ProposalPublicPreviewResponse,
   ProposalMutationDTO,
+  ProposalPublicEventDTO,
   ProposalProofAssetMutationDTO,
   ProposalProofAssetResponse,
   ProposalProofAssetType,
@@ -37,12 +49,14 @@ import type {
   ProposalSectionContent,
   ProposalSendDTO,
   ProposalShareResponse,
+  ProposalSectorImage,
   ProposalScopeItem,
   ProposalSourceDataQuery,
   ProposalSourceDataResponse,
   ProposalStatus,
   ProposalStatusUpdateDTO,
   ProposalTemplateResponse,
+  ProposalV5Snapshot,
 } from "./proposals.types.js";
 
 type QueryExecutor = Pick<PoolConnection, "execute">;
@@ -51,6 +65,237 @@ function cleanString(value: unknown) {
   if (value === null || value === undefined) return null;
   const trimmed = String(value).trim();
   return trimmed || null;
+}
+
+function hasText(value: unknown) {
+  return Boolean(cleanString(value));
+}
+
+function containsUndefinedScopePhrase(value: unknown) {
+  const text = cleanString(value)?.toLowerCase() || "";
+  return [
+    "as required",
+    "agreed in roadmap",
+    "confirmed separately",
+    "to be agreed",
+    "to be confirmed",
+    "subject to agreed",
+    "depends on access",
+  ].some((phrase) => text.includes(phrase));
+}
+
+function isIncompleteSuccessMetric(value: unknown) {
+  const parts = String(value || "")
+    .split("|")
+    .map((part) => part.trim());
+  if (parts.length < 3 || parts.some((part) => !hasText(part))) return true;
+
+  const text = parts.join(" ").toLowerCase();
+  return [
+    "baseline to establish",
+    "directional improvement",
+    "required before sending",
+    "agreed during onboarding",
+    "measured from agreed tracking sources",
+  ].some((phrase) => text.includes(phrase));
+}
+
+const proposalClinicTypeAssetVersion = "2026-08-10.v5-approved-assets";
+const proposalClinicTypeVariants = {
+  general: {
+    label: "General ClinicGrower",
+    proofTags: ["clinic", "general", "clinicgrower os"],
+  },
+  aesthetic_clinic: {
+    label: "Aesthetic Clinics",
+    proofTags: ["aesthetic", "aesthetics", "skin", "injectable", "laser"],
+  },
+  dental_clinic: {
+    label: "Dental Practices",
+    proofTags: ["dental", "dentist", "implant", "invisalign", "smile"],
+  },
+  cosmetic_surgery_clinic: {
+    label: "Cosmetic Surgery Clinics",
+    proofTags: ["surgery", "surgeon", "procedure", "cosmetic surgery"],
+  },
+  dermatology_clinic: {
+    label: "Dermatology Clinics",
+    proofTags: ["dermatology", "skin", "acne", "mole", "eczema"],
+  },
+  hair_transplant_clinic: {
+    label: "Hair Transplant Clinics",
+    proofTags: ["hair", "hair transplant", "hair restoration", "fue"],
+  },
+  wellness_clinic: {
+    label: "Wellness Clinics",
+    proofTags: ["wellness", "longevity", "health optimisation", "functional", "wellbeing"],
+  },
+  private_gp_medical_clinic: {
+    label: "Private GP & Medical Clinics",
+    proofTags: ["private gp", "medical", "doctor", "health check", "screening"],
+  },
+  medical_spa: {
+    label: "Medical Spas",
+    proofTags: ["medical spa", "medspa", "spa", "aesthetic", "skin", "laser"],
+  },
+} as const;
+
+type ProposalClinicTypeVariantId = keyof typeof proposalClinicTypeVariants;
+
+function getProposalClinicTypeVariant(value: unknown) {
+  const variant = cleanString(value);
+  if (variant && Object.prototype.hasOwnProperty.call(proposalClinicTypeVariants, variant)) {
+    return variant as ProposalClinicTypeVariantId;
+  }
+  return null;
+}
+
+const crossSectorProofSignals = [
+  "all clinics",
+  "all-clinics",
+  "all clinic",
+  "cross-sector",
+  "cross sector",
+  "broadly applicable",
+  "common proof",
+];
+
+const proofClinicCategoryGroups = [
+  ["dental", "dentist", "implant", "invisalign", "smile"],
+  ["aesthetic", "aesthetics", "skin", "injectable", "laser"],
+  ["surgery", "surgeon", "procedure", "cosmetic surgery"],
+  ["dermatology", "acne", "mole", "eczema"],
+  ["hair", "hair transplant", "hair restoration", "fue"],
+  ["wellness", "longevity", "health optimisation", "functional", "wellbeing"],
+  ["private gp", "medical", "doctor", "health check", "screening"],
+  ["medical spa", "medspa", "spa"],
+];
+
+const segmentMatchTerms: Record<string, string[]> = {
+  dental: ["dental", "dentist", "implant", "invisalign", "smile"],
+  ent: ["ent", "ear nose throat", "snoring", "sleep", "hearing", "sinus"],
+  dermatology: ["dermatology", "skin", "acne", "mole", "eczema"],
+  aesthetics: ["aesthetic", "aesthetics", "skin", "injectable", "laser", "botox"],
+  physiotherapy: ["physio", "physiotherapy", "rehab", "sports injury"],
+  "primary care": ["private gp", "general practice", "gp clinic", "medical", "doctor", "screening"],
+};
+
+function normaliseProofTag(value: string | null | undefined) {
+  return String(value || "").trim().toLowerCase().replace(/[_\s]+/g, "-");
+}
+
+function proofTagParts(asset: ProposalProofAssetResponse) {
+  return (asset.sectorTags || [])
+    .flatMap((tag) => {
+      const raw = cleanString(tag)?.toLowerCase() || "";
+      const [key, ...rest] = raw.split(":");
+      return [raw, key, rest.join(":")].filter(Boolean);
+    })
+    .filter((tag): tag is string => Boolean(tag));
+}
+
+function proofIsCommonAsset(asset: ProposalProofAssetResponse) {
+  const text = proofAssetText(asset);
+  const tagParts = proofTagParts(asset);
+  if (asset.type === "product_screenshot" && text.includes("clinicgrower os")) return true;
+  if (crossSectorProofSignals.some((signal) => tagParts.some((tag) => tag.includes(signal)) || text.includes(signal))) {
+    return true;
+  }
+  const matchedCategoryCount = proofClinicCategoryGroups.filter((group) =>
+    group.some((term) => tagParts.some((tag) => tag.includes(term)) || text.includes(term)),
+  ).length;
+  return matchedCategoryCount >= 4;
+}
+
+function proofMatchesClinicVariant(asset: ProposalProofAssetResponse, variantId: ProposalClinicTypeVariantId) {
+  if (proofIsCommonAsset(asset)) return true;
+  const text = proofAssetText(asset);
+  return proposalClinicTypeVariants[variantId].proofTags.some((tag) =>
+    text.includes(tag) ||
+    proofTagParts(asset).some((part) => normaliseProofTag(part).includes(normaliseProofTag(tag))),
+  );
+}
+
+function buildAcceptanceUrl(proposalUrl: string | null | undefined) {
+  const cleanUrl = cleanString(proposalUrl);
+  if (!cleanUrl) return null;
+  return `${cleanUrl.replace(/#.*$/, "")}#acceptance-form`;
+}
+
+async function buildAcceptanceQrCodeDataUrl(acceptanceUrl: string | null) {
+  if (!acceptanceUrl) return null;
+  try {
+    return await QRCode.toDataURL(acceptanceUrl, {
+      margin: 1,
+      width: 220,
+      color: {
+        dark: "#102b2f",
+        light: "#ffffff",
+      },
+    });
+  } catch {
+    return null;
+  }
+}
+
+function proofAssetText(asset: ProposalProofAssetResponse) {
+  return `${asset.title} ${asset.copy} ${(asset.sectorTags || []).join(" ")}`.toLowerCase();
+}
+
+function inferClinicSegmentsFromSection(section: ProposalSectionContent) {
+  const text = [
+    section.clinicTypeAndLocations,
+    section.priorityTreatments,
+    section.targetArea,
+    section.primaryGoal,
+  ].filter(Boolean).join(" ").toLowerCase();
+  const segments = new Set<string>();
+  const addIf = (terms: string[], segment: string) => {
+    if (terms.some((term) => text.includes(term))) segments.add(segment);
+  };
+  addIf(["dental", "dentist", "implant", "invisalign", "orthodont", "smile"], "dental");
+  addIf(["ent", "ear nose throat", "snoring", "sleep", "hearing", "sinus"], "ent");
+  addIf(["dermatology", "dermatologist", "skin clinic", "mole", "acne", "eczema"], "dermatology");
+  addIf(["aesthetic", "aesthetics", "botox", "injectable", "laser", "skin"], "aesthetics");
+  addIf(["physio", "physiotherapy", "rehab", "sports injury"], "physiotherapy");
+  addIf(["private gp", "general practice", "gp clinic"], "primary care");
+  return [...segments];
+}
+
+function proofMatchesClinicSegments(asset: ProposalProofAssetResponse, segments: string[]) {
+  if (!segments.length) return true;
+  const text = proofAssetText(asset);
+  return segments.some((segment) =>
+    (segmentMatchTerms[segment] || [segment]).some((term) => text.includes(term)),
+  );
+}
+
+function proofHasPermission(asset: ProposalProofAssetResponse) {
+  const text = proofAssetText(asset);
+  return text.includes("permission") || text.includes("approved") || text.includes("consent");
+}
+
+function proofHasResultContext(asset: ProposalProofAssetResponse) {
+  if (asset.type !== "performance_result") return true;
+  const text = proofAssetText(asset);
+  return /\b(week|month|quarter|year|day|within|over|from|between|20\d{2}|delivery context|timeframe)\b/.test(text);
+}
+
+function proofHasVerifiedImage(asset: ProposalProofAssetResponse) {
+  const text = proofAssetText(asset);
+  const mediaUrl = String(asset.mediaUrl || "").toLowerCase();
+  return Boolean(asset.mediaUrl) && (
+    text.includes("verified image") ||
+    text.includes("approved image") ||
+    text.includes("image approved") ||
+    mediaUrl.includes("tanja-phillips") ||
+    mediaUrl.includes("dr-tanja") ||
+    mediaUrl.includes("p17-img02-2400x1350")
+  );
+}
+
+function proofIsDrTanja(asset: ProposalProofAssetResponse) {
+  return /dr\.?\s*tanja|tanja/i.test(proofAssetText(asset));
 }
 
 function toMysqlDateTime(value: unknown) {
@@ -173,6 +418,18 @@ function parseJsonObject(value: unknown) {
   }
 }
 
+function parseProposalCoreData(value: unknown): ProposalCoreData | null {
+  const parsed = parseJsonObject(value);
+  if (!parsed) return null;
+  return parsed as unknown as ProposalCoreData;
+}
+
+function serializeProposalCoreData(value: ProposalCoreData | null | undefined) {
+  if (value === undefined) return undefined;
+  if (!value) return null;
+  return JSON.stringify(value);
+}
+
 function parseJsonArray(value: unknown): string[] {
   if (!value) return [];
   if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
@@ -190,8 +447,191 @@ function numberOrNull(value: unknown) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function normalizeProposalDataState(value: unknown): ProposalDataState {
+  const state = cleanString(value);
+  if (state === "known" || state === "confirmed_on_call") return "known";
+  if (state === "working_diagnosis" || state === "provisional" || state === "to_confirm") {
+    return state;
+  }
+  return "to_confirm";
+}
+
+function splitProposalLines(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => cleanString(item)).filter((item): item is string => Boolean(item));
+  }
+  const text = cleanString(value);
+  if (!text) return [];
+  return text
+    .split(/\r?\n|;/)
+    .map((line) => cleanString(line))
+    .filter((line): line is string => Boolean(line));
+}
+
+function parseSuccessMetricCore(value: string) {
+  const [name, baseline, source] = value.split("|").map((part) => cleanString(part));
+  return {
+    name: name || value,
+    baselineState: baseline ? "known" as ProposalDataState : "to_confirm" as ProposalDataState,
+    reviewCadence: null,
+    connectedDataSource: source || null,
+  };
+}
+
+function proofTimeframeFromText(value: string | null) {
+  if (!value) return null;
+  const match = value.match(/\b(over|within|after|from|between)\s+[^.]{1,80}|\b\d{1,3}\s+(day|days|week|weeks|month|months|year|years)\b|\b20\d{2}\b/i);
+  return match?.[0] || null;
+}
+
+function normalizeSectorImage(
+  slot: ProposalSectorImage["slot"],
+  image: Partial<ProposalSectorImage> | null | undefined,
+  fallback: ProposalSectionContent,
+) {
+  return {
+    slot,
+    imageId: cleanString(image?.imageId) || (slot === "cover" ? cleanString(fallback.heroImageId) : null),
+    url: cleanString(image?.url) || (slot === "cover" ? cleanString(fallback.heroImageUrl) : null),
+    cropPosition: cleanString(image?.cropPosition) || (slot === "cover" ? cleanString(fallback.heroImageCropPosition) : null),
+    licence: cleanString(image?.licence) || (slot === "cover" ? cleanString(fallback.heroImageLicence) : null),
+    provenance: cleanString(image?.provenance) || cleanString(fallback.sectorImageProvenance),
+    approvalStatus: image?.approvalStatus || fallback.sectorImageApprovalStatus || null,
+  };
+}
+
+function proposalImmutableVersion(proposal: ProposalResponse) {
+  const acceptanceEvidence =
+    proposal.acceptanceRecord?.evidenceSha256 ||
+    proposal.acceptanceRecord?.lockedAt ||
+    proposal.acceptanceRecord?.acceptedAt;
+  const proposalEvidence = acceptanceEvidence || proposal.sentAt || proposal.updatedAt || proposal.createdAt;
+  return `${proposal.id}:${proposalEvidence || "draft"}`;
+}
+
+function buildProposalCoreData(proposal: ProposalResponse): ProposalCoreData {
+  const section = proposal.sectionContent || {};
+  const sectorImages = Array.isArray(section.sectorImages) ? section.sectorImages : [];
+  const sectorImageBySlot = new Map(sectorImages.map((image) => [image.slot, image]));
+  const scopeItems = Array.isArray(section.scopeItems) ? section.scopeItems : [];
+  const proofAssets = Array.isArray(section.proofAssets) ? section.proofAssets : [];
+  const approvalScope = proposal.acceptanceRecord?.scope || null;
+  const exactTerms = proposal.acceptanceRecord?.paymentTerms || section.termsSummary || null;
+
+  return {
+    schemaVersion: "proposal_core_v1",
+    proposalId: proposal.id,
+    immutableVersion: proposalImmutableVersion(proposal),
+    lifecycle: {
+      status: proposal.status,
+      createdAt: proposal.createdAt || null,
+      issuedAt: proposal.sentAt || proposal.readyAt || null,
+      expiresAt: proposal.expiresAt || null,
+      proposedStartDate: proposal.startDate || null,
+    },
+    recipient: {
+      name: proposal.contactName || null,
+      email: proposal.contactEmail || null,
+      clinicName: proposal.clientAccountName || proposal.accountName || null,
+      location: cleanString(section.targetArea) || null,
+      clinicType: cleanString(section.clinicTypeVariant) || null,
+      authorisedDecisionMaker: proposal.acceptanceRecord?.acceptedByName || proposal.contactName || null,
+    },
+    discovery: {
+      source: cleanString(section.discoverySource),
+      customerWording: cleanString(section.customerWording),
+      priorityServices: cleanString(section.priorityTreatments),
+      goal: cleanString(section.primaryGoal),
+      workingDiagnosis: cleanString(section.diagnosis),
+      confidenceState: normalizeProposalDataState(section.evidenceConfidenceState),
+    },
+    journey: {
+      stages: [
+        "Marketing and visibility",
+        "Enquiry",
+        "Response",
+        "Booking",
+        "Attendance",
+        "Consultation",
+        "Treatment",
+        "Revenue",
+        "Follow-up and retention",
+      ],
+      activeConstraintId: cleanString(section.activeConstraintId),
+      diagnosedLeaks: splitProposalLines(section.problemsDiscussed || section.biggestRisk),
+      evidence: cleanString(section.commercialDataSource || section.discoverySource),
+      confidenceState: normalizeProposalDataState(section.activeConstraintConfidenceState),
+    },
+    commercial: {
+      selectedPackageId: proposal.recommendedPackageId,
+      packageName: proposal.packageName,
+      monthlyFeeCents: proposal.monthlyFeeCents,
+      setupFeeCents: proposal.setupFeeCents,
+      currency: proposal.currency || "GBP",
+      vatStatus: proposal.vatStatus,
+      selectedMedia: proposal.adSpendNote || cleanString(section.selectedMediaSpend),
+      minimumTermMonths: proposal.minimumTermMonths,
+      noticePeriodDays: proposal.noticePeriodDays,
+      exactTerms,
+    },
+    economics: {
+      economicUnit: cleanString(section.economicUnit),
+      clinicConfirmedContribution: cleanString(section.clinicConfirmedContribution),
+      contributionEvidenceSourceDate: cleanString(section.contributionEvidenceSourceDate),
+      contributionConfirmationState: normalizeProposalDataState(section.contributionConfirmationState),
+      relevantMonthlyInvestment: cleanString(section.selectedMediaSpend) || proposal.adSpendNote,
+      capacity: cleanString(section.availableCommercialCapacity || section.availableCapacity),
+      paybackState: normalizeProposalDataState(section.paybackState),
+      wholeUnitBreakEvenRule: "Use whole units only. Round required converted patients/treatments up to the next full unit after contribution, media and fee inputs are confirmed.",
+    },
+    kpis: splitProposalLines(section.successMetrics).map(parseSuccessMetricCore),
+    scopeLines: scopeItems.map((item) => ({
+      category: item.category,
+      title: item.title,
+      quantityLimit: item.quantityLimit || null,
+      frequency: item.frequency || null,
+      dependency: item.dependencies || null,
+      owner: item.clientResponsibilities || null,
+      exclusion: item.exclusions || null,
+    })),
+    dataVisibility: {
+      connectedSources: splitProposalLines(section.currentWebsiteCrmBookingSetup),
+      productStatus: section.liveDataStatus || null,
+      knownLimitations: cleanString(section.knownDataLimitations),
+    },
+    proofAssets: proofAssets.map((asset) => ({
+      id: asset.id || null,
+      type: asset.type || null,
+      title: asset.title || null,
+      proofMode: asset.type || null,
+      proofScope: (asset.sectorTags || []).join(", ") || null,
+      source: asset.mediaUrl || null,
+      timeframe: proofTimeframeFromText(`${asset.title} ${asset.copy}`),
+      disclaimer: asset.type === "performance_result"
+        ? "Historical result with delivery context. Not a guarantee."
+        : "Credibility proof only. Not a guarantee.",
+    })),
+    sectorImages: (["cover", "journey", "proof", "close"] as const).map((slot) =>
+      normalizeSectorImage(slot, sectorImageBySlot.get(slot), section),
+    ),
+    approval: {
+      approvalVersion: proposal.acceptanceRecord?.id || null,
+      recipient: proposal.acceptanceRecord?.acceptedByEmail || proposal.contactEmail || null,
+      timestamp: proposal.acceptanceRecord?.acceptedAt || null,
+      packageName: proposal.acceptanceRecord?.packageName || proposal.packageName,
+      scope: approvalScope,
+      exactTermsPresented: exactTerms,
+    },
+  };
+}
+
 function contactFullName(row: any) {
   return [row.firstName, row.lastName].filter(Boolean).join(" ").trim() || row.email || row.phone || null;
+}
+
+function actualPersonName(row: any) {
+  if (!row) return null;
+  return [row.firstName, row.lastName].filter(Boolean).join(" ").trim() || null;
 }
 
 function formatLocation(row: any) {
@@ -293,6 +733,10 @@ function mapAcceptanceRecord(row: any) {
     scope: parseJsonObject(row.acceptanceScope),
     commercialSnapshot: parseJsonObject(row.acceptanceCommercialSnapshot),
     proposalSnapshot: parseJsonObject(row.acceptanceProposalSnapshot),
+    coreDataSnapshot: parseProposalCoreData(row.acceptanceCoreDataSnapshot),
+    v5Snapshot: parseProposalV5Snapshot(row.acceptanceV5Snapshot),
+    v5SnapshotHash: row.acceptanceV5SnapshotHash || null,
+    v5SnapshotVersion: row.acceptanceV5SnapshotVersion || null,
     createdAt: new Date(row.acceptanceCreatedAt).toISOString(),
     updatedAt: new Date(row.acceptanceUpdatedAt).toISOString(),
   };
@@ -306,7 +750,7 @@ function mapProposal(row: any): ProposalResponse {
     dealId: row.dealId || null,
     clientAccountProfileId: row.clientAccountProfileId || null,
     proposalName: row.proposalName,
-    templateKey: row.templateKey || "clinicgrower_standard",
+    templateKey: row.templateKey || "clinicgrower_v5",
     packageName: row.packageName || null,
     recommendedPackageId: row.recommendedPackageId || null,
     ownerId: row.ownerId || null,
@@ -345,6 +789,11 @@ function mapProposal(row: any): ProposalResponse {
     discounts: parseCommercialItems(row.discounts),
     internalMarginNote: row.internalMarginNote || null,
     sectionContent: parseSectionContent(row.sectionContent),
+    coreData: parseProposalCoreData(row.coreData),
+    v5Snapshot: parseProposalV5Snapshot(row.v5Snapshot),
+    v5SnapshotHash: row.v5SnapshotHash || null,
+    v5SnapshotVersion: row.v5SnapshotVersion || null,
+    v5SnapshotFrozenAt: toIso(row.v5SnapshotFrozenAt),
     draftSavedAt: toIso(row.draftSavedAt),
     contactName: contactName(row),
     contactEmail: row.contactEmail || null,
@@ -411,9 +860,17 @@ function mapProposalScopeItem(row: any): ProposalScopeItem {
     clientDescription: row.clientDescription,
     frequency: row.frequency || null,
     quantityLimit: row.quantityLimit || null,
+    treatmentsAndLocations: row.treatmentsAndLocations || null,
+    dependencies: row.dependencies || null,
+    clientResponsibilities: row.clientResponsibilities || null,
+    exclusions: row.exclusions || null,
+    thirdPartyCosts: row.thirdPartyCosts || null,
     inclusionStatus: row.inclusionStatus === "excluded" ? "excluded" : "included",
     deliveryType: row.deliveryType === "one_off" ? "one_off" : "recurring",
     isOptionalAddOn: Boolean(row.isOptionalAddOn),
+    isCustom: Boolean(row.isCustom),
+    changeReason: row.changeReason || null,
+    approvalStatus: row.approvalStatus || "not_required",
     sortOrder: Number(row.sortOrder || 0),
   };
 }
@@ -566,6 +1023,11 @@ function proposalSelectSql() {
                  p.discounts,
                  p.internal_margin_note as internalMarginNote,
                  p.section_content as sectionContent,
+                 p.core_data as coreData,
+                 p.v5_snapshot as v5Snapshot,
+                 p.v5_snapshot_hash as v5SnapshotHash,
+                 p.v5_snapshot_version as v5SnapshotVersion,
+                 p.v5_snapshot_frozen_at as v5SnapshotFrozenAt,
                  p.draft_saved_at as draftSavedAt,
                  p.created_by as createdBy,
                  p.updated_by as updatedBy,
@@ -615,6 +1077,10 @@ function proposalSelectSql() {
                  ar.scope as acceptanceScope,
                  ar.commercial_snapshot as acceptanceCommercialSnapshot,
                  ar.proposal_snapshot as acceptanceProposalSnapshot,
+                 ar.core_data_snapshot as acceptanceCoreDataSnapshot,
+                 ar.v5_snapshot as acceptanceV5Snapshot,
+                 ar.v5_snapshot_hash as acceptanceV5SnapshotHash,
+                 ar.v5_snapshot_version as acceptanceV5SnapshotVersion,
                  ar.created_at as acceptanceCreatedAt,
                  ar.updated_at as acceptanceUpdatedAt
           FROM proposal p
@@ -872,6 +1338,16 @@ export class ProposalsService {
     if (!isProposalPubliclyVisible(proposal.status, proposal.expiresAt)) {
       throw ApiError.badRequest("Only active client-facing proposals can be shared");
     }
+    if (isProposalV5Proposal(proposal)) {
+      if (proposal.v5Snapshot && proposal.proposalUrl) {
+        return {
+          proposalId,
+          proposalUrl: proposal.proposalUrl,
+          createdAt: proposal.v5SnapshotFrozenAt || proposal.sentAt || new Date().toISOString(),
+        };
+      }
+      throw ApiError.badRequest("V5 proposals are shared when they are sent so the frozen proposal version is attached.");
+    }
 
     const rawToken = generateResetToken();
     const tokenHash = hashToken(rawToken);
@@ -934,12 +1410,154 @@ export class ProposalsService {
     if (!recipientEmail && !recipientName) {
       throw ApiError.badRequest("Record a recipient email or name before marking the proposal sent");
     }
+    const approvedPackage = await this.resolveRecommendedPackage(clinicId, proposal.recommendedPackageId);
+    this.assertClientReadyProposal({
+      ...proposal,
+      status: "sent",
+      contactName: proposal.contactName,
+      approvedPackagePriceCents: approvedPackage?.priceCents ?? null,
+      approvedPackageSetupFeeCents: approvedPackage?.setupFeeCents ?? null,
+      approvedPackageBillingFrequency: approvedPackage?.billingFrequency ?? null,
+    });
 
     const sendMethod = cleanString(data.sendMethod) || "manual_email";
     const sendNote =
       cleanString(data.sendNote) ||
-      "Manual send fallback: proposal link was copied/sent outside Mission Control and logged here.";
+      "Manual send logged: proposal link was copied or sent outside Mission Control and recorded here.";
     const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+
+    if (isProposalV5Proposal(proposal)) {
+      if (proposal.v5Snapshot) {
+        throw ApiError.conflict("This V5 proposal version has already been frozen. Create a new proposal version before resending.");
+      }
+
+      const nowIso = new Date().toISOString();
+      const rawToken = proposal.proposalUrl ? null : generateResetToken();
+      const tokenHash = rawToken ? hashToken(rawToken) : null;
+      const proposalUrl = proposal.proposalUrl || buildProposalPublicUrl(config.frontendUrl, rawToken as string);
+      const v5ProposalForSnapshot: ProposalResponse = {
+        ...proposal,
+        status: "sent",
+        sentAt: nowIso,
+        sentToEmail: recipientEmail,
+        sentToName: recipientName,
+        sendMethod,
+        sendNote,
+        sentBy: userId,
+        proposalUrl,
+      };
+      let v5Snapshot: ProposalV5Snapshot;
+      try {
+        v5Snapshot = buildProposalV5Snapshot({
+          proposal: v5ProposalForSnapshot,
+          packageRecord: approvedPackage,
+          generatedAt: nowIso,
+          sourceProposalVersion: `${proposal.id}:${proposal.updatedAt}:${nowIso}`,
+          acceptanceUrl: buildAcceptanceUrl(proposalUrl),
+          questionUrl: `mailto:hello@clinicgrower.co.uk?subject=${encodeURIComponent(`Question about ${proposal.proposalName}`)}`,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Proposal V5 snapshot could not be created";
+        throw ApiError.badRequest(message);
+      }
+      const serializedV5Snapshot = serializeProposalV5Snapshot(v5Snapshot);
+      if (!serializedV5Snapshot) {
+        throw ApiError.badRequest("Proposal V5 snapshot could not be serialized");
+      }
+
+      await this.withTransaction(async (connection) => {
+        const [sendResult]: any = await connection.execute(
+          `UPDATE proposal
+           SET status = 'sent',
+               sent_at = COALESCE(sent_at, ?),
+               sent_to_email = ?,
+               sent_to_name = ?,
+               send_method = ?,
+               send_note = ?,
+               sent_by = ?,
+               public_token_hash = COALESCE(public_token_hash, ?),
+               proposal_url = COALESCE(proposal_url, ?),
+               public_link_created_at = COALESCE(public_link_created_at, CURRENT_TIMESTAMP),
+               v5_snapshot = ?,
+               v5_snapshot_hash = ?,
+               v5_snapshot_version = ?,
+               v5_snapshot_frozen_at = ?,
+               updated_by = ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?
+             AND clinic_id = ?
+             AND deleted_at IS NULL
+             AND status = ?
+             AND v5_snapshot IS NULL`,
+          [
+            now,
+            recipientEmail,
+            recipientName,
+            sendMethod,
+            sendNote,
+            userId,
+            tokenHash,
+            proposalUrl,
+            serializedV5Snapshot,
+            v5Snapshot.snapshotHash,
+            proposalV5SnapshotVersion,
+            now,
+            userId,
+            proposalId,
+            clinicId,
+            proposal.status,
+          ],
+        );
+        if (Number(sendResult.affectedRows || 0) !== 1) {
+          throw ApiError.conflict("Proposal changed while it was being marked sent.");
+        }
+      });
+
+      const updated = await this.getProposal(clinicId, proposalId);
+      await this.logProposalActivity({
+        clinicId,
+        userId,
+        contactId: updated.contactId,
+        clientAccountProfileId: updated.clientAccountProfileId,
+        proposalId,
+        action: "proposal_sent",
+        title: updated.proposalName,
+        status: "sent",
+        previousStatus: proposal.status,
+        changes: {
+          previousStatus: proposal.status,
+          status: "sent",
+          sentAt: updated.sentAt,
+          recipientEmail,
+          recipientName,
+          sendMethod,
+          proposalUrl: updated.proposalUrl,
+          manualFallback: sendMethod === "manual_email",
+          v5SnapshotVersion: updated.v5SnapshotVersion,
+        },
+      });
+      await logAuditEvent({
+        clinicId,
+        userId,
+        action: "PROPOSAL_SENT_LOGGED",
+        entityType: "proposal",
+        entityId: proposalId,
+        changes: {
+          previousStatus: proposal.status,
+          status: "sent",
+          sentAt: updated.sentAt,
+          recipientEmail,
+          recipientName,
+          sendMethod,
+          manualFallback: sendMethod === "manual_email",
+          v5SnapshotVersion: updated.v5SnapshotVersion,
+        },
+      });
+      await this.syncProposalFollowUpTask(clinicId, userId, updated);
+      await this.syncRelatedDealStage(clinicId, userId, updated);
+
+      return updated;
+    }
 
     const [sendResult]: any = await pool.execute(
       `UPDATE proposal
@@ -1132,10 +1750,14 @@ export class ProposalsService {
       internalProposal.packageName,
     ));
 
+    const acceptanceUrl = buildAcceptanceUrl(internalProposal.proposalUrl);
+
     return {
       proposal,
       packageRecord,
       acceptance: mapPublicAcceptanceSummary(internalProposal),
+      acceptanceUrl,
+      acceptanceQrCodeDataUrl: await buildAcceptanceQrCodeDataUrl(acceptanceUrl),
     };
   }
 
@@ -1170,6 +1792,7 @@ export class ProposalsService {
     if (proposal.acceptanceRecord || ["accepted", "won"].includes(proposal.status)) {
       return this.getSharedProposal(token);
     }
+    assertPublicProposalV5Acceptable(proposal);
 
     const acceptedAt = new Date().toISOString();
     const fullName = cleanString(data.fullName);
@@ -1230,6 +1853,52 @@ export class ProposalsService {
     return this.getSharedProposal(token);
   }
 
+  async recordSharedProposalEvent(
+    rawToken: string,
+    data: ProposalPublicEventDTO,
+    _context: { ipAddress?: string | null; userAgent?: string | null } = {},
+  ) {
+    const token = cleanString(rawToken);
+    if (!token || token.length < 20) throw ApiError.notFound("Proposal link not found");
+    const eventType = cleanString(data.eventType);
+    if (!eventType) throw ApiError.badRequest("Proposal event type is required");
+
+    const tokenHash = hashToken(token);
+    const publicStatusPlaceholders = proposalPublicStatuses.map(() => "?").join(", ");
+    const [rows]: any = await pool.execute(
+      `${proposalSelectSql()}
+       WHERE p.public_token_hash = ?
+         AND p.deleted_at IS NULL
+         AND p.status IN (${publicStatusPlaceholders})
+         AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
+       LIMIT 1`,
+      [tokenHash, ...proposalPublicStatuses],
+    );
+    if (rows.length === 0) throw ApiError.notFound("Proposal link not found");
+
+    const proposal = mapProposal(rows[0]);
+    await pool.execute(
+      `UPDATE proposal
+       SET public_last_accessed_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [proposal.id, rows[0].clinicId],
+    );
+    await logAuditEvent({
+      clinicId: rows[0].clinicId,
+      userId: null,
+      action: "PROPOSAL_PUBLIC_EVENT",
+      entityType: "proposal",
+      entityId: proposal.id,
+      changes: {
+        eventType,
+        sectionKey: cleanString(data.sectionKey),
+      },
+    });
+
+    return { recorded: true };
+  }
+
   async getProposalSourceData(
     clinicId: string,
     query: ProposalSourceDataQuery,
@@ -1277,7 +1946,8 @@ export class ProposalsService {
     }
 
     const accountName = clientAccount?.clientName || contact?.accountName || contactFullName(contact) || deal?.title || "Prospect";
-    const contactName = contactFullName(contact) || "Decision maker";
+    const contactName = actualPersonName(contact) || "Decision-maker name required";
+    const greetingName = actualPersonName(contact)?.split(/\s+/)[0] || "there";
     const location = contact ? formatLocation(contact) : null;
     const categories = mergeScoreCategories(contact, clientAccount);
     const gaps = scoreGaps(categories);
@@ -1319,7 +1989,7 @@ export class ProposalsService {
 
     const suggested: ProposalSourceDataResponse["suggested"] = {
       proposalName: `${accountName} - ${packageName || "Growth Plan"} proposal`,
-      templateKey: overall !== null || auditStatus ? "growth_score_follow_up" : "clinicgrower_standard",
+      templateKey: "clinicgrower_v5",
       packageName,
       recommendedPackageId: packageRecord?.id || null,
       valueCents: packageValueCents ?? dealValueCents,
@@ -1331,7 +2001,7 @@ export class ProposalsService {
         : null,
       sectionContent: {
         executiveSummary: `This proposal brings together what we understand about ${accountName}, the priority growth gaps identified so far and the ClinicGrower programme recommended as the next step.`,
-        personalIntroduction: `Hi ${contactName ? contactName.split(/\s+/)[0] : "there"}, thanks again for taking the time to talk through where ${accountName} is now and what you want growth to look like. I have pulled this proposal together around the main opportunities we discussed: improving local visibility, tightening the enquiry journey, making tracking clearer, and giving the team a practical plan for turning more of the right enquiries into booked consultations.`,
+        personalIntroduction: `Hi ${greetingName}, thanks again for taking the time to talk through where ${accountName} is now and what you want growth to look like. I have pulled this proposal together around the main opportunities we discussed: improving local visibility, tightening the enquiry journey, making tracking clearer, and giving the team a practical plan for turning more of the right enquiries into booked consultations.`,
         introVideoTitle: "A short message from ClinicGrower",
         introVideoUrl: "https://vimeo.com/1008757315?fl=pl&fe=sh",
         primaryGoal: packageName ? `Move forward with ${packageName}.` : "Improve patient acquisition and conversion.",
@@ -1361,10 +2031,10 @@ export class ProposalsService {
         ],
         includedFeatures: packageRecord?.includedFeatures || [],
         successMetrics: [
-          "Qualified enquiries | Baseline to establish | Lead tracking and call tracking",
-          "Booked consultations | Directional improvement | Booking and CRM data",
-          "Lead-to-booked conversion rate | Directional improvement | Lead and booking data",
-          "Cost per booked patient | Within viable economics | Ads and CRM data",
+          "Qualified enquiries | Current monthly count and target required before sending | Lead tracking and call tracking",
+          "Booked consultations | Current booking baseline and target required before sending | Booking and CRM data",
+          "Lead-to-booked conversion rate | Target percentage required before sending | Lead and booking data",
+          "Cost per booked patient | Viable target cost required before sending | Ads and CRM data",
           "Response time | Under 10 minutes where practical | Call and lead data",
         ],
         clinicGrowerResponsibilities: [
@@ -1460,6 +2130,11 @@ export class ProposalsService {
 
     const status = data.status || "draft";
     this.validateStatusRequirements(status, data.followUpAt);
+    this.assertV5TerminalProposalHasFrozenSnapshot(
+      cleanString(data.templateKey) || "clinicgrower_v5",
+      status,
+      null,
+    );
     if (status === "lost" && (!cleanString(data.lostReason) || !cleanString(data.objectionType))) {
       throw ApiError.badRequest("Lost reason and objection type are required when marking a proposal lost");
     }
@@ -1468,7 +2143,30 @@ export class ProposalsService {
     const valueCents = data.valueCents ?? recommendedPackage?.priceCents ?? null;
     const monthlyFeeCents = data.monthlyFeeCents ?? (recommendedPackage?.billingFrequency === "monthly" ? recommendedPackage?.priceCents : null);
     const setupFeeCents = data.setupFeeCents ?? recommendedPackage?.setupFeeCents ?? null;
-    await this.validateProofAssetIds(clinicId, data.sectionContent);
+    const selectedProofAssets = await this.validateProofAssetIds(clinicId, data.sectionContent);
+    const candidateSectionContent = data.sectionContent
+      ? { ...data.sectionContent, proofAssets: selectedProofAssets }
+      : data.sectionContent || null;
+    this.assertClientReadyProposal({
+      status,
+      contactId: links.contactId,
+      contactName: links.contactName,
+      recommendedPackageId: recommendedPackage?.id || cleanString(data.recommendedPackageId),
+      packageName,
+      approvedPackagePriceCents: recommendedPackage?.priceCents ?? null,
+      approvedPackageSetupFeeCents: recommendedPackage?.setupFeeCents ?? null,
+      approvedPackageBillingFrequency: recommendedPackage?.billingFrequency ?? null,
+      valueCents,
+      monthlyFeeCents,
+      setupFeeCents,
+      adSpendNote: cleanString(data.adSpendNote),
+      vatStatus: cleanString(data.vatStatus),
+      minimumTermMonths: data.minimumTermMonths ?? null,
+      noticePeriodDays: data.noticePeriodDays ?? null,
+      startDate: toMysqlDateOnly(data.startDate),
+      expiresAt: toMysqlDateTime(data.expiresAt),
+      sectionContent: candidateSectionContent,
+    });
     await this.validateRelatedDealOutcome(clinicId, {
       dealId: links.dealId,
       status,
@@ -1485,7 +2183,7 @@ export class ProposalsService {
       links.dealId,
       links.clientAccountProfileId,
       proposalName,
-      cleanString(data.templateKey) || "clinicgrower_standard",
+      cleanString(data.templateKey) || "clinicgrower_v5",
       packageName,
       recommendedPackage?.id || null,
       cleanString(data.ownerId) || userId,
@@ -1547,7 +2245,7 @@ export class ProposalsService {
           contactId: links.contactId,
           dealId: links.dealId,
           clientAccountProfileId: links.clientAccountProfileId,
-          templateKey: cleanString(data.templateKey) || "clinicgrower_standard",
+          templateKey: cleanString(data.templateKey) || "clinicgrower_v5",
           packageName,
           recommendedPackageId: recommendedPackage?.id || null,
           monthlyFeeCents,
@@ -1611,7 +2309,7 @@ export class ProposalsService {
     }
 
     await mutate(pool);
-    const created = await this.getProposal(clinicId, id);
+    const created = await this.refreshProposalCoreData(clinicId, id);
     await recordCreated(null, created);
     await this.syncProposalFollowUpTask(clinicId, userId, created);
     await this.syncRelatedDealStage(clinicId, userId, created);
@@ -1640,6 +2338,10 @@ export class ProposalsService {
     });
     const status = data.status || existing.status;
     validateProposalStatusTransition(existing.status, status);
+    const candidateTemplateKey = Object.prototype.hasOwnProperty.call(data, "templateKey")
+      ? cleanString(data.templateKey) || "clinicgrower_v5"
+      : existing.templateKey;
+    this.assertV5TerminalProposalHasFrozenSnapshot(candidateTemplateKey, status, existing);
     const followUpAt = data.followUpAt === undefined ? existing.followUpAt : data.followUpAt;
     this.validateStatusRequirements(status, followUpAt);
     const lostReason = data.lostReason === undefined ? existing.lostReason : data.lostReason;
@@ -1650,12 +2352,70 @@ export class ProposalsService {
     const recommendedPackage = Object.prototype.hasOwnProperty.call(data, "recommendedPackageId")
       ? await this.resolveRecommendedPackage(clinicId, data.recommendedPackageId)
       : null;
+    const candidateRecommendedPackageId = Object.prototype.hasOwnProperty.call(data, "recommendedPackageId")
+      ? recommendedPackage?.id || cleanString(data.recommendedPackageId)
+      : existing.recommendedPackageId;
     const outcomeValueCents = Object.prototype.hasOwnProperty.call(data, "valueCents")
       ? data.valueCents
       : recommendedPackage?.priceCents ?? existing.valueCents;
-    if (Object.prototype.hasOwnProperty.call(data, "sectionContent")) {
-      await this.validateProofAssetIds(clinicId, data.sectionContent);
-    }
+    const candidatePackageName = Object.prototype.hasOwnProperty.call(data, "packageName")
+      ? cleanString(data.packageName) || recommendedPackage?.name || null
+      : recommendedPackage?.name || existing.packageName;
+    const comparisonPackage = recommendedPackage || (candidateRecommendedPackageId
+      ? await this.resolveRecommendedPackage(clinicId, candidateRecommendedPackageId)
+      : null);
+    const candidateMonthlyFeeCents = Object.prototype.hasOwnProperty.call(data, "monthlyFeeCents")
+      ? data.monthlyFeeCents ?? null
+      : recommendedPackage?.billingFrequency === "monthly" && recommendedPackage?.priceCents !== null && recommendedPackage?.priceCents !== undefined
+        ? recommendedPackage.priceCents
+        : existing.monthlyFeeCents;
+    const candidateSetupFeeCents = Object.prototype.hasOwnProperty.call(data, "setupFeeCents")
+      ? data.setupFeeCents ?? null
+      : recommendedPackage?.setupFeeCents !== null && recommendedPackage?.setupFeeCents !== undefined
+        ? recommendedPackage.setupFeeCents
+        : existing.setupFeeCents;
+    const candidateVatStatus = Object.prototype.hasOwnProperty.call(data, "vatStatus")
+      ? cleanString(data.vatStatus)
+      : existing.vatStatus;
+    const candidateMinimumTermMonths = Object.prototype.hasOwnProperty.call(data, "minimumTermMonths")
+      ? data.minimumTermMonths ?? null
+      : existing.minimumTermMonths;
+    const candidateNoticePeriodDays = Object.prototype.hasOwnProperty.call(data, "noticePeriodDays")
+      ? data.noticePeriodDays ?? null
+      : existing.noticePeriodDays;
+    const candidateStartDate = Object.prototype.hasOwnProperty.call(data, "startDate")
+      ? toMysqlDateOnly(data.startDate)
+      : existing.startDate;
+    const candidateExpiresAt = Object.prototype.hasOwnProperty.call(data, "expiresAt")
+      ? toMysqlDateTime(data.expiresAt)
+      : existing.expiresAt;
+    const candidateSectionContentSource = Object.prototype.hasOwnProperty.call(data, "sectionContent")
+      ? data.sectionContent || null
+      : existing.sectionContent;
+    const selectedProofAssets = await this.validateProofAssetIds(clinicId, candidateSectionContentSource);
+    const candidateSectionContent = candidateSectionContentSource
+      ? { ...candidateSectionContentSource, proofAssets: selectedProofAssets }
+      : candidateSectionContentSource;
+    this.assertClientReadyProposal({
+      status,
+      contactId: links.contactId,
+      contactName: links.contactName,
+      recommendedPackageId: candidateRecommendedPackageId,
+      packageName: candidatePackageName,
+      approvedPackagePriceCents: comparisonPackage?.priceCents ?? null,
+      approvedPackageSetupFeeCents: comparisonPackage?.setupFeeCents ?? null,
+      approvedPackageBillingFrequency: comparisonPackage?.billingFrequency ?? null,
+      valueCents: outcomeValueCents ?? null,
+      monthlyFeeCents: candidateMonthlyFeeCents,
+      setupFeeCents: candidateSetupFeeCents,
+      adSpendNote: Object.prototype.hasOwnProperty.call(data, "adSpendNote") ? cleanString(data.adSpendNote) : existing.adSpendNote,
+      vatStatus: candidateVatStatus,
+      minimumTermMonths: candidateMinimumTermMonths,
+      noticePeriodDays: candidateNoticePeriodDays,
+      startDate: candidateStartDate,
+      expiresAt: candidateExpiresAt,
+      sectionContent: candidateSectionContent,
+    });
     await this.validateRelatedDealOutcome(clinicId, {
       dealId: links.dealId,
       status,
@@ -1673,7 +2433,7 @@ export class ProposalsService {
     add("deal_id", links.dealId);
     add("client_account_profile_id", links.clientAccountProfileId);
     if (Object.prototype.hasOwnProperty.call(data, "proposalName")) add("proposal_name", cleanString(data.proposalName));
-    if (Object.prototype.hasOwnProperty.call(data, "templateKey")) add("template_key", cleanString(data.templateKey) || "clinicgrower_standard");
+    if (Object.prototype.hasOwnProperty.call(data, "templateKey")) add("template_key", cleanString(data.templateKey) || "clinicgrower_v5");
     if (Object.prototype.hasOwnProperty.call(data, "recommendedPackageId")) add("recommended_package_id", recommendedPackage?.id || null);
     if (Object.prototype.hasOwnProperty.call(data, "packageName")) {
       add("package_name", cleanString(data.packageName) || recommendedPackage?.name || null);
@@ -1777,7 +2537,7 @@ export class ProposalsService {
     }
 
     await mutate(pool);
-    const updated = await this.getProposal(clinicId, proposalId);
+    const updated = await this.refreshProposalCoreData(clinicId, proposalId);
     await this.recordProposalUpdate(null, clinicId, userId, proposalId, existing, updated, data);
     await this.syncProposalFollowUpTask(clinicId, userId, updated);
     await this.syncRelatedDealStage(clinicId, userId, updated, existing);
@@ -1902,29 +2662,100 @@ export class ProposalsService {
     }
   }
 
+  private async refreshProposalCoreData(
+    clinicId: string,
+    proposalId: string,
+    executor: QueryExecutor = pool,
+    currentProposal?: ProposalResponse,
+  ) {
+    const proposal = currentProposal || await this.getProposal(clinicId, proposalId, executor);
+    const coreData = buildProposalCoreData(proposal);
+    await executor.execute(
+      `UPDATE proposal
+       SET core_data = ?
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL`,
+      [serializeProposalCoreData(coreData) ?? null, proposalId, clinicId],
+    );
+    return { ...proposal, coreData };
+  }
+
   private assertAcceptedProposalCanBeMutated(
     existing: ProposalResponse,
     data: ProposalMutationDTO,
   ) {
-    if (!existing.acceptanceRecord) return;
+    if (existing.acceptanceRecord) {
+      const requestedStatus = data.status || existing.status;
+      if (existing.status === "accepted" && requestedStatus === "won") {
+        const allowedKeys = new Set([
+          "status",
+          "wonReason",
+          "acceptedByName",
+          "acceptedByEmail",
+          "acceptedAt",
+          "paymentTerms",
+        ]);
+        const unexpected = Object.keys(data).filter((key) => !allowedKeys.has(key));
+        if (unexpected.length === 0) return;
+      }
 
-    const requestedStatus = data.status || existing.status;
-    if (existing.status === "accepted" && requestedStatus === "won") {
+      throw ApiError.conflict(
+        "This proposal has been accepted and its accepted version is locked. Create a new proposal version for further changes.",
+      );
+    }
+
+    const clientVisibleLockedStatuses: ProposalStatus[] = ["sent", "viewed", "follow_up_due", "accepted", "won"];
+    if (clientVisibleLockedStatuses.includes(existing.status)) {
       const allowedKeys = new Set([
         "status",
-        "wonReason",
+        "followUpAt",
+        "viewedAt",
+        "acceptedReason",
         "acceptedByName",
         "acceptedByEmail",
         "acceptedAt",
+        "legalCompanyName",
+        "billingEmail",
+        "preferredStartDate",
+        "agreementAccepted",
+        "confirmationText",
+        "acceptanceSource",
+        "acceptedIpAddress",
+        "acceptedUserAgent",
+        "evidenceSha256",
         "paymentTerms",
+        "wonAt",
+        "wonReason",
+        "lostAt",
+        "lostReason",
+        "objectionType",
       ]);
       const unexpected = Object.keys(data).filter((key) => !allowedKeys.has(key));
-      if (unexpected.length === 0) return;
+      if (unexpected.length > 0) {
+        throw ApiError.conflict(
+          "This proposal has already been sent or viewed. Create a new proposal version before changing package, price, scope or client-facing copy.",
+        );
+      }
     }
+  }
 
-    throw ApiError.conflict(
-      "This proposal has been accepted and its accepted version is locked. Create a new proposal version for further changes.",
-    );
+  private assertV5TerminalProposalHasFrozenSnapshot(
+    templateKey: string | null | undefined,
+    status: ProposalStatus,
+    existing: ProposalResponse | null,
+  ) {
+    if (!isProposalV5Proposal({ templateKey: templateKey || "" })) return;
+    if (!["accepted", "won"].includes(status)) return;
+    if (
+      existing?.v5Snapshot &&
+      existing.v5SnapshotHash &&
+      existing.v5SnapshotVersion &&
+      existing.v5SnapshotFrozenAt
+    ) {
+      return;
+    }
+    throw ApiError.conflict("This V5 proposal must be sent and frozen before it can be accepted or won.");
   }
 
   private async persistAcceptedProposalMutation(input: {
@@ -1953,7 +2784,8 @@ export class ProposalsService {
           [input.proposalId, input.clinicId],
         );
       }
-      const proposal = await this.getProposal(input.clinicId, input.proposalId, executor);
+      let proposal = await this.getProposal(input.clinicId, input.proposalId, executor);
+      proposal = await this.refreshProposalCoreData(input.clinicId, input.proposalId, executor, proposal);
       await input.recordMutation(executor, proposal);
       await this.syncProposalFollowUpTask(input.clinicId, input.userId, proposal, executor);
       await this.ensureAcceptedProposalSnapshot(
@@ -2417,6 +3249,7 @@ export class ProposalsService {
     } = {},
   ) {
     let contactId = cleanString(data.contactId);
+    let resolvedContactName: string | null = null;
     const dealId = cleanString(data.dealId);
     const clientAccountProfileId = cleanString(data.clientAccountProfileId);
 
@@ -2441,13 +3274,16 @@ export class ProposalsService {
 
     if (contactId) {
       const [contactRows]: any = await pool.execute(
-        `SELECT id
+        `SELECT id,
+                first_name as firstName,
+                last_name as lastName
          FROM contact
          WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL
          LIMIT 1`,
         [contactId, clinicId],
       );
       if (contactRows.length === 0) throw ApiError.notFound("Contact not found");
+      resolvedContactName = [contactRows[0].firstName, contactRows[0].lastName].filter(Boolean).join(" ").trim() || null;
     }
 
     if (clientAccountProfileId) {
@@ -2477,7 +3313,7 @@ export class ProposalsService {
 
     if (data.ownerId) await this.ensureActiveOwner(clinicId, String(data.ownerId));
 
-    return { contactId, dealId, clientAccountProfileId };
+    return { contactId, contactName: resolvedContactName, dealId, clientAccountProfileId };
   }
 
   private buildProposalAuditChanges(
@@ -2738,7 +3574,11 @@ export class ProposalsService {
               price_cents as priceCents,
               setup_fee_cents as setupFeeCents,
               billing_frequency as billingFrequency,
-              currency
+              currency,
+              included_features as includedFeatures,
+              proposal_wording as proposalWording,
+              catalogue_version as catalogueVersion,
+              commercial_notes as commercialNotes
        FROM growth_package
        WHERE id = ?
          AND clinic_id = ?
@@ -2748,16 +3588,43 @@ export class ProposalsService {
       [cleanPackageId, clinicId],
     );
     if (rows.length === 0) throw ApiError.badRequest("Recommended package must be available to this workspace");
-    return rows[0] as { id: string; name: string; priceCents: number | null; setupFeeCents: number | null; billingFrequency: string | null; currency: string };
+    const row = rows[0];
+    return {
+      id: row.id as string,
+      name: row.name as string,
+      priceCents: numberOrNull(row.priceCents),
+      setupFeeCents: numberOrNull(row.setupFeeCents),
+      billingFrequency: row.billingFrequency,
+      currency: row.currency || "GBP",
+      includedFeatures: parseJsonArray(row.includedFeatures),
+      internalNotes: null,
+      proposalWording: row.proposalWording || null,
+      sortOrder: 0,
+      status: "active" as const,
+      isDefault: false,
+      catalogueVersion: row.catalogueVersion || null,
+      commercialNotes: parseJsonObject(row.commercialNotes),
+      createdAt: "",
+      updatedAt: "",
+    };
   }
 
-  private async validateProofAssetIds(clinicId: string, sectionContent: ProposalSectionContent | null | undefined) {
+  private async validateProofAssetIds(clinicId: string, sectionContent: ProposalSectionContent | null | undefined): Promise<ProposalProofAssetResponse[]> {
     const ids = parseProofAssetIds(sectionContent);
-    if (ids.length === 0) return;
+    if (ids.length === 0) return [];
     const uniqueIds = [...new Set(ids)];
     const placeholders = uniqueIds.map(() => "?").join(", ");
     const [rows]: any = await pool.execute(
-      `SELECT id
+      `SELECT id,
+              type,
+              title,
+              copy,
+              media_url as mediaUrl,
+              sector_tags as sectorTags,
+              sort_order as sortOrder,
+              is_active as isActive,
+              created_at as createdAt,
+              updated_at as updatedAt
        FROM proposal_proof_asset
        WHERE clinic_id = ?
          AND id IN (${placeholders})
@@ -2768,6 +3635,10 @@ export class ProposalsService {
     if (rows.length !== uniqueIds.length) {
       throw ApiError.badRequest("Selected proof assets must be active and available to this workspace");
     }
+    const assetsById = new Map(rows.map((row: any) => [row.id, mapProposalProofAsset(row)]));
+    return ids
+      .map((id) => assetsById.get(id))
+      .filter(Boolean) as ProposalProofAssetResponse[];
   }
 
   private async hydrateSelectedProofAssets(
@@ -3089,7 +3960,7 @@ export class ProposalsService {
     if (semanticMatches.length > 0) return semanticMatches[semanticMatches.length - 1];
 
     // Pipelines may use fully custom labels. In that case, the last configured
-    // open stage is the safest proposal-stage fallback before won/lost.
+    // open stage is the safest default proposal stage before won/lost.
     return eligibleStages[eligibleStages.length - 1];
   }
 
@@ -3212,16 +4083,8 @@ export class ProposalsService {
       );
       return;
     }
-    const acceptedByName = Object.prototype.hasOwnProperty.call(data, "acceptedByName")
-      ? cleanString(data.acceptedByName)
-      : proposal.contactName ||
-        proposal.sentToName ||
-        proposal.accountName ||
-        proposal.clientAccountName;
-    const acceptedByEmail = Object.prototype.hasOwnProperty.call(data, "acceptedByEmail")
-      ? cleanString(data.acceptedByEmail)
-      : proposal.contactEmail ||
-        proposal.sentToEmail;
+    const acceptedByName = cleanString(data.acceptedByName);
+    const acceptedByEmail = cleanString(data.acceptedByEmail);
     if (!acceptedByName || !acceptedByEmail) {
       throw ApiError.badRequest(
         "Accepted by name and email are required the first time a proposal is accepted.",
@@ -3245,6 +4108,7 @@ export class ProposalsService {
     const acceptedUserAgent = cleanString(data.acceptedUserAgent);
     const evidenceSha256 = cleanString(data.evidenceSha256);
     const sectionContent = proposal.sectionContent || {};
+    const coreData = proposal.coreData || buildProposalCoreData(proposal);
     const scope = {
       packageName: proposal.packageName,
       includedFeatures: Array.isArray(sectionContent.includedFeatures) ? sectionContent.includedFeatures : [],
@@ -3292,6 +4156,9 @@ export class ProposalsService {
       confirmationText,
       acceptanceSource,
       evidenceSha256,
+      coreData,
+      v5SnapshotHash: proposal.v5SnapshotHash,
+      v5SnapshotVersion: proposal.v5SnapshotVersion,
       capturedAt: new Date().toISOString(),
     };
 
@@ -3305,8 +4172,9 @@ export class ProposalsService {
          accepted_at, acceptance_status,
          package_name, recommended_package_id, monthly_fee_cents, setup_fee_cents,
          currency, payment_terms, start_date, minimum_term_months, notice_period_days,
-         scope, commercial_snapshot, proposal_snapshot, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         scope, commercial_snapshot, proposal_snapshot, core_data_snapshot,
+         v5_snapshot, v5_snapshot_hash, v5_snapshot_version, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          client_account_profile_id = COALESCE(VALUES(client_account_profile_id), client_account_profile_id),
          acceptance_status = VALUES(acceptance_status),
@@ -3345,6 +4213,10 @@ export class ProposalsService {
         JSON.stringify(scope),
         JSON.stringify(commercialSnapshot),
         JSON.stringify(proposalSnapshot),
+        serializeProposalCoreData(coreData),
+        serializeProposalV5Snapshot(proposal.v5Snapshot),
+        proposal.v5SnapshotHash,
+        proposal.v5SnapshotVersion,
         userId,
       ],
     );
@@ -3439,6 +4311,269 @@ export class ProposalsService {
   private validateStatusRequirements(status: ProposalStatus, followUpAt: unknown) {
     if (status === "follow_up_due" && !followUpAt) {
       throw ApiError.badRequest("followUpAt is required when proposal status is follow_up_due");
+    }
+  }
+
+  private assertClientReadyProposal(input: {
+    status: ProposalStatus;
+    contactId?: string | null;
+    contactName?: string | null;
+    recommendedPackageId?: string | null;
+    packageName?: string | null;
+    approvedPackagePriceCents?: number | null;
+    approvedPackageSetupFeeCents?: number | null;
+    approvedPackageBillingFrequency?: string | null;
+    valueCents?: number | null;
+    monthlyFeeCents?: number | null;
+    setupFeeCents?: number | null;
+    adSpendNote?: string | null;
+    vatStatus?: string | null;
+    minimumTermMonths?: number | null;
+    noticePeriodDays?: number | null;
+    startDate?: string | null;
+    expiresAt?: string | null;
+    sectionContent?: ProposalSectionContent | null;
+  }) {
+    if (!["ready", "sent", "viewed", "accepted", "won"].includes(input.status)) return;
+
+    const issues: string[] = [];
+    const section = input.sectionContent || {};
+    const scopeItems = Array.isArray(section.scopeItems) ? section.scopeItems : [];
+    const successMetrics = Array.isArray(section.successMetrics) ? section.successMetrics : [];
+    const proofAssetIds = Array.isArray(section.proofAssetIds) ? section.proofAssetIds : [];
+    const proofAssets = Array.isArray(section.proofAssets) ? section.proofAssets : [];
+    const clinicTypeVariant = getProposalClinicTypeVariant(section.clinicTypeVariant);
+
+    if (!hasText(input.contactId)) issues.push("link an actual decision-maker/contact");
+    if (!hasText(input.contactName)) issues.push("complete the decision-maker's actual name");
+    if (!hasText(input.recommendedPackageId)) issues.push("link the proposal to an approved package catalogue record");
+    if (!hasText(input.packageName)) issues.push("select the approved package/programme");
+    if (!hasText(input.approvedPackageBillingFrequency)) issues.push("complete billing frequency on the approved package catalogue record");
+    if (input.monthlyFeeCents == null && input.valueCents == null) issues.push("complete the programme fee");
+    if (input.setupFeeCents === null || input.setupFeeCents === undefined) issues.push("complete the setup fee, even if it is zero");
+    if (!hasText(input.adSpendNote)) issues.push("show advertising spend separately from the ClinicGrower fee");
+    if (!hasText(input.vatStatus)) issues.push("complete VAT status");
+    if (!input.minimumTermMonths) issues.push("complete minimum term");
+    if (!input.noticePeriodDays) issues.push("complete notice period");
+    if (!hasText(input.startDate)) issues.push("complete start date");
+    if (!hasText(input.expiresAt)) issues.push("complete proposal expiry");
+    if (!clinicTypeVariant) issues.push("select one approved clinic type variant");
+    if (cleanString(section.clinicTypeAssetVersion) !== proposalClinicTypeAssetVersion) {
+      issues.push("refresh the selected clinic type variant so the saved asset version is current");
+    }
+    if (hasText(section.heroImageUrl) && !hasText(section.heroImageAlt)) {
+      issues.push("add descriptive alt text for the selected clinic-type hero image");
+    }
+
+    const visibleEvidenceStates = new Set<ProposalDataState>(["known", "working_diagnosis", "provisional"]);
+    const acceptedSectorImageStatuses = new Set(["approved"]);
+    const requiredV5Fields: Array<[keyof ProposalSectionContent, string]> = [
+      ["discoverySource", "discovery source"],
+      ["customerWording", "customer wording captured from discovery"],
+      ["evidenceConfidenceState", "evidence confidence state"],
+      ["activeConstraintId", "active constraint"],
+      ["activeConstraintConfidenceState", "active-constraint confidence state"],
+      ["economicUnit", "economic unit"],
+      ["clinicConfirmedContribution", "confirmed contribution per economic unit"],
+      ["contributionEvidenceSourceDate", "contribution evidence source/date"],
+      ["contributionConfirmationState", "contribution confirmation state"],
+      ["selectedMediaSpend", "selected media spend used in the commercial model"],
+      ["paybackState", "payback confirmation state"],
+      ["liveDataStatus", "ClinicGrower OS live-data status"],
+      ["sectorImageApprovalStatus", "sector image status"],
+      ["sectorImageProvenance", "sector image provenance"],
+    ];
+    for (const [field, label] of requiredV5Fields) {
+      if (!hasText(section[field])) issues.push(`complete ${label}`);
+    }
+    if (hasText(section.evidenceConfidenceState) && !visibleEvidenceStates.has(normalizeProposalDataState(section.evidenceConfidenceState))) {
+      issues.push("set evidence confidence to Known, Working diagnosis or Provisional");
+    }
+    if (hasText(section.activeConstraintConfidenceState) && !visibleEvidenceStates.has(normalizeProposalDataState(section.activeConstraintConfidenceState))) {
+      issues.push("set active-constraint confidence to Known, Working diagnosis or Provisional");
+    }
+    if (hasText(section.contributionConfirmationState) && normalizeProposalDataState(section.contributionConfirmationState) !== "known") {
+      issues.push("confirm contribution per economic unit before the commercial case can be sent");
+    }
+    if (hasText(section.paybackState) && normalizeProposalDataState(section.paybackState) !== "known") {
+      issues.push("confirm payback assumptions before the commercial case can be sent");
+    }
+    if (hasText(section.liveDataStatus) && section.liveDataStatus !== "live_connected" && !hasText(section.knownDataLimitations)) {
+      issues.push("explain live-data limitations when ClinicGrower OS is not fully connected");
+    }
+    if (hasText(section.sectorImageApprovalStatus) && !acceptedSectorImageStatuses.has(String(section.sectorImageApprovalStatus))) {
+      issues.push("use the current V5 sector imagery with provenance recorded");
+    }
+    const sectorImages = Array.isArray(section.sectorImages) ? section.sectorImages : [];
+    const requiredSectorImageSlots: ProposalSectorImage["slot"][] = ["cover", "journey", "proof", "close"];
+    const savedSectorImageSlots = new Set<ProposalSectorImage["slot"]>(sectorImages.map((image) => image.slot));
+    const uniqueSectorImageUrls = new Set(sectorImages.map((image) => cleanString(image.url)).filter(Boolean));
+    const hasIncompleteSectorImage = sectorImages.some((image) => (
+      !requiredSectorImageSlots.includes(image.slot) ||
+      !hasText(image.imageId) ||
+      !hasText(image.url) ||
+      !hasText(image.cropPosition) ||
+      !hasText(image.licence) ||
+      !hasText(image.provenance) ||
+      image.approvalStatus !== "approved"
+    ));
+    if (
+      sectorImages.length !== 4 ||
+      savedSectorImageSlots.size !== 4 ||
+      requiredSectorImageSlots.some((slot) => !savedSectorImageSlots.has(slot)) ||
+      uniqueSectorImageUrls.size !== 4 ||
+      hasIncompleteSectorImage
+    ) {
+      issues.push("save four unique approved sector images with cover, journey, proof and close slots, crop position, licence and provenance");
+    }
+
+    const expectedProgrammeFee = input.approvedPackageBillingFrequency === "monthly"
+      ? input.approvedPackagePriceCents ?? null
+      : input.approvedPackagePriceCents ?? null;
+    const actualProgrammeFee = input.approvedPackageBillingFrequency === "monthly"
+      ? input.monthlyFeeCents ?? null
+      : input.valueCents ?? null;
+    const commercialChanged = (
+      (expectedProgrammeFee !== null && expectedProgrammeFee !== undefined && actualProgrammeFee !== expectedProgrammeFee) ||
+      (input.approvedPackageSetupFeeCents !== null && input.approvedPackageSetupFeeCents !== undefined && input.setupFeeCents !== input.approvedPackageSetupFeeCents)
+    );
+    if (commercialChanged && (!hasText(section.commercialChangeReason) || section.commercialApprovalStatus !== "approved")) {
+      issues.push("record a reason and approved internal approval status for any custom price or setup fee change");
+    }
+
+    const requiredSectionFields: Array<[keyof ProposalSectionContent, string]> = [
+      ["proposalReference", "proposal reference"],
+      ["proposalDate", "proposal date"],
+      ["personalIntroduction", "personal note"],
+      ["primaryGoal", "clinic growth target"],
+      ["clinicTypeAndLocations", "clinic type and locations"],
+      ["currentPosition", "current situation"],
+      ["currentMarketingSpend", "current marketing spend or not-currently-measured note"],
+      ["currentWebsiteCrmBookingSetup", "current website, CRM and booking setup"],
+      ["problemsDiscussed", "specific problems discussed during discovery"],
+      ["whyActNow", "why the clinic wants to act now"],
+      ["currentlyUnmeasured", "what is currently unmeasured"],
+      ["availableCapacity", "available capacity"],
+      ["priorityTreatments", "priority treatments"],
+      ["targetArea", "clinic type/location or target area"],
+      ["desiredOutcome", "desired outcome"],
+      ["biggestRisk", "specific problem discussed"],
+      ["biggestOpportunity", "commercial opportunity"],
+      ["firstRecommendedFix", "first recommended fix"],
+      ["currentMonthlyEnquiries", "current monthly enquiries or not-currently-measured note"],
+      ["currentMonthlyBookedPatients", "current monthly bookings or not-currently-measured note"],
+      ["currentBookingRate", "current booking-rate assumption"],
+      ["attendanceRate", "attendance-rate assumption"],
+      ["consultationToTreatmentConversionRate", "consultation-to-treatment conversion assumption"],
+      ["averageTreatmentValue", "treatment or patient value"],
+      ["availableCommercialCapacity", "commercial/appointment capacity"],
+      ["currentAcquisitionCost", "current acquisition cost"],
+      ["commercialDataSource", "commercial data source and assumptions"],
+      ["recommendedPlan", "recommended ClinicGrower OS plan"],
+    ];
+    for (const [field, label] of requiredSectionFields) {
+      if (!hasText(section[field])) issues.push(`complete ${label}`);
+    }
+
+    if (!scopeItems.length) {
+      issues.push("add approved package scope rows");
+    } else {
+      const incompleteScope = scopeItems.some((item) => (
+        !hasText(item.category) ||
+        !hasText(item.title) ||
+        !hasText(item.clientDescription) ||
+        !hasText(item.frequency) ||
+        !hasText(item.quantityLimit) ||
+        !hasText(item.treatmentsAndLocations) ||
+        !hasText(item.dependencies) ||
+        !hasText(item.clientResponsibilities) ||
+        !hasText(item.exclusions) ||
+        !hasText(item.thirdPartyCosts) ||
+        !hasText(item.deliveryType) ||
+        !hasText(item.inclusionStatus)
+      ));
+      if (incompleteScope) {
+        issues.push("complete category, description, frequency, quantity/limit, treatments/locations, dependencies, responsibilities, exclusions, third-party costs and inclusion status on every scope row");
+      }
+      const vagueScope = scopeItems.some((item) => [
+        item.clientDescription,
+        item.frequency,
+        item.quantityLimit,
+        item.treatmentsAndLocations,
+        item.dependencies,
+        item.clientResponsibilities,
+        item.exclusions,
+        item.thirdPartyCosts,
+      ].some(containsUndefinedScopePhrase));
+      if (vagueScope) {
+        issues.push("replace vague scope wording such as as required, agreed in roadmap, confirmed separately or to be agreed");
+      }
+      const unapprovedCustomScope = scopeItems.some((item) => (
+        item.isCustom &&
+        (!hasText(item.changeReason) || item.approvalStatus !== "approved")
+      ));
+      if (unapprovedCustomScope) {
+        issues.push("record a reason and approved internal approval status for every custom scope change");
+      }
+    }
+
+    if (!successMetrics.length) {
+      issues.push("complete success measures with metric, target and measurement source");
+    } else if (successMetrics.some(isIncompleteSuccessMetric)) {
+      issues.push("replace placeholder success measures with specific metric, target and source rows");
+    }
+
+    if (!proofAssetIds.length && !proofAssets.length) {
+      issues.push("select relevant proof or credibility assets");
+    } else {
+      const selectedProofAssets = proofAssets as ProposalProofAssetResponse[];
+      const clinicSegments = inferClinicSegmentsFromSection(section);
+      const mismatchedClinicProof = clinicTypeVariant
+        ? selectedProofAssets.some((asset) => (
+          ["case_study", "testimonial", "testimonial_video", "performance_result"].includes(asset.type) &&
+          !proofMatchesClinicVariant(asset, clinicTypeVariant)
+        ))
+        : false;
+      const matchedCaseStudy = selectedProofAssets.some((asset) => (
+        asset.type === "case_study" &&
+        proofMatchesClinicSegments(asset, clinicSegments) &&
+        (!clinicTypeVariant || proofMatchesClinicVariant(asset, clinicTypeVariant))
+      ));
+      const permissionedTestimonial = selectedProofAssets.some((asset) => (
+        (asset.type === "testimonial" || asset.type === "testimonial_video") &&
+        proofHasPermission(asset) &&
+        (!clinicTypeVariant || proofMatchesClinicVariant(asset, clinicTypeVariant))
+      ));
+      const productScreenshot = selectedProofAssets.some((asset) => (
+        asset.type === "product_screenshot" &&
+        Boolean(asset.mediaUrl) &&
+        proofAssetText(asset).includes("clinicgrower os")
+      ));
+      const contextualResult = selectedProofAssets.some((asset) => (
+        asset.type === "performance_result" &&
+        proofHasResultContext(asset)
+      ));
+      const invalidDrTanjaAsset = selectedProofAssets.some((asset) => (
+        proofIsDrTanja(asset) &&
+        !proofHasVerifiedImage(asset)
+      ));
+      const resultMissingContext = selectedProofAssets.some((asset) => !proofHasResultContext(asset));
+
+      if (!matchedCaseStudy) issues.push("select one verified case study matched to the prospect clinic type");
+      if (!permissionedTestimonial) issues.push("select a named testimonial/testimonial video with permission recorded");
+      if (!productScreenshot) issues.push("select at least one real ClinicGrower OS product screenshot");
+      if (!contextualResult) issues.push("select a performance result with timeframe and delivery context");
+      if (resultMissingContext) issues.push("add timeframe and delivery context to every performance-result proof asset");
+      if (invalidDrTanjaAsset) issues.push("use the verified Dr Tanja image for Dr Tanja proof");
+      if (mismatchedClinicProof) {
+        issues.push(`remove proof assets that do not match ${clinicTypeVariant ? proposalClinicTypeVariants[clinicTypeVariant].label : "the selected clinic type"}`);
+      }
+    }
+
+    if (issues.length) {
+      const shown = issues.slice(0, 8).join("; ");
+      const suffix = issues.length > 8 ? `; plus ${issues.length - 8} more` : "";
+      throw ApiError.badRequest(`Proposal is not ready for client use: ${shown}${suffix}.`);
     }
   }
 

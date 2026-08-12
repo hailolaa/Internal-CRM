@@ -12,6 +12,148 @@ import { generateToken, hashPassword } from "../utils/helpers.js";
 
 type TestUser = { id: string; roleId: string; token: string };
 
+const proposalClinicTypeAssetVersion = "2026-08-10.v5-approved-assets";
+
+function makeReadySectionContent(proofAssetIds: string[]) {
+  return {
+    proposalReference: "CG-TEST-001",
+    proposalDate: "2026-08-10",
+    clinicTypeVariant: "dental_clinic",
+    clinicTypeAssetVersion: proposalClinicTypeAssetVersion,
+    personalIntroduction: "This proposal is focused on the confirmed dental growth gaps discussed during discovery.",
+    primaryGoal: "Increase predictable private dental consultations and treatment-plan starts.",
+    clinicTypeAndLocations: "Dental clinic with one main location and a defined local catchment.",
+    currentPosition: "High-value demand exists, but source visibility, booking movement and follow-up need clearer accountability.",
+    currentMarketingSpend: "1200 per month across paid search and local visibility.",
+    currentWebsiteCrmBookingSetup: "Website forms, phone calls and booking records are available for connection where access is granted.",
+    problemsDiscussed: "Missed calls, unclear treatment enquiry source and inconsistent follow-up after consultation requests.",
+    whyActNow: "The clinic wants to protect high-value private treatment demand before increasing media spend.",
+    currentlyUnmeasured: "Response speed, booking rate, attendance rate and treatment-plan acceptance by source.",
+    availableCapacity: "The clinic can support five additional private consultations each month.",
+    priorityTreatments: "Dental implants, Invisalign and private cosmetic dentistry.",
+    targetArea: "Local dental catchment around the clinic.",
+    desiredOutcome: "A clearer ClinicGrower OS growth system within the first 90 days.",
+    biggestRisk: "High-value enquiries are being lost after the lead arrives.",
+    biggestOpportunity: "A small improvement in booked implant and Invisalign consultations can cover the monthly fee.",
+    firstRecommendedFix: "Connect enquiry sources, response ownership and booking outcomes before scaling spend.",
+    currentMonthlyEnquiries: "40",
+    currentMonthlyBookedPatients: "12",
+    currentBookingRate: "30",
+    attendanceRate: "80",
+    consultationToTreatmentConversionRate: "45",
+    averageTreatmentValue: "2500",
+    availableCommercialCapacity: "5 additional treatment starts per month.",
+    currentAcquisitionCost: "100",
+    commercialDataSource: "Discovery notes, current spend and conservative private dental treatment assumptions.",
+    commercialChangeReason: "Approved test fixture for proposal readiness coverage.",
+    commercialApprovalStatus: "approved",
+    discoverySource: "Recorded discovery call and CRM notes from 10 Aug 2026.",
+    customerWording: "We need to understand which implant enquiries are being missed and where follow-up is failing.",
+    evidenceConfidenceState: "confirmed_on_call",
+    activeConstraintId: "Missed calls and unclear booking movement for high-value dental enquiries.",
+    activeConstraintConfidenceState: "confirmed_on_call",
+    economicUnit: "accepted implant case",
+    clinicConfirmedContribution: "2500",
+    contributionEvidenceSourceDate: "Confirmed from discovery notes on 10 Aug 2026.",
+    contributionConfirmationState: "confirmed_on_call",
+    selectedMediaSpend: "3000",
+    paybackState: "confirmed_on_call",
+    liveDataStatus: "partially_connected",
+    knownDataLimitations: "Live usefulness depends on call, form, CRM and booking data being connected.",
+    sectorImageApprovalStatus: "approved",
+    sectorImageProvenance: "ClinicGrower V5 approved dental imagery asset pack.",
+    sectorImages: [
+      {
+        slot: "cover",
+        imageId: "dental-cover",
+        url: "/brand/proposal/v5-reference/dental_practices/p01-img02-1672x941.png",
+        cropPosition: "center center",
+        licence: "ClinicGrower V5 reference asset pack",
+        provenance: "ClinicGrower final V5 proposal PDFs",
+        approvalStatus: "approved",
+      },
+      {
+        slot: "journey",
+        imageId: "dental-journey",
+        url: "/brand/proposal/v5-reference/dental_practices/p06-img01-1009x1559.png",
+        cropPosition: "center center",
+        licence: "ClinicGrower V5 reference asset pack",
+        provenance: "ClinicGrower final V5 proposal PDFs",
+        approvalStatus: "approved",
+      },
+      {
+        slot: "proof",
+        imageId: "dental-proof",
+        url: "/brand/proposal/v5-reference/dental_practices/p10-img01-1122x1402.png",
+        cropPosition: "center center",
+        licence: "ClinicGrower V5 reference asset pack",
+        provenance: "ClinicGrower final V5 proposal PDFs",
+        approvalStatus: "approved",
+      },
+      {
+        slot: "close",
+        imageId: "dental-planning",
+        url: "/brand/proposal/v5-reference/dental_practices/p13-img01-1672x941.png",
+        cropPosition: "center center",
+        licence: "ClinicGrower V5 reference asset pack",
+        provenance: "ClinicGrower final V5 proposal PDFs",
+        approvalStatus: "approved",
+      },
+    ],
+    recommendedPlan: "Use ClinicGrower OS to connect dental enquiry visibility, booking movement, treatment opportunity and next actions.",
+    proofAssetIds,
+    scopeItems: [
+      {
+        category: "Strategy",
+        title: "Dental growth priority plan",
+        clientDescription: "A focused strategy for the agreed private dental treatments and local catchment.",
+        frequency: "Monthly",
+        quantityLimit: "One monthly review and priority plan update",
+        treatmentsAndLocations: "Dental implants, Invisalign and private dentistry at the agreed location",
+        dependencies: "Clinic provides treatment priorities, access and commercial assumptions before launch",
+        clientResponsibilities: "Attend reviews, approve priorities and share booking outcomes",
+        exclusions: "Additional locations, unrelated treatment lines and offline sales training",
+        thirdPartyCosts: "Media spend and third-party tools are separate from ClinicGrower fees",
+        inclusionStatus: "included",
+        deliveryType: "recurring",
+        isOptionalAddOn: false,
+        isCustom: false,
+        approvalStatus: "not_required",
+        sortOrder: 10,
+      },
+    ],
+    successMetrics: [
+      "Dental enquiries|Increase qualified private treatment enquiries|Website forms, calls and CRM data where connected",
+      "Booked consultations|Improve booking movement from enquiry|Booking records and call outcomes where connected",
+    ],
+  };
+}
+
+function makeReadyProposalPayload(recommendedPackageId: string, proofAssetIds: string[], overrides: Record<string, unknown> = {}) {
+  const sectionContent = {
+    ...makeReadySectionContent(proofAssetIds),
+    ...((overrides.sectionContent as Record<string, unknown> | undefined) || {}),
+  };
+  const { sectionContent: _sectionContent, ...rest } = overrides;
+  return {
+    recommendedPackageId,
+    packageName: "Clinic Growth Engine",
+    valueCents: 125000,
+    monthlyFeeCents: 125000,
+    setupFeeCents: 0,
+    currency: "GBP",
+    adSpendNote: "Advertising spend is paid separately by the client.",
+    vatStatus: "vat_exclusive",
+    minimumTermMonths: 3,
+    noticePeriodDays: 30,
+    startDate: "2026-08-15",
+    expiresAt: "2026-09-15T12:00:00.000Z",
+    paymentTerms: "Monthly fees are billed in advance.",
+    sectionContent,
+    ...rest,
+  };
+}
+
 async function createUser(clinicId: string, roleName: string, permissions: string[]): Promise<TestUser> {
   const id = uuidv4();
   const roleId = uuidv4();
@@ -92,6 +234,8 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
   const rollbackContactId = uuidv4();
   const rollbackDealId = uuidv4();
   const localAccountProfileId = uuidv4();
+  const recommendedPackageId = uuidv4();
+  const proofAssetIds = [uuidv4(), uuidv4(), uuidv4(), uuidv4()];
   const users: TestUser[] = [];
   let convertedClientClinicId: string | null = null;
 
@@ -106,6 +250,71 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
   const contactsOnly = await createUser(primaryClinicId, `CONTACT_WRITER_${Date.now()}`, ["contacts:read", "contacts:write"]);
   const otherWriter = await createUser(otherClinicId, `OTHER_PROPOSAL_WRITER_${Date.now()}`, ["proposals:read", "proposals:write"]);
   users.push(writer, contactsOnly, otherWriter);
+
+  await pool.execute(
+    `INSERT INTO growth_package
+      (id, clinic_id, name, price_cents, currency, billing_frequency, setup_fee_cents,
+       included_features, internal_notes, proposal_wording, sort_order, status, is_default,
+       catalogue_version, commercial_notes)
+     VALUES (?, ?, 'Clinic Growth Engine', 125000, 'GBP', 'monthly', 0,
+       JSON_ARRAY('Dental enquiry visibility', 'Booking accountability'), NULL,
+       'Approved ClinicGrower OS package wording for dental proposal tests.', 10, 'active', 1,
+       'v5-test-catalogue',
+       JSON_OBJECT('v5ScopeItems', JSON_ARRAY(JSON_OBJECT(
+         'category', 'Strategy',
+         'title', 'Package-owned dental growth operating system',
+         'description', 'Approved package scope used to prove V5 snapshots freeze catalogue scope rather than renderer fallback data.',
+         'frequency', 'Monthly',
+         'quantityLimit', 'One operating rhythm and priority review',
+         'treatmentsAndLocations', 'Dental implants, Invisalign and private dentistry at the agreed location',
+         'dependency', 'Clinic provides approved access, owner feedback and booking outcome data',
+         'owner', 'ClinicGrower and named clinic owner',
+         'exclusion', 'Unapproved locations, unrelated treatments and third-party media spend',
+         'thirdPartyCosts', 'Media spend and third-party tools remain separate',
+         'inclusionStatus', 'included',
+         'deliveryType', 'recurring',
+         'isOptionalAddOn', false,
+         'approvalStatus', 'not_required',
+         'sortOrder', 10
+       ))))`,
+    [recommendedPackageId, primaryClinicId],
+  );
+  const proofAssetValues: any[] = [
+    proofAssetIds[0],
+    primaryClinicId,
+    writer.id,
+    writer.id,
+    proofAssetIds[1],
+    primaryClinicId,
+    writer.id,
+    writer.id,
+    proofAssetIds[2],
+    primaryClinicId,
+    writer.id,
+    writer.id,
+    proofAssetIds[3],
+    primaryClinicId,
+    writer.id,
+    writer.id,
+  ];
+  await pool.execute(
+    `INSERT INTO proposal_proof_asset
+      (id, clinic_id, type, title, copy, media_url, sector_tags, sort_order, is_active, created_by, updated_by)
+     VALUES
+      (?, ?, 'case_study', 'Dental case study with delivery context',
+       'Approved dental case study showing enquiry visibility and booking-accountability work for a private dental clinic.',
+       'https://clinicgrower.co.uk/case-studies/dental', JSON_ARRAY('dental', 'case study'), 10, 1, ?, ?),
+      (?, ?, 'testimonial', 'Named dental testimonial with permission',
+       'Permission approved testimonial from a dental clinic owner about clearer enquiry follow-up and accountability.',
+       'https://clinicgrower.co.uk/testimonials/dental', JSON_ARRAY('dental', 'testimonial', 'permission approved'), 20, 1, ?, ?),
+      (?, ?, 'product_screenshot', 'ClinicGrower OS dental performance view',
+       'Real ClinicGrower OS screenshot showing dental enquiry, booking and next-action visibility where connected.',
+       'https://clinicgrower.co.uk/images/clinicgrower-os-dental.png', JSON_ARRAY('clinicgrower os', 'dental', 'product screenshot'), 30, 1, ?, ?),
+      (?, ?, 'performance_result', 'Dental visibility result over 90 days',
+       'Over 90 days, this dental clinic gained clearer source-to-booking visibility after paid-search and follow-up changes. Delivery context recorded; not a guarantee.',
+       'https://clinicgrower.co.uk/results/dental', JSON_ARRAY('dental', 'performance result', '90 days', 'delivery context'), 40, 1, ?, ?)`,
+    proofAssetValues,
+  );
 
   await pool.execute(
     `INSERT INTO contact
@@ -262,17 +471,34 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
 
     const ready = await request(baseUrl, `/api/proposals/${created.body.data.id}`, writer.token, {
       method: "PATCH",
-      body: JSON.stringify({ status: "ready" }),
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, { status: "ready" })),
     });
     assert.equal(ready.response.status, 200);
     assert.equal(ready.body.data.status, "ready");
     assert.ok(ready.body.data.readyAt);
 
-    const share = await request(baseUrl, `/api/proposals/${created.body.data.id}/share`, writer.token, {
+    const readyShare = await request(baseUrl, `/api/proposals/${created.body.data.id}/share`, writer.token, {
       method: "POST",
     });
-    assert.equal(share.response.status, 201);
-    const proposalUrl = new URL(share.body.data.proposalUrl);
+    assert.equal(readyShare.response.status, 400);
+    assert.match(readyShare.body.message, /sent/i);
+
+    const sentForPublicPreview = await request(
+      baseUrl,
+      `/api/proposals/${created.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "week2-public@example.com",
+          recipientName: "Week 2 Public",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(sentForPublicPreview.response.status, 200);
+    assert.equal(sentForPublicPreview.body.data.v5Snapshot.schemaVersion, "proposal_v5");
+    const proposalUrl = new URL(sentForPublicPreview.body.data.proposalUrl);
     assert.equal(proposalUrl.pathname, "/proposals/shared/");
     const publicToken = proposalUrl.searchParams.get("token");
     assert.ok(publicToken);
@@ -284,7 +510,10 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(publicPreview.response.status, 200);
     assert.equal(publicPreview.response.headers.get("cache-control"), "no-store");
     assert.equal(publicPreview.body.data.proposal.proposalName, "Week 2 API proposal");
-    assert.equal(publicPreview.body.data.proposal.templateKey, "clinicgrower_standard");
+    assert.equal(publicPreview.body.data.proposal.templateKey, "clinicgrower_v5");
+    assert.equal(publicPreview.body.data.proposal.v5Snapshot.schemaVersion, "proposal_v5");
+    assert.equal(publicPreview.body.data.proposal.sectionContent, null);
+    assert.equal(publicPreview.body.data.proposal.coreData, null);
     for (const sensitiveField of [
       "id",
       "contactId",
@@ -360,24 +589,33 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
 
     const publicAcceptedProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
         contactId,
         proposalName: "Public acceptance proposal",
         status: "ready",
         valueCents: 99500,
+        monthlyFeeCents: 99500,
         currency: "GBP",
         paymentTerms: "Public acceptance payment terms.",
-      }),
+      })),
     });
     assert.equal(publicAcceptedProposal.response.status, 201);
-    const publicAcceptedShare = await request(
+    const publicAcceptedSent = await request(
       baseUrl,
-      `/api/proposals/${publicAcceptedProposal.body.data.id}/share`,
+      `/api/proposals/${publicAcceptedProposal.body.data.id}/send`,
       writer.token,
-      { method: "POST" },
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "public-signer@example.com",
+          recipientName: "Public Signer",
+          sendMethod: "manual_email",
+        }),
+      },
     );
-    assert.equal(publicAcceptedShare.response.status, 201);
-    const publicAcceptedToken = new URL(publicAcceptedShare.body.data.proposalUrl).searchParams.get("token");
+    assert.equal(publicAcceptedSent.response.status, 200);
+    assert.equal(publicAcceptedSent.body.data.v5Snapshot.schemaVersion, "proposal_v5");
+    const publicAcceptedToken = new URL(publicAcceptedSent.body.data.proposalUrl).searchParams.get("token");
     assert.ok(publicAcceptedToken);
     const publicAcceptance = await requestPublic(
       baseUrl,
@@ -414,6 +652,582 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(publicAcceptedInternal.body.data.acceptanceRecord.agreementAccepted, true);
     assert.ok(publicAcceptedInternal.body.data.acceptanceRecord.evidenceSha256);
     assert.ok(publicAcceptedInternal.body.data.acceptanceRecord.lockedAt);
+    assert.equal(publicAcceptedInternal.body.data.v5SnapshotHash, publicAcceptedSent.body.data.v5SnapshotHash);
+    assert.equal(publicAcceptedInternal.body.data.acceptanceRecord.v5SnapshotHash, publicAcceptedSent.body.data.v5SnapshotHash);
+    assert.deepEqual(publicAcceptedInternal.body.data.acceptanceRecord.v5Snapshot, publicAcceptedSent.body.data.v5Snapshot);
+
+    const invalidV5Proposal = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        contactId,
+        proposalName: "Invalid V5 freeze candidate",
+        templateKey: "clinicgrower_v5",
+        status: "draft",
+        expiresAt: "2026-09-20T12:00:00.000Z",
+      }),
+    });
+    assert.equal(invalidV5Proposal.response.status, 201);
+    const invalidV5Send = await request(
+      baseUrl,
+      `/api/proposals/${invalidV5Proposal.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "invalid-v5@example.com",
+          recipientName: "Invalid V5",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(invalidV5Send.response.status, 400);
+    const invalidV5AfterFailure = await request(
+      baseUrl,
+      `/api/proposals/${invalidV5Proposal.body.data.id}`,
+      writer.token,
+    );
+    assert.equal(invalidV5AfterFailure.response.status, 200);
+    assert.equal(invalidV5AfterFailure.body.data.status, "draft");
+    assert.equal(invalidV5AfterFailure.body.data.v5Snapshot, null);
+    assert.equal(invalidV5AfterFailure.body.data.v5SnapshotHash, null);
+
+    const unfrozenInternalAcceptanceProposal = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
+        proposalName: "Unfrozen internal acceptance is blocked",
+        status: "ready",
+      })),
+    });
+    assert.equal(unfrozenInternalAcceptanceProposal.response.status, 201);
+    const unfrozenInternalAcceptance = await request(
+      baseUrl,
+      `/api/proposals/${unfrozenInternalAcceptanceProposal.body.data.id}/status`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          status: "accepted",
+          reason: "Accepted before freeze",
+          acceptedByName: "Unfrozen Signer",
+          acceptedByEmail: "unfrozen-signer@example.com",
+          legalCompanyName: "Unfrozen Signer Ltd",
+          billingEmail: "billing-unfrozen@example.com",
+          agreementAccepted: true,
+          confirmationText: "Unfrozen Signer",
+        }),
+      },
+    );
+    assert.equal(unfrozenInternalAcceptance.response.status, 409);
+    assert.match(unfrozenInternalAcceptance.body.message, /sent and frozen/i);
+
+    const directAcceptedV5 = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
+        proposalName: "Direct accepted V5 without freeze",
+        templateKey: "clinicgrower_v5",
+        status: "accepted",
+        acceptedByName: "Direct V5 Signer",
+        acceptedByEmail: "direct-v5@example.com",
+        legalCompanyName: "Direct V5 Ltd",
+        billingEmail: "billing-direct-v5@example.com",
+        agreementAccepted: true,
+        confirmationText: "Direct V5 Signer",
+      })),
+    });
+    assert.equal(directAcceptedV5.response.status, 409);
+    assert.match(directAcceptedV5.body.message, /sent and frozen/i);
+
+    const v5Proposal = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
+        proposalName: "V5 frozen proposal",
+        templateKey: "clinicgrower_v5",
+        status: "ready",
+      })),
+    });
+    assert.equal(v5Proposal.response.status, 201);
+    assert.equal(v5Proposal.body.data.v5Snapshot, null);
+    const prematureV5Share = await request(
+      baseUrl,
+      `/api/proposals/${v5Proposal.body.data.id}/share`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(prematureV5Share.response.status, 400);
+    assert.match(prematureV5Share.body.message, /frozen proposal version/i);
+
+    const rejectedUnfrozenV5Accepted = await request(
+      baseUrl,
+      `/api/proposals/${v5Proposal.body.data.id}/status`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          status: "accepted",
+          reason: "Accepted before freeze",
+          acceptedByName: "Unfrozen V5",
+          acceptedByEmail: "unfrozen-v5@example.com",
+          legalCompanyName: "Unfrozen V5 Ltd",
+          billingEmail: "billing-unfrozen-v5@example.com",
+          agreementAccepted: true,
+          confirmationText: "Unfrozen V5",
+        }),
+      },
+    );
+    assert.equal(rejectedUnfrozenV5Accepted.response.status, 409);
+    assert.match(rejectedUnfrozenV5Accepted.body.message, /sent and frozen/i);
+
+    const rejectedUnfrozenV5Won = await request(
+      baseUrl,
+      `/api/proposals/${v5Proposal.body.data.id}/status`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          status: "won",
+          reason: "Won before freeze",
+          acceptedByName: "Unfrozen V5",
+          acceptedByEmail: "unfrozen-v5@example.com",
+          legalCompanyName: "Unfrozen V5 Ltd",
+          billingEmail: "billing-unfrozen-v5@example.com",
+          agreementAccepted: true,
+          confirmationText: "Unfrozen V5",
+        }),
+      },
+    );
+    assert.equal(rejectedUnfrozenV5Won.response.status, 409);
+    assert.match(rejectedUnfrozenV5Won.body.message, /sent and frozen/i);
+
+    const rejectedMissingReferenceV5 = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
+        proposalName: "V5 missing proposal reference",
+        templateKey: "clinicgrower_v5",
+        status: "ready",
+        sectionContent: {
+          proposalReference: "",
+        },
+      })),
+    });
+    assert.equal(rejectedMissingReferenceV5.response.status, 400);
+    assert.match(rejectedMissingReferenceV5.body.message, /proposal reference/i);
+
+    const internalBrandPathV5 = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
+        proposalName: "V5 accepts internal brand asset paths",
+        templateKey: "clinicgrower_v5",
+        sectionContent: {
+          heroImageUrl: "/brand/proposal/v5-reference/dental_practices/p01-img02-1672x941.png",
+          introVideoThumbnailUrl: "/brand/proposal/website-source/clinicgrower-os-video-thumbnail.jpg",
+          sectorImages: [
+            {
+              slot: "cover",
+              imageId: "dental-cover",
+              url: "/brand/proposal/v5-reference/dental_practices/p01-img02-1672x941.png",
+              cropPosition: "center center",
+              licence: "ClinicGrower V5 reference asset pack",
+              provenance: "ClinicGrower final V5 proposal PDFs",
+              approvalStatus: "approved",
+            },
+            {
+              slot: "journey",
+              imageId: "dental-journey",
+              url: "/brand/proposal/v5-reference/dental_practices/p06-img01-1009x1559.png",
+              cropPosition: "center center",
+              licence: "ClinicGrower V5 reference asset pack",
+              provenance: "ClinicGrower final V5 proposal PDFs",
+              approvalStatus: "approved",
+            },
+            {
+              slot: "proof",
+              imageId: "dental-proof",
+              url: "/brand/proof/tanja-phillips.webp",
+              cropPosition: "center center",
+              licence: "ClinicGrower V5 proof library",
+              provenance: "ClinicGrower approved proof asset",
+              approvalStatus: "approved",
+            },
+            {
+              slot: "close",
+              imageId: "dental-planning",
+              url: "/brand/proposal/v5-reference/dental_practices/p13-img01-1672x941.png",
+              cropPosition: "center center",
+              licence: "ClinicGrower V5 reference asset pack",
+              provenance: "ClinicGrower final V5 proposal PDFs",
+              approvalStatus: "approved",
+            },
+          ],
+        },
+      })),
+    });
+    assert.equal(internalBrandPathV5.response.status, 201);
+
+    const internalProofMediaPath = await request(baseUrl, "/api/proposals/proof-assets", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        type: "team_image",
+        title: `Internal proof media path ${uuidv4()}`,
+        copy: "Regression coverage for approved internal proof asset media paths.",
+        mediaUrl: "/brand/proof/tanja-phillips.webp",
+        sectorTags: ["dental", "state:known"],
+        sortOrder: 999,
+        isActive: false,
+      }),
+    });
+    assert.equal(internalProofMediaPath.response.status, 201);
+
+    const rejectedUnsafeBrandPathV5 = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
+        proposalName: "V5 rejects unsafe internal brand path",
+        templateKey: "clinicgrower_v5",
+        sectionContent: {
+          heroImageUrl: "/brand/proposal/../private.png",
+          introVideoThumbnailUrl: "/brand/proposal/website-source/clinicgrower-os-video-thumbnail.jpg",
+        },
+      })),
+    });
+    assert.equal(rejectedUnsafeBrandPathV5.response.status, 400);
+    assert.match(JSON.stringify(rejectedUnsafeBrandPathV5.body.errors), /heroImageUrl must be a valid URL/i);
+
+    const rejectedUnsafeProofMedia = await request(baseUrl, "/api/proposals/proof-assets", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        type: "team_image",
+        title: `Unsafe proof media path ${uuidv4()}`,
+        copy: "Regression coverage for unsafe proof asset media paths.",
+        mediaUrl: "javascript://brand/proof/tanja-phillips.webp",
+        sectorTags: ["dental"],
+      }),
+    });
+    assert.equal(rejectedUnsafeProofMedia.response.status, 400);
+    assert.match(JSON.stringify(rejectedUnsafeProofMedia.body.errors), /mediaUrl must be a valid URL/i);
+
+    const v5Sent = await request(
+      baseUrl,
+      `/api/proposals/${v5Proposal.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "v5-signer@example.com",
+          recipientName: "V5 Signer",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(v5Sent.response.status, 200);
+    assert.equal(v5Sent.body.data.status, "sent");
+    assert.equal(v5Sent.body.data.v5Snapshot.schemaVersion, "proposal_v5");
+    assert.equal(v5Sent.body.data.v5Snapshot.proposal.reference, "CG-TEST-001");
+    assert.equal(v5Sent.body.data.v5Snapshot.pageCount, 19);
+    assert.match(v5Sent.body.data.v5SnapshotHash, /^[a-f0-9]{64}$/);
+    assert.equal(v5Sent.body.data.v5Snapshot.snapshotHash, v5Sent.body.data.v5SnapshotHash);
+    assert.equal(v5Sent.body.data.v5SnapshotVersion, "proposal_v5_2026_08_11");
+    assert.ok(v5Sent.body.data.v5SnapshotFrozenAt);
+    assert.equal(
+      v5Sent.body.data.v5Snapshot.scope[0].title,
+      "Package-owned dental growth operating system",
+      "V5 snapshot must freeze package-catalogue scope when package scope exists",
+    );
+    const frozenV5Hash = v5Sent.body.data.v5SnapshotHash;
+    const frozenV5Url = new URL(v5Sent.body.data.proposalUrl);
+    const frozenV5Token = frozenV5Url.searchParams.get("token");
+    assert.ok(frozenV5Token);
+
+    const createSentV5AcceptanceCase = async (proposalName: string) => {
+      const proposal = await request(baseUrl, "/api/proposals", writer.token, {
+        method: "POST",
+        body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+          contactId,
+          proposalName,
+          templateKey: "clinicgrower_v5",
+          status: "ready",
+        })),
+      });
+      assert.equal(proposal.response.status, 201);
+      const sent = await request(
+        baseUrl,
+        `/api/proposals/${proposal.body.data.id}/send`,
+        writer.token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            recipientEmail: `${proposal.body.data.id}@v5-negative.test`,
+            recipientName: proposalName,
+            sendMethod: "manual_email",
+          }),
+        },
+      );
+      assert.equal(sent.response.status, 200);
+      const token = new URL(sent.body.data.proposalUrl).searchParams.get("token");
+      assert.ok(token);
+      return { id: proposal.body.data.id as string, token };
+    };
+
+    const publicV5AcceptancePayload = {
+      fullName: "V5 Signer",
+      email: "v5-signer@example.com",
+      legalCompanyName: "V5 Signer Ltd",
+      billingEmail: "billing-v5@example.com",
+      preferredStartDate: "2026-08-20",
+      agreementAccepted: true,
+      signatureConfirmation: "V5 Signer",
+    };
+
+    const unsentV5Case = await createSentV5AcceptanceCase("V5 public acceptance rejects unsent");
+    await pool.execute(
+      `UPDATE proposal
+       SET status = 'ready',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [unsentV5Case.id, primaryClinicId],
+    );
+    const rejectedUnsentPublicV5Acceptance = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(unsentV5Case.token)}/accept`,
+      {
+        method: "POST",
+        body: JSON.stringify(publicV5AcceptancePayload),
+      },
+    );
+    assert.equal(rejectedUnsentPublicV5Acceptance.response.status, 404);
+
+    const missingSnapshotV5Case = await createSentV5AcceptanceCase("V5 public acceptance rejects missing snapshot");
+    await pool.execute(
+      `UPDATE proposal
+       SET v5_snapshot = NULL,
+           v5_snapshot_hash = NULL,
+           v5_snapshot_version = NULL,
+           v5_snapshot_frozen_at = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [missingSnapshotV5Case.id, primaryClinicId],
+    );
+    const rejectedMissingSnapshotPublicV5Acceptance = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(missingSnapshotV5Case.token)}/accept`,
+      {
+        method: "POST",
+        body: JSON.stringify(publicV5AcceptancePayload),
+      },
+    );
+    assert.equal(rejectedMissingSnapshotPublicV5Acceptance.response.status, 404);
+
+    const hashMismatchV5Case = await createSentV5AcceptanceCase("V5 public acceptance rejects hash mismatch");
+    await pool.execute(
+      `UPDATE proposal
+       SET v5_snapshot_hash = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?`,
+      ["0".repeat(64), hashMismatchV5Case.id, primaryClinicId],
+    );
+    const rejectedHashMismatchPublicV5Acceptance = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(hashMismatchV5Case.token)}/accept`,
+      {
+        method: "POST",
+        body: JSON.stringify(publicV5AcceptancePayload),
+      },
+    );
+    assert.equal(rejectedHashMismatchPublicV5Acceptance.response.status, 404);
+
+    const corruptSnapshotV5Case = await createSentV5AcceptanceCase("V5 public acceptance rejects corrupt snapshot");
+    await pool.execute(
+      `UPDATE proposal
+       SET v5_snapshot = JSON_SET(v5_snapshot, '$.pageCount', 18),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [corruptSnapshotV5Case.id, primaryClinicId],
+    );
+    const rejectedCorruptPublicV5Acceptance = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(corruptSnapshotV5Case.token)}/accept`,
+      {
+        method: "POST",
+        body: JSON.stringify(publicV5AcceptancePayload),
+      },
+    );
+    assert.equal(rejectedCorruptPublicV5Acceptance.response.status, 404);
+
+    const rejectedV5Mutation = await request(
+      baseUrl,
+      `/api/proposals/${v5Proposal.body.data.id}`,
+      writer.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ proposalName: "Changed V5 client-facing copy" }),
+      },
+    );
+    assert.equal(rejectedV5Mutation.response.status, 409);
+    const v5AfterRejectedMutation = await request(
+      baseUrl,
+      `/api/proposals/${v5Proposal.body.data.id}`,
+      writer.token,
+    );
+    assert.equal(v5AfterRejectedMutation.body.data.v5SnapshotHash, frozenV5Hash);
+
+    const publicV5Preview = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(frozenV5Token)}`,
+    );
+    assert.equal(publicV5Preview.response.status, 200);
+    const publicV5Snapshot = publicV5Preview.body.data.proposal.v5Snapshot;
+    assert.equal(publicV5Preview.body.data.proposal.sectionContent, null);
+    assert.equal(publicV5Preview.body.data.proposal.coreData, null);
+    assert.equal(publicV5Snapshot.schemaVersion, "proposal_v5");
+    assert.equal(publicV5Snapshot.proposal.reference, "CG-TEST-001");
+    assert.equal(Object.hasOwn(publicV5Snapshot, "snapshotHash"), false);
+    assert.equal(Object.hasOwn(publicV5Snapshot, "sourceProposalVersion"), false);
+    assert.equal(Object.hasOwn(publicV5Snapshot.selectedPackage, "id"), false);
+    assert.equal(Object.hasOwn(publicV5Snapshot.selectedPackage, "catalogueVersion"), false);
+    assert.equal(
+      publicV5Snapshot.proof.some((asset: any) => Object.hasOwn(asset, "id")),
+      false,
+      "public V5 snapshot must not expose proof asset IDs",
+    );
+    assert.equal(publicV5Snapshot.assets.osScreens.some((image: any) => Object.hasOwn(image, "imageId")), false);
+    assert.equal(Object.hasOwn(publicV5Snapshot.assets.founderVideoThumbnail, "imageId"), false);
+    assert.equal(Object.hasOwn(publicV5Snapshot.assets.postBookingScreenshot, "imageId"), false);
+    assert.equal(Object.hasOwn(publicV5Snapshot.assets.implementationImage, "imageId"), false);
+
+    await pool.execute(
+      `UPDATE proposal
+       SET proposal_name = 'Mutable V5 name after send must not change frozen snapshot',
+           monthly_fee_cents = 1,
+           section_content = JSON_SET(section_content, '$.customerWording', 'Mutable section content after send must not change frozen snapshot'),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [v5Proposal.body.data.id, primaryClinicId],
+    );
+
+    const publicV5Acceptance = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(frozenV5Token)}/accept`,
+      {
+        method: "POST",
+        body: JSON.stringify(publicV5AcceptancePayload),
+      },
+    );
+    assert.equal(publicV5Acceptance.response.status, 200);
+    const acceptedV5Internal = await request(
+      baseUrl,
+      `/api/proposals/${v5Proposal.body.data.id}`,
+      writer.token,
+    );
+    assert.equal(acceptedV5Internal.response.status, 200);
+    assert.equal(acceptedV5Internal.body.data.status, "accepted");
+    assert.equal(acceptedV5Internal.body.data.v5SnapshotHash, frozenV5Hash);
+    assert.equal(acceptedV5Internal.body.data.acceptanceRecord.v5SnapshotHash, frozenV5Hash);
+    assert.equal(acceptedV5Internal.body.data.acceptanceRecord.v5SnapshotVersion, "proposal_v5_2026_08_11");
+    assert.equal(acceptedV5Internal.body.data.acceptanceRecord.v5Snapshot.schemaVersion, "proposal_v5");
+    assert.equal(acceptedV5Internal.body.data.acceptanceRecord.v5Snapshot.proposal.reference, "CG-TEST-001");
+    assert.deepEqual(
+      acceptedV5Internal.body.data.acceptanceRecord.v5Snapshot,
+      v5Sent.body.data.v5Snapshot,
+      "accepted V5 record must store the exact frozen snapshot that was sent",
+    );
+    assert.equal(
+      acceptedV5Internal.body.data.acceptanceRecord.v5Snapshot.discovery.customerWording.value,
+      v5Sent.body.data.v5Snapshot.discovery.customerWording.value,
+      "mutable CRM/editor data changed after send must not alter the accepted V5 snapshot",
+    );
+    assert.equal(
+      acceptedV5Internal.body.data.acceptanceRecord.v5Snapshot.selectedPackage.monthlyFeeCents,
+      v5Sent.body.data.v5Snapshot.selectedPackage.monthlyFeeCents,
+    );
+
+    const replacementV5Proposal = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
+        proposalName: "V5 replacement version",
+        templateKey: "clinicgrower_v5",
+        status: "ready",
+        sectionContent: {
+          customerWording: "Replacement version has updated discovery wording before send.",
+        },
+      })),
+    });
+    assert.equal(replacementV5Proposal.response.status, 201);
+    const replacementV5Sent = await request(
+      baseUrl,
+      `/api/proposals/${replacementV5Proposal.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "replacement-v5@example.com",
+          recipientName: "Replacement V5",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(replacementV5Sent.response.status, 200);
+    assert.notEqual(
+      replacementV5Sent.body.data.v5SnapshotHash,
+      frozenV5Hash,
+      "a replacement V5 proposal must create a separate frozen snapshot",
+    );
+
+    const internalAcceptedV5Proposal = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
+        proposalName: "V5 internal accepted after freeze",
+        templateKey: "clinicgrower_v5",
+        status: "ready",
+      })),
+    });
+    assert.equal(internalAcceptedV5Proposal.response.status, 201);
+    const internalAcceptedV5Sent = await request(
+      baseUrl,
+      `/api/proposals/${internalAcceptedV5Proposal.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "internal-v5@example.com",
+          recipientName: "Internal V5",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(internalAcceptedV5Sent.response.status, 200);
+    const internalAcceptedV5 = await request(
+      baseUrl,
+      `/api/proposals/${internalAcceptedV5Proposal.body.data.id}/status`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          status: "accepted",
+          reason: "Accepted after freeze",
+          acceptedByName: "Internal V5",
+          acceptedByEmail: "internal-v5@example.com",
+          legalCompanyName: "Internal V5 Ltd",
+          billingEmail: "billing-internal-v5@example.com",
+          preferredStartDate: "2026-08-25",
+          agreementAccepted: true,
+          confirmationText: "Internal V5",
+        }),
+      },
+    );
+    assert.equal(internalAcceptedV5.response.status, 200);
+    assert.equal(internalAcceptedV5.body.data.status, "accepted");
+    assert.equal(internalAcceptedV5.body.data.acceptanceRecord.v5SnapshotHash, internalAcceptedV5Sent.body.data.v5SnapshotHash);
 
     const publicAcceptedMutation = await request(
       baseUrl,
@@ -432,9 +1246,6 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       body: JSON.stringify({
         status: "follow_up_due",
         followUpAt: "2026-07-24T09:00:00.000Z",
-        packageName: "Growth Engine",
-        monthlyFeeCents: 199500,
-        setupFeeCents: 50000,
       }),
     });
     assert.equal(updated.response.status, 200);
@@ -443,10 +1254,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     const [proposalAuditRows]: any = await pool.execute(
       `SELECT
           JSON_UNQUOTE(JSON_EXTRACT(changes, '$.status.before')) as previousStatus,
-          JSON_UNQUOTE(JSON_EXTRACT(changes, '$.status.after')) as status,
-          JSON_UNQUOTE(JSON_EXTRACT(changes, '$.packageName.after')) as packageName,
-          JSON_EXTRACT(changes, '$.monthlyFeeCents.after') as monthlyFeeCents,
-          JSON_EXTRACT(changes, '$.setupFeeCents.after') as setupFeeCents
+          JSON_UNQUOTE(JSON_EXTRACT(changes, '$.status.after')) as status
        FROM audit_log
        WHERE clinic_id = ?
          AND user_id = ?
@@ -461,9 +1269,6 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(proposalAuditRows.length, 1);
     assert.equal(proposalAuditRows[0].previousStatus, "viewed");
     assert.equal(proposalAuditRows[0].status, "follow_up_due");
-    assert.equal(proposalAuditRows[0].packageName, "Growth Engine");
-    assert.equal(Number(proposalAuditRows[0].monthlyFeeCents), 199500);
-    assert.equal(Number(proposalAuditRows[0].setupFeeCents), 50000);
     const [customStageRows]: any = await pool.execute(
       `SELECT pipeline_stage_id as stageId, stage
        FROM deal
@@ -479,17 +1284,33 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
 
     const rollbackProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
         contactId: rollbackContactId,
         dealId: rollbackDealId,
         proposalName: "Atomic acceptance rollback",
         status: "ready",
         followUpAt: "2026-08-03T09:00:00.000Z",
         valueCents: 90000,
+        monthlyFeeCents: 90000,
         currency: "GBP",
-      }),
+      })),
     });
     assert.equal(rollbackProposal.response.status, 201);
+    const rollbackProposalSent = await request(
+      baseUrl,
+      `/api/proposals/${rollbackProposal.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "atomic@example.com",
+          recipientName: "Atomic Tester",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(rollbackProposalSent.response.status, 200);
+    assert.equal(rollbackProposalSent.body.data.v5Snapshot.schemaVersion, "proposal_v5");
 
     const [rollbackBaselineRows]: any = await pool.execute(
       `SELECT
@@ -499,6 +1320,16 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
           WHERE clinic_id = ?) as auditCount,
          (SELECT COUNT(*) FROM pipeline_deal_movement
           WHERE clinic_id = ? AND deal_id = ?) as movementCount,
+         (SELECT COUNT(*) FROM audit_log
+          WHERE clinic_id = ?
+            AND entity_id = ?
+            AND action IN ('PIPELINE_DEAL_MOVED', 'PROPOSAL_SYNCED_DEAL_STAGE')) as dealAuditCount,
+         (SELECT pipeline_stage_id FROM deal
+          WHERE clinic_id = ? AND id = ?) as dealStageId,
+         (SELECT status FROM deal
+          WHERE clinic_id = ? AND id = ?) as dealStatus,
+         (SELECT client_account_profile_id FROM deal
+          WHERE clinic_id = ? AND id = ?) as dealProfileId,
          (SELECT status FROM task
           WHERE clinic_id = ? AND template_key = ? AND deleted_at IS NULL
           LIMIT 1) as followUpStatus`,
@@ -506,6 +1337,14 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
         primaryClinicId,
         rollbackContactId,
         primaryClinicId,
+        primaryClinicId,
+        rollbackDealId,
+        primaryClinicId,
+        rollbackDealId,
+        primaryClinicId,
+        rollbackDealId,
+        primaryClinicId,
+        rollbackDealId,
         primaryClinicId,
         rollbackDealId,
         primaryClinicId,
@@ -589,11 +1428,11 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
         rollbackContactId,
       ],
     );
-    assert.equal(rolledBackRows[0].proposalStatus, "ready");
+    assert.equal(rolledBackRows[0].proposalStatus, "sent");
     assert.equal(Number(rolledBackRows[0].acceptanceCount), 0);
-    assert.equal(rolledBackRows[0].dealStageId, openStageId);
-    assert.equal(rolledBackRows[0].dealStatus, "open");
-    assert.equal(rolledBackRows[0].dealProfileId, null);
+    assert.equal(rolledBackRows[0].dealStageId, rollbackBaselineRows[0].dealStageId);
+    assert.equal(rolledBackRows[0].dealStatus, rollbackBaselineRows[0].dealStatus);
+    assert.equal(rolledBackRows[0].dealProfileId, rollbackBaselineRows[0].dealProfileId);
     assert.equal(Number(rolledBackRows[0].activityCount), Number(rollbackBaselineRows[0].activityCount));
     assert.equal(Number(rolledBackRows[0].auditCount), Number(rollbackBaselineRows[0].auditCount));
     assert.equal(Number(rolledBackRows[0].movementCount), Number(rollbackBaselineRows[0].movementCount));
@@ -674,20 +1513,21 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(linkedLostRows[0].contactLostReason, "budget");
     assert.equal(linkedLostRows[0].contactObjectionType, "budget");
     assert.equal(linkedLostRows[0].followUpStatus, "completed");
-    assert.equal(Number(linkedLostRows[0].movementCount), 1);
+    assert.equal(Number(linkedLostRows[0].movementCount), Number(rollbackBaselineRows[0].movementCount) + 1);
     assert.equal(Number(linkedLostRows[0].stageActivityCount), 1);
-    assert.equal(Number(linkedLostRows[0].dealAuditCount), 2);
+    assert.equal(Number(linkedLostRows[0].dealAuditCount), Number(rollbackBaselineRows[0].dealAuditCount) + 2);
 
     const repeatedLostProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
         contactId: rollbackContactId,
         dealId: rollbackDealId,
         proposalName: "Repeated linked Lost outcome",
         status: "ready",
         valueCents: 25000,
+        monthlyFeeCents: 25000,
         currency: "GBP",
-      }),
+      })),
     });
     assert.equal(repeatedLostProposal.response.status, 201);
     await pool.execute(
@@ -740,7 +1580,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(repeatedLinkedLostRows[0].contactObjectionType, "timing");
     assert.equal(
       Number(repeatedLinkedLostRows[0].movementCount),
-      1,
+      Number(linkedLostRows[0].movementCount),
       "refreshing a Lost outcome must not create a duplicate stage movement",
     );
 
@@ -755,14 +1595,15 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     );
     const reopenedDealProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
         contactId: rollbackContactId,
         dealId: rollbackDealId,
         proposalName: "Reopened opportunity proposal",
         status: "ready",
         valueCents: 35000,
+        monthlyFeeCents: 35000,
         currency: "GBP",
-      }),
+      })),
     });
     assert.equal(reopenedDealProposal.response.status, 201);
     const reopenedDealSent = await request(
@@ -806,14 +1647,15 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     );
     const openStageRaceProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
         contactId: rollbackContactId,
         dealId: rollbackDealId,
         proposalName: "Terminal stage race proposal",
         status: "ready",
         valueCents: 36000,
+        monthlyFeeCents: 36000,
         currency: "GBP",
-      }),
+      })),
     });
     assert.equal(openStageRaceProposal.response.status, 201);
     const [openStageRaceBaselineRows]: any = await pool.execute(
@@ -917,9 +1759,9 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(accepted.body.data.status, "accepted");
     assert.equal(accepted.body.data.acceptanceRecord.acceptedByName, "Week Two Owner");
     assert.equal(accepted.body.data.acceptanceRecord.acceptedByEmail, "owner@example.com");
-    assert.equal(accepted.body.data.acceptanceRecord.packageName, "Growth Engine");
-    assert.equal(accepted.body.data.acceptanceRecord.monthlyFeeCents, 199500);
-    assert.equal(accepted.body.data.acceptanceRecord.setupFeeCents, 50000);
+    assert.equal(accepted.body.data.acceptanceRecord.packageName, "Clinic Growth Engine");
+    assert.equal(accepted.body.data.acceptanceRecord.monthlyFeeCents, 125000);
+    assert.equal(accepted.body.data.acceptanceRecord.setupFeeCents, 0);
     assert.equal(accepted.body.data.acceptanceRecord.paymentTerms, "Monthly in advance, setup due before kickoff.");
     assert.ok(accepted.body.data.clientAccountProfileId);
     assert.equal(
@@ -1052,15 +1894,31 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
 
     const concurrentProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
         contactId,
         proposalName: "Concurrent terminal proposal",
         status: "ready",
         valueCents: 30000,
+        monthlyFeeCents: 30000,
         currency: "GBP",
-      }),
+      })),
     });
     assert.equal(concurrentProposal.response.status, 201);
+    const concurrentProposalSent = await request(
+      baseUrl,
+      `/api/proposals/${concurrentProposal.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "concurrent@example.com",
+          recipientName: "Concurrent Decision Maker",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(concurrentProposalSent.response.status, 200);
+    assert.equal(concurrentProposalSent.body.data.v5Snapshot.schemaVersion, "proposal_v5");
     await pool.query("DROP TRIGGER IF EXISTS test_proposal_terminal_race");
     await pool.query(
       `CREATE TRIGGER test_proposal_terminal_race
@@ -1134,13 +1992,14 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
 
     const sendRaceProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
         contactId,
         proposalName: "Concurrent send proposal",
         status: "ready",
         valueCents: 32000,
+        monthlyFeeCents: 32000,
         currency: "GBP",
-      }),
+      })),
     });
     assert.equal(sendRaceProposal.response.status, 201);
     await pool.query("DROP TRIGGER IF EXISTS test_proposal_send_race");
@@ -1191,17 +2050,18 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(sentDuringRace.response.status, 200);
     assert.equal(sentDuringRace.body.data.status, "sent");
     assert.equal(staleAcceptanceAfterSend.response.status, 409);
-    assert.match(staleAcceptanceAfterSend.body.message, /changed while this update was in progress/i);
+    assert.match(staleAcceptanceAfterSend.body.message, /sent and frozen/i);
 
     const archiveRaceProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
         contactId,
         proposalName: "Concurrent archive proposal",
         status: "ready",
         valueCents: 33000,
+        monthlyFeeCents: 33000,
         currency: "GBP",
-      }),
+      })),
     });
     assert.equal(archiveRaceProposal.response.status, 201);
     await pool.query("DROP TRIGGER IF EXISTS test_proposal_archive_race");
@@ -1244,7 +2104,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     }
     assert.equal(archivedDuringRace.response.status, 200);
     assert.equal(staleAcceptanceAfterArchive.response.status, 409);
-    assert.match(staleAcceptanceAfterArchive.body.message, /changed while this update was in progress/i);
+    assert.match(staleAcceptanceAfterArchive.body.message, /sent and frozen/i);
     const [archivedRaceRows]: any = await pool.execute(
       `SELECT status,
               deleted_at as deletedAt,
@@ -1302,44 +2162,96 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
 
     const directAcceptedProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
         clientAccountProfileId: localAccountProfileId,
         proposalName: "Direct accepted account proposal",
-        status: "accepted",
+        status: "ready",
         valueCents: 65000,
+        monthlyFeeCents: 65000,
         currency: "GBP",
-        acceptedByName: "Direct Account Signer",
-        acceptedByEmail: "direct-signer@example.com",
-        acceptedAt: "2026-07-26T12:00:00.000Z",
         paymentTerms: "Direct acceptance terms.",
-      }),
+      })),
     });
     assert.equal(directAcceptedProposal.response.status, 201);
-    assert.equal(directAcceptedProposal.body.data.status, "accepted");
+    const directAcceptedSent = await request(
+      baseUrl,
+      `/api/proposals/${directAcceptedProposal.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "direct-signer@example.com",
+          recipientName: "Direct Account Signer",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(directAcceptedSent.response.status, 200);
+    assert.equal(directAcceptedSent.body.data.v5Snapshot.schemaVersion, "proposal_v5");
+    const directAcceptedStatus = await request(
+      baseUrl,
+      `/api/proposals/${directAcceptedProposal.body.data.id}/status`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          status: "accepted",
+          reason: "Direct acceptance",
+          acceptedByName: "Direct Account Signer",
+          acceptedByEmail: "direct-signer@example.com",
+          acceptedAt: "2026-07-26T12:00:00.000Z",
+          legalCompanyName: "Direct Account Signer Ltd",
+          billingEmail: "billing-direct@example.com",
+          agreementAccepted: true,
+          confirmationText: "Direct Account Signer",
+          paymentTerms: "Direct acceptance terms.",
+        }),
+      },
+    );
+    assert.equal(directAcceptedStatus.response.status, 200);
+    assert.equal(directAcceptedStatus.body.data.status, "accepted");
     assert.equal(
-      directAcceptedProposal.body.data.acceptanceRecord.clientAccountProfileId,
+      directAcceptedStatus.body.data.acceptanceRecord.clientAccountProfileId,
       localAccountProfileId,
     );
     assert.equal(
-      directAcceptedProposal.body.data.acceptanceRecord.acceptedByEmail,
+      directAcceptedStatus.body.data.acceptanceRecord.acceptedByEmail,
       "direct-signer@example.com",
     );
     assert.equal(
-      directAcceptedProposal.body.data.acceptanceRecord.paymentTerms,
+      directAcceptedStatus.body.data.acceptanceRecord.paymentTerms,
       "Direct acceptance terms.",
     );
 
     const missingIdentityProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
         clientAccountProfileId: localAccountProfileId,
         proposalName: "Missing first acceptance identity",
         status: "ready",
         valueCents: 45000,
+        monthlyFeeCents: 45000,
         currency: "GBP",
-      }),
+      })),
     });
     assert.equal(missingIdentityProposal.response.status, 201);
+    const missingIdentitySent = await request(
+      baseUrl,
+      `/api/proposals/${missingIdentityProposal.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "missing-identity@example.com",
+          recipientName: "Missing Identity",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(missingIdentitySent.response.status, 200);
+    assert.equal(missingIdentitySent.body.data.v5Snapshot.schemaVersion, "proposal_v5");
     const missingIdentityAcceptance = await request(
       baseUrl,
       `/api/proposals/${missingIdentityProposal.body.data.id}/status`,
@@ -1359,7 +2271,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       `/api/proposals/${missingIdentityProposal.body.data.id}`,
       writer.token,
     );
-    assert.equal(missingIdentityAfterFailure.body.data.status, "ready");
+    assert.equal(missingIdentityAfterFailure.body.data.status, "sent");
     assert.equal(missingIdentityAfterFailure.body.data.acceptanceRecord, null);
 
     const sourceData = await request(
@@ -1506,14 +2418,15 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     );
     const postWinProposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
-      body: JSON.stringify({
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
         contactId,
         dealId,
         proposalName: "Post-win add-on proposal",
         status: "ready",
         valueCents: 25000,
+        monthlyFeeCents: 25000,
         currency: "GBP",
-      }),
+      })),
     });
     assert.equal(postWinProposal.response.status, 201);
     assert.equal(

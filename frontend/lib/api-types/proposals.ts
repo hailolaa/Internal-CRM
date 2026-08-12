@@ -19,7 +19,33 @@ export type ProposalProofAssetType =
   | "case_study"
   | "client_logo"
   | "performance_result"
+  | "product_screenshot"
   | "team_image";
+
+export type ProposalDataState = "known" | "working_diagnosis" | "provisional" | "to_confirm";
+export type ProposalDiscoveryStatus = "in_progress" | "paused" | "completed" | "draft_created" | "archived";
+
+// Internal frozen V5 snapshots are full integrity records and may include hash/source metadata.
+export type ProposalV5PersistedSnapshot = Record<string, unknown> & {
+  schemaVersion: "proposal_v5";
+  proposal: {
+    reference: string;
+  };
+  generatedAt?: string;
+  pageCount?: 19;
+  sourceProposalVersion?: string;
+  snapshotHash?: string;
+};
+
+// Public V5 snapshots are sanitized by the backend and must not include hash, source, package, proof or image IDs.
+export type ProposalV5PublicSnapshot = Record<string, unknown> & {
+  schemaVersion: "proposal_v5";
+  proposal: {
+    reference: string;
+  };
+  snapshotHash?: never;
+  sourceProposalVersion?: never;
+};
 
 export interface ProposalRecord {
   id: string;
@@ -66,6 +92,11 @@ export interface ProposalRecord {
   discounts: ProposalCommercialItem[];
   internalMarginNote: string | null;
   sectionContent: ProposalSectionContent | null;
+  coreData?: ProposalCoreData | null;
+  v5Snapshot?: ProposalV5PersistedSnapshot | null;
+  v5SnapshotHash?: string | null;
+  v5SnapshotVersion?: string | null;
+  v5SnapshotFrozenAt?: string | null;
   draftSavedAt: string | null;
   contactName: string | null;
   contactEmail: string | null;
@@ -160,11 +191,145 @@ export interface ProposalAcceptanceRecord {
   scope: Record<string, unknown> | null;
   commercialSnapshot: Record<string, unknown> | null;
   proposalSnapshot: Record<string, unknown> | null;
+  coreDataSnapshot?: ProposalCoreData | null;
+  v5Snapshot?: ProposalV5PersistedSnapshot | null;
+  v5SnapshotHash?: string | null;
+  v5SnapshotVersion?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface ProposalCoreData {
+  schemaVersion: "proposal_core_v1";
+  proposalId: string;
+  immutableVersion: string;
+  lifecycle: {
+    status: ProposalStatus;
+    createdAt: string | null;
+    issuedAt: string | null;
+    expiresAt: string | null;
+    proposedStartDate: string | null;
+  };
+  recipient: {
+    name: string | null;
+    email: string | null;
+    clinicName: string | null;
+    location: string | null;
+    clinicType: string | null;
+    authorisedDecisionMaker: string | null;
+  };
+  discovery: {
+    source: string | null;
+    customerWording: string | null;
+    priorityServices: string | null;
+    goal: string | null;
+    workingDiagnosis: string | null;
+    confidenceState: ProposalDataState;
+  };
+  journey: {
+    stages: string[];
+    activeConstraintId: string | null;
+    diagnosedLeaks: string[];
+    evidence: string | null;
+    confidenceState: ProposalDataState;
+  };
+  commercial: {
+    selectedPackageId: string | null;
+    packageName: string | null;
+    monthlyFeeCents: number | null;
+    setupFeeCents: number | null;
+    currency: string;
+    vatStatus: string | null;
+    selectedMedia: string | null;
+    minimumTermMonths: number | null;
+    noticePeriodDays: number | null;
+    exactTerms: string | null;
+  };
+  economics: {
+    economicUnit: string | null;
+    clinicConfirmedContribution: string | null;
+    contributionEvidenceSourceDate: string | null;
+    contributionConfirmationState: ProposalDataState;
+    relevantMonthlyInvestment: string | null;
+    capacity: string | null;
+    paybackState: ProposalDataState;
+    wholeUnitBreakEvenRule: string | null;
+  };
+  kpis: Array<{
+    name: string;
+    baselineState: ProposalDataState;
+    reviewCadence: string | null;
+    connectedDataSource: string | null;
+  }>;
+  scopeLines: Array<{
+    category: string;
+    title: string;
+    quantityLimit: string | null;
+    frequency: string | null;
+    dependency: string | null;
+    owner: string | null;
+    exclusion: string | null;
+  }>;
+  dataVisibility: {
+    connectedSources: string[];
+    productStatus: "demo_data" | "partially_connected" | "live_connected" | "not_connected" | null;
+    knownLimitations: string | null;
+  };
+  proofAssets: Array<{
+    id: string | null;
+    type: ProposalProofAssetType | null;
+    title: string | null;
+    proofMode: string | null;
+    proofScope: string | null;
+    source: string | null;
+    timeframe: string | null;
+    disclaimer: string | null;
+  }>;
+  sectorImages: Array<{
+    slot: "cover" | "journey" | "proof" | "close";
+    imageId: string | null;
+    url: string | null;
+    cropPosition: string | null;
+    licence: string | null;
+    provenance: string | null;
+    approvalStatus: "approved" | "to_confirm" | null;
+  }>;
+  approval: {
+    approvalVersion: string | null;
+    recipient: string | null;
+    timestamp: string | null;
+    packageName: string | null;
+    scope: Record<string, unknown> | null;
+    exactTermsPresented: string | null;
+  };
+}
+
 export interface ProposalSectionContent {
+  proposalReference?: string | null;
+  proposalDate?: string | null;
+  clinicTypeVariant?: string | null;
+  clinicTypeAssetVersion?: string | null;
+  heroImageUrl?: string | null;
+  heroImageAlt?: string | null;
+  heroImageId?: string | null;
+  heroImageCropPosition?: string | null;
+  heroImageLicence?: string | null;
+  discoverySource?: string | null;
+  customerWording?: string | null;
+  evidenceConfidenceState?: "known" | "confirmed_on_call" | "working_diagnosis" | "provisional" | "to_confirm" | null;
+  activeConstraintId?: string | null;
+  activeConstraintConfidenceState?: "known" | "confirmed_on_call" | "working_diagnosis" | "provisional" | "to_confirm" | null;
+  economicUnit?: string | null;
+  clinicConfirmedContribution?: string | null;
+  contributionEvidenceSourceDate?: string | null;
+  contributionConfirmationState?: "known" | "confirmed_on_call" | "working_diagnosis" | "provisional" | "to_confirm" | null;
+  selectedMediaSpend?: string | null;
+  paybackState?: "known" | "confirmed_on_call" | "working_diagnosis" | "provisional" | "to_confirm" | null;
+  liveDataStatus?: "demo_data" | "partially_connected" | "live_connected" | "not_connected" | null;
+  knownDataLimitations?: string | null;
+  sectorImageApprovalStatus?: "approved" | "to_confirm" | null;
+  sectorImageProvenance?: string | null;
+  sectorImages?: ProposalSectorImage[] | null;
   executiveSummary?: string | null;
   personalIntroduction?: string | null;
   diagnosis?: string | null;
@@ -173,7 +338,13 @@ export interface ProposalSectionContent {
   introVideoThumbnailUrl?: string | null;
   fallbackVideoUrl?: string | null;
   primaryGoal?: string | null;
+  clinicTypeAndLocations?: string | null;
   currentPosition?: string | null;
+  currentMarketingSpend?: string | null;
+  currentWebsiteCrmBookingSetup?: string | null;
+  problemsDiscussed?: string | null;
+  whyActNow?: string | null;
+  currentlyUnmeasured?: string | null;
   availableCapacity?: string | null;
   priorityTreatments?: string | null;
   targetArea?: string | null;
@@ -190,16 +361,22 @@ export interface ProposalSectionContent {
   firstRecommendedFix?: string | null;
   currentMonthlyEnquiries?: string | null;
   currentMonthlyBookedPatients?: string | null;
+  currentBookingRate?: string | null;
+  attendanceRate?: string | null;
+  consultationToTreatmentConversionRate?: string | null;
   targetBookings?: string | null;
   consultationValue?: string | null;
   averageTreatmentValue?: string | null;
   availableCommercialCapacity?: string | null;
+  currentAcquisitionCost?: string | null;
   recommendedAdSpend?: string | null;
   estimatedCostPerLead?: string | null;
   estimatedLeads?: string | null;
   estimatedBookedPatients?: string | null;
   breakEvenBookings?: string | null;
   commercialDataSource?: string | null;
+  commercialChangeReason?: string | null;
+  commercialApprovalStatus?: "not_required" | "pending" | "approved" | "rejected" | null;
   recommendedPlan?: string | null;
   proofAssetIds?: string[];
   proofAssets?: ProposalProofAssetRecord[];
@@ -215,15 +392,135 @@ export interface ProposalSectionContent {
   nextSteps?: string | null;
 }
 
+export interface ProposalSectorImage {
+  slot: "cover" | "journey" | "proof" | "close";
+  imageId?: string | null;
+  url?: string | null;
+  cropPosition?: string | null;
+  licence?: string | null;
+  provenance?: string | null;
+  approvalStatus?: "approved" | "to_confirm" | null;
+}
+
+export interface ProposalDiscoveryAnswer {
+  value: string | null;
+  state: ProposalDataState;
+  sourceLabel: string | null;
+  sourceAt: string | null;
+  customerWording: string | null;
+  notes?: string | null;
+}
+
+export type ProposalDiscoveryAnswers = Record<string, ProposalDiscoveryAnswer | undefined>;
+
+export interface ProposalDiscoveryGuideField {
+  key: string;
+  label: string;
+  prompt: string;
+  requiredForIssue?: boolean;
+}
+
+export interface ProposalDiscoveryGuideSection {
+  key: string;
+  title: string;
+  purpose: string;
+  fields: ProposalDiscoveryGuideField[];
+}
+
+export interface ProposalDiscoveryIssue {
+  fieldKey: string;
+  label: string;
+  message: string;
+  severity: "required" | "warning";
+}
+
+export interface ProposalDiscoveryConflict {
+  code: string;
+  message: string;
+  severity: "blocking" | "warning";
+}
+
+export interface ProposalDiscoverySectorBehaviour {
+  clinicType: string;
+  firstJourneyEmphasis: string;
+  economicUnit: string;
+}
+
+export interface ProposalDiscoverySessionRecord {
+  id: string;
+  contactId: string | null;
+  dealId: string | null;
+  clientAccountProfileId: string | null;
+  proposalId: string | null;
+  status: ProposalDiscoveryStatus;
+  clinicType: string | null;
+  recommendedPackageId: string | null;
+  activeConstraintId: string | null;
+  selectedMediaSpendCents: number | null;
+  prefillSnapshot: Record<string, unknown> | null;
+  answers: ProposalDiscoveryAnswers;
+  freeNotes: string | null;
+  missingFields: ProposalDiscoveryIssue[];
+  topMissingFields: ProposalDiscoveryIssue[];
+  conflicts: ProposalDiscoveryConflict[];
+  callOutcome: string | null;
+  nextAction: string | null;
+  nextActionOwnerId: string | null;
+  nextActionDueAt: string | null;
+  startedAt: string;
+  lastAutosavedAt: string | null;
+  completedAt: string | null;
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  guide: ProposalDiscoveryGuideSection[];
+  sectorBehaviour: ProposalDiscoverySectorBehaviour[];
+}
+
+export interface ProposalDiscoveryStartPayload {
+  contactId?: string | null;
+  dealId?: string | null;
+  clientAccountProfileId?: string | null;
+  proposalId?: string | null;
+}
+
+export interface ProposalDiscoveryUpdatePayload {
+  status?: ProposalDiscoveryStatus;
+  clinicType?: string | null;
+  recommendedPackageId?: string | null;
+  activeConstraintId?: string | null;
+  selectedMediaSpendCents?: number | null;
+  answers?: ProposalDiscoveryAnswers;
+  freeNotes?: string | null;
+  callOutcome?: string | null;
+  nextAction?: string | null;
+  nextActionOwnerId?: string | null;
+  nextActionDueAt?: string | null;
+}
+
+export interface ProposalDiscoveryDraftResult {
+  session: ProposalDiscoverySessionRecord;
+  proposal: ProposalRecord;
+}
+
 export interface ProposalScopeItem {
   category: string;
   title: string;
   clientDescription: string;
   frequency?: string | null;
   quantityLimit?: string | null;
+  treatmentsAndLocations?: string | null;
+  dependencies?: string | null;
+  clientResponsibilities?: string | null;
+  exclusions?: string | null;
+  thirdPartyCosts?: string | null;
   inclusionStatus: "included" | "excluded";
   deliveryType: "recurring" | "one_off";
   isOptionalAddOn: boolean;
+  isCustom?: boolean;
+  changeReason?: string | null;
+  approvalStatus?: "not_required" | "pending" | "approved" | "rejected" | null;
   sortOrder: number;
 }
 
@@ -307,6 +604,17 @@ export interface ProposalPublicAcceptancePayload {
   signatureConfirmation: string;
 }
 
+export interface ProposalPublicEventPayload {
+  eventType:
+    | "section_viewed"
+    | "video_opened"
+    | "pdf_download_clicked"
+    | "acceptance_cta_clicked"
+    | "question_clicked"
+    | "book_call_clicked";
+  sectionKey?: string | null;
+}
+
 export type ProposalPublicRecord = Pick<
   ProposalRecord,
   | "proposalName"
@@ -325,18 +633,26 @@ export type ProposalPublicRecord = Pick<
   | "addOns"
   | "discounts"
   | "sectionContent"
+  | "coreData"
   | "contactName"
   | "accountName"
   | "clientAccountName"
 >;
 
+export type ProposalPublicRecordWithV5 = ProposalPublicRecord & {
+  v5Snapshot?: ProposalV5PublicSnapshot | null;
+  v5SnapshotSchemaVersion?: "proposal_v5" | null;
+};
+
 export interface ProposalPublicPreviewRecord {
-  proposal: ProposalPublicRecord;
+  proposal: ProposalPublicRecordWithV5;
   packageRecord: Pick<
     GrowthPackageRecord,
     "name" | "priceCents" | "setupFeeCents" | "currency" | "billingFrequency" | "includedFeatures" | "proposalWording"
   > | null;
   acceptance: ProposalPublicAcceptanceSummary | null;
+  acceptanceUrl: string | null;
+  acceptanceQrCodeDataUrl: string | null;
 }
 
 export interface ProposalPublicAcceptanceSummary {
