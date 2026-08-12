@@ -12,6 +12,7 @@ import {
   Trash2,
   Edit3,
   ExternalLink,
+  FileText,
   AlertTriangle,
   Loader2,
   Users,
@@ -135,6 +136,7 @@ export default function ContactsPage() {
   const token = session?.token;
   const canDeleteContacts = hasPermission("contacts:delete");
   const canWriteContacts = hasPermission("contacts:write");
+  const canWriteProposals = hasPermission("proposals:write");
   const [contacts, setContacts] = useState<ContactTableRow[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -752,6 +754,17 @@ export default function ContactsPage() {
                               <Edit3 className="h-4 w-4" />
                               Edit
                             </button>
+                            {canWriteProposals ? (
+                              <button
+                                onClick={() =>
+                                  router.push(`/app/crm/proposals/call-mode?contactId=${encodeURIComponent(contact.id)}`)
+                                }
+                                className="btn-secondary text-sm"
+                              >
+                                <FileText className="h-4 w-4" />
+                                Start Proposal Call
+                              </button>
+                            ) : null}
                             <a
                               href={`mailto:${contact.raw.email || ""}`}
                               className={`btn-secondary text-sm ${contact.raw.email ? "" : "pointer-events-none opacity-50"}`}

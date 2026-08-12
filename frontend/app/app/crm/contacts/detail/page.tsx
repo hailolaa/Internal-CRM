@@ -10,6 +10,7 @@ import {
   Clock,
   Edit3,
   ExternalLink,
+  FileText,
   FolderOpen,
   Gauge,
   Loader2,
@@ -217,6 +218,7 @@ export default function ContactDetailPage() {
   const canDeleteContacts = hasPermission("contacts:delete");
   const canWriteContacts = hasPermission("contacts:write");
   const canWriteClientAccounts = hasPermission("client_accounts:write");
+  const canWriteProposals = hasPermission("proposals:write");
   const [contact, setContact] = useState<ContactRecord | null>(null);
   const [activity, setActivity] = useState<ContactLinkedActivity | null>(null);
   const [documents, setDocuments] = useState<ContactDocumentLinkRecord[]>([]);
@@ -838,6 +840,15 @@ export default function ContactDetailPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {canWriteProposals ? (
+            <Link
+              href={`/app/crm/proposals/call-mode?contactId=${encodeURIComponent(contact.id)}`}
+              className="btn-secondary text-sm"
+            >
+              <FileText className="h-4 w-4" />
+              Start proposal call
+            </Link>
+          ) : null}
           <Link
             href={`/app/crm/contacts/edit?id=${contact.id}`}
             className={`btn-secondary text-sm ${canWriteContacts ? "" : "pointer-events-none opacity-50"}`}

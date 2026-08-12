@@ -175,6 +175,7 @@ export default function ClientAccountDetailPage() {
   const token = session?.token;
   const canWriteClientAccounts = hasPermission("client_accounts:write");
   const canWriteInternalTasks = hasPermission("internal_tasks:write");
+  const canWriteProposals = hasPermission("proposals:write");
   const isInternalAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN";
   const canConfigureDrive = isInternalAdmin;
   const canAssignIssueOwners = canWriteClientAccounts && isInternalAdmin;
@@ -645,11 +646,21 @@ export default function ClientAccountDetailPage() {
             <p className="mt-1 text-sm text-[#7A746A]">Master client record - {formatLabel(account.healthStatus)} - {formatLabel(account.churnRisk)} risk</p>
           </div>
         </div>
-        {canEditProfile ? (
-          <Link href={editProfileHref} className="inline-flex items-center gap-2 rounded-full bg-[#5e8a8d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#507b7e]"><Pencil className="h-4 w-4" />Edit account</Link>
-        ) : (
-          <span className="rounded-full border border-[#d8ddda] px-4 py-2 text-sm font-medium text-[#7A746A]">Read-only account</span>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {canWriteProposals && account.id ? (
+            <Link
+              href={`/app/crm/proposals/call-mode?clientAccountProfileId=${encodeURIComponent(account.id)}`}
+              className="inline-flex items-center gap-2 rounded-full border border-[#cbded9] bg-white px-4 py-2 text-sm font-semibold text-[#315f62] hover:bg-[#edf5f3]"
+            >
+              <FileCheck2 className="h-4 w-4" /> Start proposal call
+            </Link>
+          ) : null}
+          {canEditProfile ? (
+            <Link href={editProfileHref} className="inline-flex items-center gap-2 rounded-full bg-[#5e8a8d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#507b7e]"><Pencil className="h-4 w-4" />Edit account</Link>
+          ) : (
+            <span className="rounded-full border border-[#d8ddda] px-4 py-2 text-sm font-medium text-[#7A746A]">Read-only account</span>
+          )}
+        </div>
       </div>
 
       <div
