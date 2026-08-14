@@ -66,26 +66,7 @@ export type ProposalV5PageId =
   | "V5Page12WhyClinicGrower"
   | "V5Page13PartnershipInvestment"
   | "V5Page14BillingTerms"
-  | "V5Page15Decision"
-  // Retained for older inactive renderer files and historical snapshots.
-  | "V5Page02EvidenceQuestions"
-  | "V5Page03EvidenceTrail"
-  | "V5Page04CommercialDiagnosis"
-  | "V5Page05PartnerProposition"
-  | "V5Page06SystemsFit"
-  | "V5Page07DemandProgression"
-  | "V5Page08ResponseOwnership"
-  | "V5Page09PostBooking"
-  | "V5Page10CommercialAccountability"
-  | "V5Page11OSCapability"
-  | "V5Page12BreakEven"
-  | "V5Page13Implementation"
-  | "V5Page14OperatingRhythm"
-  | "V5Page15ScopeMatrix"
-  | "V5Page16Responsibilities"
-  | "V5Page17Proof"
-  | "V5Page18Investment"
-  | "V5Page19Close";
+  | "V5Page15Decision";
 
 export type ProposalV5ClinicTypeId =
   | "general"
