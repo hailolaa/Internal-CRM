@@ -67,14 +67,17 @@ function publicPreview(proposal: ProposalPublicRecordWithV5): ProposalPublicPrev
   };
 }
 
-function extractProofPair(html: string, title: string) {
-  const titleIndex = html.indexOf(title);
-  expect(titleIndex, `${title} should render`).toBeGreaterThanOrEqual(0);
-  const articleStart = html.lastIndexOf("<article", titleIndex);
-  const articleEnd = html.indexOf("</article>", titleIndex);
-  expect(articleStart, `${title} should render inside a proof pair`).toBeGreaterThanOrEqual(0);
-  expect(articleEnd, `${title} proof pair should close`).toBeGreaterThanOrEqual(titleIndex);
-  return html.slice(articleStart, articleEnd);
+function extractProofSlot(html: string, slot: string) {
+  const slotMarker = `data-v5-proof-slot="${slot}"`;
+  const slotIndex = html.indexOf(slotMarker);
+  expect(slotIndex, `${slot} should render`).toBeGreaterThanOrEqual(0);
+  const elementStart = Math.max(
+    html.lastIndexOf("<article", slotIndex),
+    html.lastIndexOf("<div", slotIndex),
+  );
+  const nextSlot = html.indexOf("data-v5-proof-slot=", slotIndex + slotMarker.length);
+  expect(elementStart, `${slot} should render inside a proof element`).toBeGreaterThanOrEqual(0);
+  return html.slice(elementStart, nextSlot < 0 ? undefined : nextSlot);
 }
 
 describe("shared public proposal V5 routing", () => {
@@ -121,15 +124,15 @@ describe("shared public proposal V5 routing", () => {
     }
   });
 
-  it("preserves all 19 page IDs in the public mobile renderer without A4 squeezing", () => {
+  it("preserves all 15 page IDs in the public mobile renderer without A4 squeezing", () => {
     const snapshot = toPublicSnapshot(buildProposalV5PreviewSnapshot());
     const mobileHtml = renderToStaticMarkup(createElement(SharedProposalV5Document, { snapshot, isMobile: true }));
 
-    expect(mobileHtml.match(/data-v5-page-id=/g)).toHaveLength(19);
+    expect(mobileHtml.match(/data-v5-page-id=/g)).toHaveLength(15);
     proposalV5MobilePageIds.forEach((pageId) => {
       expect(mobileHtml).toContain(`data-v5-page-id="${pageId}"`);
     });
-    expect(mobileHtml).toContain("max-width:var(--proposal-v5-mobile-max-width)");
+    expect(mobileHtml).toContain("max-width:760px");
     expect(mobileHtml).not.toContain("width:210mm");
     expect(mobileHtml).not.toContain("height:297mm");
   });
@@ -144,9 +147,9 @@ describe("shared public proposal V5 routing", () => {
 
     expect(printHtml).toContain("proposal-v5-public-print");
     expect(printHtml).toContain("proposal-v5-print-root");
-    expect(printHtml).toContain('data-v5-print-page-count="19"');
-    expect(printHtml.match(/data-v5-page-id=/g)).toHaveLength(19);
-    expect(printHtml.match(/width:210mm;height:297mm/g)).toHaveLength(19);
+    expect(printHtml).toContain('data-v5-print-page-count="15"');
+    expect(printHtml.match(/data-v5-page-id=/g)).toHaveLength(15);
+    expect(printHtml.match(/width:210mm;height:297mm/g)).toHaveLength(15);
     expect(printHtml).not.toContain('data-v5-page-number="20"');
     expect(printHtml).toContain(snapshot.proposal.reference);
     expect(printHtml).toContain(snapshot.clinic.name.value as string);
@@ -228,7 +231,7 @@ describe("shared public proposal V5 routing", () => {
     expect(serialized).not.toContain(internalSnapshot.sourceProposalVersion);
   });
 
-  it("preserves proof media pairing while stripping internal proof IDs on public V5 output", () => {
+  it("renders the V19 proof slots while stripping internal proof IDs on public V5 output", () => {
     const internalSnapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic" });
     const internalProofId = internalSnapshot.proof[0]?.id as string;
     const snapshot = toPublicSnapshot({
@@ -251,12 +254,15 @@ describe("shared public proposal V5 routing", () => {
     const printHtml = renderToStaticMarkup(createElement(SharedProposalV5PrintDocument, { snapshot: model.snapshot }));
 
     for (const html of [desktopHtml, mobileHtml, printHtml]) {
-      const firstPair = extractProofPair(html, model.snapshot.proof[0]?.title as string);
-      const secondPair = extractProofPair(html, model.snapshot.proof[1]?.title as string);
-      expect(firstPair).toContain("/brand/proof/public-proof-1.webp");
-      expect(firstPair).not.toContain("/brand/proof/public-proof-2.webp");
-      expect(secondPair).toContain("/brand/proof/public-proof-2.webp");
-      expect(secondPair).not.toContain("/brand/proof/public-proof-1.webp");
+      const featured = extractProofSlot(html, "featured-client-story");
+      const firstResult = extractProofSlot(html, "result-1");
+      const firstPublishedRow = extractProofSlot(html, "published-row-1");
+      expect(featured).toContain("/brand/proposal/v5-reference/tanja-testimonial.jpg");
+      expect(firstResult).toContain("+262.73%");
+      expect(firstPublishedRow).toContain("DREAMAMED");
+      expect(html).not.toContain(internalProofId);
+      expect(html).not.toContain("case_study");
+      expect(html).not.toContain("performance_");
     }
   });
 });

@@ -31,24 +31,20 @@ const clinicGrowerVideoImage = `${websiteSourceBase}/clinicgrower-videography.we
 
 const proposalV5PageOrder = [
   { id: "V5Page01Cover", pageNumber: 1, theme: "dark" },
-  { id: "V5Page02EvidenceQuestions", pageNumber: 2, theme: "light" },
-  { id: "V5Page03EvidenceTrail", pageNumber: 3, theme: "dark" },
-  { id: "V5Page04CommercialDiagnosis", pageNumber: 4, theme: "light" },
-  { id: "V5Page05PartnerProposition", pageNumber: 5, theme: "dark" },
-  { id: "V5Page06SystemsFit", pageNumber: 6, theme: "light" },
-  { id: "V5Page07DemandProgression", pageNumber: 7, theme: "light" },
-  { id: "V5Page08ResponseOwnership", pageNumber: 8, theme: "dark" },
-  { id: "V5Page09PostBooking", pageNumber: 9, theme: "light" },
-  { id: "V5Page10CommercialAccountability", pageNumber: 10, theme: "light" },
-  { id: "V5Page11OSCapability", pageNumber: 11, theme: "dark" },
-  { id: "V5Page12BreakEven", pageNumber: 12, theme: "light" },
-  { id: "V5Page13Implementation", pageNumber: 13, theme: "light" },
-  { id: "V5Page14OperatingRhythm", pageNumber: 14, theme: "light" },
-  { id: "V5Page15ScopeMatrix", pageNumber: 15, theme: "light" },
-  { id: "V5Page16Responsibilities", pageNumber: 16, theme: "light" },
-  { id: "V5Page17Proof", pageNumber: 17, theme: "light" },
-  { id: "V5Page18Investment", pageNumber: 18, theme: "dark" },
-  { id: "V5Page19Close", pageNumber: 19, theme: "dark" },
+  { id: "V5Page02Recommendation", pageNumber: 2, theme: "light" },
+  { id: "V5Page03GoogleMediaRoas", pageNumber: 3, theme: "dark" },
+  { id: "V5Page04GrowthEngine", pageNumber: 4, theme: "light" },
+  { id: "V5Page05GoogleAds", pageNumber: 5, theme: "light" },
+  { id: "V5Page06LandingConversion", pageNumber: 6, theme: "dark" },
+  { id: "V5Page07SeoGbpWebsite", pageNumber: 7, theme: "light" },
+  { id: "V5Page08TrackingOptimisation", pageNumber: 8, theme: "dark" },
+  { id: "V5Page09Roadmap", pageNumber: 9, theme: "light" },
+  { id: "V5Page10ManagementScope", pageNumber: 10, theme: "light" },
+  { id: "V5Page11PublishedProof", pageNumber: 11, theme: "light" },
+  { id: "V5Page12WhyClinicGrower", pageNumber: 12, theme: "dark" },
+  { id: "V5Page13PartnershipInvestment", pageNumber: 13, theme: "dark" },
+  { id: "V5Page14BillingTerms", pageNumber: 14, theme: "light" },
+  { id: "V5Page15Decision", pageNumber: 15, theme: "light" },
 ] as const satisfies ReadonlyArray<ProposalV5Snapshot["pages"][number]>;
 
 type ClinicVariant = {
@@ -783,7 +779,7 @@ export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): Pr
     generatedAt,
     sourceProposalVersion,
     snapshotHash: "",
-    pageCount: 19,
+    pageCount: 15,
     pages: [...proposalV5PageOrder],
     proposal: {
       reference: proposalReference,
@@ -937,8 +933,8 @@ export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): Pr
 export function assertProposalV5SnapshotReady(snapshot: ProposalV5Snapshot) {
   const issues: string[] = [];
   if (snapshot.schemaVersion !== "proposal_v5") issues.push("schemaVersion");
-  if (snapshot.pageCount !== 19) issues.push("pageCount");
-  if (snapshot.pages.length !== 19) issues.push("pages");
+  if (snapshot.pageCount !== 15) issues.push("pageCount");
+  if (snapshot.pages.length !== 15) issues.push("pages");
   snapshot.pages.forEach((page, index) => {
     if (page.pageNumber !== index + 1) issues.push(`pages.${index}.pageNumber`);
   });
@@ -969,7 +965,7 @@ export function parseProposalV5Snapshot(value: unknown): ProposalV5Snapshot | nu
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
     if (!parsed || typeof parsed !== "object") return null;
     const snapshot = parsed as ProposalV5Snapshot;
-    if (snapshot.schemaVersion !== "proposal_v5" || snapshot.pageCount !== 19) return null;
+    if (snapshot.schemaVersion !== "proposal_v5" || snapshot.pageCount !== 15) return null;
     return snapshot;
   } catch {
     return null;

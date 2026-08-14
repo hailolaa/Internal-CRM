@@ -8,6 +8,21 @@ export type ProposalV5Theme = "dark" | "light";
 
 export type ProposalV5PageId =
   | "V5Page01Cover"
+  | "V5Page02Recommendation"
+  | "V5Page03GoogleMediaRoas"
+  | "V5Page04GrowthEngine"
+  | "V5Page05GoogleAds"
+  | "V5Page06LandingConversion"
+  | "V5Page07SeoGbpWebsite"
+  | "V5Page08TrackingOptimisation"
+  | "V5Page09Roadmap"
+  | "V5Page10ManagementScope"
+  | "V5Page11PublishedProof"
+  | "V5Page12WhyClinicGrower"
+  | "V5Page13PartnershipInvestment"
+  | "V5Page14BillingTerms"
+  | "V5Page15Decision"
+  // Retained for older, inactive renderer files that still live in the tree.
   | "V5Page02EvidenceQuestions"
   | "V5Page03EvidenceTrail"
   | "V5Page04CommercialDiagnosis"
@@ -169,7 +184,7 @@ export interface ProposalV5Snapshot {
   generatedAt: string;
   sourceProposalVersion: string;
   snapshotHash: string;
-  pageCount: 19;
+  pageCount: 15;
   pages: ProposalV5PageRegistration[];
   proposal: {
     reference: string;

@@ -2,24 +2,20 @@ import { proposalV5Tokens } from "../design/proposalV5Tokens";
 import type { ProposalV5PageComponent, ProposalV5PageRegistration } from "../data/proposalV5Types";
 import { proposalV5PageOrder } from "./pageOrder";
 import { V5Page01Cover } from "./V5Page01Cover";
-import { V5Page02EvidenceQuestions } from "./V5Page02EvidenceQuestions";
-import { V5Page03EvidenceTrail } from "./V5Page03EvidenceTrail";
-import { V5Page04CommercialDiagnosis } from "./V5Page04CommercialDiagnosis";
-import { V5Page05PartnerProposition } from "./V5Page05PartnerProposition";
-import { V5Page06SystemsFit } from "./V5Page06SystemsFit";
-import { V5Page07DemandProgression } from "./V5Page07DemandProgression";
-import { V5Page08ResponseOwnership } from "./V5Page08ResponseOwnership";
-import { V5Page09PostBooking } from "./V5Page09PostBooking";
-import { V5Page10CommercialAccountability } from "./V5Page10CommercialAccountability";
-import { V5Page11OSCapability } from "./V5Page11OSCapability";
-import { V5Page12BreakEven } from "./V5Page12BreakEven";
-import { V5Page13Implementation } from "./V5Page13Implementation";
-import { V5Page14OperatingRhythm } from "./V5Page14OperatingRhythm";
-import { V5Page15ScopeMatrix } from "./V5Page15ScopeMatrix";
-import { V5Page16Responsibilities } from "./V5Page16Responsibilities";
-import { V5Page17Proof } from "./V5Page17Proof";
-import { V5Page18Investment } from "./V5Page18Investment";
-import { V5Page19Close } from "./V5Page19Close";
+import { V5Page02Recommendation } from "./V5Page02Recommendation";
+import { V5Page03GoogleMediaRoas } from "./V5Page03GoogleMediaRoas";
+import { V5Page04GrowthEngine } from "./V5Page04GrowthEngine";
+import { V5Page05GoogleAds } from "./V5Page05GoogleAds";
+import { V5Page06LandingConversion } from "./V5Page06LandingConversion";
+import { V5Page07SeoGbpWebsite } from "./V5Page07SeoGbpWebsite";
+import { V5Page08TrackingOptimisation } from "./V5Page08TrackingOptimisation";
+import { V5Page09Roadmap } from "./V5Page09Roadmap";
+import { V5Page10ManagementScope } from "./V5Page10ManagementScope";
+import { V5Page11PublishedProof } from "./V5Page11PublishedProof";
+import { V5Page12WhyClinicGrower } from "./V5Page12WhyClinicGrower";
+import { V5Page13PartnershipInvestment } from "./V5Page13PartnershipInvestment";
+import { V5Page14BillingTerms } from "./V5Page14BillingTerms";
+import { V5Page15Decision } from "./V5Page15Decision";
 
 export interface ProposalV5RegisteredPage extends ProposalV5PageRegistration {
   Component: ProposalV5PageComponent;
@@ -27,29 +23,25 @@ export interface ProposalV5RegisteredPage extends ProposalV5PageRegistration {
 
 export const proposalV5PageRegistry = [
   { ...proposalV5PageOrder[0], Component: V5Page01Cover },
-  { ...proposalV5PageOrder[1], Component: V5Page02EvidenceQuestions },
-  { ...proposalV5PageOrder[2], Component: V5Page03EvidenceTrail },
-  { ...proposalV5PageOrder[3], Component: V5Page04CommercialDiagnosis },
-  { ...proposalV5PageOrder[4], Component: V5Page05PartnerProposition },
-  { ...proposalV5PageOrder[5], Component: V5Page06SystemsFit },
-  { ...proposalV5PageOrder[6], Component: V5Page07DemandProgression },
-  { ...proposalV5PageOrder[7], Component: V5Page08ResponseOwnership },
-  { ...proposalV5PageOrder[8], Component: V5Page09PostBooking },
-  { ...proposalV5PageOrder[9], Component: V5Page10CommercialAccountability },
-  { ...proposalV5PageOrder[10], Component: V5Page11OSCapability },
-  { ...proposalV5PageOrder[11], Component: V5Page12BreakEven },
-  { ...proposalV5PageOrder[12], Component: V5Page13Implementation },
-  { ...proposalV5PageOrder[13], Component: V5Page14OperatingRhythm },
-  { ...proposalV5PageOrder[14], Component: V5Page15ScopeMatrix },
-  { ...proposalV5PageOrder[15], Component: V5Page16Responsibilities },
-  { ...proposalV5PageOrder[16], Component: V5Page17Proof },
-  { ...proposalV5PageOrder[17], Component: V5Page18Investment },
-  { ...proposalV5PageOrder[18], Component: V5Page19Close },
+  { ...proposalV5PageOrder[1], Component: V5Page02Recommendation },
+  { ...proposalV5PageOrder[2], Component: V5Page03GoogleMediaRoas },
+  { ...proposalV5PageOrder[3], Component: V5Page04GrowthEngine },
+  { ...proposalV5PageOrder[4], Component: V5Page05GoogleAds },
+  { ...proposalV5PageOrder[5], Component: V5Page06LandingConversion },
+  { ...proposalV5PageOrder[6], Component: V5Page07SeoGbpWebsite },
+  { ...proposalV5PageOrder[7], Component: V5Page08TrackingOptimisation },
+  { ...proposalV5PageOrder[8], Component: V5Page09Roadmap },
+  { ...proposalV5PageOrder[9], Component: V5Page10ManagementScope },
+  { ...proposalV5PageOrder[10], Component: V5Page11PublishedProof },
+  { ...proposalV5PageOrder[11], Component: V5Page12WhyClinicGrower },
+  { ...proposalV5PageOrder[12], Component: V5Page13PartnershipInvestment },
+  { ...proposalV5PageOrder[13], Component: V5Page14BillingTerms },
+  { ...proposalV5PageOrder[14], Component: V5Page15Decision },
 ] as const satisfies readonly ProposalV5RegisteredPage[];
 
 export function validateProposalV5PageRegistry(pages: readonly ProposalV5RegisteredPage[] = proposalV5PageRegistry) {
-  if (pages.length !== 19) {
-    throw new Error(`Proposal V5 renderer must register exactly 19 pages; received ${pages.length}.`);
+  if (pages.length !== 15) {
+    throw new Error(`Proposal V5 renderer must register exactly 15 pages; received ${pages.length}.`);
   }
 
   const ids = new Set<string>();

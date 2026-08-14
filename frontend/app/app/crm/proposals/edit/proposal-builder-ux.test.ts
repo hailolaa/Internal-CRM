@@ -271,6 +271,8 @@ describe("proposal builder UX workflow", () => {
     expect(source).toContain("getProposalBuilderStepProgress");
     expect(source).toContain("ProposalV5Renderer");
     expect(source).toContain("sendProposalFromBuilder");
+    expect(source).toContain("proposalClientVisibleLocked");
+    expect(source).toContain("Version frozen");
     expect(source).toContain("Proof requirements met");
     expect(source).toContain("Success measures");
     expect(source).toContain("ClinicGrower responsibilities");

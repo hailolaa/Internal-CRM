@@ -249,9 +249,11 @@ describe("real-record V5 proposal preview bridge", () => {
     };
     const html = renderRealRecord(snapshot, "v5-mobile");
 
-    expect(html).toContain("Commercial values stay gated");
+    expect(html).toContain("To confirm");
     expect(html).not.toContain("javascript:alert");
-    expect(html).not.toContain("Approve proposal</a>");
+    expect(html).not.toContain("javascript:throw");
+    expect(html).toContain('href="#"');
+    expect(html).toContain("Yes - prepare");
     expect(html).toContain("https://clinicgrower.co.uk/question");
   });
 

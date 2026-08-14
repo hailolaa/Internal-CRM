@@ -474,7 +474,7 @@ export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): Pr
     generatedAt,
     sourceProposalVersion,
     snapshotHash: "",
-    pageCount: 19,
+    pageCount: 15,
     pages: [...proposalV5PageOrder],
     proposal: {
       reference: proposalReference,

@@ -32,7 +32,7 @@ export type ProposalV5PersistedSnapshot = Record<string, unknown> & {
     reference: string;
   };
   generatedAt?: string;
-  pageCount?: 19;
+  pageCount?: 15;
   sourceProposalVersion?: string;
   snapshotHash?: string;
 };

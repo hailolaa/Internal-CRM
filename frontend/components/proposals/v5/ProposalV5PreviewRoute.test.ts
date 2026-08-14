@@ -30,7 +30,7 @@ describe("private V5 proposal preview route", () => {
     expect(html).toContain("proposal-v5-private-preview");
     expect(html).toContain("proposal-v5-private-preview-print-root");
     expect(html).toContain("proposal-v5-renderer");
-    expect(html.match(/data-v5-page-id=/g)).toHaveLength(19);
+    expect(html.match(/data-v5-page-id=/g)).toHaveLength(15);
     expect(html).toContain("BristolDent Harbourside");
     expect(html).toContain("Clinic Growth Engine");
     expect(html).not.toContain("/proposals/shared?token=");
@@ -47,12 +47,12 @@ describe("private V5 proposal preview route", () => {
       const html = renderToStaticMarkup(createElement(ProposalV5Renderer, { snapshot }));
 
       expect(snapshot.schemaVersion).toBe("proposal_v5");
-      expect(snapshot.pageCount).toBe(19);
-      expect(snapshot.pages).toHaveLength(19);
+      expect(snapshot.pageCount).toBe(15);
+      expect(snapshot.pages).toHaveLength(15);
       expect(snapshot.clinic.clinicType).toBe(clinicType);
       expect(snapshot.selectedPackage.id).toBe("clinic-growth-engine");
       expect(snapshot.assets.sectorImages.cover.url).toMatch(/^\/brand\/proposal\/v5-reference\//);
-      expect(html.match(/data-v5-page-id=/g)).toHaveLength(19);
+      expect(html.match(/data-v5-page-id=/g)).toHaveLength(15);
       coverImages.add(snapshot.assets.sectorImages.cover.url || "");
     });
 
@@ -105,7 +105,7 @@ describe("private V5 proposal preview route", () => {
     expect(snapshot.clinic.clinicType).toBe("private_gp_medical_clinic");
     expect(snapshot.selectedPackage.id).toBe("growth-engine-plus");
     expect(snapshot.scope.some((item) => item.title?.includes("Extended responsibility"))).toBe(true);
-    expect(html.match(/data-v5-page-id=/g)).toHaveLength(19);
+    expect(html.match(/data-v5-page-id=/g)).toHaveLength(15);
   });
 
   it("can render an already persisted frozen snapshot without rebuilding fixture data", () => {
@@ -122,6 +122,6 @@ describe("private V5 proposal preview route", () => {
 
     expect(html).toContain("Rendering the frozen V5 snapshot stored on Persisted V5 Proposal");
     expect(html).toContain(snapshot.snapshotHash);
-    expect(html.match(/data-v5-page-id=/g)).toHaveLength(19);
+    expect(html.match(/data-v5-page-id=/g)).toHaveLength(15);
   });
 });

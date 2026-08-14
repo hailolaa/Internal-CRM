@@ -402,13 +402,13 @@ test("V5 snapshot hash is canonical SHA-256 and changes with client-facing data"
     },
     pages: [
       { id: "V5Page01Cover", pageNumber: 1 },
-      { id: "V5Page02EvidenceQuestions", pageNumber: 2 },
+      { id: "V5Page02Recommendation", pageNumber: 2 },
     ],
   };
   const right = {
     pages: [
       { pageNumber: 1, id: "V5Page01Cover" },
-      { pageNumber: 2, id: "V5Page02EvidenceQuestions" },
+      { pageNumber: 2, id: "V5Page02Recommendation" },
     ],
     clientFacing: {
       packageName: "Clinic Growth Engine",

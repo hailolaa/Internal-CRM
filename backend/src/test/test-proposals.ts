@@ -927,7 +927,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(v5Sent.body.data.status, "sent");
     assert.equal(v5Sent.body.data.v5Snapshot.schemaVersion, "proposal_v5");
     assert.equal(v5Sent.body.data.v5Snapshot.proposal.reference, "CG-TEST-001");
-    assert.equal(v5Sent.body.data.v5Snapshot.pageCount, 19);
+    assert.equal(v5Sent.body.data.v5Snapshot.pageCount, 15);
     assert.match(v5Sent.body.data.v5SnapshotHash, /^[a-f0-9]{64}$/);
     assert.equal(v5Sent.body.data.v5Snapshot.snapshotHash, v5Sent.body.data.v5SnapshotHash);
     assert.equal(v5Sent.body.data.v5SnapshotVersion, "proposal_v5_2026_08_11");
@@ -971,6 +971,31 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       assert.ok(token);
       return { id: proposal.body.data.id as string, token };
     };
+
+    const legacyFrozenShapeProposal = await createSentV5AcceptanceCase("V5 resend rejects historical frozen snapshot");
+    await pool.execute(
+      `UPDATE proposal
+       SET v5_snapshot = JSON_SET(v5_snapshot, '$.pageCount', 19),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [legacyFrozenShapeProposal.id, primaryClinicId],
+    );
+    const rejectedHistoricalFrozenResend = await request(
+      baseUrl,
+      `/api/proposals/${legacyFrozenShapeProposal.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "historical-frozen@example.com",
+          recipientName: "Historical Frozen",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(rejectedHistoricalFrozenResend.response.status, 409);
+    assert.match(rejectedHistoricalFrozenResend.body.message, /already been frozen/i);
 
     const publicV5AcceptancePayload = {
       fullName: "V5 Signer",

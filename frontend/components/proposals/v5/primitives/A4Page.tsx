@@ -33,8 +33,8 @@ export function A4Page({
     position: "relative",
     display: "flex",
     flexDirection: "column",
-    gap: "8mm",
-    padding: `${proposalV5Tokens.page.safeMarginY} ${proposalV5Tokens.page.safeMarginX} 19mm`,
+    gap: "7mm",
+    padding: `${proposalV5Tokens.page.safeMarginY} ${proposalV5Tokens.page.safeMarginX} 16mm`,
     background: isDark ? proposalV5Tokens.colors.deepInk : proposalV5Tokens.colors.paper,
     color: isDark ? proposalV5Tokens.colors.paper : proposalV5Tokens.colors.headingInk,
     fontFamily: proposalV5Tokens.font.family,
@@ -45,10 +45,13 @@ export function A4Page({
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: "8mm",
+    minHeight: "7mm",
     color: isDark ? proposalV5Tokens.colors.teal : proposalV5Tokens.colors.strongTeal,
     fontSize: proposalV5Tokens.type.legal,
-    letterSpacing: "0",
+    fontWeight: 800,
+    letterSpacing: "0.06em",
+    lineHeight: 1,
+    textTransform: "uppercase",
   };
   const contentStyle: CSSProperties = {
     width: proposalV5Tokens.page.contentWidth,
@@ -84,7 +87,7 @@ export function A4Page({
     >
       {showHeader ? (
         <header style={headerStyle}>
-          <span>ClinicGrower OS</span>
+          <span>ClinicGrower</span>
           {sectionLabel ? <span>{sectionLabel}</span> : null}
         </header>
       ) : null}

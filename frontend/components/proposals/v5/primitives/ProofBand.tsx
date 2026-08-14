@@ -31,9 +31,9 @@ function safeExternalProofHref(url: string | null | undefined) {
 
 function proofBandDensity(count: number): ProofBandDensity {
   if (count >= 13) return "maximum";
-  if (count >= 9) return "dense";
-  if (count >= 5) return "compact";
-  if (count >= 3) return "balanced";
+  if (count >= 10) return "dense";
+  if (count >= 7) return "compact";
+  if (count >= 4) return "balanced";
   return "editorial";
 }
 

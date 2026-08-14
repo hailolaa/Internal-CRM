@@ -8,24 +8,20 @@ import { AlertBanner, ErrorBoundary, PageHeader } from "@/components/ui";
 import { ProposalV5Renderer, buildProposalV5Snapshot, type ProposalV5Snapshot } from "@/components/proposals/v5";
 import { getPackageProposalV5Scope } from "@/components/proposals/v5/data/packageScope";
 import { getV5Page01MissingFields } from "@/components/proposals/v5/pages/V5Page01Cover";
-import { getV5Page02MissingFields } from "@/components/proposals/v5/pages/V5Page02EvidenceQuestions";
-import { getV5Page03MissingFields } from "@/components/proposals/v5/pages/V5Page03EvidenceTrail";
-import { getV5Page04MissingFields } from "@/components/proposals/v5/pages/V5Page04CommercialDiagnosis";
-import { getV5Page05MissingFields } from "@/components/proposals/v5/pages/V5Page05PartnerProposition";
-import { getV5Page06MissingFields } from "@/components/proposals/v5/pages/V5Page06SystemsFit";
-import { getV5Page07MissingFields } from "@/components/proposals/v5/pages/V5Page07DemandProgression";
-import { getV5Page08MissingFields } from "@/components/proposals/v5/pages/V5Page08ResponseOwnership";
-import { getV5Page09MissingFields } from "@/components/proposals/v5/pages/V5Page09PostBooking";
-import { getV5Page10MissingFields } from "@/components/proposals/v5/pages/V5Page10CommercialAccountability";
-import { getV5Page11MissingFields } from "@/components/proposals/v5/pages/V5Page11OSCapability";
-import { getV5Page12MissingFields } from "@/components/proposals/v5/pages/V5Page12BreakEven";
-import { getV5Page13MissingFields } from "@/components/proposals/v5/pages/V5Page13Implementation";
-import { getV5Page14MissingFields } from "@/components/proposals/v5/pages/V5Page14OperatingRhythm";
-import { getV5Page15MissingFields } from "@/components/proposals/v5/pages/V5Page15ScopeMatrix";
-import { getV5Page16MissingFields } from "@/components/proposals/v5/pages/V5Page16Responsibilities";
-import { getV5Page17MissingFields } from "@/components/proposals/v5/pages/V5Page17Proof";
-import { getV5Page18MissingFields } from "@/components/proposals/v5/pages/V5Page18Investment";
-import { getV5Page19MissingFields } from "@/components/proposals/v5/pages/V5Page19Close";
+import { getV5Page02MissingFields } from "@/components/proposals/v5/pages/V5Page02Recommendation";
+import { getV5Page03MissingFields } from "@/components/proposals/v5/pages/V5Page03GoogleMediaRoas";
+import { getV5Page04MissingFields } from "@/components/proposals/v5/pages/V5Page04GrowthEngine";
+import { getV5Page05MissingFields } from "@/components/proposals/v5/pages/V5Page05GoogleAds";
+import { getV5Page06MissingFields } from "@/components/proposals/v5/pages/V5Page06LandingConversion";
+import { getV5Page07MissingFields } from "@/components/proposals/v5/pages/V5Page07SeoGbpWebsite";
+import { getV5Page08MissingFields } from "@/components/proposals/v5/pages/V5Page08TrackingOptimisation";
+import { getV5Page09MissingFields } from "@/components/proposals/v5/pages/V5Page09Roadmap";
+import { getV5Page10MissingFields } from "@/components/proposals/v5/pages/V5Page10ManagementScope";
+import { getV5Page11MissingFields } from "@/components/proposals/v5/pages/V5Page11PublishedProof";
+import { getV5Page12MissingFields } from "@/components/proposals/v5/pages/V5Page12WhyClinicGrower";
+import { getV5Page13MissingFields } from "@/components/proposals/v5/pages/V5Page13PartnershipInvestment";
+import { getV5Page14MissingFields } from "@/components/proposals/v5/pages/V5Page14BillingTerms";
+import { getV5Page15MissingFields } from "@/components/proposals/v5/pages/V5Page15Decision";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import type { GrowthPackageRecord, ProposalCommercialItem, ProposalDataState, ProposalPayload, ProposalProofAssetRecord, ProposalProofAssetType, ProposalPublicRecord, ProposalRecord, ProposalScopeItem, ProposalSectionContent, ProposalSectorImage, ProposalSourceDataRecord, ProposalTemplateRecord } from "@/lib/api-types";
@@ -944,6 +940,12 @@ function statusLabel(value: ProposalRecord["status"]) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+const CLIENT_VISIBLE_LOCKED_PROPOSAL_STATUSES = [
+  "sent",
+  "viewed",
+  "follow_up_due",
+] as const satisfies readonly ProposalRecord["status"][];
+
 function formTextValue(form: ProposalForm, key: keyof ProposalForm) {
   const value = form[key];
   return typeof value === "string" ? value : "";
@@ -1229,10 +1231,6 @@ const proposalV5PreviewMissingFieldChecks = [
   getV5Page13MissingFields,
   getV5Page14MissingFields,
   getV5Page15MissingFields,
-  getV5Page16MissingFields,
-  getV5Page17MissingFields,
-  getV5Page18MissingFields,
-  getV5Page19MissingFields,
 ] as const;
 
 function getProposalV5PreviewMissingFields(snapshot: ProposalV5Snapshot) {
@@ -1362,12 +1360,19 @@ export default function ProposalEditPage() {
   );
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const proposalClientVisibleLocked = Boolean(
+    savedProposalId &&
+    CLIENT_VISIBLE_LOCKED_PROPOSAL_STATUSES.includes(
+      form.status as (typeof CLIENT_VISIBLE_LOCKED_PROPOSAL_STATUSES)[number],
+    ),
+  );
   const proposalIsFinal = Boolean(
     savedProposalId && isFinalProposalStatus(form.status),
   );
+  const proposalIsLocked = proposalIsFinal || proposalClientVisibleLocked;
   const canEditCurrentProposal = canWriteProposals && (
     proposalId ? savedProposalId === proposalId : !savedProposalId
-  ) && !proposalIsFinal;
+  ) && !proposalIsLocked;
   const routeHasMismatchedProposal = proposalId
     ? Boolean(savedProposalId && savedProposalId !== proposalId)
     : Boolean(savedProposalId);
@@ -1654,18 +1659,25 @@ export default function ProposalEditPage() {
     builderProgress.find((step) => step.id === "send")?.missing.filter((item) => item !== "Ready V5 proposal").length || 0;
   const builderActionMissingCount = builderMissingCount + builderSendBlockerCount;
   const builderIsReady = builderActionMissingCount === 0 && Boolean(proposalV5Preview.snapshot);
-  const canSendFromBuilder = Boolean(token && canEditCurrentProposal && savedProposalId && builderIsReady && !isSaving && !isSending);
+  const proposalCanBeSent = form.status === "draft" || form.status === "ready";
+  const canSendFromBuilder = Boolean(token && canEditCurrentProposal && savedProposalId && builderIsReady && proposalCanBeSent && !isSaving && !isSending);
   const saveStateLabel = isSaving
     ? "Saving..."
     : isSending
       ? "Sending..."
-      : message
-        ? "Saved just now"
-        : savedProposalId
-          ? "Draft changes need saving"
-          : "New draft";
+      : proposalClientVisibleLocked
+        ? "Version frozen"
+        : proposalIsFinal
+          ? "Locked"
+          : message
+            ? "Saved just now"
+            : savedProposalId
+              ? "Draft changes need saving"
+              : "New draft";
   const primaryActionLabel = activeBuilderStep === "send"
-    ? builderIsReady
+    ? proposalClientVisibleLocked
+      ? "Version frozen"
+      : builderIsReady
       ? "Send proposal"
       : `Fix ${builderActionMissingCount || 1} item${builderActionMissingCount === 1 ? "" : "s"}`
     : activeBuilderStep === "review"
@@ -1788,6 +1800,7 @@ export default function ProposalEditPage() {
   const applyPackage = (packageId: string) => {
     if (!canEditCurrentProposal) return;
     const packageRecord = packages.find((item) => item.id === packageId);
+    const isReferenceGrowthPackage = packageRecord?.name === "Clinic Growth Engine";
     updateForm({
       recommendedPackageId: packageId,
       packageName: packageRecord?.name || "",
@@ -1804,6 +1817,8 @@ export default function ProposalEditPage() {
       adSpendNote: form.adSpendNote || packageCommercialText(packageRecord, "mediaSpendHandling"),
       recommendedPlan: form.recommendedPlan || packageRecord?.proposalWording || "",
       includedFeatures: form.includedFeatures || (packageRecord?.includedFeatures || []).join("\n"),
+      minimumTermMonths: form.minimumTermMonths || (isReferenceGrowthPackage ? "6" : form.minimumTermMonths),
+      noticePeriodDays: form.noticePeriodDays || (isReferenceGrowthPackage ? "90" : form.noticePeriodDays),
       commercialChangeReason: "",
       commercialApprovalStatus: "not_required",
       scopeItems: packageCatalogueScopeItems(packageRecord),
@@ -2039,6 +2054,11 @@ export default function ProposalEditPage() {
       setError("Complete the readiness checklist before sending.");
       return;
     }
+    if (!proposalCanBeSent) {
+      setError("This proposal version has already been sent or locked. Open the preview or create a new proposal version for changes.");
+      setActiveBuilderStep("send");
+      return;
+    }
 
     setIsSending(true);
     setError("");
@@ -2158,6 +2178,13 @@ export default function ProposalEditPage() {
               variant="info"
             />
           ) : null}
+          {proposalClientVisibleLocked ? (
+            <AlertBanner
+              title={`${statusLabel(form.status)} proposal frozen`}
+              description="This proposal version has already been sent to the client. Review the frozen preview or create a new proposal version for changes."
+              variant="info"
+            />
+          ) : null}
           {error ? <AlertBanner title="Proposal draft issue" description={error} variant="error" /> : null}
           {message ? <AlertBanner title="Saved" description={message} variant="success" /> : null}
 
@@ -2177,17 +2204,23 @@ export default function ProposalEditPage() {
                 </div>
                 <div className="rounded-[8px] border border-[#d8e4df] bg-white px-4 py-3 text-sm">
                   <div className="flex items-center gap-2 font-semibold text-[#14231f]">
-                    {builderIsReady ? (
+                    {builderIsReady || proposalClientVisibleLocked ? (
                       <CheckCircle2 className="h-4 w-4 text-[#2f7d61]" />
                     ) : (
                       <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#fff3d6] text-[10px] font-bold text-[#8a5a00]">
                         {builderActionMissingCount}
                       </span>
                     )}
-                    {builderIsReady ? "Ready to send" : `${builderActionMissingCount} item${builderActionMissingCount === 1 ? "" : "s"} need attention`}
+                    {proposalClientVisibleLocked
+                      ? "Version frozen"
+                      : builderIsReady
+                        ? "Ready to send"
+                        : `${builderActionMissingCount} item${builderActionMissingCount === 1 ? "" : "s"} need attention`}
                   </div>
                   <p className="mt-1 text-xs leading-5 text-[#5b7069]">
-                    {builderIsReady
+                    {proposalClientVisibleLocked
+                      ? "This proposal has already been sent. Use Preview to review the frozen client-facing version."
+                      : builderIsReady
                       ? "The current proposal can be previewed and sent."
                       : "Use the stepper or the primary button to move to the next issue."}
                   </p>
@@ -3202,7 +3235,7 @@ export default function ProposalEditPage() {
                         </label>
                         <label className={builderLabelClassName}>
                           Notice period days
-                          <input type="number" min="0" value={form.noticePeriodDays} onChange={(event) => updateForm({ noticePeriodDays: event.target.value })} placeholder="30" className={builderInputClassName} />
+                          <input type="number" min="0" value={form.noticePeriodDays} onChange={(event) => updateForm({ noticePeriodDays: event.target.value })} placeholder="90" className={builderInputClassName} />
                         </label>
                         <label className={builderLabelClassName}>
                           Start date
@@ -3350,12 +3383,20 @@ export default function ProposalEditPage() {
                   {activeBuilderStep === "send" ? (
                     <div id="proposal-builder-send" className="space-y-5" data-testid="proposal-builder-step-send">
                       <div className="rounded-[8px] border border-[#d8e4df] bg-[#f8fbf9] p-5">
-                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b817a]">Ready to send</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b817a]">
+                          {proposalClientVisibleLocked ? "Frozen version" : "Ready to send"}
+                        </p>
                         <h3 className="mt-2 text-2xl font-semibold text-[#14231f]">
-                          {builderIsReady ? "Send this proposal" : "Finish the readiness checklist first"}
+                          {proposalClientVisibleLocked
+                            ? "This proposal version is frozen"
+                            : builderIsReady
+                              ? "Send this proposal"
+                              : "Finish the readiness checklist first"}
                         </h3>
                         <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5b7069]">
-                          Sending freezes this proposal version. Changes after sending require a new proposal version before the client sees the updated offer.
+                          {proposalClientVisibleLocked
+                            ? "This version has already been sent. Use the preview to review the exact client-facing proposal."
+                            : "Sending freezes this proposal version. Changes after sending require a new proposal version before the client sees the updated offer."}
                         </p>
                         <dl className="mt-5 grid gap-3 md:grid-cols-4">
                           {[
@@ -3381,10 +3422,12 @@ export default function ProposalEditPage() {
                             Preview
                           </Link>
                         ) : null}
-                        <button type="button" onClick={() => void sendProposalFromBuilder()} disabled={!canSendFromBuilder} className="inline-flex min-h-10 items-center gap-2 rounded-[8px] bg-[#315f51] px-4 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60">
-                          {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                          Send proposal
-                        </button>
+                        {!proposalClientVisibleLocked ? (
+                          <button type="button" onClick={() => void sendProposalFromBuilder()} disabled={!canSendFromBuilder} className="inline-flex min-h-10 items-center gap-2 rounded-[8px] bg-[#315f51] px-4 text-sm font-semibold text-white hover:bg-[#24483d] disabled:cursor-not-allowed disabled:opacity-60">
+                            {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                            Send proposal
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   ) : null}

@@ -8,9 +8,9 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 function hasV5PageContract(candidate: Partial<ProposalV5RenderableSnapshot>) {
   return (
     candidate.schemaVersion === "proposal_v5" &&
-    candidate.pageCount === 19 &&
+    candidate.pageCount === 15 &&
     Array.isArray(candidate.pages) &&
-    candidate.pages.length === 19 &&
+    candidate.pages.length === 15 &&
     typeof candidate.generatedAt === "string" &&
     typeof candidate.proposal?.reference === "string" &&
     candidate.proposal.reference.trim().length > 0

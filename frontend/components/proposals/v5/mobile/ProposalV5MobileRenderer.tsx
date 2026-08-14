@@ -1,40 +1,30 @@
 import type { CSSProperties, ReactNode } from "react";
-import { calculateProposalV5BreakEven, formatProposalV5Money } from "../data/breakEven";
-import { getProposalV5SelectedProofAssets } from "../data/proofValidation";
-import type {
-  ProposalV5Image,
-  ProposalV5PageId,
-  ProposalV5ProofAsset,
-  ProposalV5RenderableRendererProps,
-  ProposalV5RendererProps,
-  ProposalV5Snapshot,
-  ProposalV5ScopeLine,
-  ProposalV5Stated,
-} from "../data/proposalV5Types";
+import { formatProposalV5Money } from "../data/breakEven";
+import type { ProposalV5PageId, ProposalV5RenderableRendererProps, ProposalV5Snapshot } from "../data/proposalV5Types";
 import { proposalV5Tokens } from "../design/proposalV5Tokens";
-import { evidenceStateLabel } from "../pages/pageContentHelpers";
 import { isProposalV5RenderableSnapshot } from "../renderer/ProposalV5Renderer";
+import { evidenceStateLabel } from "../pages/pageContentHelpers";
+import { formatV19Date, includedScope, primaryService, safeV19Href, scopeByKeywords, selectedProof, statedText } from "../pages/v19PageHelpers";
 import { proposalV5MobileSections, type ProposalV5MobileSectionId } from "./mobileSectionRegistry";
 
 const colors = proposalV5Tokens.colors;
 
 const styles = {
   root: {
-    "--proposal-v5-mobile-max-width": "760px",
-    color: colors.headingInk,
     background: colors.paper,
+    color: colors.headingInk,
     fontFamily: proposalV5Tokens.font.family,
     lineHeight: 1.55,
     margin: "0 auto",
-    maxWidth: "var(--proposal-v5-mobile-max-width)",
+    maxWidth: "760px",
     overflowX: "hidden",
     width: "100%",
   } as CSSProperties,
-  chapter: {
+  section: {
     borderTop: `1px solid ${colors.rule}`,
-    padding: "28px 18px",
+    padding: "30px 20px",
   } as CSSProperties,
-  darkChapter: {
+  darkSection: {
     background: colors.deepInk,
     borderTop: `1px solid ${colors.secondaryDark}`,
     color: colors.paper,
@@ -42,7 +32,7 @@ const styles = {
   eyebrow: {
     color: colors.strongTeal,
     fontSize: "0.72rem",
-    fontWeight: 800,
+    fontWeight: 850,
     letterSpacing: "0.12em",
     margin: "0 0 10px",
     textTransform: "uppercase",
@@ -52,651 +42,416 @@ const styles = {
   } as CSSProperties,
   h1: {
     color: "inherit",
-    fontSize: "clamp(2rem, 12vw, 4.15rem)",
+    fontSize: "clamp(2rem, 10vw, 4rem)",
     fontWeight: 850,
     letterSpacing: 0,
-    lineHeight: 0.95,
-    margin: "0",
+    lineHeight: 0.98,
+    margin: 0,
     overflowWrap: "anywhere",
   } as CSSProperties,
   h2: {
     color: "inherit",
-    fontSize: "clamp(1.72rem, 8vw, 2.7rem)",
-    fontWeight: 820,
+    fontSize: "clamp(1.7rem, 7vw, 2.55rem)",
+    fontWeight: 850,
     letterSpacing: 0,
-    lineHeight: 1.03,
-    margin: "0 0 14px",
+    lineHeight: 1.04,
+    margin: 0,
     overflowWrap: "anywhere",
   } as CSSProperties,
-  h3: {
-    color: "inherit",
-    fontSize: "1.05rem",
-    fontWeight: 800,
-    lineHeight: 1.18,
-    margin: "0 0 8px",
-  } as CSSProperties,
   body: {
-    color: colors.headingInk,
-    fontSize: "0.98rem",
-    margin: 0,
+    color: "inherit",
+    fontSize: "1rem",
+    margin: "14px 0 0",
   } as CSSProperties,
   muted: {
     color: colors.muted,
+    fontSize: "0.92rem",
+    margin: "10px 0 0",
   } as CSSProperties,
   darkMuted: {
-    color: "#B8CECE",
-  } as CSSProperties,
-  panel: {
-    border: `1px solid ${colors.rule}`,
-    borderRadius: 0,
-    padding: "16px",
-  } as CSSProperties,
-  darkPanel: {
-    background: colors.secondaryDark,
-    border: `1px solid rgba(200, 223, 221, 0.26)`,
+    color: "#C9DDDA",
   } as CSSProperties,
   grid: {
     display: "grid",
     gap: "12px",
+    marginTop: "18px",
   } as CSSProperties,
-  action: {
-    alignItems: "center",
-    borderRadius: 0,
-    display: "inline-flex",
-    fontSize: "0.95rem",
-    fontWeight: 800,
-    justifyContent: "center",
-    minHeight: "48px",
-    padding: "13px 16px",
-    textDecoration: "none",
+  panel: {
+    borderTop: `1px solid ${colors.rule}`,
+    paddingTop: "14px",
+  } as CSSProperties,
+  darkPanel: {
+    borderTop: `1px solid rgba(210, 222, 218, 0.28)`,
   } as CSSProperties,
 } as const;
 
-function compactDate(value: string | null) {
-  if (!value) return "To confirm";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(parsed);
+const TANJA_PROOF_IMAGE = "/brand/proposal/v5-reference/tanja-testimonial.jpg";
+
+function proofText(asset: { title?: string | null; copy?: string | null; type?: string | null; sectorTags?: string[]; source?: string | null; timeframe?: string | null } | null | undefined) {
+  return `${asset?.title || ""} ${asset?.copy || ""} ${asset?.type || ""} ${(asset?.sectorTags || []).join(" ")} ${asset?.source || ""} ${asset?.timeframe || ""}`.toLowerCase();
 }
 
-function compactMonths(value: number | null) {
-  if (value === null) return "To confirm";
-  return `${value} month${value === 1 ? "" : "s"}`;
+function findProofAsset<T extends { title?: string | null; copy?: string | null; type?: string | null; sectorTags?: string[]; source?: string | null; timeframe?: string | null }>(proof: T[], terms: string[]) {
+  const normalizedTerms = terms.map((term) => term.toLowerCase());
+  return proof.find((asset) => {
+    const haystack = proofText(asset);
+    return normalizedTerms.some((term) => haystack.includes(term));
+  });
 }
 
-function compactDays(value: number | null) {
-  if (value === null) return "To confirm";
-  return `${value} day${value === 1 ? "" : "s"}`;
-}
-
-function statedText(value: ProposalV5Stated<string>) {
-  return value.value || evidenceStateLabel(value.state);
-}
-
-function statedList(value: ProposalV5Stated<string[]>) {
-  return value.value?.length ? value.value : [evidenceStateLabel(value.state)];
-}
-
-function statePill(state: ProposalV5Stated<unknown>["state"], dark = false) {
+function imageBlock(url: string | null | undefined, alt: string, dark = false, fit: "cover" | "contain" = "cover") {
+  if (!url) return null;
   return (
-    <span
-      style={{
-        border: `1px solid ${dark ? "rgba(87, 187, 182, 0.45)" : colors.rule}`,
-        color: dark ? colors.teal : colors.strongTeal,
-        display: "inline-flex",
-        fontSize: "0.68rem",
-        fontWeight: 800,
-        letterSpacing: "0.08em",
-        padding: "5px 8px",
-        textTransform: "uppercase",
-      }}
-    >
-      {evidenceStateLabel(state)}
-    </span>
-  );
-}
-
-function safeLink(value: string | null) {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("#") || trimmed.startsWith("/") || trimmed.startsWith("mailto:")) return trimmed;
-  try {
-    const parsed = new URL(trimmed);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? trimmed : null;
-  } catch {
-    return null;
-  }
-}
-
-function pageAnchorAttributes(pageId: ProposalV5PageId) {
-  return {
-    id: pageId,
-    "data-v5-page-id": pageId,
-  };
-}
-
-function Chapter({
-  id,
-  pageIds,
-  dark = false,
-  eyebrow,
-  title,
-  children,
-}: {
-  id: ProposalV5MobileSectionId;
-  pageIds: ProposalV5PageId[];
-  dark?: boolean;
-  eyebrow: string;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <section
-      data-v5-mobile-section-id={id}
-      data-v5-page-ids={pageIds.join(" ")}
-      style={{
-        ...styles.chapter,
-        ...(dark ? styles.darkChapter : null),
-      }}
-    >
-      <p style={{ ...styles.eyebrow, ...(dark ? styles.darkEyebrow : null) }}>{eyebrow}</p>
-      <h2 style={styles.h2}>{title}</h2>
-      <div style={{ ...styles.grid, gap: "14px" }}>{children}</div>
-    </section>
-  );
-}
-
-function InlineImage({ image, ratio = "62%" }: { image: ProposalV5Image | null | undefined; ratio?: string }) {
-  if (!image?.url) return null;
-  return (
-    <div
-      aria-label={image.alt || "ClinicGrower proposal image"}
+    <figure
+      aria-label={alt}
       role="img"
       style={{
-        backgroundColor: colors.softPanel,
-        backgroundImage: `url("${image.url}")`,
-        backgroundPosition: image.cropPosition || "center",
+        aspectRatio: "16 / 9",
+        backgroundColor: dark ? colors.secondaryDark : colors.softPanel,
+        backgroundImage: `url("${url}")`,
+        backgroundPosition: "center center",
         backgroundRepeat: "no-repeat",
-        backgroundSize: "cover",
-        border: `1px solid ${colors.rule}`,
-        minHeight: "220px",
-        paddingTop: ratio,
-        width: "100%",
+        backgroundSize: fit,
+        border: `1px solid ${dark ? "rgba(210, 222, 218, 0.28)" : colors.rule}`,
+        margin: "18px 0 0",
       }}
     />
   );
 }
 
-function KeyValue({
-  label,
-  value,
-  dark = false,
-}: {
-  label: string;
-  value: ReactNode;
-  dark?: boolean;
-}) {
+function money(value: number | null | undefined) {
+  return typeof value === "number" ? formatProposalV5Money(value) : "To confirm";
+}
+
+function dailyFee(value: number | null | undefined) {
+  if (typeof value !== "number") return "To confirm";
+  return formatProposalV5Money(Math.round(value / 100 / 30.42) * 100);
+}
+
+function investmentDisplayName(snapshot: ProposalV5Snapshot) {
+  return snapshot.selectedPackage.name === "Clinic Growth Engine" ? "ClinicGrower Managed Growth" : snapshot.selectedPackage.name;
+}
+
+function ownerFirstName(snapshot: ProposalV5Snapshot) {
+  return snapshot.recipient.name.value?.trim().split(/\s+/)[0] || "you";
+}
+
+function termPhrase(months: number | null | undefined) {
+  const value = months || 6;
+  return value === 6 ? "six-month" : `${value}-month`;
+}
+
+function termEnd(months: number | null | undefined) {
+  const value = months || 6;
+  return value === 6 ? "six" : String(value);
+}
+
+function termText(months: number | null | undefined) {
+  const value = months || 6;
+  return value === 6 ? "six months" : `${value} months`;
+}
+
+function panel(title: ReactNode, text?: ReactNode, dark = false, key?: string) {
   return (
-    <div style={{ ...styles.panel, ...(dark ? styles.darkPanel : null), minWidth: 0 }}>
-      <span
-        style={{
-          color: dark ? "#B8CECE" : colors.muted,
-          display: "block",
-          fontSize: "0.68rem",
-          fontWeight: 800,
-          letterSpacing: "0.08em",
-          marginBottom: "5px",
-          textTransform: "uppercase",
-        }}
-      >
-        {label}
-      </span>
-      <strong style={{ color: "inherit", display: "block", fontSize: "0.98rem", overflowWrap: "anywhere" }}>{value}</strong>
+    <div key={key} style={{ ...styles.panel, ...(dark ? styles.darkPanel : null) }}>
+      <strong style={{ display: "block", fontSize: "1rem", lineHeight: 1.24 }}>{title}</strong>
+      {text ? <p style={{ ...styles.muted, ...(dark ? styles.darkMuted : null) }}>{text}</p> : null}
     </div>
   );
 }
 
-function TextPanel({
-  title,
-  text,
-  state,
-  dark = false,
-}: {
-  title: string;
-  text: ReactNode;
-  state?: ProposalV5Stated<unknown>["state"];
-  dark?: boolean;
-}) {
+function bulletList(items: ReactNode[], dark = false) {
   return (
-    <div style={{ ...styles.panel, ...(dark ? styles.darkPanel : null) }}>
-      <div style={{ alignItems: "start", display: "flex", gap: "10px", justifyContent: "space-between" }}>
-        <h3 style={styles.h3}>{title}</h3>
-        {state ? statePill(state, dark) : null}
-      </div>
-      <div style={{ color: dark ? "#DCE9E8" : colors.headingInk, fontSize: "0.94rem", overflowWrap: "anywhere" }}>{text}</div>
-    </div>
-  );
-}
-
-function ListItems({
-  items,
-  dark = false,
-}: {
-  items: ReactNode[];
-  dark?: boolean;
-}) {
-  return (
-    <ul style={{ display: "grid", gap: "9px", listStyle: "none", margin: 0, padding: 0 }}>
+    <ul style={{ display: "grid", gap: "9px", listStyle: "none", margin: "16px 0 0", padding: 0 }}>
       {items.map((item, index) => (
-        <li
-          key={index}
-          style={{
-            alignItems: "baseline",
-            color: dark ? "#DCE9E8" : colors.headingInk,
-            display: "grid",
-            gap: "9px",
-            gridTemplateColumns: "12px 1fr",
-            minWidth: 0,
-          }}
-        >
-          <span aria-hidden="true" style={{ background: colors.teal, display: "block", height: "2px", marginTop: "0.72em", width: "12px" }} />
-          <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{item}</span>
+        <li key={`${index}-${String(item).slice(0, 18)}`} style={{ display: "grid", gridTemplateColumns: "24px 1fr", gap: "10px" }}>
+          <span style={{ color: dark ? colors.teal : colors.strongTeal, fontWeight: 850 }}>{index + 1}</span>
+          <span>{item}</span>
         </li>
       ))}
     </ul>
   );
 }
 
-function MobileCover({ snapshot }: ProposalV5RendererProps) {
-  const page = proposalV5MobileSections[0];
-  return (
-    <section
-      {...pageAnchorAttributes("V5Page01Cover")}
-      data-v5-mobile-section-id={page.id}
-      data-v5-page-ids={page.pageIds.join(" ")}
-      style={{
-        ...styles.chapter,
-        ...styles.darkChapter,
-        paddingBottom: "34px",
-        paddingTop: "24px",
-      }}
-    >
-      <div style={{ display: "grid", gap: "18px" }}>
-        <div style={{ color: colors.paper, fontSize: "1.02rem", fontWeight: 850, letterSpacing: "-0.01em" }}>ClinicGrower</div>
-        <InlineImage image={snapshot.assets.sectorImages.cover} ratio="54%" />
-        <div>
-          <p style={{ ...styles.eyebrow, ...styles.darkEyebrow }}>Personalised growth proposal</p>
-          <h1 style={styles.h1}>{snapshot.clinic.name.value}</h1>
-          <p style={{ color: "#DCE9E8", fontSize: "1.05rem", margin: "14px 0 0", overflowWrap: "anywhere" }}>
-            {statedText(snapshot.discovery.goal)}
-          </p>
-        </div>
-        <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
-          <KeyValue label="Location" value={statedText(snapshot.clinic.location)} dark />
-          <KeyValue label="Prepared for" value={statedText(snapshot.recipient.name)} dark />
-          <KeyValue label="Programme" value={snapshot.selectedPackage.name || "To confirm"} dark />
-          <KeyValue label="Valid until" value={compactDate(snapshot.lifecycle.expiresAt)} dark />
-          <KeyValue label="Reference" value={snapshot.proposal.reference} dark />
-        </div>
-      </div>
-    </section>
-  );
-}
+function sectionData(snapshot: ProposalV5Snapshot): Array<{
+  id: ProposalV5MobileSectionId;
+  pageId: ProposalV5PageId;
+  eyebrow: string;
+  title: ReactNode;
+  body?: ReactNode;
+  dark?: boolean;
+  content: ReactNode;
+}> {
+  const proof = selectedProof(snapshot);
+  const tanjaProof = findProofAsset(proof, ["dr tanja", "tanja phillips", "permissioned clinic owner testimonial"]);
+  const publishedResults = [
+    ["+262.73%", "PPC conversions", "versus previous year", findProofAsset(proof, ["262.73", "high-intent"])],
+    ["-31.41%", "PPC cost per lead", "period not published", findProofAsset(proof, ["31.41", "cost-per-enquiry", "cost per enquiry", "cost per lead"])],
+    ["+100.6%", "Organic traffic", "reaching 2.6K monthly users", findProofAsset(proof, ["100.6", "organic traffic", "consultation demand"])],
+  ] as const;
+  const publishedRows = [
+    ["DREAMAMED", "+163%", "lead conversions | period not published", findProofAsset(proof, ["dreamamed", "163"])],
+    ["MEDISKIN", "+205%", "conversions | Jan-May 2024", findProofAsset(proof, ["mediskin", "205"])],
+  ] as const;
+  const paidSearchScope = scopeByKeywords(snapshot, ["google ads", "paid search", "ppc", "campaign", "media"], 4);
+  const organicScope = scopeByKeywords(snapshot, ["seo", "google business", "website", "landing", "content", "gbp"], 4);
+  const scope = includedScope(snapshot, 5);
+  const service = primaryService(snapshot);
+  const clinicName = snapshot.clinic.name.value || "the clinic";
+  const ownerFirst = ownerFirstName(snapshot);
+  const monthlyFee = money(snapshot.commercial.monthlyFeeCents);
+  const setupFee = money(snapshot.commercial.setupFeeCents);
+  const daily = dailyFee(snapshot.commercial.monthlyFeeCents);
+  const mediaSpend = money(snapshot.commercial.mediaSpend.value);
+  const noticeDays = snapshot.commercial.noticePeriodDays || 90;
+  const minimumTerm = snapshot.commercial.minimumTermMonths || 6;
+  const commercialValues = [
+    panel(investmentDisplayName(snapshot), `${monthlyFee} + VAT per month`, true, "monthly-fee"),
+    panel(`About ${daily}`, "Per calendar day. Equivalent of the monthly ClinicGrower service fee, rounded. Excludes VAT, setup and Google media.", true, "daily-fee"),
+    panel("One-off setup", `${setupFee} + VAT once. First invoice only. Not recurring.`, true, "setup-fee"),
+    panel("Media", snapshot.commercial.mediaSpendRule || "Separate from ClinicGrower fees", true, "media-rule"),
+  ];
 
-function MobileEvidence({ snapshot }: ProposalV5RendererProps) {
-  const section = proposalV5MobileSections[1];
-  const leaks = statedList(snapshot.journey.diagnosedLeaks);
-  return (
-    <Chapter id={section.id} pageIds={section.pageIds} eyebrow="Evidence and diagnosis" title="What needs to be true before more demand is scaled">
-      <div {...pageAnchorAttributes("V5Page02EvidenceQuestions")}>
-        <TextPanel
-          title="Owner evidence questions"
-          text={
-            <ListItems
-              items={[
-                snapshot.journey.demandQuestion,
-                snapshot.journey.progressionQuestion,
-                "Can the team see enquiry progression through to recorded value?",
-                "Is one named action clear from the evidence trail?",
-              ]}
-            />
-          }
-        />
-      </div>
-      <div {...pageAnchorAttributes("V5Page03EvidenceTrail")}>
-        <TextPanel
-          title="One evidence trail"
-          text={statedText(snapshot.discovery.customerWording)}
-          state={snapshot.discovery.customerWording.state}
-        />
-      </div>
-      <div {...pageAnchorAttributes("V5Page04CommercialDiagnosis")}>
-        <TextPanel
-          title="Diagnosed commercial leaks"
-          text={<ListItems items={[snapshot.journey.activeConstraint.value || evidenceStateLabel(snapshot.journey.activeConstraint.state), ...leaks]} />}
-          state={snapshot.journey.activeConstraint.state}
-        />
-      </div>
-    </Chapter>
-  );
-}
-
-function MobilePartner({ snapshot }: ProposalV5RendererProps) {
-  const section = proposalV5MobileSections[2];
-  const videoUrl = safeLink(snapshot.links.videoUrl);
-  return (
-    <Chapter id={section.id} pageIds={section.pageIds} dark eyebrow={snapshot.narrative.partnerProposition.eyebrow} title={snapshot.narrative.partnerProposition.headline}>
-      <div {...pageAnchorAttributes("V5Page05PartnerProposition")} style={{ display: "grid", gap: "14px" }}>
-        <p style={{ color: "#DCE9E8", fontSize: "1rem", margin: 0 }}>{snapshot.narrative.partnerProposition.lede}</p>
-        <InlineImage image={snapshot.assets.founderVideoThumbnail} ratio="58%" />
-        {videoUrl ? (
-          <a
-            href={videoUrl}
-            style={{
-              ...styles.action,
-              background: colors.teal,
-              color: colors.deepInk,
-            }}
-          >
-            {snapshot.narrative.partnerProposition.videoCtaLabel}
-          </a>
-        ) : null}
-        <TextPanel title={snapshot.narrative.partnerProposition.founderLabel} text={snapshot.narrative.partnerProposition.credentialStatement} dark />
-      </div>
-    </Chapter>
-  );
-}
-
-function MobileOperatingSystem({ snapshot }: ProposalV5RendererProps) {
-  const section = proposalV5MobileSections[3];
-  return (
-    <Chapter id={section.id} pageIds={section.pageIds} eyebrow="Operating system" title={snapshot.narrative.systemsFit.headline}>
-      <div {...pageAnchorAttributes("V5Page06SystemsFit")}>
-        <TextPanel title="Fits the current clinic environment" text={snapshot.narrative.systemsFit.lede} />
-      </div>
-      <div {...pageAnchorAttributes("V5Page07DemandProgression")}>
-        <TextPanel title="Patient and revenue journey" text={<ListItems items={snapshot.journey.stages} />} />
-      </div>
-      <div {...pageAnchorAttributes("V5Page08ResponseOwnership")}>
-        <TextPanel
-          title="Response ownership"
-          text={snapshot.journey.activeConstraint.value || evidenceStateLabel(snapshot.journey.activeConstraint.state)}
-          state={snapshot.journey.activeConstraint.state}
-        />
-      </div>
-      <div {...pageAnchorAttributes("V5Page09PostBooking")}>
-        <TextPanel title="Post-booking progression" text={snapshot.journey.postBookingContinuation} />
-      </div>
-      <div {...pageAnchorAttributes("V5Page10CommercialAccountability")}>
-        <TextPanel title="Clinical-care boundary" text={snapshot.journey.clinicalBoundary} />
-      </div>
-      <div {...pageAnchorAttributes("V5Page11OSCapability")} style={{ display: "grid", gap: "12px" }}>
-        <InlineImage image={snapshot.assets.osScreens[0] || null} ratio="58%" />
-        <TextPanel
-          title={snapshot.narrative.osCapability.availableTitle}
-          text={<ListItems items={snapshot.narrative.osCapability.availableItems} />}
-        />
-        <TextPanel
-          title={snapshot.narrative.osCapability.dependentTitle}
-          text={<ListItems items={snapshot.narrative.osCapability.dependentItems} />}
-        />
-      </div>
-    </Chapter>
-  );
-}
-
-function MobileEconomics({ snapshot }: ProposalV5RendererProps) {
-  const section = proposalV5MobileSections[4];
-  const calculation = calculateProposalV5BreakEven(snapshot);
-  const canDisplay = snapshot.readiness.breakEven.canDisplayValues && calculation.canCalculate;
-  return (
-    <Chapter id={section.id} pageIds={section.pageIds} eyebrow="Economics" title="Break-even only appears when the evidence is ready">
-      <div {...pageAnchorAttributes("V5Page12BreakEven")}>
-        <div style={{ ...styles.panel, background: colors.softPanel }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "start" }}>
-            <h3 style={styles.h3}>{snapshot.economics.economicUnit || "Economic unit"}</h3>
-            {statePill(calculation.state)}
+  return [
+    {
+      id: "mobile-page-01",
+      pageId: "V5Page01Cover",
+      eyebrow: "Growth partnership",
+      title: snapshot.clinic.name.value,
+      body: snapshot.discovery.goal.value,
+      dark: true,
+      content: (
+        <>
+          {imageBlock(snapshot.assets.sectorImages.cover.url, snapshot.assets.sectorImages.cover.alt || "Proposal cover", true)}
+          <div style={styles.grid}>
+            {panel("Prepared for", snapshot.recipient.name.value, true, "prepared-for")}
+            {panel("Package", snapshot.selectedPackage.name, true, "package")}
+            {panel("Reference", snapshot.proposal.reference, true, "reference")}
           </div>
-          {canDisplay ? (
-            <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))" }}>
-              <KeyValue label="Monthly investment" value={formatProposalV5Money(calculation.relevantMonthlyInvestmentCents)} />
-              <KeyValue label="Contribution" value={formatProposalV5Money(calculation.contributionCents)} />
-              <KeyValue label="Monthly break-even" value={`${calculation.recurringBreakEvenUnits} unit${calculation.recurringBreakEvenUnits === 1 ? "" : "s"}`} />
-              <KeyValue label="First month" value={`${calculation.firstMonthBreakEvenUnits} unit${calculation.firstMonthBreakEvenUnits === 1 ? "" : "s"}`} />
-            </div>
-          ) : (
-            <p style={{ ...styles.body }}>
-              Commercial values stay gated until contribution, selected media spend and evidence state are confirmed.
-            </p>
-          )}
+        </>
+      ),
+    },
+    {
+      id: "mobile-page-02",
+      pageId: "V5Page02Recommendation",
+      eyebrow: "Recommendation",
+      title: "The partnership in one page",
+      body: statedText(snapshot.discovery.workingDiagnosis),
+      content: bulletList([
+        statedText(snapshot.discovery.goal),
+        statedText(snapshot.discovery.whyNow),
+        `${service} is the first priority journey.`,
+      ]),
+    },
+    {
+      id: "mobile-page-03",
+      pageId: "V5Page03GoogleMediaRoas",
+      eyebrow: "Commercial case",
+      title: `A ${snapshot.economics.economicUnit} has to justify the spend.`,
+      body: "Illustrative media ROAS, not a profit forecast or guarantee.",
+      dark: true,
+      content: (
+        <div style={styles.grid}>
+          {panel("Contribution", money(snapshot.economics.contribution.value), true, "contribution")}
+          {panel("Selected media", money(snapshot.economics.selectedMediaSpend.value), true, "selected-media")}
+          {panel("Break-even units", snapshot.economics.recurringBreakEvenUnits ?? evidenceStateLabel(snapshot.economics.contribution.state), true, "break-even")}
         </div>
-      </div>
-    </Chapter>
-  );
-}
-
-function MobileImplementation({ snapshot }: ProposalV5RendererProps) {
-  const section = proposalV5MobileSections[5];
-  return (
-    <Chapter id={section.id} pageIds={section.pageIds} eyebrow="Implementation" title={snapshot.narrative.implementation.headline}>
-      <div {...pageAnchorAttributes("V5Page13Implementation")} style={{ display: "grid", gap: "12px" }}>
-        <InlineImage image={snapshot.assets.implementationImage} ratio="48%" />
-        {snapshot.narrative.implementation.checkpoints.map((checkpoint) => (
-          <TextPanel key={checkpoint.label} title={`${checkpoint.label}: ${checkpoint.title}`} text={checkpoint.text} />
-        ))}
-      </div>
-      <div {...pageAnchorAttributes("V5Page14OperatingRhythm")}>
-        <TextPanel
-          title="Operating rhythm"
-          text={
-            <ListItems
-              items={[
-                snapshot.operatingRhythm.morning,
-                snapshot.operatingRhythm.weekly,
-                snapshot.operatingRhythm.monthly,
-                snapshot.operatingRhythm.beforeSpend,
-              ]}
-            />
-          }
-        />
-      </div>
-    </Chapter>
-  );
-}
-
-function ScopeLine({ line }: { line: ProposalV5ScopeLine }) {
-  return (
-    <article style={styles.panel}>
-      <div style={{ alignItems: "baseline", display: "flex", gap: "8px", justifyContent: "space-between" }}>
-        <h3 style={styles.h3}>{line.title}</h3>
-        <span style={{ color: colors.strongTeal, fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase" }}>
-          {line.inclusionStatus || "To confirm"}
-        </span>
-      </div>
-      <p style={{ ...styles.body, ...styles.muted, marginBottom: "12px" }}>{line.description}</p>
-      <div style={{ display: "grid", gap: "8px" }}>
-        <KeyValue label="Cadence / limit" value={[line.frequency, line.quantityLimit].filter(Boolean).join(" / ") || "To confirm"} />
-        <KeyValue label="Responsibility" value={line.owner || "To confirm"} />
-        <KeyValue label="Dependency" value={line.dependency || "To confirm"} />
-        <KeyValue label="Exclusion" value={line.exclusion || "To confirm"} />
-        <KeyValue label="Third-party cost" value={line.thirdPartyCosts || "To confirm"} />
-      </div>
-    </article>
-  );
-}
-
-function MobileScope({ snapshot }: ProposalV5RendererProps) {
-  const section = proposalV5MobileSections[6];
-  return (
-    <Chapter id={section.id} pageIds={section.pageIds} eyebrow="Scope" title="The selected package controls the delivery scope">
-      <div {...pageAnchorAttributes("V5Page15ScopeMatrix")} style={{ display: "grid", gap: "12px" }}>
-        {snapshot.scope.map((line, index) => (
-          <ScopeLine key={`${line.title || "scope"}-${index}`} line={line} />
-        ))}
-      </div>
-    </Chapter>
-  );
-}
-
-function MobileResponsibilities({ snapshot }: ProposalV5RendererProps) {
-  const section = proposalV5MobileSections[7];
-  const narrative = snapshot.narrative.responsibilities;
-  return (
-    <Chapter id={section.id} pageIds={section.pageIds} eyebrow="Delivery" title={narrative.lede}>
-      <div {...pageAnchorAttributes("V5Page16Responsibilities")} style={{ display: "grid", gap: "12px" }}>
-        <TextPanel title={narrative.providerTitle} text={narrative.transitionText} />
-        <TextPanel title={narrative.clientTitle} text={<ListItems items={snapshot.scope.map((line) => line.owner || "To confirm")} />} />
-      </div>
-    </Chapter>
-  );
-}
-
-function ProofCard({ proof }: { proof: ProposalV5ProofAsset }) {
-  return (
-    <article data-v5-mobile-proof-pair data-v5-proof-type={proof.type || "proof"} style={styles.panel}>
-      {proof.mediaUrl ? (
-        <div
-          aria-label={proof.title || "ClinicGrower proof asset"}
-          role="img"
-          style={{
-            backgroundColor: colors.softPanel,
-            backgroundImage: `url("${proof.mediaUrl}")`,
-            backgroundPosition: "center",
-            backgroundRepeat: "no-repeat",
-            backgroundSize: "contain",
-            border: `1px solid ${colors.rule}`,
-            marginBottom: "12px",
-            minHeight: "170px",
-            width: "100%",
-          }}
-        />
-      ) : (
-        <div
-          data-v5-proof-media-status="missing"
-          style={{
-            alignItems: "center",
-            backgroundColor: colors.softPanel,
-            border: `1px solid ${colors.rule}`,
-            color: colors.muted,
-            display: "grid",
-            fontSize: "0.72rem",
-            fontWeight: 800,
-            justifyItems: "center",
-            letterSpacing: "0.04em",
-            marginBottom: "12px",
-            minHeight: "92px",
-            textAlign: "center",
-            textTransform: "uppercase",
-            width: "100%",
-          }}
-        >
-          Evidence summary
+      ),
+    },
+    {
+      id: "mobile-page-04",
+      pageId: "V5Page04GrowthEngine",
+      eyebrow: "Growth engine",
+      title: "One route from first search to recorded value.",
+      body: snapshot.journey.postBookingContinuation,
+      content: bulletList(snapshot.journey.stages.slice(0, 8)),
+    },
+    {
+      id: "mobile-page-05",
+      pageId: "V5Page05GoogleAds",
+      eyebrow: "Demand capture",
+      title: "Google Ads demand only where included by the selected package.",
+      body: snapshot.commercial.mediaSpendRule || "Media spend is separate from ClinicGrower fees.",
+      content: <div style={styles.grid}>{paidSearchScope.map((line, index) => panel(line.title, line.description, false, `paid-${line.title || index}`))}</div>,
+    },
+    {
+      id: "mobile-page-06",
+      pageId: "V5Page06LandingConversion",
+      eyebrow: "Conversion",
+      title: `Turn ${snapshot.clinic.typeShortLabel.toLowerCase()} traffic into qualified enquiries.`,
+      body: snapshot.discovery.currentSystems.value,
+      dark: true,
+      content: imageBlock(snapshot.assets.sectorImages.journey.url, snapshot.assets.sectorImages.journey.alt || "Clinic journey", true),
+    },
+    {
+      id: "mobile-page-07",
+      pageId: "V5Page07SeoGbpWebsite",
+      eyebrow: "Compounding demand",
+      title: "SEO, Google Business Profile and website scope.",
+      body: snapshot.journey.demandQuestion,
+      content: <div style={styles.grid}>{organicScope.map((line, index) => panel(line.title, line.description, false, `organic-${line.title || index}`))}</div>,
+    },
+    {
+      id: "mobile-page-08",
+      pageId: "V5Page08TrackingOptimisation",
+      eyebrow: "Tracking and optimisation",
+      title: "A lead is not the finish line.",
+      body: "Visibility is shown where connected.",
+      dark: true,
+      content: (
+        <>
+          {imageBlock(snapshot.assets.osScreens[0]?.url, snapshot.assets.osScreens[0]?.alt || "ClinicGrower OS screen", true)}
+          {bulletList(snapshot.journey.stages.slice(0, 7), true)}
+        </>
+      ),
+    },
+    {
+      id: "mobile-page-09",
+      pageId: "V5Page09Roadmap",
+      eyebrow: "Roadmap",
+      title: "Build, prove, then compound.",
+      body: snapshot.narrative.implementation.lede,
+      content: <div style={styles.grid}>{snapshot.narrative.implementation.checkpoints.map((item) => panel(`${item.label}: ${item.title}`, item.text, false, item.label))}</div>,
+    },
+    {
+      id: "mobile-page-10",
+      pageId: "V5Page10ManagementScope",
+      eyebrow: "Management scope",
+      title: "The partnership needs clear ownership.",
+      body: snapshot.narrative.responsibilities.lede,
+      content: <div style={styles.grid}>{scope.map((line, index) => panel(line.title, line.description, false, `scope-${line.title || index}`))}</div>,
+    },
+    {
+      id: "mobile-page-11",
+      pageId: "V5Page11PublishedProof",
+      eyebrow: "Relevant proof, not a promise",
+      title: "Marketing results matter. What happens after the lead matters more.",
+      body: tanjaProof?.copy || "\"They have taken the time to help us drill down into the detail to optimise the right leads.\"",
+      content: (
+        <>
+          <article data-v5-proof-pair data-v5-proof-slot="featured-client-story" data-v5-proof-media-url={TANJA_PROOF_IMAGE} style={styles.panel}>
+            {imageBlock(TANJA_PROOF_IMAGE, "Dr Tanja Phillips client story", false)}
+            <strong>Dr Tanja Phillips</strong>
+            <p style={styles.muted}>Client story | 2:43</p>
+          </article>
+          <div style={styles.grid}>
+            {publishedResults.map(([value, label, note], index) => (
+              <article key={label} data-v5-proof-pair data-v5-proof-slot={`result-${index + 1}`} style={styles.panel}>
+                <strong>{value}</strong>
+                <p style={styles.muted}>{label} | {note}</p>
+              </article>
+            ))}
+          </div>
+          <div style={styles.grid}>
+            {publishedRows.map(([name, value, note], index) => (
+              <article key={name} data-v5-proof-pair data-v5-proof-slot={`published-row-${index + 1}`} style={styles.panel}>
+                <strong>{name} {value}</strong>
+                <p style={styles.muted}>{note}</p>
+              </article>
+            ))}
+          </div>
+          <p style={styles.muted}>Cross-sector published clinic evidence. It shows commercial improvement ClinicGrower measures; it is not a forecast or guarantee for {snapshot.clinic.name.value || "this clinic"}.</p>
+        </>
+      ),
+    },
+    {
+      id: "mobile-page-12",
+      pageId: "V5Page12WhyClinicGrower",
+      eyebrow: "Why ClinicGrower",
+      title: snapshot.narrative.partnerProposition.headline,
+      body: snapshot.narrative.partnerProposition.lede,
+      dark: true,
+      content: imageBlock(snapshot.assets.founderVideoThumbnail?.url, snapshot.assets.founderVideoThumbnail?.alt || "Founder video", true),
+    },
+    {
+      id: "mobile-page-13",
+      pageId: "V5Page13PartnershipInvestment",
+      eyebrow: "One accountable team | one monthly ClinicGrower fee",
+      title: `A joined-up team across marketing and growth operations, for about ${daily} per day.`,
+      body: `${clinicName} gets one team across marketing, the patient journey and commercial optimisation - without disconnected suppliers or reports for ${ownerFirst} to manage.`,
+      dark: true,
+      content: <div style={styles.grid}>{commercialValues}</div>,
+    },
+    {
+      id: "mobile-page-14",
+      pageId: "V5Page14BillingTerms",
+      eyebrow: "Monthly delivery | monthly billing | controlled media",
+      title: "Billed monthly. Reviewed monthly. Scaled only when the evidence supports it.",
+      body: `The ${termPhrase(minimumTerm)} minimum gives the system time to learn and improve. ${clinicName} still sees a clear monthly bill and retains control of every increase in Google media.`,
+      content: (
+        <div style={styles.grid}>
+          {panel("Month 1 | Foundation", `${monthlyFee} + VAT monthly ClinicGrower fee. ${setupFee} + VAT setup once. £0 planned Google media.`, false, "foundation")}
+          {panel("Months 2-3 | Optimise + prove", `${monthlyFee} + VAT per month. Google media up to ${mediaSpend} per live month, paid directly.`, false, "optimise")}
+          {panel("Term at a glance", `Initial minimum: ${termText(minimumTerm)}. Either party may give ${noticeDays} days' written notice at any time, but it cannot expire before the end of month ${termEnd(minimumTerm)}. Start: ${formatV19Date(snapshot.commercial.proposedStartDate)}. Valid until: ${formatV19Date(snapshot.commercial.expiresAt)}.`, false, "notice")}
+          {panel("VAT", snapshot.commercial.vatStatus, false, "vat")}
         </div>
-      )}
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px" }}>
-        <h3 style={styles.h3}>{proof.title}</h3>
-        {statePill(proof.state)}
-      </div>
-      <p style={{ ...styles.body }}>{proof.copy}</p>
-      <p style={{ color: colors.muted, fontSize: "0.78rem", margin: "10px 0 0" }}>
-        {[proof.source, proof.timeframe, proof.disclaimer].filter(Boolean).join(" · ")}
-      </p>
-    </article>
-  );
-}
-
-function MobileProof({ snapshot }: ProposalV5RendererProps) {
-  const section = proposalV5MobileSections[8];
-  const proof = getProposalV5SelectedProofAssets(snapshot);
-  return (
-    <Chapter id={section.id} pageIds={section.pageIds} eyebrow="Proof" title={`Relevant proof for ${snapshot.clinic.typeShortLabel}`}>
-      <div {...pageAnchorAttributes("V5Page17Proof")} style={{ display: "grid", gap: "12px" }}>
-        {proof.map((asset) => (
-          <ProofCard key={`${asset.title}-${asset.type}`} proof={asset} />
-        ))}
-      </div>
-    </Chapter>
-  );
-}
-
-function MobileInvestment({ snapshot }: ProposalV5RendererProps) {
-  const section = proposalV5MobileSections[9];
-  return (
-    <Chapter id={section.id} pageIds={section.pageIds} dark eyebrow="Investment" title={snapshot.selectedPackage.name || "Recommended package"}>
-      <div {...pageAnchorAttributes("V5Page18Investment")} style={{ display: "grid", gap: "10px" }}>
-        <KeyValue label="Monthly fee" value={formatProposalV5Money(snapshot.commercial.monthlyFeeCents)} dark />
-        <KeyValue label="Setup fee" value={formatProposalV5Money(snapshot.commercial.setupFeeCents)} dark />
-        <KeyValue label="VAT" value={snapshot.commercial.vatStatus || "To confirm"} dark />
-        <KeyValue label="Media spend" value={formatProposalV5Money(snapshot.commercial.mediaSpend.value)} dark />
-        <KeyValue label="Term" value={compactMonths(snapshot.commercial.minimumTermMonths)} dark />
-        <KeyValue label="Notice" value={compactDays(snapshot.commercial.noticePeriodDays)} dark />
-        <KeyValue label="Start" value={compactDate(snapshot.commercial.proposedStartDate)} dark />
-        <KeyValue label="Valid until" value={compactDate(snapshot.commercial.expiresAt)} dark />
-      </div>
-    </Chapter>
-  );
-}
-
-function MobileClose({ snapshot }: ProposalV5RendererProps) {
-  const section = proposalV5MobileSections[10];
-  const acceptUrl = safeLink(snapshot.links.acceptUrl);
-  const questionUrl = safeLink(snapshot.links.questionUrl);
-  return (
-    <Chapter id={section.id} pageIds={section.pageIds} dark eyebrow="Next step" title="Approve the recommendation or ask a question">
-      <div {...pageAnchorAttributes("V5Page19Close")} style={{ display: "grid", gap: "12px" }}>
-        <InlineImage image={snapshot.assets.sectorImages.close} ratio="44%" />
-        <p style={{ color: "#DCE9E8", fontSize: "1rem", margin: 0 }}>{snapshot.narrative.implementation.decisionText}</p>
-        {acceptUrl ? (
-          <a href={acceptUrl} style={{ ...styles.action, background: colors.teal, color: colors.deepInk }}>
-            Approve proposal
+      ),
+    },
+    {
+      id: "mobile-page-15",
+      pageId: "V5Page15Decision",
+      eyebrow: "The decision requested",
+      title: `Growth should make ${clinicName} easier to run. Not harder.`,
+      body: `${ownerFirst}, you do not need another supplier that stops at enquiries. You need one accountable team generating demand for ${service}, improving ${clinicName}'s patient route and showing how enquiries lead to attended assessments, accepted plans and paid treatment starts.`,
+      content: (
+        <div style={styles.grid}>
+          {panel("Prepare the final agreement for", null, false, "agreement-label")}
+          {bulletList([
+            `One initial ${termPhrase(minimumTerm)} Growth Partnership for ${clinicName}'s ${service} patient journey.`,
+            `${monthlyFee} + VAT per month - about ${daily} per calendar day for the ClinicGrower service.`,
+            `One-off ${setupFee} + VAT setup fee, charged on the first invoice only.`,
+            `Google Ads media up to ${mediaSpend} per live month, planned from month two and paid directly by ${clinicName} to Google.`,
+            `${noticeDays} days' written notice may be given at any time, but cannot expire before the end of month ${termEnd(minimumTerm)}.`,
+          ])}
+          <a href={safeV19Href(snapshot.links.acceptUrl || snapshot.links.onlineProposalUrl, "#")} style={{ ...styles.panel, background: colors.headingInk, color: colors.paper, textDecoration: "none" }}>
+            {`Yes - prepare ${clinicName}'s Growth Partnership agreement`}
           </a>
-        ) : null}
-        {questionUrl ? (
-          <a
-            href={questionUrl}
-            style={{
-              ...styles.action,
-              background: "transparent",
-              border: `1px solid rgba(200, 223, 221, 0.44)`,
-              color: colors.paper,
-            }}
-          >
-            Ask a question
+          <a href={safeV19Href(snapshot.links.questionUrl, "mailto:hello@clinicgrower.co.uk")} style={{ ...styles.panel, color: colors.headingInk, textDecoration: "none" }}>
+            Request a change
           </a>
-        ) : null}
-      </div>
-    </Chapter>
-  );
+        </div>
+      ),
+    },
+  ];
 }
 
 export function ProposalV5MobileRenderer({ snapshot }: ProposalV5RenderableRendererProps) {
   if (!isProposalV5RenderableSnapshot(snapshot)) {
-    throw new Error("ProposalV5MobileRenderer requires ProposalV5Snapshot or ProposalV5PublicSnapshot. Build or sanitize the V5 snapshot before rendering.");
+    throw new Error("ProposalV5MobileRenderer requires ProposalV5Snapshot or ProposalV5PublicSnapshot. Use the frozen V5 snapshot for sent proposals.");
   }
+
   const renderSnapshot = snapshot as ProposalV5Snapshot;
+  const pages = sectionData(renderSnapshot);
+  const registeredIds = proposalV5MobileSections.flatMap((section) => section.pageIds);
 
   return (
     <article
-      aria-label={`Mobile ClinicGrower V5 proposal for ${renderSnapshot.clinic.name.value || "clinic"}`}
-      className="proposal-v5-mobile-renderer"
+      aria-label={`Mobile ClinicGrower proposal for ${renderSnapshot.clinic.name.value || "clinic"}`}
+      className="proposal-v5-mobile-root proposal-v5-mobile-renderer"
+      data-v5-mobile-page-count={registeredIds.length}
       style={styles.root}
     >
-      <MobileCover snapshot={renderSnapshot} />
-      <MobileEvidence snapshot={renderSnapshot} />
-      <MobilePartner snapshot={renderSnapshot} />
-      <MobileOperatingSystem snapshot={renderSnapshot} />
-      <MobileEconomics snapshot={renderSnapshot} />
-      <MobileImplementation snapshot={renderSnapshot} />
-      <MobileScope snapshot={renderSnapshot} />
-      <MobileResponsibilities snapshot={renderSnapshot} />
-      <MobileProof snapshot={renderSnapshot} />
-      <MobileInvestment snapshot={renderSnapshot} />
-      <MobileClose snapshot={renderSnapshot} />
+      {pages.map((page) => {
+        const dark = Boolean(page.dark);
+        return (
+          <section
+            key={page.id}
+            id={page.pageId}
+            data-v5-mobile-section-id={page.id}
+            data-v5-page-id={page.pageId}
+            data-v5-page-ids={page.pageId}
+            style={{
+              ...styles.section,
+              ...(dark ? styles.darkSection : null),
+            }}
+          >
+            <p style={{ ...styles.eyebrow, ...(dark ? styles.darkEyebrow : null) }}>{page.eyebrow}</p>
+            <h1 style={page.pageId === "V5Page01Cover" ? styles.h1 : styles.h2}>{page.title}</h1>
+            {page.body ? <p style={{ ...styles.body, ...(dark ? styles.darkMuted : null) }}>{page.body}</p> : null}
+            {page.content}
+          </section>
+        );
+      })}
     </article>
   );
 }

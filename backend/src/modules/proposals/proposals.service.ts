@@ -1410,6 +1410,15 @@ export class ProposalsService {
     if (!recipientEmail && !recipientName) {
       throw ApiError.badRequest("Record a recipient email or name before marking the proposal sent");
     }
+    const v5FreezeRecordExists = Boolean(
+      proposal.v5Snapshot ||
+      proposal.v5SnapshotHash ||
+      proposal.v5SnapshotVersion ||
+      proposal.v5SnapshotFrozenAt
+    );
+    if (isProposalV5Proposal(proposal) && v5FreezeRecordExists) {
+      throw ApiError.conflict("This V5 proposal version has already been frozen. Open the frozen preview or create a new proposal version before resending.");
+    }
     const approvedPackage = await this.resolveRecommendedPackage(clinicId, proposal.recommendedPackageId);
     this.assertClientReadyProposal({
       ...proposal,
@@ -1427,10 +1436,6 @@ export class ProposalsService {
     const now = new Date().toISOString().slice(0, 19).replace("T", " ");
 
     if (isProposalV5Proposal(proposal)) {
-      if (proposal.v5Snapshot) {
-        throw ApiError.conflict("This V5 proposal version has already been frozen. Create a new proposal version before resending.");
-      }
-
       const nowIso = new Date().toISOString();
       const rawToken = proposal.proposalUrl ? null : generateResetToken();
       const tokenHash = rawToken ? hashToken(rawToken) : null;
