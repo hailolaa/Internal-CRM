@@ -749,7 +749,7 @@ test("lead hub API supports lead CRUD, detail activity, required stages, stage m
     assert.equal(foreignRead.response.status, 404);
     const foreignUpdate = await fetchJson(baseUrl, `/api/contacts/${contactId}`, secondary.token, {
       method: "PATCH",
-      body: JSON.stringify({ status: "Lost" }),
+      body: JSON.stringify({ status: "Qualified" }),
     });
     assert.equal(foreignUpdate.response.status, 404);
     console.log("[lead-hub] tenant safety passed");
