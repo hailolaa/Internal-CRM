@@ -124,6 +124,12 @@ router.get(
 );
 
 router.get(
+  "/operations-dashboard",
+  authorizePermission("internal_tasks:read"),
+  clickUpController.getOperationsDashboard,
+);
+
+router.get(
   "/client-mappings/:clientAccountProfileId",
   authorizePermission("client_accounts:read"),
   clientAccountProfileIdParamValidator,

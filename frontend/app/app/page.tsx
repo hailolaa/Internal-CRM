@@ -8,6 +8,7 @@ import {
   CircleCheckBig,
   CircleX,
   ClipboardList,
+  ExternalLink,
   Plus,
   Target,
   Users,
@@ -56,6 +57,8 @@ import type {
   ClientAccountServiceRecord,
   ClientAccountSummaryRecord,
   ContactRecord,
+  ClickUpOperationsDashboardRecord,
+  ClickUpOperationsTaskRecord,
   InternalTaskRecord,
   PipelineDealRecord,
   PipelineStageRecord,
@@ -267,6 +270,28 @@ function taskOwner(task: InternalTaskRecord) {
   return task.assignedTo || "Unassigned";
 }
 
+function clickUpTaskOwner(task: ClickUpOperationsTaskRecord) {
+  return task.assignees.length
+    ? task.assignees.map((assignee) => assignee.username).join(", ")
+    : "Unassigned";
+}
+
+function clickUpTaskSource(task: ClickUpOperationsTaskRecord) {
+  return [task.spaceName, task.folderName, task.listName].filter(Boolean).join(" / ") || task.workstream;
+}
+
+function clickUpTaskDueLabel(task: ClickUpOperationsTaskRecord) {
+  if (task.hasNoDeadline) return "No deadline";
+  if (task.isOverdue) return `Overdue ${formatDate(task.dueAt)}`;
+  if (task.isDueToday) return "Due today";
+  if (task.isDueThisWeek) return `Due ${formatDate(task.dueAt)}`;
+  return `Due ${formatDate(task.dueAt)}`;
+}
+
+function clickUpErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "ClickUp operations could not be loaded.";
+}
+
 function isUpcomingService(service: ClientAccountServiceRecord) {
   if (!isActiveProject(service)) return false;
   const days = daysFromToday(service.renewalDate);
@@ -321,6 +346,7 @@ function actionUrgencySort(action: NextBestActionResult) {
 export default function AppPage() {
   const { hasPermission, session } = useAuth();
   const token = session?.token;
+  const canReadInternalTasks = hasPermission("internal_tasks:read");
   const dashboardCardRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const [activeDashboardCardIndex, setActiveDashboardCardIndex] = useState(0);
   const [deals, setDeals] = useState<PipelineDealRecord[]>([]);
@@ -332,6 +358,8 @@ export default function AppPage() {
   const [proposals, setProposals] = useState<ProposalRecord[]>([]);
   const [meetings, setMeetings] = useState<CalendarMeetingRecord[]>([]);
   const [callIssues, setCallIssues] = useState<CallLogRecord[]>([]);
+  const [clickUpOperations, setClickUpOperations] = useState<ClickUpOperationsDashboardRecord | null>(null);
+  const [clickUpOperationsError, setClickUpOperationsError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -350,8 +378,9 @@ export default function AppPage() {
       api.proposals.list(token, { includeArchived: false, limit: 250 }),
       api.calendar.listMeetings(token, { upcoming: true, limit: 12 }),
       api.calls.list(token, { missedOnly: true }),
+      canReadInternalTasks ? api.clickup.getOperationsDashboard(token) : Promise.resolve(null),
     ])
-      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult, proposalResult, meetingResult, callResult]) => {
+      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult, proposalResult, meetingResult, callResult, clickUpResult]) => {
         if (!isMounted) return;
 
         setDeals(dealResult.status === "fulfilled" ? dealResult.value.deals : []);
@@ -365,6 +394,8 @@ export default function AppPage() {
         setProposals(proposalResult.status === "fulfilled" ? proposalResult.value : []);
         setMeetings(meetingResult.status === "fulfilled" ? meetingResult.value : []);
         setCallIssues(callResult.status === "fulfilled" ? callResult.value : []);
+        setClickUpOperations(clickUpResult.status === "fulfilled" ? clickUpResult.value : null);
+        setClickUpOperationsError(clickUpResult.status === "rejected" ? clickUpErrorMessage(clickUpResult.reason) : "");
 
         const failedSources = [
           dealResult.status === "rejected" ? "sales pipeline" : "",
@@ -376,6 +407,7 @@ export default function AppPage() {
           proposalResult.status === "rejected" ? "proposal follow-ups" : "",
           meetingResult.status === "rejected" ? "calendar meetings" : "",
           callResult.status === "rejected" ? "call response issues" : "",
+          clickUpResult.status === "rejected" ? "ClickUp operations" : "",
         ].filter(Boolean);
 
         setLoadError(
@@ -391,7 +423,7 @@ export default function AppPage() {
     return () => {
       isMounted = false;
     };
-  }, [token]);
+  }, [canReadInternalTasks, token]);
 
   const clientNameByProfileId = useMemo(() => {
     return new Map(
@@ -998,6 +1030,46 @@ export default function AppPage() {
     registerItemRef: registerDashboardCardRef,
     totalItems: 6,
   };
+  const clickUpOverviewStats = useMemo(() => {
+    if (!clickUpOperations) return [];
+    return [
+      { label: "Overdue", value: clickUpOperations.counts.overdue, tone: "border-amber-200 bg-amber-50 text-amber-700" },
+      { label: "Due this week", value: clickUpOperations.counts.dueThisWeek, tone: "border-cyan-200 bg-cyan-50 text-cyan-700" },
+      { label: "Blocked", value: clickUpOperations.counts.blocked, tone: "border-rose-200 bg-rose-50 text-rose-700" },
+      { label: "Max decisions", value: clickUpOperations.counts.awaitingMaxDecision, tone: "border-violet-200 bg-violet-50 text-violet-700" },
+      { label: "No owner", value: clickUpOperations.counts.noOwner, tone: "border-slate-200 bg-slate-50 text-slate-700" },
+      { label: "No deadline", value: clickUpOperations.counts.noDeadline, tone: "border-stone-200 bg-stone-50 text-stone-700" },
+    ];
+  }, [clickUpOperations]);
+  const clickUpQueueGroups = useMemo(() => {
+    if (!clickUpOperations) return [];
+    return [
+      {
+        title: "Overdue",
+        rows: clickUpOperations.queues.overdue,
+        empty: "No overdue ClickUp tasks.",
+        tone: "border-amber-200 bg-amber-50 text-amber-700",
+      },
+      {
+        title: "Blocked",
+        rows: clickUpOperations.queues.blocked,
+        empty: "No blocked ClickUp tasks found.",
+        tone: "border-rose-200 bg-rose-50 text-rose-700",
+      },
+      {
+        title: "Max decisions",
+        rows: clickUpOperations.queues.awaitingMaxDecision,
+        empty: "No tasks currently flagged for Max decision.",
+        tone: "border-violet-200 bg-violet-50 text-violet-700",
+      },
+      {
+        title: "Due this week",
+        rows: clickUpOperations.queues.dueThisWeek,
+        empty: "No ClickUp tasks due this week.",
+        tone: "border-cyan-200 bg-cyan-50 text-cyan-700",
+      },
+    ];
+  }, [clickUpOperations]);
 
   return (
     <div className="space-y-6">
@@ -1545,6 +1617,165 @@ export default function AppPage() {
           </div>
         </div>
       </section>
+
+      {canReadInternalTasks && (
+        <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-[#151f21]">ClickUp Operations Queue</h2>
+              <p className="text-sm text-[#5e8a8d]">
+                Live delivery work from ClickUp: overdue, blocked, due soon, ownership gaps and workstream load
+              </p>
+              {clickUpOperations && (
+                <p className="mt-1 text-xs text-[#7A746A]">
+                  {clickUpOperations.workspaceName || "Connected ClickUp workspace"} - {clickUpOperations.counts.totalOpen} open tasks checked at {formatDate(clickUpOperations.generatedAt)}
+                </p>
+              )}
+            </div>
+            <Link
+              href="/app/integrations?from=dashboard"
+              className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+            >
+              ClickUp Settings
+            </Link>
+          </div>
+
+          {clickUpOperationsError && !isLoading && (
+            <AlertBanner
+              variant="warning"
+              title="ClickUp operations could not be loaded"
+              description={clickUpOperationsError}
+            />
+          )}
+
+          {!clickUpOperationsError && (
+            <>
+              <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+                {isLoading && !clickUpOperations &&
+                  Array.from({ length: 6 }, (_, index) => (
+                    <SkeletonLine key={index} className="h-20 w-full" />
+                  ))}
+                {!isLoading && clickUpOverviewStats.map((item) => (
+                  <div key={item.label} className={`rounded-2xl border p-4 ${item.tone}`}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em]">{item.label}</p>
+                    <p className="mt-2 text-3xl font-bold">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+                {clickUpQueueGroups.map((group) => (
+                  <div key={group.title} className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-semibold text-[#151f21]">{group.title}</h3>
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${group.tone}`}>
+                        {group.rows.length}
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {isLoading && !clickUpOperations &&
+                        Array.from({ length: 3 }, (_, index) => (
+                          <SkeletonLine key={index} className="h-16 w-full" />
+                        ))}
+                      {!isLoading && group.rows.map((task) => (
+                        <a
+                          key={task.id}
+                          href={task.url || undefined}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block rounded-xl border border-[#edf2ef] bg-[#FAF8F5] p-3 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62]"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="line-clamp-2 text-sm font-semibold text-[#151f21]">
+                              {task.customId ? `${task.customId} - ` : ""}{task.title}
+                            </p>
+                            <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#5e8a8d]" aria-hidden="true" />
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5e8a8d]">
+                            <span>{clickUpTaskOwner(task)}</span>
+                            <span>{clickUpTaskDueLabel(task)}</span>
+                            <span>{task.priority ? formatLabel(task.priority) : "No priority"}</span>
+                          </div>
+                          <p className="mt-1 truncate text-xs text-[#7A746A]">{clickUpTaskSource(task)}</p>
+                        </a>
+                      ))}
+                      {!isLoading && group.rows.length === 0 && (
+                        <p className="text-sm text-[#5e8a8d]">{group.empty}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-[#151f21]">Team workload from ClickUp</h3>
+                    <span className="text-xs font-medium text-[#7A746A]">Open tasks</span>
+                  </div>
+                  <div className="space-y-2">
+                    {isLoading && !clickUpOperations &&
+                      Array.from({ length: 4 }, (_, index) => (
+                        <SkeletonLine key={index} className="h-12 w-full" />
+                      ))}
+                    {!isLoading && clickUpOperations?.workloadByAssignee.slice(0, 8).map((row) => (
+                      <div key={row.id} className="rounded-xl border border-[#edf2ef] bg-[#FAF8F5] p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="truncate text-sm font-semibold text-[#151f21]">{row.assignee}</p>
+                          <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-[#5e8a8d]">
+                            {row.totalOpen} open
+                          </span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
+                          <span className="rounded-lg bg-amber-50 px-2 py-1 font-semibold text-amber-700">{row.overdue} overdue</span>
+                          <span className="rounded-lg bg-cyan-50 px-2 py-1 font-semibold text-cyan-700">{row.dueThisWeek} week</span>
+                          <span className="rounded-lg bg-rose-50 px-2 py-1 font-semibold text-rose-700">{row.blocked} blocked</span>
+                          <span className="rounded-lg bg-violet-50 px-2 py-1 font-semibold text-violet-700">{row.highPriority} high</span>
+                        </div>
+                      </div>
+                    ))}
+                    {!isLoading && clickUpOperations && clickUpOperations.workloadByAssignee.length === 0 && (
+                      <p className="text-sm text-[#5e8a8d]">No open ClickUp workload found.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-[#151f21]">Workstream status</h3>
+                    <span className="text-xs font-medium text-[#7A746A]">ClickUp source</span>
+                  </div>
+                  <div className="space-y-2">
+                    {isLoading && !clickUpOperations &&
+                      Array.from({ length: 4 }, (_, index) => (
+                        <SkeletonLine key={index} className="h-12 w-full" />
+                      ))}
+                    {!isLoading && clickUpOperations?.workstreamCounts.map((row) => (
+                      <div key={row.id} className="rounded-xl border border-[#edf2ef] bg-[#FAF8F5] p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="truncate text-sm font-semibold text-[#151f21]">{row.label}</p>
+                          <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-[#5e8a8d]">
+                            {row.totalOpen} open
+                          </span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
+                          <span className="rounded-lg bg-amber-50 px-2 py-1 font-semibold text-amber-700">{row.overdue} overdue</span>
+                          <span className="rounded-lg bg-cyan-50 px-2 py-1 font-semibold text-cyan-700">{row.dueThisWeek} week</span>
+                          <span className="rounded-lg bg-rose-50 px-2 py-1 font-semibold text-rose-700">{row.blocked} blocked</span>
+                          <span className="rounded-lg bg-violet-50 px-2 py-1 font-semibold text-violet-700">{row.highPriority} high</span>
+                        </div>
+                      </div>
+                    ))}
+                    {!isLoading && clickUpOperations && clickUpOperations.workstreamCounts.length === 0 && (
+                      <p className="text-sm text-[#5e8a8d]">No ClickUp workstreams found.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
         <div className="mb-4 flex items-center justify-between gap-3">

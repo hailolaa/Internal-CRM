@@ -6,6 +6,7 @@ import type {
   ClickUpListRecord,
   ClickUpMemberRecord,
   ClickUpOAuthStartRecord,
+  ClickUpOperationsDashboardRecord,
   ClickUpPriorityMappingRecord,
   ClickUpSpaceRecord,
   ClickUpTaskCreatePayload,
@@ -69,6 +70,10 @@ export function createClickUpApi(apiRequest: ApiRequest) {
       },
       async listMembers(token: string, workspaceId?: string | null) {
         const response = await apiRequest<ClickUpMemberRecord[]>(`/api/clickup/remote/members${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`, { token });
+        return response.data!;
+      },
+      async getOperationsDashboard(token: string) {
+        const response = await apiRequest<ClickUpOperationsDashboardRecord>("/api/clickup/operations-dashboard", { token });
         return response.data!;
       },
       async listCategoryMappings(token: string, clientAccountProfileId: string) {

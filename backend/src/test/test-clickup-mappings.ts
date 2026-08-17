@@ -174,6 +174,14 @@ test("ClickUp task creation route requires internal task write permission", asyn
   );
 });
 
+test("ClickUp operations dashboard route requires internal task read permission", async () => {
+  const routesSource = await readFile(routesPath, "utf8");
+  assert.match(
+    routesSource,
+    /["']\/operations-dashboard["'][\s\S]*?authorizePermission\(["']internal_tasks:read["']\)/,
+  );
+});
+
 test("ClickUp task creation route rejects users with only client-account write permission", async () => {
   const workspace = await createWorkspace("clickup-route-permission");
   const clientOnlyUser = await createUserWithPermissions(
@@ -208,6 +216,148 @@ test("ClickUp task creation route rejects users with only client-account write p
     assert.equal(body.message, "You do not have permission to perform this action");
   } finally {
     await closeServer(server);
+  }
+});
+
+test("ClickUp operations dashboard summarizes live task queues without exposing credentials", async () => {
+  const workspace = await createWorkspace("clickup-operations-dashboard");
+  const originalFetch = globalThis.fetch;
+  const originalConfig = {
+    encryptionKey: config.credentials.encryptionKey,
+  };
+  const mutableConfig = config as unknown as {
+    credentials: { encryptionKey: string };
+  };
+  mutableConfig.credentials.encryptionKey = "clickup-test-encryption-key-32-chars-minimum";
+
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setHours(12, 0, 0, 0);
+  const today = new Date(now);
+  today.setHours(12, 0, 0, 0);
+  const nextWeek = new Date(now);
+  nextWeek.setDate(nextWeek.getDate() + 5);
+  nextWeek.setHours(12, 0, 0, 0);
+
+  await pool.execute(
+    `INSERT INTO clickup_connection
+      (id, clinic_id, workspace_id, workspace_name, status, encrypted_access_token, scopes, connected_by, connected_at)
+     VALUES (?, ?, 'cu-workspace-ops', 'Operations Workspace', 'connected', ?, ?, ?, CURRENT_TIMESTAMP)`,
+    [
+      uuidv4(),
+      workspace.clinicId,
+      encryptProviderCredential("pk_test_operations_dashboard_token"),
+      JSON.stringify(["personal_api_token"]),
+      workspace.userId,
+    ],
+  );
+
+  const seenUrls: string[] = [];
+  const seenAuthorizationHeaders: string[] = [];
+  globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    seenUrls.push(url);
+    const headers = init?.headers instanceof Headers
+      ? init.headers
+      : new Headers(init?.headers || {});
+    seenAuthorizationHeaders.push(String(headers.get("Authorization")));
+
+    if (url.includes("/team/cu-workspace-ops/task") && url.includes("page=0")) {
+      return new Response(JSON.stringify({
+        tasks: [
+          {
+            id: "cu-overdue-blocked",
+            custom_id: "CG-999",
+            name: "Blocked PPC task awaiting Max decision",
+            due_date: String(yesterday.getTime()),
+            date_updated: String(now.getTime()),
+            status: { status: "blocked", type: "open" },
+            priority: { id: "1", priority: "urgent" },
+            assignees: [],
+            tags: [{ name: "blocked" }],
+            list: { name: "PPC Tasks" },
+            folder: { name: "PPC" },
+            space: { name: "Client Alpha" },
+            url: "https://app.clickup.com/t/cu-overdue-blocked",
+          },
+          {
+            id: "cu-today-dev",
+            name: "Mission Control dashboard QA",
+            due_date: String(today.getTime()),
+            status: { status: "to do", type: "open" },
+            priority: { id: "2", priority: "high" },
+            assignees: [{ id: "105", username: "Haile", email: "haile@example.com" }],
+            list: { name: "Development Tasks" },
+            folder: { name: "Development" },
+            space: { name: "Mission Control" },
+            url: "https://app.clickup.com/t/cu-today-dev",
+          },
+          {
+            id: "cu-week-seo",
+            name: "SEO issue review",
+            due_date: String(nextWeek.getTime()),
+            status: { status: "to do", type: "open" },
+            priority: { id: "3", priority: "normal" },
+            assignees: [{ id: "106", username: "SEO", email: null }],
+            list: { name: "SEO Tasks" },
+            folder: { name: "SEO" },
+            space: { name: "Dental Client" },
+            url: "https://app.clickup.com/t/cu-week-seo",
+          },
+          {
+            id: "cu-no-deadline",
+            name: "Account control missing deadline",
+            status: { status: "to do", type: "open" },
+            priority: null,
+            assignees: [],
+            list: { name: "00 - Account Control & Client Management" },
+            folder: { name: "Account Control" },
+            space: { name: "Client Beta" },
+            url: "https://app.clickup.com/t/cu-no-deadline",
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ err: `Unexpected ClickUp request ${url}` }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const dashboard = await clickUpService.getOperationsDashboard(workspace.clinicId);
+    const serialized = JSON.stringify(dashboard);
+
+    assert.equal(seenUrls.length, 1);
+    assert.equal(seenAuthorizationHeaders[0], "pk_test_operations_dashboard_token");
+    assert.equal(dashboard.workspaceName, "Operations Workspace");
+    assert.equal(dashboard.source.live, true);
+    assert.equal(dashboard.source.includeClosed, false);
+    assert.equal(dashboard.counts.totalOpen, 4);
+    assert.equal(dashboard.counts.overdue, 1);
+    assert.equal(dashboard.counts.dueToday, 1);
+    assert.equal(dashboard.counts.dueThisWeek, 2);
+    assert.equal(dashboard.counts.highPriority, 2);
+    assert.equal(dashboard.counts.blocked, 1);
+    assert.equal(dashboard.counts.awaitingMaxDecision, 1);
+    assert.equal(dashboard.counts.noOwner, 2);
+    assert.equal(dashboard.counts.noDeadline, 1);
+    assert.equal(dashboard.queues.overdue[0]?.id, "cu-overdue-blocked");
+    assert.equal(dashboard.queues.awaitingMaxDecision[0]?.customId, "CG-999");
+    assert.equal(dashboard.queues.noDeadline[0]?.url, "https://app.clickup.com/t/cu-no-deadline");
+    assert.equal(dashboard.workloadByAssignee.some((row) => row.assignee === "Unassigned" && row.totalOpen === 2), true);
+    assert.equal(dashboard.workstreamCounts.some((row) => row.label === "PPC" && row.overdue === 1), true);
+    assert.equal(serialized.includes("pk_test_operations_dashboard_token"), false);
+    assert.equal(serialized.includes("cu-workspace-ops"), false);
+    assert.equal(Object.hasOwn(dashboard as any, "workspaceId"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    mutableConfig.credentials.encryptionKey = originalConfig.encryptionKey;
   }
 });
 

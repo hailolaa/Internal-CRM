@@ -254,6 +254,18 @@ export class ClickUpController {
     }
   };
 
+  getOperationsDashboard = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.getOperationsDashboard(user.clinicId),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listCategoryMappings = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;

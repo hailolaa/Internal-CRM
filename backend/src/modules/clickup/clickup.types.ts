@@ -135,6 +135,94 @@ export interface ClickUpMemberRecord {
   email: string | null;
 }
 
+export interface ClickUpOperationsTaskAssignee {
+  id: string;
+  username: string;
+  email: string | null;
+}
+
+export interface ClickUpOperationsTaskRecord {
+  id: string;
+  customId: string | null;
+  title: string;
+  url: string | null;
+  status: string;
+  statusType: string | null;
+  priority: string | null;
+  dueAt: string | null;
+  updatedAt: string | null;
+  listName: string | null;
+  folderName: string | null;
+  spaceName: string | null;
+  workstream: string;
+  assignees: ClickUpOperationsTaskAssignee[];
+  tags: string[];
+  isOverdue: boolean;
+  isDueToday: boolean;
+  isDueThisWeek: boolean;
+  isHighPriority: boolean;
+  isBlocked: boolean;
+  isAwaitingMaxDecision: boolean;
+  hasNoOwner: boolean;
+  hasNoDeadline: boolean;
+}
+
+export interface ClickUpOperationsWorkloadRow {
+  id: string;
+  assignee: string;
+  totalOpen: number;
+  overdue: number;
+  dueToday: number;
+  dueThisWeek: number;
+  highPriority: number;
+  blocked: number;
+}
+
+export interface ClickUpOperationsWorkstreamRow {
+  id: string;
+  label: string;
+  totalOpen: number;
+  overdue: number;
+  dueThisWeek: number;
+  highPriority: number;
+  blocked: number;
+}
+
+export interface ClickUpOperationsDashboardResponse {
+  generatedAt: string;
+  workspaceName: string | null;
+  source: {
+    provider: "clickup";
+    live: boolean;
+    includeClosed: boolean;
+    taskLimit: number;
+    pagesFetched: number;
+  };
+  counts: {
+    totalOpen: number;
+    overdue: number;
+    dueToday: number;
+    dueThisWeek: number;
+    highPriority: number;
+    blocked: number;
+    awaitingMaxDecision: number;
+    noOwner: number;
+    noDeadline: number;
+  };
+  queues: {
+    overdue: ClickUpOperationsTaskRecord[];
+    dueToday: ClickUpOperationsTaskRecord[];
+    dueThisWeek: ClickUpOperationsTaskRecord[];
+    highPriority: ClickUpOperationsTaskRecord[];
+    blocked: ClickUpOperationsTaskRecord[];
+    awaitingMaxDecision: ClickUpOperationsTaskRecord[];
+    noOwner: ClickUpOperationsTaskRecord[];
+    noDeadline: ClickUpOperationsTaskRecord[];
+  };
+  workloadByAssignee: ClickUpOperationsWorkloadRow[];
+  workstreamCounts: ClickUpOperationsWorkstreamRow[];
+}
+
 export interface SaveClickUpCategoryMappingDTO {
   workspaceId: string;
   spaceId: string;

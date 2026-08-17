@@ -13,6 +13,10 @@ import type {
   ClickUpCategoryMappingResponse,
   ClickUpClientMappingResponse,
   ClickUpConnectionResponse,
+  ClickUpOperationsDashboardResponse,
+  ClickUpOperationsTaskRecord,
+  ClickUpOperationsWorkloadRow,
+  ClickUpOperationsWorkstreamRow,
   CompleteClickUpOAuthDTO,
   CreateClickUpTaskDTO,
   SaveClickUpCategoryMappingDTO,
@@ -28,6 +32,9 @@ import type {
 
 const OAUTH_STATE_TTL_MINUTES = 20;
 const CATEGORY_KEYS: ClickUpCategoryKey[] = ["development", "seo", "gmb_local_seo", "ppc", "managerial", "reporting", "account_control"];
+const OPERATIONS_DASHBOARD_PAGE_LIMIT = 5;
+const OPERATIONS_DASHBOARD_TASKS_PER_PAGE = 100;
+const OPERATIONS_DASHBOARD_QUEUE_LIMIT = 12;
 
 function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
@@ -50,6 +57,222 @@ function parseJsonArray(value: unknown): string[] {
 function toIsoString(value: unknown) {
   if (!value) return null;
   return new Date(String(value)).toISOString();
+}
+
+function toIsoStringFromMilliseconds(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function dueWindowFlags(dueAt: string | null, now: Date) {
+  if (!dueAt) {
+    return { isOverdue: false, isDueToday: false, isDueThisWeek: false };
+  }
+
+  const dueDate = new Date(dueAt);
+  if (Number.isNaN(dueDate.getTime())) {
+    return { isOverdue: false, isDueToday: false, isDueThisWeek: false };
+  }
+
+  const today = startOfLocalDay(now);
+  const dueDay = startOfLocalDay(dueDate);
+  const diffDays = Math.round((dueDay.getTime() - today.getTime()) / 86400000);
+  return {
+    isOverdue: diffDays < 0,
+    isDueToday: diffDays === 0,
+    isDueThisWeek: diffDays >= 0 && diffDays <= 7,
+  };
+}
+
+function compactText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(compactText).filter(Boolean).join(" ");
+  }
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).map(compactText).filter(Boolean).join(" ");
+  }
+  return "";
+}
+
+function clickUpTaskSearchText(task: any) {
+  return [
+    task?.name,
+    task?.text_content,
+    task?.description,
+    task?.markdown_description,
+    task?.status?.status,
+    task?.priority?.priority,
+    ...(Array.isArray(task?.tags) ? task.tags.map((tag: any) => tag?.name) : []),
+    ...(Array.isArray(task?.custom_fields)
+      ? task.custom_fields.flatMap((field: any) => [field?.name, field?.type_config?.label, compactText(field?.value)])
+      : []),
+  ]
+    .map(compactText)
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function classifyClickUpWorkstream(task: any) {
+  const text = [
+    task?.list?.name,
+    task?.folder?.name,
+    task?.space?.name,
+    task?.name,
+  ].map(compactText).join(" ").toLowerCase();
+
+  if (/\b(ppc|paid search|paid media|google ads)\b/.test(text)) return "PPC";
+  if (/\b(gmb|local seo|seo|organic)\b/.test(text)) return "SEO / GMB";
+  if (/\b(website|landing page|development|dev|frontend|backend|mission control|internal crm|clinic os|clinicgrower os|cg os)\b/.test(text)) {
+    return "Website / Development / OS";
+  }
+  if (/\b(report|reporting|analytics|dashboard)\b/.test(text)) return "Reporting";
+  if (/\b(managerial|management|account control|client management)\b/.test(text)) return "Managerial / Account Control";
+  return "Uncategorised";
+}
+
+function mapClickUpOperationsTask(task: any, now: Date): ClickUpOperationsTaskRecord {
+  const dueAt = toIsoStringFromMilliseconds(task?.due_date);
+  const { isOverdue, isDueToday, isDueThisWeek } = dueWindowFlags(dueAt, now);
+  const assignees = Array.isArray(task?.assignees)
+    ? task.assignees.map((assignee: any) => ({
+        id: String(assignee?.id || ""),
+        username: String(assignee?.username || assignee?.email || assignee?.id || "Unknown"),
+        email: assignee?.email ? String(assignee.email) : null,
+      })).filter((assignee: any) => assignee.id || assignee.username)
+    : [];
+  const tags = Array.isArray(task?.tags)
+    ? task.tags.map((tag: any) => String(tag?.name || "")).filter(Boolean)
+    : [];
+  const searchText = clickUpTaskSearchText(task);
+  const priorityLabel = cleanString(task?.priority?.priority) || cleanString(task?.priority?.id);
+  const priorityId = Number(task?.priority?.id || task?.priority?.orderindex || 0);
+  const status = cleanString(task?.status?.status) || "Open";
+  const statusType = cleanString(task?.status?.type);
+
+  return {
+    id: String(task?.id || ""),
+    customId: cleanString(task?.custom_id),
+    title: cleanString(task?.name) || "Untitled ClickUp task",
+    url: cleanString(task?.url) || (task?.id ? `https://app.clickup.com/t/${encodeURIComponent(String(task.id))}` : null),
+    status,
+    statusType,
+    priority: priorityLabel,
+    dueAt,
+    updatedAt: toIsoStringFromMilliseconds(task?.date_updated),
+    listName: cleanString(task?.list?.name),
+    folderName: cleanString(task?.folder?.name),
+    spaceName: cleanString(task?.space?.name),
+    workstream: classifyClickUpWorkstream(task),
+    assignees,
+    tags,
+    isOverdue,
+    isDueToday,
+    isDueThisWeek,
+    isHighPriority:
+      /\b(urgent|high)\b/.test(String(priorityLabel || "").toLowerCase()) ||
+      priorityId === 1 ||
+      priorityId === 2,
+    isBlocked: /\b(blocked|blocker|blocked by|waiting on|dependency)\b/.test(searchText),
+    isAwaitingMaxDecision: /\b(awaiting max|max decision|max approval|max to decide|needs max)\b/.test(searchText),
+    hasNoOwner: assignees.length === 0,
+    hasNoDeadline: !dueAt,
+  };
+}
+
+function openClickUpOperationsTasks(tasks: ClickUpOperationsTaskRecord[]) {
+  return tasks.filter((task) => {
+    const statusText = `${task.status} ${task.statusType || ""}`.toLowerCase();
+    return !/\b(closed|complete|completed|done)\b/.test(statusText);
+  });
+}
+
+function sortClickUpOperationsTasks(a: ClickUpOperationsTaskRecord, b: ClickUpOperationsTaskRecord) {
+  const aDue = a.dueAt ? new Date(a.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
+  const bDue = b.dueAt ? new Date(b.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
+  if (aDue !== bDue) return aDue - bDue;
+  if (a.isHighPriority !== b.isHighPriority) return a.isHighPriority ? -1 : 1;
+  return a.title.localeCompare(b.title);
+}
+
+function summarizeClickUpWorkload(tasks: ClickUpOperationsTaskRecord[]): ClickUpOperationsWorkloadRow[] {
+  const rows = new Map<string, ClickUpOperationsWorkloadRow>();
+  tasks.forEach((task) => {
+    const assignees = task.assignees.length
+      ? task.assignees
+      : [{ id: "unassigned", username: "Unassigned", email: null }];
+    assignees.forEach((assignee) => {
+      const id = assignee.id || assignee.username.toLowerCase();
+      const row = rows.get(id) || {
+        id,
+        assignee: assignee.username,
+        totalOpen: 0,
+        overdue: 0,
+        dueToday: 0,
+        dueThisWeek: 0,
+        highPriority: 0,
+        blocked: 0,
+      };
+      row.totalOpen += 1;
+      if (task.isOverdue) row.overdue += 1;
+      if (task.isDueToday) row.dueToday += 1;
+      if (task.isDueThisWeek) row.dueThisWeek += 1;
+      if (task.isHighPriority) row.highPriority += 1;
+      if (task.isBlocked) row.blocked += 1;
+      rows.set(id, row);
+    });
+  });
+
+  return Array.from(rows.values())
+    .sort((a, b) =>
+      b.overdue - a.overdue ||
+      b.blocked - a.blocked ||
+      b.highPriority - a.highPriority ||
+      b.totalOpen - a.totalOpen ||
+      a.assignee.localeCompare(b.assignee),
+    )
+    .slice(0, 12);
+}
+
+function summarizeClickUpWorkstreams(tasks: ClickUpOperationsTaskRecord[]): ClickUpOperationsWorkstreamRow[] {
+  const rows = new Map<string, ClickUpOperationsWorkstreamRow>();
+  tasks.forEach((task) => {
+    const id = task.workstream.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "uncategorised";
+    const row = rows.get(id) || {
+      id,
+      label: task.workstream,
+      totalOpen: 0,
+      overdue: 0,
+      dueThisWeek: 0,
+      highPriority: 0,
+      blocked: 0,
+    };
+    row.totalOpen += 1;
+    if (task.isOverdue) row.overdue += 1;
+    if (task.isDueThisWeek) row.dueThisWeek += 1;
+    if (task.isHighPriority) row.highPriority += 1;
+    if (task.isBlocked) row.blocked += 1;
+    rows.set(id, row);
+  });
+
+  return Array.from(rows.values())
+    .sort((a, b) =>
+      b.overdue - a.overdue ||
+      b.highPriority - a.highPriority ||
+      b.totalOpen - a.totalOpen ||
+      a.label.localeCompare(b.label),
+    );
 }
 
 function encodeState(payload: Record<string, unknown>) {
@@ -768,6 +991,75 @@ export class ClickUpService {
         email: member.email ? String(member.email) : null,
       };
     });
+  }
+
+  async getOperationsDashboard(clinicId: string): Promise<ClickUpOperationsDashboardResponse> {
+    const connection = await this.getActiveConnection(clinicId);
+    const tasks: any[] = [];
+    let pagesFetched = 0;
+
+    for (let page = 0; page < OPERATIONS_DASHBOARD_PAGE_LIMIT; page += 1) {
+      const query = new URLSearchParams({
+        include_closed: "false",
+        subtasks: "true",
+        order_by: "due_date",
+        reverse: "false",
+        page: String(page),
+      });
+      const payload = await this.clickUpRequest(
+        connection,
+        `/team/${encodeURIComponent(connection.workspaceId)}/task?${query.toString()}`,
+      );
+      const pageTasks = Array.isArray(payload?.tasks) ? payload.tasks : [];
+      pagesFetched += 1;
+      tasks.push(...pageTasks);
+      if (pageTasks.length < OPERATIONS_DASHBOARD_TASKS_PER_PAGE) break;
+    }
+
+    const now = new Date();
+    const mappedTasks = openClickUpOperationsTasks(
+      tasks
+        .map((task) => mapClickUpOperationsTask(task, now))
+        .filter((task) => Boolean(task.id)),
+    ).sort(sortClickUpOperationsTasks);
+
+    const queue = (predicate: (task: ClickUpOperationsTaskRecord) => boolean) =>
+      mappedTasks.filter(predicate).slice(0, OPERATIONS_DASHBOARD_QUEUE_LIMIT);
+
+    return {
+      generatedAt: now.toISOString(),
+      workspaceName: connection.workspaceName,
+      source: {
+        provider: "clickup",
+        live: true,
+        includeClosed: false,
+        taskLimit: OPERATIONS_DASHBOARD_PAGE_LIMIT * OPERATIONS_DASHBOARD_TASKS_PER_PAGE,
+        pagesFetched,
+      },
+      counts: {
+        totalOpen: mappedTasks.length,
+        overdue: mappedTasks.filter((task) => task.isOverdue).length,
+        dueToday: mappedTasks.filter((task) => task.isDueToday).length,
+        dueThisWeek: mappedTasks.filter((task) => task.isDueThisWeek).length,
+        highPriority: mappedTasks.filter((task) => task.isHighPriority).length,
+        blocked: mappedTasks.filter((task) => task.isBlocked).length,
+        awaitingMaxDecision: mappedTasks.filter((task) => task.isAwaitingMaxDecision).length,
+        noOwner: mappedTasks.filter((task) => task.hasNoOwner).length,
+        noDeadline: mappedTasks.filter((task) => task.hasNoDeadline).length,
+      },
+      queues: {
+        overdue: queue((task) => task.isOverdue),
+        dueToday: queue((task) => task.isDueToday),
+        dueThisWeek: queue((task) => task.isDueThisWeek),
+        highPriority: queue((task) => task.isHighPriority),
+        blocked: queue((task) => task.isBlocked),
+        awaitingMaxDecision: queue((task) => task.isAwaitingMaxDecision),
+        noOwner: queue((task) => task.hasNoOwner),
+        noDeadline: queue((task) => task.hasNoDeadline),
+      },
+      workloadByAssignee: summarizeClickUpWorkload(mappedTasks),
+      workstreamCounts: summarizeClickUpWorkstreams(mappedTasks),
+    };
   }
 
   async listCategoryMappings(
