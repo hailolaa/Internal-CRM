@@ -28,6 +28,9 @@ const FALLBACK_CLINIC: Clinic = {
   name: "Mission Control workspace",
   plan: "Growth",
   status: "active",
+  dataState: "live",
+  dataStateLabel: "Live workspace data",
+  isDemo: false,
   maxUsers: 1,
   currentUsers: 1,
   location: "Internal workspace",
@@ -65,6 +68,9 @@ function toClinic(membership: BackendClinicMembership): Clinic {
     name: membership.name,
     plan: toClinicPlan(membership.plan),
     status: toClinicStatus(membership.status),
+    dataState: membership.dataState || "live",
+    dataStateLabel: membership.dataStateLabel || null,
+    isDemo: Boolean(membership.isDemo),
     maxUsers: 1,
     currentUsers: 1,
     location: membership.location || "Mission Control workspace",
@@ -78,6 +84,9 @@ function toFallbackClinic(user: AuthUser | null): Clinic {
     ...FALLBACK_CLINIC,
     id: user.clinicId,
     name: user.clinicName || FALLBACK_CLINIC.name,
+    dataState: user.clinicDataState || FALLBACK_CLINIC.dataState,
+    dataStateLabel: user.clinicDataStateLabel || FALLBACK_CLINIC.dataStateLabel,
+    isDemo: Boolean(user.clinicIsDemo),
   };
 }
 

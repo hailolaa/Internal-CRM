@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Building2, ChevronDown, Check, Shield } from "lucide-react";
 import { useTenant } from "@/lib/tenant-context";
 import { getRoleLabel, normaliseUserRole } from "@/lib/roles";
+import { DataStateBadge } from "@/components/ui/data-state-badge";
 
 export function TenantSwitcher() {
   const { clinic, user, allClinics, switchClinic } = useTenant();
@@ -12,10 +13,10 @@ export function TenantSwitcher() {
   const isSuperAdmin = user.role === "SUPER_ADMIN";
 
   return (
-    <div className="relative">
+    <div className="relative max-w-[18rem]">
       <button
         onClick={() => isSuperAdmin && setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-xl transition-colors"
+        className="flex max-w-full items-center gap-2 rounded-xl px-3 py-1.5 transition-colors"
         style={{
           border: "1px solid #d8ddda",
           backgroundColor: "transparent",
@@ -36,15 +37,22 @@ export function TenantSwitcher() {
         >
           <Building2 className="w-3.5 h-3.5 text-[#60b4af]" />
         </div>
-        <div className="text-left hidden sm:block">
-          <p
-            className="text-xs font-semibold leading-tight"
-            style={{ color: "#151f21" }}
-          >
-            {clinic.name}
-          </p>
-          <p className="text-[10px]" style={{ color: "#5e8a8d" }}>
-            {clinic.id} - {clinic.plan}
+        <div className="hidden min-w-0 text-left sm:block">
+          <div className="flex items-center gap-1.5">
+            <p
+              className="truncate text-xs font-semibold leading-tight"
+              style={{ color: "#151f21" }}
+            >
+              {clinic.name}
+            </p>
+            <DataStateBadge
+              state={clinic.dataState}
+              label={clinic.dataStateLabel}
+              compact
+            />
+          </div>
+          <p className="truncate text-[10px]" style={{ color: "#5e8a8d" }}>
+            {clinic.plan} workspace
           </p>
         </div>
         {isSuperAdmin && <ChevronDown className="w-3 h-3 text-[#A8A39B]" />}
@@ -124,19 +132,24 @@ export function TenantSwitcher() {
                     />
                   </div>
                   <div className="flex-1 text-left min-w-0">
-                    <p
-                      className="text-sm font-semibold truncate"
-                      style={{ color: "#151f21" }}
-                    >
-                      {c.name}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p
+                        className="text-sm font-semibold truncate"
+                        style={{ color: "#151f21" }}
+                      >
+                        {c.name}
+                      </p>
+                      <DataStateBadge
+                        state={c.dataState}
+                        label={c.dataStateLabel}
+                        compact
+                      />
+                    </div>
                     <div
                       className="flex items-center gap-2 text-[10px]"
                       style={{ color: "#5e8a8d" }}
                     >
-                      <span>{c.id}</span>
-                      <span>-</span>
-                      <span>{c.plan}</span>
+                      <span>{c.plan} workspace</span>
                       <span>-</span>
                       <span
                         style={{
@@ -185,8 +198,8 @@ export function TenantBadge() {
       style={{ backgroundColor: "#eaedeb", border: "1px solid #d8ddda" }}
     >
       <Building2 className="w-3.5 h-3.5 text-[#60b4af]" />
-      <span className="text-[10px] font-mono" style={{ color: "#5e8a8d" }}>
-        {clinic.id}
+      <span className="max-w-28 truncate text-[10px] font-semibold" style={{ color: "#5e8a8d" }}>
+        {clinic.plan}
       </span>
       <span className="text-[10px]" style={{ color: "#A8A39B" }}>
         |
@@ -206,6 +219,11 @@ export function TenantBadge() {
       >
         {getRoleLabel(user.role)}
       </span>
+      <DataStateBadge
+        state={clinic.dataState}
+        label={clinic.dataStateLabel}
+        compact
+      />
     </div>
   );
 }

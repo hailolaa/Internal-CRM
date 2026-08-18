@@ -167,6 +167,12 @@ export const config = {
         pollIntervalMs: parseInt(process.env.BACKGROUND_JOBS_POLL_INTERVAL_MS || "60000", 10),
     },
 
+    demoSeed: {
+        sqlPath: process.env.DEMO_SEED_SQL || "",
+        passwordConfigured: Boolean(process.env.DEMO_SEED_PASSWORD),
+        allowLegacy: parseBoolean(process.env.DEMO_SEED_ALLOW_LEGACY, false),
+    },
+
     observability: {
         serviceName: process.env.OBSERVABILITY_SERVICE_NAME || "mission-control-backend",
         alertWebhookUrl: process.env.OBSERVABILITY_ALERT_WEBHOOK_URL || "",
@@ -243,6 +249,20 @@ export const config = {
     },
 } as const;
 
+export function getDemoSeedProductionIssues(env: NodeJS.ProcessEnv = process.env) {
+    const demoSeedKeys = [
+        "DEMO_SEED_SQL",
+        "DEMO_SEED_PASSWORD",
+        "DEMO_SEED_ALLOW_LEGACY",
+        "DEMO_SEED_REMOVE_CONFIRM",
+    ];
+    const configuredKeys = demoSeedKeys.filter((key) => Boolean(env[key]));
+
+    return configuredKeys.length > 0
+        ? [`Demo seed variables must not be configured in production: ${configuredKeys.join(", ")}.`]
+        : [];
+}
+
 export function getProductionConfigIssues() {
     const issues: string[] = [];
     const warnings: string[] = [];
@@ -282,6 +302,8 @@ export function getProductionConfigIssues() {
     if (!config.backups.offsiteConfigured) {
         warnings.push("BACKUP_OFFSITE_DIR is not configured; backups will not be copied to off-site storage.");
     }
+
+    issues.push(...getDemoSeedProductionIssues());
 
     if (!config.credentials.encryptionKey || config.credentials.encryptionKey.length < 32) {
         issues.push("CREDENTIAL_ENCRYPTION_KEY must be set to a strong secret of at least 32 characters.");

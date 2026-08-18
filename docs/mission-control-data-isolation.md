@@ -16,6 +16,9 @@ MC-003 keeps this internal CRM separate from the clinic-facing launch system.
 - Legacy clinic-facing demo rows for clinical notes, old dashboards, campaign examples, consents, consult templates, review/reputation examples, documents, appointments, and external integration placeholders have been removed from the fresh DB seed.
 - The old staging demo seed file is retained only as a legacy compatibility artifact and is explicitly marked as not approved for Mission Control demo data.
 - `npm run seed:staging-demo` now requires `DEMO_SEED_SQL` to be set explicitly, so the legacy seed cannot be loaded by default.
+- Production startup fails if demo seed environment variables are configured.
+- Workspaces carry an authoritative data state: live, live-read-only, partial, provider-dependent, preview, roadmap, or demo. The authenticated session exposes this state to the app shell so users can see when data is demo, preview, partial, provider-dependent, read-only, roadmap-only, or live.
+- The fictional demo workspace created by `npm run seed:staging-demo` is marked with `data_state='demo'`, `is_demo=1`, and a `demo_seed_key`. It is labelled as fictional demo data and can be marked removed with `DEMO_SEED_REMOVE_CONFIRM=REMOVE_MISSION_CONTROL_DEMO`.
 - Frontend webhook examples are sandbox-only mock events and are marked inactive until Mission Control-owned provider endpoints are configured.
 
 ## Before Staging Or Production

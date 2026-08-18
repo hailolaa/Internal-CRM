@@ -5,13 +5,31 @@ import mysql from "mysql2/promise";
 
 const seedSqlPath = process.env.DEMO_SEED_SQL;
 const demoPassword = process.env.DEMO_SEED_PASSWORD;
+const removeConfirm = process.env.DEMO_SEED_REMOVE_CONFIRM;
+const allowLegacySeed = process.env.DEMO_SEED_ALLOW_LEGACY === "true";
+const demoSeedKey = "mission-control-fictional-demo-v1";
+const removeMode = removeConfirm === "REMOVE_MISSION_CONTROL_DEMO";
 
-if (!seedSqlPath) {
+if (process.env.NODE_ENV === "production") {
+  console.error("Demo seed utilities cannot run when NODE_ENV=production.");
+  process.exit(1);
+}
+
+if (!removeMode && !seedSqlPath) {
   console.error("DEMO_SEED_SQL must be set explicitly. Do not load legacy clinic demo data into Mission Control by default.");
   process.exit(1);
 }
 
-if (!demoPassword || demoPassword.length < 12) {
+if (
+  seedSqlPath &&
+  !allowLegacySeed &&
+  seedSqlPath.replace(/\\/g, "/").includes("20260609_staging_client_demo_seed.sql")
+) {
+  console.error("The legacy staging demo seed is not approved for Mission Control demo data. Set DEMO_SEED_ALLOW_LEGACY=true only for a deliberate local compatibility run.");
+  process.exit(1);
+}
+
+if (!removeMode && (!demoPassword || demoPassword.length < 12)) {
   console.error("DEMO_SEED_PASSWORD must be set and at least 12 characters long.");
   process.exit(1);
 }
@@ -89,28 +107,35 @@ const connection = await mysql.createConnection({
 });
 
 try {
-  const passwordHash = await bcrypt.hash(demoPassword, 12);
+  if (removeMode) {
+    await removeDemoData(connection);
+    console.log("Mission Control fictional demo data marked removed.");
+    console.log(`Demo seed key: ${demoSeedKey}`);
+  } else {
+    const passwordHash = await bcrypt.hash(demoPassword, 12);
 
-  await connection.beginTransaction();
-  await ensureDemoClinics(connection);
-  for (const user of demoUsers) {
-    await ensureDemoUser(connection, user, passwordHash);
-  }
-  await connection.commit();
+    await connection.beginTransaction();
+    await ensureDemoClinics(connection);
+    for (const user of demoUsers) {
+      await ensureDemoUser(connection, user, passwordHash);
+    }
+    await connection.commit();
 
-  const seedSql = await readFile(seedSqlPath, "utf8");
-  await connection.query(seedSql);
+    const seedSql = await readFile(seedSqlPath, "utf8");
+    await connection.query(seedSql);
 
-  const evidence = await collectEvidence(connection);
-  console.log("Mission Control staging demo seed complete.");
-  console.log(`Demo account id: ${primaryClinicId}`);
-  console.log("Demo users:");
-  for (const user of demoUsers) {
-    console.log(`- ${user.label}: ${user.email}`);
-  }
-  console.log("Evidence:");
-  for (const [key, value] of Object.entries(evidence)) {
-    console.log(`- ${key}: ${value}`);
+    const evidence = await collectEvidence(connection);
+    console.log("Mission Control staging demo seed complete.");
+    console.log(`Demo account id: ${primaryClinicId}`);
+    console.log(`Demo seed key: ${demoSeedKey}`);
+    console.log("Demo users:");
+    for (const user of demoUsers) {
+      console.log(`- ${user.label}: ${user.email}`);
+    }
+    console.log("Evidence:");
+    for (const [key, value] of Object.entries(evidence)) {
+      console.log(`- ${key}: ${value}`);
+    }
   }
 } catch (error) {
   try {
@@ -127,9 +152,10 @@ async function ensureDemoClinics(connection) {
   await connection.execute(
     `INSERT INTO clinic (
        id, name, email, website, phone, address, city, state, postal_code,
-       country, timezone, subscription_plan, subscription_status, max_users
+       country, timezone, subscription_plan, subscription_status,
+       data_state, data_state_label, is_demo, demo_seed_key, max_users
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        name = VALUES(name),
        email = VALUES(email),
@@ -143,6 +169,10 @@ async function ensureDemoClinics(connection) {
        timezone = VALUES(timezone),
        subscription_plan = VALUES(subscription_plan),
        subscription_status = VALUES(subscription_status),
+       data_state = VALUES(data_state),
+       data_state_label = VALUES(data_state_label),
+       is_demo = VALUES(is_demo),
+       demo_seed_key = VALUES(demo_seed_key),
        max_users = VALUES(max_users),
        deleted_at = NULL`,
     [
@@ -159,6 +189,10 @@ async function ensureDemoClinics(connection) {
       "Europe/London",
       "professional",
       "active",
+      "demo",
+      "FICTIONAL DEMO - not production client data",
+      1,
+      demoSeedKey,
       20,
     ],
   );
@@ -166,9 +200,10 @@ async function ensureDemoClinics(connection) {
   await connection.execute(
     `INSERT INTO clinic (
        id, name, email, website, phone, address, city, state, postal_code,
-       country, timezone, subscription_plan, subscription_status, max_users
+       country, timezone, subscription_plan, subscription_status,
+       data_state, data_state_label, is_demo, demo_seed_key, max_users
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        name = VALUES(name),
        email = VALUES(email),
@@ -182,6 +217,10 @@ async function ensureDemoClinics(connection) {
        timezone = VALUES(timezone),
        subscription_plan = VALUES(subscription_plan),
        subscription_status = VALUES(subscription_status),
+       data_state = VALUES(data_state),
+       data_state_label = VALUES(data_state_label),
+       is_demo = VALUES(is_demo),
+       demo_seed_key = VALUES(demo_seed_key),
        max_users = VALUES(max_users),
        deleted_at = NULL`,
     [
@@ -198,6 +237,10 @@ async function ensureDemoClinics(connection) {
       "Europe/London",
       "professional",
       "active",
+      "preview",
+      "Client sandbox preview - not production data",
+      1,
+      demoSeedKey,
       20,
     ],
   );
@@ -275,4 +318,45 @@ async function collectEvidence(connection) {
     evidence[key] = Number(rows[0]?.count || 0);
   }
   return evidence;
+}
+
+async function removeDemoData(connection) {
+  await connection.beginTransaction();
+  try {
+    await connection.execute(
+      `UPDATE user
+       SET status = 'inactive', is_active = 0, deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
+       WHERE email LIKE '%@mission-control-demo.example'
+          OR clinic_id IN (
+            SELECT id FROM clinic WHERE demo_seed_key = ? AND is_demo = 1
+          )`,
+      [demoSeedKey],
+    );
+
+    await connection.execute(
+      `UPDATE clinic_membership
+       SET status = 'inactive'
+       WHERE clinic_id IN (
+         SELECT id FROM clinic WHERE demo_seed_key = ? AND is_demo = 1
+       )`,
+      [demoSeedKey],
+    );
+
+    await connection.execute(
+      `UPDATE clinic
+       SET subscription_status = 'suspended',
+           data_state = 'demo',
+           data_state_label = 'FICTIONAL DEMO REMOVED - not production client data',
+           is_demo = 1,
+           deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP)
+       WHERE demo_seed_key = ?
+         AND is_demo = 1`,
+      [demoSeedKey],
+    );
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  }
 }

@@ -79,6 +79,9 @@ export interface AuthResponse {
         role: string;
         clinicId: string;
         clinicName?: string | null;
+        clinicDataState?: string;
+        clinicDataStateLabel?: string | null;
+        clinicIsDemo?: boolean;
         emailVerifiedAt?: string | null;
     };
     clinics?: ClinicMembershipResponse[];
@@ -109,6 +112,9 @@ export interface ClinicMembershipResponse {
     name: string;
     plan: string | null;
     status: string;
+    dataState: string;
+    dataStateLabel: string | null;
+    isDemo: boolean;
     role: string;
     location: string | null;
     isPrimary: boolean;

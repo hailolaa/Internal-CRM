@@ -47,6 +47,9 @@ type TokenUser = {
   first_name?: string;
   last_name?: string;
   clinic_name?: string | null;
+  clinic_data_state?: string | null;
+  clinic_data_state_label?: string | null;
+  clinic_is_demo?: number | boolean | null;
   email_verified_at?: string | Date | null;
 };
 
@@ -242,7 +245,8 @@ export class AuthService {
 
       await connection.commit();
 
-      const tokens = await this.createTokenPair(user, oauthState.rememberMe, meta);
+      const authUser = await this.getUserForToken(user.id, user.clinic_id) || user;
+      const tokens = await this.createTokenPair(authUser, oauthState.rememberMe, meta);
       await logAuditEvent({
         clinicId: user.clinic_id,
         userId: user.id,
@@ -280,7 +284,7 @@ export class AuthService {
       return {
         isNewUser: autoProvisioned,
         rememberMe: oauthState.rememberMe,
-        user: this.toAuthUser(user),
+        user: this.toAuthUser(authUser),
         tokens: {
           ...tokens,
           requires2FA: false,
@@ -351,21 +355,23 @@ export class AuthService {
 
     await this.resetLoginLockout(user.id);
 
+    const authUser = await this.getUserForToken(user.id, user.clinic_id) || user;
+
     if (user.two_factor_enabled) {
       const otp = generateOTP();
       logger.info(`[2FA DEBUG] OTP for ${user.email}: ${otp}`);
       const token = generateToken(
         {
-          userId: user.id,
-          clinicId: user.clinic_id,
-          role: user.role,
-          email: user.email,
+          userId: authUser.id,
+          clinicId: authUser.clinic_id,
+          role: authUser.role,
+          email: authUser.email,
         },
         this.accessTokenExpiresIn,
       );
 
       return {
-        user: this.toAuthUser(user),
+        user: this.toAuthUser(authUser),
         tokens: {
           token,
           expiresIn: this.accessTokenExpiresIn,
@@ -375,8 +381,8 @@ export class AuthService {
     }
 
     const priorIpAddress = await this.getLastSuccessfulSessionIp(user.id);
-    const tokens = await this.createTokenPair(user, data.rememberMe, meta);
-    await this.maybeSendUnusualLoginAlert(user, priorIpAddress, meta);
+    const tokens = await this.createTokenPair(authUser, data.rememberMe, meta);
+    await this.maybeSendUnusualLoginAlert(authUser, priorIpAddress, meta);
     await logAuditEvent({
       clinicId: user.clinic_id,
       userId: user.id,
@@ -389,7 +395,7 @@ export class AuthService {
     });
 
     return {
-      user: this.toAuthUser(user),
+      user: this.toAuthUser(authUser),
       tokens: { ...tokens, requires2FA: false },
     };
   }
@@ -420,7 +426,8 @@ export class AuthService {
       throw ApiError.unauthorized("Invalid 2FA code");
     }
 
-    const tokens = await this.createTokenPair(user, data.rememberMe, meta);
+    const authUser = await this.getUserForToken(user.id, user.clinic_id) || user;
+    const tokens = await this.createTokenPair(authUser, data.rememberMe, meta);
     await logAuditEvent({
       clinicId: user.clinic_id,
       userId: user.id,
@@ -432,7 +439,7 @@ export class AuthService {
     });
 
     return {
-      user: this.toAuthUser(user),
+      user: this.toAuthUser(authUser),
       tokens: { ...tokens, requires2FA: false },
     };
   }
@@ -736,6 +743,9 @@ export class AuthService {
               c.name,
               c.subscription_plan as plan,
               c.subscription_status as status,
+              c.data_state as dataState,
+              c.data_state_label as dataStateLabel,
+              c.is_demo as isDemo,
               c.city,
               c.country,
               cm.role,
@@ -760,6 +770,9 @@ export class AuthService {
       name: row.name,
       plan: row.plan || null,
       status: row.status || "active",
+      dataState: row.dataState || "live",
+      dataStateLabel: row.dataStateLabel || null,
+      isDemo: !!row.isDemo,
       role: row.role,
       location: [row.city, row.country].filter(Boolean).join(", ") || null,
       isPrimary: !!row.isPrimary,
@@ -1062,6 +1075,9 @@ export class AuthService {
               u.last_name,
               COALESCE(cm.role, u.role) as role,
               c.name as clinic_name,
+              c.data_state as clinic_data_state,
+              c.data_state_label as clinic_data_state_label,
+              c.is_demo as clinic_is_demo,
               u.email_verified_at
        FROM user u
        INNER JOIN clinic_membership cm
@@ -1222,6 +1238,9 @@ export class AuthService {
       role: user.role,
       clinicId: user.clinic_id,
       clinicName: user.clinic_name || null,
+      clinicDataState: user.clinic_data_state || "live",
+      clinicDataStateLabel: user.clinic_data_state_label || null,
+      clinicIsDemo: !!user.clinic_is_demo,
       emailVerifiedAt: (user as any).email_verified_at
         ? new Date((user as any).email_verified_at).toISOString()
         : null,

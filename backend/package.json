@@ -39,6 +39,7 @@
     "test:clickup": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-clickup-mappings.js",
     "test:quickbooks": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-quickbooks-oauth.js",
     "test:landing-page-leads": "npm run build && node --test --test-force-exit --test-concurrency=1 dist/test/test-landing-page-lead-intake.js",
+    "test:data-state": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-data-state-safety.js",
     "qa:phase1": "node scripts/phase1-browser-qa.mjs"
   },
   "dependencies": {

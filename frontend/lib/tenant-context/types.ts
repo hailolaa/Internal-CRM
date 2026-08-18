@@ -7,6 +7,9 @@ export interface Clinic {
   name: string;
   plan: "Starter" | "Growth" | "Scale" | "Enterprise";
   status: "active" | "trial" | "suspended";
+  dataState: string;
+  dataStateLabel: string | null;
+  isDemo: boolean;
   maxUsers: number;
   currentUsers: number;
   location: string;

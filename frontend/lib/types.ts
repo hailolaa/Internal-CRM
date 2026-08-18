@@ -39,6 +39,10 @@ export interface AuthUser {
   emailVerifiedAt?: string | null;
   /** Present in auth-context; absent in tenant-context. */
   clinicName?: string;
+  /** Authoritative workspace data state from the backend. */
+  clinicDataState?: string;
+  clinicDataStateLabel?: string | null;
+  clinicIsDemo?: boolean;
   /** Present in auth-context; absent in tenant-context. */
   avatar?: string;
 }
