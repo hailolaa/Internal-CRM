@@ -5,7 +5,15 @@ import { ProposalV5Renderer, proposalV5MobilePageIds } from "@/components/propos
 import { buildProposalV5PreviewSnapshot } from "@/components/proposals/v5/data/previewSnapshot";
 import type { ProposalV5PublicSnapshot, ProposalV5Snapshot } from "@/components/proposals/v5/data/proposalV5Types";
 import type { ProposalPublicPreviewRecord, ProposalPublicRecordWithV5 } from "@/lib/api-types/proposals";
-import { resolveSharedProposalRenderModel, SharedProposalV5Document, SharedProposalV5PrintDocument } from "./shared-proposal-content";
+import {
+  getClientSafeAcceptanceError,
+  PublicProposalAcceptancePanel,
+  resolveSharedProposalRenderModel,
+  SharedProposalV5Document,
+  SharedProposalV5PrintDocument,
+  validateAcceptanceForm,
+  type SharedProposalAcceptanceFormState,
+} from "./shared-proposal-content";
 
 function toPublicSnapshot(snapshot: ProposalV5Snapshot): ProposalV5PublicSnapshot {
   const publicSnapshot = JSON.parse(JSON.stringify(snapshot));
@@ -78,6 +86,19 @@ function extractProofSlot(html: string, slot: string) {
   const nextSlot = html.indexOf("data-v5-proof-slot=", slotIndex + slotMarker.length);
   expect(elementStart, `${slot} should render inside a proof element`).toBeGreaterThanOrEqual(0);
   return html.slice(elementStart, nextSlot < 0 ? undefined : nextSlot);
+}
+
+function acceptanceForm(overrides: Partial<SharedProposalAcceptanceFormState> = {}): SharedProposalAcceptanceFormState {
+  return {
+    fullName: "Taylor Reed",
+    email: "taylor@example.com",
+    legalCompanyName: "Taylor Reed Clinic Ltd",
+    billingEmail: "billing@example.com",
+    preferredStartDate: "2026-09-01",
+    agreementAccepted: true,
+    signatureConfirmation: "Taylor Reed",
+    ...overrides,
+  };
 }
 
 describe("shared public proposal V5 routing", () => {
@@ -264,5 +285,96 @@ describe("shared public proposal V5 routing", () => {
       expect(html).not.toContain("case_study");
       expect(html).not.toContain("performance_");
     }
+  });
+
+  it("renders a polished acceptance sign-off panel without changing the V5 proposal pages", () => {
+    const snapshot = toPublicSnapshot(buildProposalV5PreviewSnapshot({
+      clinicType: "dental_clinic",
+      packageId: "clinic-growth-engine",
+    }));
+    const html = renderToStaticMarkup(createElement(PublicProposalAcceptancePanel, {
+      snapshot,
+      acceptance: null,
+      form: acceptanceForm({ agreementAccepted: false, signatureConfirmation: "" }),
+      error: "",
+      isAccepting: false,
+      onChange: () => undefined,
+      onSubmit: () => undefined,
+    }));
+
+    expect(html).toContain("Final client sign-off");
+    expect(html).toContain("What you are accepting");
+    expect(html).toContain(snapshot.clinic.name.value as string);
+    expect(html).toContain(snapshot.proposal.reference);
+    expect(html).toContain(snapshot.selectedPackage.name as string);
+    expect(html).toContain("Accept and lock proposal");
+    expect(html).toContain("Secure public proposal");
+    expect(html).not.toContain("snapshotHash");
+    expect(html).not.toContain("sourceProposalVersion");
+    expect(html).not.toContain("packageId");
+  });
+
+  it("renders a clear accepted and locked state without a repeat acceptance CTA", () => {
+    const snapshot = toPublicSnapshot(buildProposalV5PreviewSnapshot());
+    const html = renderToStaticMarkup(createElement(PublicProposalAcceptancePanel, {
+      snapshot,
+      acceptance: {
+        acceptedByName: "Taylor Reed",
+        acceptedByEmail: "taylor@example.com",
+        legalCompanyName: "Taylor Reed Clinic Ltd",
+        billingEmail: "billing@example.com",
+        preferredStartDate: "2026-09-01",
+        acceptedAt: "2026-08-18T09:00:00.000Z",
+        lockedAt: "2026-08-18T09:00:00.000Z",
+      },
+      form: acceptanceForm(),
+      error: "",
+      isAccepting: false,
+      onChange: () => undefined,
+      onSubmit: () => undefined,
+    }));
+
+    expect(html).toContain("Acceptance complete");
+    expect(html).toContain("Accepted and locked");
+    expect(html).toContain("No further acceptance action is needed on this page.");
+    expect(html).toContain("Taylor Reed Clinic Ltd");
+    expect(html).not.toContain("Accept and lock proposal");
+  });
+
+  it("shows a submission state that prevents duplicate submits", () => {
+    const snapshot = toPublicSnapshot(buildProposalV5PreviewSnapshot());
+    const html = renderToStaticMarkup(createElement(PublicProposalAcceptancePanel, {
+      snapshot,
+      acceptance: null,
+      form: acceptanceForm(),
+      error: "",
+      isAccepting: true,
+      onChange: () => undefined,
+      onSubmit: () => undefined,
+    }));
+
+    expect(html).toContain("Accepting securely...");
+    expect(html).toContain("disabled");
+  });
+
+  it("validates acceptance details with field-specific guidance", () => {
+    expect(validateAcceptanceForm(acceptanceForm({ fullName: "" }))).toBe("Enter your full name to continue.");
+    expect(validateAcceptanceForm(acceptanceForm({ email: "not-an-email" }))).toBe("Enter a valid email address.");
+    expect(validateAcceptanceForm(acceptanceForm({ legalCompanyName: "" }))).toBe("Enter the legal company name that is accepting the proposal.");
+    expect(validateAcceptanceForm(acceptanceForm({ billingEmail: "billing" }))).toBe("Enter a valid billing email address.");
+    expect(validateAcceptanceForm(acceptanceForm({ signatureConfirmation: "Someone Else" }))).toBe("The typed confirmation must match your full name.");
+    expect(validateAcceptanceForm(acceptanceForm({ agreementAccepted: false }))).toBe("Tick the authority confirmation before accepting.");
+    expect(validateAcceptanceForm(acceptanceForm())).toBe("");
+  });
+
+  it("maps unsafe backend acceptance errors to safe client-facing messages", () => {
+    expect(getClientSafeAcceptanceError(new Error("POST /api/proposals/shared/token/accept returned 409 ProposalAlreadyAccepted")))
+      .toBe("This proposal has already been accepted. Refresh the page to view the locked confirmation.");
+    expect(getClientSafeAcceptanceError(new Error("Snapshot hash mismatch for proposal id abc")))
+      .toBe("We could not verify this proposal version. Please ask ClinicGrower for a fresh link.");
+    expect(getClientSafeAcceptanceError(new Error("ECONNRESET fetch failed")))
+      .toBe("We could not connect right now. Please check your connection and try again.");
+    expect(getClientSafeAcceptanceError(new Error("500 internal server error")))
+      .toBe("We could not complete the acceptance right now. Please try again or ask ClinicGrower for help.");
   });
 });

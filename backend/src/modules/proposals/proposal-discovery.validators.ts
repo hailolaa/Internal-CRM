@@ -6,6 +6,9 @@ const stringAnswerFields = [
   "value",
   "sourceLabel",
   "sourceAt",
+  "evidenceReference",
+  "approvedBy",
+  "approvedAt",
   "customerWording",
   "notes",
 ];
@@ -31,6 +34,7 @@ export const updateProposalDiscoverySessionValidator = [
   body("answers").optional().isObject(),
   body("answers.*").optional().isObject(),
   body("answers.*.state").optional().isIn(proposalDataStates),
+  body("answers.*.approvalStatus").optional({ nullable: true }).isIn(["not_required", "pending", "approved", "rejected"]),
   ...stringAnswerFields.map((field) =>
     body(`answers.*.${field}`).optional({ nullable: true }).isString().trim().isLength({ max: field === "value" ? 2000 : 1000 }),
   ),

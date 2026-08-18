@@ -205,6 +205,21 @@ async function requestPublic(baseUrl: string, path: string, init: RequestInit = 
   return { response, body: await response.json() as any };
 }
 
+function discoveryAnswer(
+  value: string,
+  state: "known" | "working_diagnosis" | "provisional" | "to_confirm" = "known",
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    value,
+    state,
+    sourceLabel: "Live discovery call",
+    sourceAt: "2026-08-17T10:30:00.000Z",
+    customerWording: null,
+    ...overrides,
+  };
+}
+
 async function closeServer(server: Server) {
   server.closeIdleConnections?.();
   server.closeAllConnections?.();
@@ -223,6 +238,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
   const primaryClinicId = uuidv4();
   const otherClinicId = uuidv4();
   const contactId = uuidv4();
+  const namelessContactId = uuidv4();
   const pipelineId = uuidv4();
   const openStageId = uuidv4();
   const customProposalStageId = uuidv4();
@@ -320,12 +336,16 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     `INSERT INTO contact
       (id, clinic_id, first_name, last_name, email, account_name, status, lead_status, source)
      VALUES
-      (?, ?, 'Week', 'Two', ?, NULL, 'lead', 'qualified', 'referral'),
+      (?, ?, 'Week', 'Two', ?, 'Week Two Dental Clinic', 'lead', 'qualified', 'referral'),
+      (?, ?, 'Nameless', 'Clinic', ?, NULL, 'lead', 'qualified', 'referral'),
       (?, ?, 'Atomic', 'Rollback', ?, 'Atomic Rollback Clinic', 'lead', 'qualified', 'referral')`,
     [
       contactId,
       primaryClinicId,
       `${contactId}@test.local`,
+      namelessContactId,
+      primaryClinicId,
+      `${namelessContactId}@test.local`,
       rollbackContactId,
       primaryClinicId,
       `${rollbackContactId}@test.local`,
@@ -446,6 +466,21 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(crossWorkspaceOwner.response.status, 400);
     assert.match(crossWorkspaceOwner.body.message, /active member of this workspace/i);
 
+    const missingClinicName = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId: namelessContactId,
+        proposalName: "Missing clinic name proposal",
+        status: "ready",
+      })),
+    });
+    assert.equal(missingClinicName.response.status, 400);
+    const missingClinicNameText = JSON.stringify(missingClinicName.body);
+    assert.ok(
+      /complete the clinic\/account name/i.test(missingClinicNameText),
+      "ready V5 proposals must require a clinic/account name before freezing or rendering",
+    );
+
     const created = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
       body: JSON.stringify({
@@ -460,6 +495,17 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(created.response.status, 201);
     assert.equal(created.body.data.status, "draft");
     assert.equal(created.body.data.valueCents, 125000);
+
+    const draftValidation = await request(
+      baseUrl,
+      `/api/proposals/${created.body.data.id}/validate`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(draftValidation.response.status, 200);
+    assert.equal(draftValidation.body.data.ready, false);
+    assert.equal(draftValidation.body.data.frozen, false);
+    assert.ok(draftValidation.body.data.issues.some((issue: string) => /approved package/i.test(issue)));
 
     const prematureShare = await request(
       baseUrl,
@@ -476,6 +522,293 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(ready.response.status, 200);
     assert.equal(ready.body.data.status, "ready");
     assert.ok(ready.body.data.readyAt);
+
+    const readyValidation = await request(
+      baseUrl,
+      `/api/proposals/${created.body.data.id}/validate`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(readyValidation.response.status, 200);
+    assert.equal(readyValidation.body.data.ready, true);
+    assert.equal(readyValidation.body.data.canRenderV5, true);
+    assert.equal(readyValidation.body.data.pageCount, 15);
+    const readyRender = await request(baseUrl, `/api/proposals/${created.body.data.id}/render`, writer.token);
+    assert.equal(readyRender.response.status, 200);
+    assert.equal(readyRender.body.data.frozen, false);
+    assert.equal(readyRender.body.data.v5Snapshot.pageCount, 15);
+    assert.equal(readyRender.body.data.v5Snapshot.scope[0].title, "Package-owned dental growth operating system");
+
+    const approvalApiDraft = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
+        proposalName: "Approval API proposal",
+        status: "draft",
+      })),
+    });
+    assert.equal(approvalApiDraft.response.status, 201);
+    const approvalApiReady = await request(
+      baseUrl,
+      `/api/proposals/${approvalApiDraft.body.data.id}/approve`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(approvalApiReady.response.status, 200);
+    assert.equal(approvalApiReady.body.data.status, "ready");
+    const versionLocked = await request(
+      baseUrl,
+      `/api/proposals/${approvalApiDraft.body.data.id}/version-lock`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "version-lock@example.com",
+          recipientName: "Version Lock",
+        }),
+      },
+    );
+    assert.equal(versionLocked.response.status, 200);
+    assert.equal(versionLocked.body.data.status, "sent");
+    assert.equal(versionLocked.body.data.sendMethod, "version_lock");
+    assert.equal(versionLocked.body.data.v5Snapshot.pageCount, 15);
+
+    const unauthorizedDiscoveryStart = await request(
+      baseUrl,
+      "/api/proposals/discovery-sessions/start",
+      contactsOnly.token,
+      {
+        method: "POST",
+        body: JSON.stringify({ contactId }),
+      },
+    );
+    assert.equal(unauthorizedDiscoveryStart.response.status, 403);
+
+    const discoveryStart = await request(
+      baseUrl,
+      "/api/proposals/discovery-sessions/start",
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({ contactId, dealId }),
+      },
+    );
+    assert.equal(discoveryStart.response.status, 200);
+    const discoverySessionId = discoveryStart.body.data.id;
+
+    const discoveryResume = await request(
+      baseUrl,
+      "/api/proposals/discovery-sessions/start",
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({ contactId, dealId }),
+      },
+    );
+    assert.equal(discoveryResume.response.status, 200);
+    assert.equal(discoveryResume.body.data.id, discoverySessionId, "call mode should resume the active contact/deal session");
+
+    const partialDiscovery = await request(
+      baseUrl,
+      `/api/proposals/discovery-sessions/${discoverySessionId}`,
+      writer.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "paused",
+          answers: {
+            recommendedPackageId: discoveryAnswer(recommendedPackageId, "known", {
+              sourceLabel: "Transcript-assisted call import",
+              evidenceReference: "Transcript recommendation line 12",
+            }),
+            confirmedContribution: discoveryAnswer("1500", "provisional", {
+              sourceLabel: "Transcript-assisted call import",
+              evidenceReference: "Transcript contribution line 18",
+              notes: "Owner wording needs confirmation before commercial case.",
+            }),
+          },
+          freeNotes: "Transcript-assisted partial call import. Contribution evidence needs human review.",
+        }),
+      },
+    );
+    assert.equal(partialDiscovery.response.status, 200);
+    assert.equal(partialDiscovery.body.data.status, "paused");
+    assert.equal(partialDiscovery.body.data.answers.confirmedContribution.evidenceReference, "Transcript contribution line 18");
+    assert.equal(partialDiscovery.body.data.answers.confirmedContribution.state, "provisional");
+    assert.ok(
+      partialDiscovery.body.data.conflicts.some((conflict: any) => conflict.code === "contribution_not_confirmed"),
+      "provisional contribution must remain a visible blocker",
+    );
+
+    const fullDiscoveryAnswers = {
+      peopleDecisionMaker: discoveryAnswer("Dr Alex Morgan"),
+      peopleRole: discoveryAnswer("Clinic owner"),
+      contactDetails: discoveryAnswer("alex@example.com / 07123456789"),
+      clinicType: discoveryAnswer("dental_clinic", "known", { evidenceReference: "CRM and live call clinic-type confirmation" }),
+      locations: discoveryAnswer("Bristol private dental clinic"),
+      whyNowOwnerWording: discoveryAnswer("We need to know which implant enquiries are being lost.", "known", {
+        customerWording: "We need to know which implant enquiries are being lost.",
+      }),
+      commercialObjective: discoveryAnswer("Increase predictable implant consultations"),
+      urgency: discoveryAnswer("The clinic is about to increase media spend and wants leakage visible first."),
+      desiredStart: discoveryAnswer("2026-09-01"),
+      decisionProcess: discoveryAnswer("Owner approval after proposal review"),
+      priorityServices: discoveryAnswer("Dental implants\nInvisalign\nComposite bonding"),
+      capacity: discoveryAnswer("5 additional consultations per month"),
+      targetLocations: discoveryAnswer("Bristol and surrounding private dental catchment"),
+      firstJourney: discoveryAnswer("Implant enquiry to accepted treatment plan"),
+      currentDemand: discoveryAnswer("Relevant private treatment demand is present but not fully attributed."),
+      enquiryHandling: discoveryAnswer("Calls, forms and WhatsApp are handled by reception and coordinator."),
+      responseTime: discoveryAnswer("Same day where possible; missed calls are not fully reported."),
+      booking: discoveryAnswer("12 booked consultations from around 40 monthly enquiries."),
+      attendance: discoveryAnswer("80"),
+      acceptanceEnrolment: discoveryAnswer("45"),
+      recordedValue: discoveryAnswer("Treatment-plan value is held outside the marketing report."),
+      currentMediaSpend: discoveryAnswer("3000"),
+      approximateVolumes: discoveryAnswer("40"),
+      knownCplCpa: discoveryAnswer("100"),
+      trustedData: discoveryAnswer("CRM, call notes and discovery transcript", "known", {
+        evidenceReference: "Transcript evidence bundle 2026-08-17",
+      }),
+      website: discoveryAnswer("WordPress website with lead forms"),
+      crmPmsDiary: discoveryAnswer("Dental PMS and CRM notes"),
+      analytics: discoveryAnswer("GA4 and ad platform conversion events"),
+      dataLimitations: discoveryAnswer("Call outcomes, booking source and treatment acceptance are not fully connected."),
+      economicUnit: discoveryAnswer("accepted implant case", "known", {
+        sourceLabel: "Transcript-assisted call import",
+        evidenceReference: "Transcript economic-unit line 23",
+      }),
+      price: discoveryAnswer("2500"),
+      confirmedContribution: discoveryAnswer("2500", "known", {
+        sourceLabel: "Live call resume",
+        evidenceReference: "Owner confirmed contribution on resumed call",
+        approvedBy: writer.id,
+        approvedAt: "2026-08-17T11:10:00.000Z",
+        approvalStatus: "approved",
+      }),
+      monthlyCapacity: discoveryAnswer("5"),
+      paybackExpectation: discoveryAnswer("Break-even should use whole accepted cases", "known"),
+      confirmationSourceDate: discoveryAnswer("Owner confirmation on 17 Aug 2026"),
+      workingConstraint: discoveryAnswer("Missed calls and unclear booking movement"),
+      scopeBoundary: discoveryAnswer("First scope covers one dental location and the agreed private treatment route."),
+      selectedMedia: discoveryAnswer("3000"),
+      setup: discoveryAnswer("0"),
+      term: discoveryAnswer("3 months minimum"),
+      proposedStart: discoveryAnswer("2026-09-01"),
+      proofMode: discoveryAnswer("same-sector and approved cross-sector proof"),
+      claimCaveats: discoveryAnswer("Historical proof is contextual and not a guarantee."),
+      authorisedApprover: discoveryAnswer("Dr Alex Morgan"),
+      clinicalBoundary: discoveryAnswer("Clinical suitability and treatment decisions remain with the clinic."),
+      excludedWork: discoveryAnswer("Clinical advice, offline sales training and unrelated locations are excluded."),
+      callOutcome: discoveryAnswer("Draft proposal approved for internal review"),
+      nextAction: discoveryAnswer("Prepare the V19 proposal for review"),
+      nextActionOwner: discoveryAnswer("ClinicGrower"),
+      nextActionDueDate: discoveryAnswer("2026-08-18"),
+    };
+
+    const completedDiscovery = await request(
+      baseUrl,
+      `/api/proposals/discovery-sessions/${discoverySessionId}`,
+      writer.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "completed",
+          clinicType: "dental_clinic",
+          recommendedPackageId,
+          activeConstraintId: "Missed calls and unclear booking movement",
+          answers: fullDiscoveryAnswers,
+          callOutcome: "Draft proposal approved for internal review",
+          nextAction: "Prepare the V19 proposal for review",
+          nextActionDueAt: "2026-08-18T09:00:00.000Z",
+        }),
+      },
+    );
+    assert.equal(completedDiscovery.response.status, 200);
+    assert.equal(completedDiscovery.body.data.status, "completed");
+    assert.equal(completedDiscovery.body.data.conflicts.length, 0);
+
+    const generatedDraft = await request(
+      baseUrl,
+      `/api/proposals/discovery-sessions/${discoverySessionId}/generate-draft`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(generatedDraft.response.status, 201);
+    assert.equal(generatedDraft.body.data.session.status, "draft_created");
+    const callModeProposal = generatedDraft.body.data.proposal;
+    assert.equal(callModeProposal.status, "draft");
+    assert.equal(callModeProposal.sectionContent.fieldEvidenceReferences.economicUnit, "Transcript economic-unit line 23");
+    assert.equal(
+      callModeProposal.sectionContent.fieldEvidenceReferences.clinicConfirmedContribution,
+      "Owner confirmed contribution on resumed call",
+    );
+    assert.equal(callModeProposal.sectionContent.fieldApprovals.clinicConfirmedContribution.approvedBy, writer.id);
+    assert.equal(callModeProposal.sectionContent.fieldApprovals.clinicConfirmedContribution.approvalStatus, "approved");
+
+    const completedCallModeSection = {
+      ...makeReadySectionContent(proofAssetIds),
+      fieldEvidenceReferences: {
+        ...callModeProposal.sectionContent.fieldEvidenceReferences,
+        discoverySource: "Transcript evidence bundle 2026-08-17",
+      },
+      fieldApprovals: callModeProposal.sectionContent.fieldApprovals,
+    };
+    const completedCallModeDraft = await request(
+      baseUrl,
+      `/api/proposals/${callModeProposal.id}`,
+      writer.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+          contactId,
+          dealId,
+          proposalName: "Live-call generated V19 proposal",
+          status: "draft",
+          sectionContent: completedCallModeSection,
+        })),
+      },
+    );
+    assert.equal(completedCallModeDraft.response.status, 200);
+    assert.equal(completedCallModeDraft.body.data.status, "draft");
+
+    const approvedCallModeDraft = await request(
+      baseUrl,
+      `/api/proposals/${callModeProposal.id}/approve`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(approvedCallModeDraft.response.status, 200);
+    assert.equal(approvedCallModeDraft.body.data.status, "ready");
+
+    const lockedCallModeProposal = await request(
+      baseUrl,
+      `/api/proposals/${callModeProposal.id}/version-lock`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "call-mode@example.com",
+          recipientName: "Call Mode Owner",
+        }),
+      },
+    );
+    assert.equal(lockedCallModeProposal.response.status, 200);
+    assert.equal(lockedCallModeProposal.body.data.status, "sent");
+    assert.equal(lockedCallModeProposal.body.data.v5Snapshot.pageCount, 15);
+    assert.equal(
+      lockedCallModeProposal.body.data.v5Snapshot.economics.economicUnit.evidenceReference,
+      "Transcript economic-unit line 23",
+    );
+    assert.equal(
+      lockedCallModeProposal.body.data.v5Snapshot.economics.contribution.approvedBy,
+      writer.id,
+    );
+
+    const lockedCallModeRender = await request(baseUrl, `/api/proposals/${callModeProposal.id}/render`, writer.token);
+    assert.equal(lockedCallModeRender.response.status, 200);
+    assert.equal(lockedCallModeRender.body.data.frozen, true);
+    assert.equal(lockedCallModeRender.body.data.v5Snapshot.snapshotHash, lockedCallModeProposal.body.data.v5SnapshotHash);
 
     const readyShare = await request(baseUrl, `/api/proposals/${created.body.data.id}/share`, writer.token, {
       method: "POST",
@@ -655,6 +988,47 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(publicAcceptedInternal.body.data.v5SnapshotHash, publicAcceptedSent.body.data.v5SnapshotHash);
     assert.equal(publicAcceptedInternal.body.data.acceptanceRecord.v5SnapshotHash, publicAcceptedSent.body.data.v5SnapshotHash);
     assert.deepEqual(publicAcceptedInternal.body.data.acceptanceRecord.v5Snapshot, publicAcceptedSent.body.data.v5Snapshot);
+    const repeatedPublicAcceptance = await requestPublic(
+      baseUrl,
+      `/api/proposals/shared/${encodeURIComponent(publicAcceptedToken)}/accept`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          fullName: "Public Signer",
+          email: "public-signer@example.com",
+          legalCompanyName: "Public Signer Ltd",
+          billingEmail: "billing-public@example.com",
+          preferredStartDate: "2026-08-10",
+          agreementAccepted: true,
+          signatureConfirmation: "Public Signer",
+        }),
+      },
+    );
+    assert.equal(repeatedPublicAcceptance.response.status, 200);
+    const [publicCommercialEventRows]: any = await pool.execute(
+      `SELECT idempotency_key as idempotencyKey,
+              status,
+              target_consumers as targetConsumers,
+              payload
+       FROM proposal_commercial_event
+       WHERE clinic_id = ?
+         AND proposal_id = ?
+         AND event_type = 'proposal_accepted'`,
+      [primaryClinicId, publicAcceptedProposal.body.data.id],
+    );
+    assert.equal(Number(publicCommercialEventRows.length), 1);
+    assert.match(publicCommercialEventRows[0].idempotencyKey, new RegExp(`^proposal_accepted:${publicAcceptedProposal.body.data.id}:`));
+    assert.equal(publicCommercialEventRows[0].status, "pending");
+    const publicCommercialPayload = typeof publicCommercialEventRows[0].payload === "string"
+      ? JSON.parse(publicCommercialEventRows[0].payload)
+      : publicCommercialEventRows[0].payload;
+    const publicTargetConsumers = typeof publicCommercialEventRows[0].targetConsumers === "string"
+      ? JSON.parse(publicCommercialEventRows[0].targetConsumers)
+      : publicCommercialEventRows[0].targetConsumers;
+    assert.deepEqual(publicTargetConsumers, ["cg_058", "quickbooks", "onboarding"]);
+    assert.equal(publicCommercialPayload.proposal.id, publicAcceptedProposal.body.data.id);
+    assert.equal(publicCommercialPayload.acceptance.legalCompanyName, "Public Signer Ltd");
+    assert.equal(publicCommercialPayload.commercial.packageId, recommendedPackageId);
 
     const invalidV5Proposal = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
@@ -941,6 +1315,10 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     const frozenV5Url = new URL(v5Sent.body.data.proposalUrl);
     const frozenV5Token = frozenV5Url.searchParams.get("token");
     assert.ok(frozenV5Token);
+    const frozenRender = await request(baseUrl, `/api/proposals/${v5Proposal.body.data.id}/render`, writer.token);
+    assert.equal(frozenRender.response.status, 200);
+    assert.equal(frozenRender.body.data.frozen, true);
+    assert.equal(frozenRender.body.data.v5Snapshot.snapshotHash, frozenV5Hash);
 
     const createSentV5AcceptanceCase = async (proposalName: string) => {
       const proposal = await request(baseUrl, "/api/proposals", writer.token, {
@@ -996,6 +1374,28 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     );
     assert.equal(rejectedHistoricalFrozenResend.response.status, 409);
     assert.match(rejectedHistoricalFrozenResend.body.message, /already been frozen/i);
+    const historicalFrozenValidation = await request(
+      baseUrl,
+      `/api/proposals/${legacyFrozenShapeProposal.id}/validate`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(historicalFrozenValidation.response.status, 200);
+    assert.equal(historicalFrozenValidation.body.data.frozen, true);
+    assert.equal(historicalFrozenValidation.body.data.ready, false);
+    assert.equal(historicalFrozenValidation.body.data.canRenderV5, false);
+    assert.match(
+      historicalFrozenValidation.body.data.issues.join(" "),
+      /Frozen V5 snapshot is not renderable/i,
+    );
+    const historicalFrozenRender = await request(
+      baseUrl,
+      `/api/proposals/${legacyFrozenShapeProposal.id}/render`,
+      writer.token,
+    );
+    assert.equal(historicalFrozenRender.response.status, 200);
+    assert.equal(historicalFrozenRender.body.data.frozen, true);
+    assert.equal(historicalFrozenRender.body.data.v5Snapshot, null);
 
     const publicV5AcceptancePayload = {
       fullName: "V5 Signer",
@@ -2586,6 +2986,9 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
            )`,
         [primaryClinicId, otherClinicId, `won_client_onboarding:${dealId}:%`],
       );
+      await pool.execute("DELETE FROM proposal_commercial_event WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+      await pool.execute("DELETE FROM proposal_discovery_answer_source WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+      await pool.execute("DELETE FROM proposal_discovery_session WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal_acceptance_record WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM contact_document_link WHERE clinic_id = ? AND contact_id = ?", [primaryClinicId, contactId]);
@@ -2611,7 +3014,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       );
       await pool.execute("DELETE FROM pipeline WHERE id = ?", [pipelineId]);
       await pool.execute("DELETE FROM client_account_profile WHERE id = ?", [localAccountProfileId]);
-      await pool.execute("DELETE FROM contact WHERE id IN (?, ?)", [contactId, rollbackContactId]);
+      await pool.execute("DELETE FROM contact WHERE id IN (?, ?, ?)", [contactId, namelessContactId, rollbackContactId]);
       if (convertedClientClinicId) {
         await pool.execute("DELETE FROM audit_log WHERE clinic_id = ?", [convertedClientClinicId]);
         await pool.execute("DELETE FROM client_account_profile WHERE clinic_id = ?", [convertedClientClinicId]);

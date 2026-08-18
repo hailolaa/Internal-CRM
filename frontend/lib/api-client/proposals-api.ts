@@ -5,12 +5,14 @@ import type {
   ProposalDiscoveryStartPayload,
   ProposalDiscoveryUpdatePayload,
   ProposalPayload,
+  ProposalClientReadinessRecord,
   ProposalProofAssetPayload,
   ProposalProofAssetRecord,
   ProposalPublicAcceptancePayload,
   ProposalPublicEventPayload,
   ProposalPublicPreviewRecord,
   ProposalRecord,
+  ProposalRenderRecord,
   ProposalSendPayload,
   ProposalShareRecord,
   ProposalSignatureRequestRecord,
@@ -167,6 +169,32 @@ export function createProposalsApi(apiRequest: ApiRequest) {
           method: "POST",
           token,
         });
+        return response.data!;
+      },
+      async validate(token: string, proposalId: string) {
+        const response = await apiRequest<ProposalClientReadinessRecord>(`/api/proposals/${proposalId}/validate`, {
+          method: "POST",
+          token,
+        });
+        return response.data!;
+      },
+      async approve(token: string, proposalId: string) {
+        const response = await apiRequest<ProposalRecord>(`/api/proposals/${proposalId}/approve`, {
+          method: "POST",
+          token,
+        });
+        return response.data!;
+      },
+      async versionLock(token: string, proposalId: string, payload: ProposalSendPayload) {
+        const response = await apiRequest<ProposalRecord>(`/api/proposals/${proposalId}/version-lock`, {
+          method: "POST",
+          token,
+          body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async render(token: string, proposalId: string) {
+        const response = await apiRequest<ProposalRenderRecord>(`/api/proposals/${proposalId}/render`, { token });
         return response.data!;
       },
       async send(token: string, proposalId: string, payload: ProposalSendPayload) {

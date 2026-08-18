@@ -57,13 +57,51 @@ function stated<T>(
   source: string | null = null,
   sourceDate: string | null = null,
   customerWording: string | null = null,
+  metadata: { evidenceReference?: string | null; approvedBy?: string | null; approvedAt?: string | null } = {},
 ): ProposalV5Stated<T> {
+  const cleanedSource = cleanString(source);
   return {
     value,
     state: normalizeState(state),
-    source,
-    sourceDate,
-    customerWording,
+    source: cleanedSource,
+    sourceDate: normalizeDate(sourceDate),
+    evidenceReference: cleanString(metadata.evidenceReference) || cleanedSource,
+    approvedBy: cleanString(metadata.approvedBy),
+    approvedAt: normalizeDate(metadata.approvedAt),
+    customerWording: cleanString(customerWording),
+  };
+}
+
+function fieldMetadata(
+  section: ProposalSectionContent,
+  fieldKey: string,
+  fallbackEvidenceReference: string | null = null,
+) {
+  const fieldAliases: Record<string, string[]> = {
+    "discovery.customerWording": ["customerWording"],
+    "discovery.goal": ["primaryGoal"],
+    "discovery.whyNow": ["whyActNow"],
+    "discovery.workingDiagnosis": ["diagnosis", "biggestRisk"],
+    "discovery.currentSystems": ["currentWebsiteCrmBookingSetup"],
+    "journey.activeConstraint": ["activeConstraintId"],
+    "journey.diagnosedLeaks": ["problemsDiscussed", "currentlyUnmeasured"],
+    "economics.economicUnit": ["economicUnit"],
+    "economics.contribution": ["clinicConfirmedContribution"],
+    "economics.capacity": ["availableCommercialCapacity", "availableCapacity"],
+    "economics.selectedMediaSpend": ["selectedMediaSpend"],
+  };
+  const candidates = [fieldKey, ...(fieldAliases[fieldKey] || [])];
+  const evidenceReferences = section.fieldEvidenceReferences || {};
+  const approval = candidates
+    .map((candidate) => section.fieldApprovals?.[candidate])
+    .find(Boolean) || {};
+  return {
+    evidenceReference:
+      cleanString(approval.evidenceReference) ||
+      candidates.map((candidate) => cleanString(evidenceReferences[candidate])).find(Boolean) ||
+      cleanString(fallbackEvidenceReference),
+    approvedBy: cleanString(approval.approvedBy),
+    approvedAt: normalizeDate(approval.approvedAt),
   };
 }
 
@@ -420,6 +458,8 @@ function buildNarrative({
 export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): ProposalV5Snapshot {
   const { proposal, packageRecord = null } = input;
   const section: ProposalSectionContent = proposal.sectionContent || {};
+  const meta = (fieldKey: string, fallbackEvidenceReference: string | null = null) =>
+    fieldMetadata(section, fieldKey, fallbackEvidenceReference);
   const clinicVariant = getProposalV5ClinicTypeVariant(section.clinicTypeVariant);
   const savedImages = Array.isArray(section.sectorImages) ? section.sectorImages : [];
   const savedImageBySlot = new Map(savedImages.map((image) => [image.slot, image]));
@@ -537,7 +577,14 @@ export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): Pr
       beforeSpend: "Choose demand, progression or neither.",
     },
     economics: {
-      economicUnit: section.economicUnit || clinicVariant.terminology.economicUnit,
+      economicUnit: stated(
+        section.economicUnit || clinicVariant.terminology.economicUnit,
+        section.contributionConfirmationState || section.evidenceConfidenceState,
+        section.contributionEvidenceSourceDate || section.discoverySource || null,
+        null,
+        null,
+        meta("economics.economicUnit", section.contributionEvidenceSourceDate || section.discoverySource || null),
+      ),
       contribution: stated(contribution, section.contributionConfirmationState, section.contributionEvidenceSourceDate || null),
       contributionEvidenceSourceDate: section.contributionEvidenceSourceDate || null,
       capacity: stated(parseMoney(section.availableCommercialCapacity || section.availableCapacity), section.paybackState, section.commercialDataSource || null),

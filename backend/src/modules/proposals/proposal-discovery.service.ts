@@ -208,11 +208,18 @@ function normalizeDataState(value: unknown): ProposalDataState {
 function normalizeAnswer(value: unknown): ProposalDiscoveryAnswer | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const input = value as Partial<ProposalDiscoveryAnswer>;
+  const approvalStatus: ProposalDiscoveryAnswer["approvalStatus"] = ["not_required", "pending", "approved", "rejected"].includes(String(input.approvalStatus))
+    ? input.approvalStatus as NonNullable<ProposalDiscoveryAnswer["approvalStatus"]>
+    : null;
   return {
     value: cleanString(input.value),
     state: normalizeDataState(input.state),
     sourceLabel: cleanString(input.sourceLabel),
     sourceAt: cleanString(input.sourceAt),
+    evidenceReference: cleanString(input.evidenceReference),
+    approvedBy: cleanString(input.approvedBy),
+    approvedAt: cleanString(input.approvedAt),
+    approvalStatus,
     customerWording: cleanString(input.customerWording),
     notes: cleanString(input.notes),
   };
@@ -234,6 +241,48 @@ function answerValue(answers: ProposalDiscoveryAnswers, key: string) {
 
 function answerState(answers: ProposalDiscoveryAnswers, key: string) {
   return normalizeDataState(answers[key]?.state);
+}
+
+function answerEvidenceReference(answer: ProposalDiscoveryAnswer | undefined) {
+  if (!answer) return null;
+  return cleanString(answer.evidenceReference)
+    || [cleanString(answer.sourceLabel), cleanString(answer.sourceAt)].filter(Boolean).join(" - ")
+    || null;
+}
+
+function buildSectionFieldMetadata(
+  answers: ProposalDiscoveryAnswers,
+  mapping: Record<string, string>,
+): {
+  fieldEvidenceReferences: NonNullable<ProposalSectionContent["fieldEvidenceReferences"]> | null;
+  fieldApprovals: NonNullable<ProposalSectionContent["fieldApprovals"]> | null;
+} {
+  const fieldEvidenceReferences: NonNullable<ProposalSectionContent["fieldEvidenceReferences"]> = {};
+  const fieldApprovals: NonNullable<ProposalSectionContent["fieldApprovals"]> = {};
+
+  for (const [fieldKey, answerKey] of Object.entries(mapping)) {
+    const answer = answers[answerKey];
+    if (!answer) continue;
+    const evidenceReference = answerEvidenceReference(answer);
+    if (evidenceReference) fieldEvidenceReferences[fieldKey] = evidenceReference;
+
+    const approvedBy = cleanString(answer.approvedBy);
+    const approvedAt = cleanString(answer.approvedAt);
+    const approvalStatus = answer.approvalStatus || null;
+    if (approvedBy || approvedAt || approvalStatus) {
+      fieldApprovals[fieldKey] = {
+        evidenceReference,
+        approvedBy,
+        approvedAt,
+        approvalStatus,
+      };
+    }
+  }
+
+  return {
+    fieldEvidenceReferences: Object.keys(fieldEvidenceReferences).length ? fieldEvidenceReferences : null,
+    fieldApprovals: Object.keys(fieldApprovals).length ? fieldApprovals : null,
+  };
 }
 
 function parseMoneyCents(value: unknown) {
@@ -562,7 +611,7 @@ export class ProposalDiscoveryService {
       setupFeeCents: selectedPackage.setupFeeCents,
       currency: selectedPackage.currency,
       adSpendNote: answerValue(answers, "selectedMedia"),
-      vatStatus: "ClinicGrower fees/setup + VAT. Platform media tax/VAT treatment is separate and paid directly to the platform.",
+      vatStatus: "plus_vat",
       minimumTermMonths: parseTermMonths(answerValue(answers, "term")),
       startDate: parseDateOnly(answerValue(answers, "proposedStart")),
       notes: cleanString(session.freeNotes),
@@ -614,6 +663,51 @@ export class ProposalDiscoveryService {
     const clinicType = session.clinicType || answerValue(answers, "clinicType") || "general";
     const commercialObjective = answerValue(answers, "commercialObjective");
     const selectedMedia = answerValue(answers, "selectedMedia");
+    const fieldMetadata = buildSectionFieldMetadata(answers, {
+      clinicTypeVariant: "clinicType",
+      discoverySource: "trustedData",
+      customerWording: "whyNowOwnerWording",
+      evidenceConfidenceState: "trustedData",
+      activeConstraintId: "workingConstraint",
+      activeConstraintConfidenceState: "workingConstraint",
+      economicUnit: "economicUnit",
+      clinicConfirmedContribution: "confirmedContribution",
+      contributionEvidenceSourceDate: "confirmationSourceDate",
+      contributionConfirmationState: "confirmedContribution",
+      selectedMediaSpend: "selectedMedia",
+      paybackState: "paybackExpectation",
+      knownDataLimitations: "dataLimitations",
+      executiveSummary: "commercialObjective",
+      personalIntroduction: "whyNowOwnerWording",
+      diagnosis: "workingConstraint",
+      primaryGoal: "commercialObjective",
+      clinicTypeAndLocations: "locations",
+      currentPosition: "currentDemand",
+      currentMarketingSpend: "currentMediaSpend",
+      currentWebsiteCrmBookingSetup: "crmPmsDiary",
+      problemsDiscussed: "enquiryHandling",
+      whyActNow: "urgency",
+      currentlyUnmeasured: "dataLimitations",
+      availableCapacity: "capacity",
+      priorityTreatments: "priorityServices",
+      targetArea: "targetLocations",
+      desiredOutcome: "commercialObjective",
+      biggestRisk: "workingConstraint",
+      biggestOpportunity: "recordedValue",
+      firstRecommendedFix: "firstJourney",
+      currentMonthlyEnquiries: "approximateVolumes",
+      currentMonthlyBookedPatients: "booking",
+      attendanceRate: "attendance",
+      consultationToTreatmentConversionRate: "acceptanceEnrolment",
+      averageTreatmentValue: "price",
+      availableCommercialCapacity: "monthlyCapacity",
+      currentAcquisitionCost: "knownCplCpa",
+      commercialDataSource: "trustedData",
+      recommendedPlan: "recommendedPackageId",
+      termsSummary: "term",
+      clientResponsibilities: "permissions",
+      nextSteps: "nextAction",
+    });
     return {
       proposalDate: new Date().toISOString().slice(0, 10),
       clinicTypeVariant: clinicType,
@@ -695,6 +789,8 @@ export class ProposalDiscoveryService {
         answerValue(answers, "nextAction") || "Review the draft proposal before issue.",
         "Complete any required pricing, scope, term, proof and acceptance fields before issue.",
       ].join("\n"),
+      fieldEvidenceReferences: fieldMetadata.fieldEvidenceReferences,
+      fieldApprovals: fieldMetadata.fieldApprovals,
     };
   }
 

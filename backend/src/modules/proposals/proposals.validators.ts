@@ -151,6 +151,8 @@ const sectionContentValidator = body("sectionContent")
       "termsSummary",
       "investmentNotes",
       "nextSteps",
+      "fieldEvidenceReferences",
+      "fieldApprovals",
     ]);
     const textKeys = new Set([
       "proposalReference",
@@ -323,6 +325,58 @@ const sectionContentValidator = body("sectionContent")
         for (const item of fieldValue) {
           if (typeof item !== "string" || item.trim().length === 0 || item.length > 36) {
             throw new Error("proofAssetIds entries must be valid record identifiers");
+          }
+        }
+      }
+      if (key === "fieldEvidenceReferences") {
+        if (fieldValue === null || fieldValue === undefined) continue;
+        if (!fieldValue || typeof fieldValue !== "object" || Array.isArray(fieldValue)) {
+          throw new Error("fieldEvidenceReferences must be an object");
+        }
+        const entries = Object.entries(fieldValue as Record<string, unknown>);
+        if (entries.length > 80) throw new Error("fieldEvidenceReferences can include up to 80 fields");
+        for (const [fieldName, reference] of entries) {
+          if (!/^[A-Za-z0-9_.:-]{1,120}$/.test(fieldName)) {
+            throw new Error("fieldEvidenceReferences keys must be stable field names");
+          }
+          if (reference !== null && reference !== undefined && String(reference).length > 500) {
+            throw new Error("fieldEvidenceReferences values can be up to 500 characters");
+          }
+        }
+      }
+      if (key === "fieldApprovals") {
+        if (fieldValue === null || fieldValue === undefined) continue;
+        if (!fieldValue || typeof fieldValue !== "object" || Array.isArray(fieldValue)) {
+          throw new Error("fieldApprovals must be an object");
+        }
+        const entries = Object.entries(fieldValue as Record<string, unknown>);
+        if (entries.length > 80) throw new Error("fieldApprovals can include up to 80 fields");
+        for (const [fieldName, approval] of entries) {
+          if (!/^[A-Za-z0-9_.:-]{1,120}$/.test(fieldName)) {
+            throw new Error("fieldApprovals keys must be stable field names");
+          }
+          if (approval === null || approval === undefined) continue;
+          if (typeof approval !== "object" || Array.isArray(approval)) {
+            throw new Error("fieldApprovals entries must be objects");
+          }
+          const approvalRecord = approval as Record<string, unknown>;
+          const allowedApprovalKeys = new Set(["evidenceReference", "approvedBy", "approvedAt", "approvalStatus"]);
+          for (const approvalKey of Object.keys(approvalRecord)) {
+            if (!allowedApprovalKeys.has(approvalKey)) throw new Error(`Unsupported fieldApprovals field: ${approvalKey}`);
+          }
+          for (const approvalTextKey of ["evidenceReference", "approvedBy"]) {
+            if (approvalRecord[approvalTextKey] !== null && approvalRecord[approvalTextKey] !== undefined && String(approvalRecord[approvalTextKey]).length > 500) {
+              throw new Error(`fieldApprovals ${approvalTextKey} can be up to 500 characters`);
+            }
+          }
+          if (approvalRecord.approvedAt !== null && approvalRecord.approvedAt !== undefined && String(approvalRecord.approvedAt).trim()) {
+            const parsed = Date.parse(String(approvalRecord.approvedAt));
+            if (!Number.isFinite(parsed)) throw new Error("fieldApprovals approvedAt must be a valid date/time");
+          }
+          if (approvalRecord.approvalStatus !== null && approvalRecord.approvalStatus !== undefined && String(approvalRecord.approvalStatus).trim()) {
+            if (!["not_required", "pending", "approved", "rejected"].includes(String(approvalRecord.approvalStatus).trim())) {
+              throw new Error("fieldApprovals approvalStatus is not supported");
+            }
           }
         }
       }

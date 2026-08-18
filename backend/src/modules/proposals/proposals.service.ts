@@ -24,6 +24,7 @@ import {
   proposalViewTransitionStatuses,
 } from "./proposals.public.js";
 import {
+  assertProposalV5SnapshotReady,
   buildProposalV5Snapshot,
   isProposalV5Proposal,
   parseProposalV5Snapshot,
@@ -33,6 +34,7 @@ import {
 import { proposalPublicStatuses } from "./proposals.types.js";
 import type {
   ProposalCommercialItem,
+  ProposalClientReadinessResponse,
   ProposalCoreData,
   ProposalDataState,
   ProposalLinkAccess,
@@ -56,6 +58,7 @@ import type {
   ProposalStatus,
   ProposalStatusUpdateDTO,
   ProposalTemplateResponse,
+  ProposalRenderResponse,
   ProposalV5Snapshot,
 } from "./proposals.types.js";
 
@@ -1332,6 +1335,164 @@ export class ProposalsService {
     return this.hydrateSelectedProofAssets(clinicId, mapProposal(rows[0]), executor);
   }
 
+  async validateProposalForClientUse(
+    clinicId: string,
+    proposalId: string,
+  ): Promise<ProposalClientReadinessResponse> {
+    const proposal = await this.getProposal(clinicId, proposalId);
+    let approvedPackage: Awaited<ReturnType<ProposalsService["resolveRecommendedPackage"]>> | null = null;
+    const issues: string[] = [];
+
+    try {
+      approvedPackage = await this.resolveRecommendedPackage(clinicId, proposal.recommendedPackageId);
+    } catch (error) {
+      if (error instanceof ApiError && error.statusCode === 400) {
+        issues.push(error.message);
+      } else {
+        throw error;
+      }
+    }
+
+    issues.push(...this.collectClientReadyIssues({
+      ...proposal,
+      status: "sent",
+      contactName: proposal.contactName,
+      approvedPackagePriceCents: approvedPackage?.priceCents ?? null,
+      approvedPackageSetupFeeCents: approvedPackage?.setupFeeCents ?? null,
+      approvedPackageBillingFrequency: approvedPackage?.billingFrequency ?? null,
+    }));
+
+    const frozen = Boolean(
+      proposal.v5Snapshot ||
+      proposal.v5SnapshotHash ||
+      proposal.v5SnapshotVersion ||
+      proposal.v5SnapshotFrozenAt
+    );
+    let canRenderV5 = false;
+    let pageCount: number | null = proposal.v5Snapshot?.pageCount ?? null;
+    if (!issues.length) {
+      if (proposal.v5Snapshot) {
+        try {
+          assertProposalV5SnapshotReady(proposal.v5Snapshot);
+          canRenderV5 = true;
+        } catch (error) {
+          issues.push(error instanceof Error ? error.message : "Frozen V5 snapshot is not renderable");
+        }
+      } else if (frozen) {
+        issues.push("Frozen V5 snapshot is not renderable with the current proposal renderer");
+      } else {
+        try {
+          const previewSnapshot = buildProposalV5Snapshot({
+            proposal,
+            packageRecord: approvedPackage,
+            generatedAt: proposal.updatedAt || proposal.createdAt,
+            sourceProposalVersion: `${proposal.id}:${proposal.updatedAt || proposal.createdAt}`,
+            acceptanceUrl: proposal.proposalUrl ? buildAcceptanceUrl(proposal.proposalUrl) : null,
+            questionUrl: `mailto:hello@clinicgrower.co.uk?subject=${encodeURIComponent(`Question about ${proposal.proposalName}`)}`,
+          });
+          pageCount = previewSnapshot.pageCount;
+          canRenderV5 = true;
+        } catch (error) {
+          issues.push(error instanceof Error ? error.message : "Proposal V5 snapshot could not be rendered");
+        }
+      }
+    }
+
+    return {
+      proposalId,
+      ready: issues.length === 0,
+      status: proposal.status,
+      frozen,
+      canRenderV5,
+      pageCount,
+      packageId: approvedPackage?.id || proposal.recommendedPackageId || null,
+      issues,
+    };
+  }
+
+  async approveProposalForClientUse(
+    clinicId: string,
+    userId: string,
+    proposalId: string,
+    access: ProposalLinkAccess,
+  ): Promise<ProposalResponse> {
+    const validation = await this.validateProposalForClientUse(clinicId, proposalId);
+    if (!validation.ready) {
+      throw ApiError.badRequest("Proposal is not ready for approval.", { issues: validation.issues });
+    }
+    const proposal = await this.getProposal(clinicId, proposalId);
+    if (isFinalProposalStatus(proposal.status)) {
+      throw ApiError.conflict(`This ${proposal.status.replace(/_/g, " ")} proposal cannot be approved again.`);
+    }
+    if (validation.frozen) {
+      throw ApiError.conflict("This V5 proposal version is already frozen. Create a new proposal version before approving changes.");
+    }
+    if (proposal.status === "ready") return proposal;
+    return this.updateProposal(clinicId, userId, proposalId, { status: "ready" }, access);
+  }
+
+  async lockProposalVersion(
+    clinicId: string,
+    userId: string,
+    proposalId: string,
+    data: ProposalSendDTO,
+  ): Promise<ProposalResponse> {
+    return this.markProposalSent(clinicId, userId, proposalId, {
+      ...data,
+      sendMethod: cleanString(data.sendMethod) || "version_lock",
+      sendNote:
+        cleanString(data.sendNote) ||
+        "Version locked from Mission Control proposal lifecycle API.",
+    });
+  }
+
+  async renderProposal(
+    clinicId: string,
+    proposalId: string,
+  ): Promise<ProposalRenderResponse> {
+    const proposal = await this.getProposal(clinicId, proposalId);
+    const validation = await this.validateProposalForClientUse(clinicId, proposalId);
+    if (proposal.v5Snapshot) {
+      return {
+        proposal,
+        v5Snapshot: proposal.v5Snapshot,
+        frozen: validation.frozen,
+        validation,
+      };
+    }
+    if (validation.frozen) {
+      return {
+        proposal,
+        v5Snapshot: null,
+        frozen: true,
+        validation,
+      };
+    }
+    if (!validation.ready) {
+      return {
+        proposal,
+        v5Snapshot: null,
+        frozen: false,
+        validation,
+      };
+    }
+    const approvedPackage = await this.resolveRecommendedPackage(clinicId, proposal.recommendedPackageId);
+    const v5Snapshot = buildProposalV5Snapshot({
+      proposal,
+      packageRecord: approvedPackage,
+      generatedAt: proposal.updatedAt || proposal.createdAt,
+      sourceProposalVersion: `${proposal.id}:${proposal.updatedAt || proposal.createdAt}`,
+      acceptanceUrl: proposal.proposalUrl ? buildAcceptanceUrl(proposal.proposalUrl) : null,
+      questionUrl: `mailto:hello@clinicgrower.co.uk?subject=${encodeURIComponent(`Question about ${proposal.proposalName}`)}`,
+    });
+    return {
+      proposal,
+      v5Snapshot,
+      frozen: false,
+      validation,
+    };
+  }
+
   async createProposalShare(clinicId: string, userId: string, proposalId: string): Promise<ProposalShareResponse> {
     const proposal = await this.getProposal(clinicId, proposalId);
     if (proposal.status === "archived") throw ApiError.notFound("Proposal not found");
@@ -2156,6 +2317,8 @@ export class ProposalsService {
       status,
       contactId: links.contactId,
       contactName: links.contactName,
+      accountName: links.accountName,
+      clientAccountName: links.clientAccountName,
       recommendedPackageId: recommendedPackage?.id || cleanString(data.recommendedPackageId),
       packageName,
       approvedPackagePriceCents: recommendedPackage?.priceCents ?? null,
@@ -2405,6 +2568,8 @@ export class ProposalsService {
       status,
       contactId: links.contactId,
       contactName: links.contactName,
+      accountName: links.accountName,
+      clientAccountName: links.clientAccountName,
       recommendedPackageId: candidateRecommendedPackageId,
       packageName: candidatePackageName,
       approvedPackagePriceCents: comparisonPackage?.priceCents ?? null,
@@ -2761,6 +2926,20 @@ export class ProposalsService {
       return;
     }
     throw ApiError.conflict("This V5 proposal must be sent and frozen before it can be accepted or won.");
+  }
+
+  private collectClientReadyIssues(input: Parameters<ProposalsService["assertClientReadyProposal"]>[0]) {
+    try {
+      this.assertClientReadyProposal(input);
+      return [];
+    } catch (error) {
+      if (error instanceof ApiError && error.statusCode === 400) {
+        const details = error.details as { issues?: unknown } | undefined;
+        if (Array.isArray(details?.issues)) return details.issues.map((issue) => String(issue));
+        return [error.message];
+      }
+      throw error;
+    }
   }
 
   private async persistAcceptedProposalMutation(input: {
@@ -3255,6 +3434,8 @@ export class ProposalsService {
   ) {
     let contactId = cleanString(data.contactId);
     let resolvedContactName: string | null = null;
+    let resolvedAccountName: string | null = null;
+    let resolvedClientAccountName: string | null = null;
     const dealId = cleanString(data.dealId);
     const clientAccountProfileId = cleanString(data.clientAccountProfileId);
 
@@ -3281,7 +3462,8 @@ export class ProposalsService {
       const [contactRows]: any = await pool.execute(
         `SELECT id,
                 first_name as firstName,
-                last_name as lastName
+                last_name as lastName,
+                account_name as accountName
          FROM contact
          WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL
          LIMIT 1`,
@@ -3289,11 +3471,12 @@ export class ProposalsService {
       );
       if (contactRows.length === 0) throw ApiError.notFound("Contact not found");
       resolvedContactName = [contactRows[0].firstName, contactRows[0].lastName].filter(Boolean).join(" ").trim() || null;
+      resolvedAccountName = cleanString(contactRows[0].accountName);
     }
 
     if (clientAccountProfileId) {
       const [accountRows]: any = await pool.execute(
-        `SELECT cap.id, cap.clinic_id as clientClinicId
+        `SELECT cap.id, cap.clinic_id as clientClinicId, c.name as clientAccountName
          FROM client_account_profile cap
          JOIN clinic c
            ON c.id = cap.clinic_id
@@ -3314,11 +3497,12 @@ export class ProposalsService {
       ) {
         throw ApiError.forbidden("Client account is not available to this workspace");
       }
+      resolvedClientAccountName = cleanString(accountRows[0].clientAccountName);
     }
 
     if (data.ownerId) await this.ensureActiveOwner(clinicId, String(data.ownerId));
 
-    return { contactId, contactName: resolvedContactName, dealId, clientAccountProfileId };
+    return { contactId, contactName: resolvedContactName, dealId, clientAccountProfileId, accountName: resolvedAccountName, clientAccountName: resolvedClientAccountName };
   }
 
   private buildProposalAuditChanges(
@@ -4086,6 +4270,13 @@ export class ProposalsService {
           clinicId,
         ],
       );
+      await this.ensureProposalCommercialAcceptanceEvent(
+        executor,
+        clinicId,
+        userId,
+        proposal,
+        priorAcceptance.id,
+      );
       return;
     }
     const acceptedByName = cleanString(data.acceptedByName);
@@ -4290,6 +4481,107 @@ export class ProposalsService {
     } else {
       await insertAuditEvent(executor, auditPayload);
     }
+
+    await this.ensureProposalCommercialAcceptanceEvent(
+      executor,
+      clinicId,
+      userId,
+      proposal,
+      persistedId,
+    );
+  }
+
+  private async ensureProposalCommercialAcceptanceEvent(
+    executor: QueryExecutor,
+    clinicId: string,
+    userId: string | null,
+    proposal: ProposalResponse,
+    acceptanceRecordId: string,
+  ) {
+    if (!["accepted", "won"].includes(proposal.status)) return;
+    const [acceptanceRows]: any = await executor.execute(
+      `SELECT accepted_by_name as acceptedByName,
+              accepted_by_email as acceptedByEmail,
+              legal_company_name as legalCompanyName,
+              billing_email as billingEmail,
+              preferred_start_date as preferredStartDate,
+              accepted_at as acceptedAt,
+              acceptance_status as acceptanceStatus
+       FROM proposal_acceptance_record
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [acceptanceRecordId, clinicId],
+    );
+    const acceptanceRow = acceptanceRows[0] || {};
+    const idempotencyKey = `proposal_accepted:${proposal.id}:${proposal.v5SnapshotHash || acceptanceRecordId}`;
+    const eventId = uuidv4();
+    const selectedPackage = proposal.v5Snapshot?.selectedPackage || null;
+    const proposalReference = proposal.v5Snapshot?.proposal?.reference || proposal.sectionContent?.proposalReference || null;
+    const payload = {
+      schemaVersion: "proposal_commercial_event_v1",
+      eventType: "proposal_accepted",
+      idempotencyKey,
+      proposal: {
+        id: proposal.id,
+        reference: proposalReference,
+        name: proposal.proposalName,
+        status: proposal.status,
+        templateKey: proposal.templateKey,
+        frozenSnapshotHash: proposal.v5SnapshotHash,
+        frozenSnapshotVersion: proposal.v5SnapshotVersion,
+        proposalUrl: proposal.proposalUrl,
+      },
+      acceptance: {
+        id: acceptanceRecordId,
+        acceptedAt: toIso(acceptanceRow.acceptedAt) || proposal.acceptedAt || proposal.wonAt,
+        acceptedByName: acceptanceRow.acceptedByName || proposal.acceptanceRecord?.acceptedByName || proposal.contactName,
+        acceptedByEmail: acceptanceRow.acceptedByEmail || proposal.acceptanceRecord?.acceptedByEmail || proposal.contactEmail,
+        legalCompanyName: acceptanceRow.legalCompanyName || proposal.acceptanceRecord?.legalCompanyName || null,
+        billingEmail: acceptanceRow.billingEmail || proposal.acceptanceRecord?.billingEmail || null,
+        preferredStartDate: toMysqlDateOnly(acceptanceRow.preferredStartDate) || proposal.acceptanceRecord?.preferredStartDate || proposal.startDate,
+        status: acceptanceRow.acceptanceStatus || (proposal.status === "won" ? "won" : "accepted"),
+      },
+      commercial: {
+        packageId: proposal.recommendedPackageId,
+        packageName: selectedPackage?.name || proposal.packageName,
+        monthlyFeeCents: selectedPackage?.monthlyFeeCents ?? proposal.monthlyFeeCents,
+        setupFeeCents: selectedPackage?.setupFeeCents ?? proposal.setupFeeCents,
+        currency: selectedPackage?.currency || proposal.currency || "GBP",
+        billingFrequency: selectedPackage?.billingFrequency || null,
+        vatStatus: selectedPackage?.vatStatus || proposal.vatStatus,
+        mediaSpendRule: selectedPackage?.mediaSpendRule || proposal.adSpendNote,
+        minimumTermMonths: selectedPackage?.minimumTermMonths ?? proposal.minimumTermMonths,
+        noticePeriodDays: selectedPackage?.noticePeriodDays ?? proposal.noticePeriodDays,
+        proposedStartDate: proposal.startDate,
+      },
+      links: {
+        contactId: proposal.contactId,
+        dealId: proposal.dealId,
+        clientAccountProfileId: proposal.clientAccountProfileId,
+      },
+      targetConsumers: ["cg_058", "quickbooks", "onboarding"],
+    };
+    await executor.execute(
+      `INSERT INTO proposal_commercial_event
+        (id, clinic_id, proposal_id, acceptance_record_id, event_type,
+         idempotency_key, status, target_consumers, payload, created_by)
+       VALUES (?, ?, ?, ?, 'proposal_accepted', ?, 'pending', ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         acceptance_record_id = COALESCE(acceptance_record_id, VALUES(acceptance_record_id)),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        eventId,
+        clinicId,
+        proposal.id,
+        acceptanceRecordId,
+        idempotencyKey,
+        JSON.stringify(payload.targetConsumers),
+        JSON.stringify(payload),
+        userId,
+      ],
+    );
   }
 
   private async resolveAcceptanceClientAccountProfileId(
@@ -4323,6 +4615,8 @@ export class ProposalsService {
     status: ProposalStatus;
     contactId?: string | null;
     contactName?: string | null;
+    accountName?: string | null;
+    clientAccountName?: string | null;
     recommendedPackageId?: string | null;
     packageName?: string | null;
     approvedPackagePriceCents?: number | null;
@@ -4351,6 +4645,7 @@ export class ProposalsService {
 
     if (!hasText(input.contactId)) issues.push("link an actual decision-maker/contact");
     if (!hasText(input.contactName)) issues.push("complete the decision-maker's actual name");
+    if (!hasText(input.accountName) && !hasText(input.clientAccountName)) issues.push("complete the clinic/account name");
     if (!hasText(input.recommendedPackageId)) issues.push("link the proposal to an approved package catalogue record");
     if (!hasText(input.packageName)) issues.push("select the approved package/programme");
     if (!hasText(input.approvedPackageBillingFrequency)) issues.push("complete billing frequency on the approved package catalogue record");
@@ -4578,7 +4873,7 @@ export class ProposalsService {
     if (issues.length) {
       const shown = issues.slice(0, 8).join("; ");
       const suffix = issues.length > 8 ? `; plus ${issues.length - 8} more` : "";
-      throw ApiError.badRequest(`Proposal is not ready for client use: ${shown}${suffix}.`);
+      throw ApiError.badRequest(`Proposal is not ready for client use: ${shown}${suffix}.`, { issues });
     }
   }
 

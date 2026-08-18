@@ -92,6 +92,9 @@ export interface ProposalV5Stated<T> {
   state: ProposalDataState;
   source: string | null;
   sourceDate: string | null;
+  evidenceReference: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
   customerWording: string | null;
 }
 
@@ -246,7 +249,7 @@ export interface ProposalV5Snapshot {
     beforeSpend: string;
   };
   economics: {
-    economicUnit: string | null;
+    economicUnit: ProposalV5Stated<string>;
     contribution: ProposalV5Stated<number>;
     contributionEvidenceSourceDate: string | null;
     capacity: ProposalV5Stated<number>;
@@ -771,6 +774,15 @@ export interface ProposalSectionContent {
   termsSummary?: string | null;
   investmentNotes?: string | null;
   nextSteps?: string | null;
+  fieldEvidenceReferences?: Record<string, string | null> | null;
+  fieldApprovals?: Record<string, ProposalFieldApproval | null> | null;
+}
+
+export interface ProposalFieldApproval {
+  evidenceReference?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  approvalStatus?: "not_required" | "pending" | "approved" | "rejected" | null;
 }
 
 export interface ProposalSectorImage {
@@ -987,4 +999,22 @@ export interface ProposalSourceDataResponse {
     adSpendNote: string | null;
     sectionContent: ProposalSectionContent;
   };
+}
+
+export interface ProposalClientReadinessResponse {
+  proposalId: string;
+  ready: boolean;
+  status: ProposalStatus;
+  frozen: boolean;
+  canRenderV5: boolean;
+  pageCount: number | null;
+  packageId: string | null;
+  issues: string[];
+}
+
+export interface ProposalRenderResponse {
+  proposal: ProposalResponse;
+  v5Snapshot: ProposalV5Snapshot | null;
+  frozen: boolean;
+  validation: ProposalClientReadinessResponse;
 }

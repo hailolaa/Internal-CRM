@@ -151,6 +151,38 @@ router.post(
 );
 
 router.post(
+  "/:id/validate",
+  authorizePermission("proposals:read"),
+  proposalIdParamValidator,
+  validate,
+  proposalsController.validateProposal,
+);
+
+router.post(
+  "/:id/approve",
+  authorizePermission("proposals:write"),
+  proposalIdParamValidator,
+  validate,
+  proposalsController.approveProposal,
+);
+
+router.post(
+  "/:id/version-lock",
+  authorizePermission("proposals:write"),
+  sendProposalValidator,
+  validate,
+  proposalsController.lockProposalVersion,
+);
+
+router.get(
+  "/:id/render",
+  authorizePermission("proposals:read"),
+  proposalIdParamValidator,
+  validate,
+  proposalsController.renderProposal,
+);
+
+router.post(
   "/:id/send",
   authorizePermission("proposals:write"),
   sendProposalValidator,

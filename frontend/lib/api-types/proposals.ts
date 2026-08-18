@@ -110,6 +110,24 @@ export interface ProposalRecord {
   acceptanceRecord: ProposalAcceptanceRecord | null;
 }
 
+export interface ProposalClientReadinessRecord {
+  proposalId: string;
+  ready: boolean;
+  status: ProposalStatus;
+  frozen: boolean;
+  canRenderV5: boolean;
+  pageCount: number | null;
+  packageId: string | null;
+  issues: string[];
+}
+
+export interface ProposalRenderRecord {
+  proposal: ProposalRecord;
+  v5Snapshot: ProposalV5PersistedSnapshot | null;
+  frozen: boolean;
+  validation: ProposalClientReadinessRecord;
+}
+
 export type ProposalSignatureStatus =
   | "requested"
   | "sent"
@@ -390,6 +408,15 @@ export interface ProposalSectionContent {
   termsSummary?: string | null;
   investmentNotes?: string | null;
   nextSteps?: string | null;
+  fieldEvidenceReferences?: Record<string, string | null> | null;
+  fieldApprovals?: Record<string, ProposalFieldApproval | null> | null;
+}
+
+export interface ProposalFieldApproval {
+  evidenceReference?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  approvalStatus?: "not_required" | "pending" | "approved" | "rejected" | null;
 }
 
 export interface ProposalSectorImage {
@@ -407,6 +434,10 @@ export interface ProposalDiscoveryAnswer {
   state: ProposalDataState;
   sourceLabel: string | null;
   sourceAt: string | null;
+  evidenceReference?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  approvalStatus?: "not_required" | "pending" | "approved" | "rejected" | null;
   customerWording: string | null;
   notes?: string | null;
 }

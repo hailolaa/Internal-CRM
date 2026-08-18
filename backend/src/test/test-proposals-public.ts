@@ -164,6 +164,17 @@ function buildPublicReadyV5Proposal(overrides: Partial<ProposalResponse> = {}): 
       currentWebsiteCrmBookingSetup: "Website, call tracking and booking diary are reviewed where connected.",
       clinicTypeAndLocations: "Bristol private dental practice",
       priorityTreatments: "Implants; Invisalign",
+      fieldEvidenceReferences: {
+        "discovery.customerWording": "secret-field-evidence-reference",
+      },
+      fieldApprovals: {
+        "discovery.customerWording": {
+          evidenceReference: "secret-approved-evidence-reference",
+          approvedBy: "Secret Approver",
+          approvedAt: "2026-08-10T10:00:00.000Z",
+          approvalStatus: "approved",
+        },
+      },
       activeConstraintId: "Treatment-coordinator review",
       activeConstraintConfidenceState: "working_diagnosis",
       problemsDiscussed: "Lead handling; Attendance; Case value",
@@ -332,6 +343,11 @@ test("public V5 mapper suppresses raw editor data and nested internal asset IDs"
   assert.equal(result.coreData, null);
   assert.equal(result.v5Snapshot?.schemaVersion, "proposal_v5");
   assert.equal((result.v5Snapshot as any).proposal.reference, "CG-V5-PUBLIC-001");
+  assert.equal(Object.hasOwn((result.v5Snapshot as any).discovery.customerWording, "source"), false);
+  assert.equal(Object.hasOwn((result.v5Snapshot as any).discovery.customerWording, "sourceDate"), false);
+  assert.equal(Object.hasOwn((result.v5Snapshot as any).discovery.customerWording, "evidenceReference"), false);
+  assert.equal(Object.hasOwn((result.v5Snapshot as any).discovery.customerWording, "approvedBy"), false);
+  assert.equal(Object.hasOwn((result.v5Snapshot as any).discovery.customerWording, "approvedAt"), false);
   assert.deepEqual((result.v5Snapshot as any).proof[0].sectorTags, ["dental"]);
   assert.equal((result.v5Snapshot as any).proof[0].mediaUrl, "/brand/proof/dental-proof.png");
   assert.equal(Object.hasOwn((result.v5Snapshot as any).proof[0], "id"), false);
@@ -345,6 +361,9 @@ test("public V5 mapper suppresses raw editor data and nested internal asset IDs"
     "catalogue-secret-version",
     "proof-secret-id",
     "proof-secret-id-no-media",
+    "secret-field-evidence-reference",
+    "secret-approved-evidence-reference",
+    "Secret Approver",
     "secret editor data",
     "secret-core-version",
     proposalWithV5.v5SnapshotHash,

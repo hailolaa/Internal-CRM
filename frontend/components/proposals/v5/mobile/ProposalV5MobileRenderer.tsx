@@ -247,7 +247,7 @@ function sectionData(snapshot: ProposalV5Snapshot): Array<{
       id: "mobile-page-03",
       pageId: "V5Page03GoogleMediaRoas",
       eyebrow: "Commercial case",
-      title: `A ${snapshot.economics.economicUnit} has to justify the spend.`,
+      title: `A ${snapshot.economics.economicUnit.value || "confirmed patient value unit"} has to justify the spend.`,
       body: "Illustrative media ROAS, not a profit forecast or guarantee.",
       dark: true,
       content: (

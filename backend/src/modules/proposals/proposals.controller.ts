@@ -144,6 +144,47 @@ export class ProposalsController {
     }
   };
 
+  validateProposal = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const validation = await proposalsService.validateProposalForClientUse(clinicId, String(req.params.id));
+      res.status(200).json({ status: "success", data: validation });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  approveProposal = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const access = { canManageAllClientAccounts: await userCanManageAllClientAccounts(userId, clinicId) };
+      const proposal = await proposalsService.approveProposalForClientUse(clinicId, userId, String(req.params.id), access);
+      res.status(200).json({ status: "success", data: proposal });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  lockProposalVersion = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const proposal = await proposalsService.lockProposalVersion(clinicId, userId, String(req.params.id), req.body);
+      res.status(200).json({ status: "success", data: proposal });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  renderProposal = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const renderData = await proposalsService.renderProposal(clinicId, String(req.params.id));
+      res.status(200).json({ status: "success", data: renderData });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   markProposalSent = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;

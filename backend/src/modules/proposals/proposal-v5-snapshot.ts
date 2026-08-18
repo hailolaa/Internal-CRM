@@ -293,13 +293,55 @@ function stated<T>(
   source: string | null = null,
   sourceDate: string | null = null,
   customerWording: string | null = null,
+  metadata: { evidenceReference?: string | null; approvedBy?: string | null; approvedAt?: string | null } = {},
 ): ProposalV5Stated<T> {
+  const cleanedSource = cleanString(source);
   return {
     value,
     state: normalizeState(state),
-    source,
-    sourceDate,
-    customerWording,
+    source: cleanedSource,
+    sourceDate: normalizeDate(sourceDate),
+    evidenceReference: cleanString(metadata.evidenceReference) || cleanedSource,
+    approvedBy: cleanString(metadata.approvedBy),
+    approvedAt: normalizeDate(metadata.approvedAt),
+    customerWording: cleanString(customerWording),
+  };
+}
+
+function fieldMetadata(
+  section: ProposalSectionContent,
+  fieldKey: string,
+  fallbackEvidenceReference: string | null = null,
+) {
+  const fieldAliases: Record<string, string[]> = {
+    "discovery.customerWording": ["customerWording"],
+    "discovery.goal": ["primaryGoal"],
+    "discovery.whyNow": ["whyActNow"],
+    "discovery.workingDiagnosis": ["diagnosis", "biggestRisk"],
+    "discovery.currentSystems": ["currentWebsiteCrmBookingSetup"],
+    "journey.activeConstraint": ["activeConstraintId"],
+    "journey.diagnosedLeaks": ["problemsDiscussed", "currentlyUnmeasured"],
+    "economics.economicUnit": ["economicUnit"],
+    "economics.contribution": ["clinicConfirmedContribution"],
+    "economics.capacity": ["availableCommercialCapacity", "availableCapacity"],
+    "economics.selectedMediaSpend": ["selectedMediaSpend"],
+  };
+  const candidates = [fieldKey, ...(fieldAliases[fieldKey] || [])];
+  const evidenceReferences = section.fieldEvidenceReferences || {};
+  const approval = (candidates
+    .map((candidate) => section.fieldApprovals?.[candidate])
+    .find(Boolean) || {}) as {
+    evidenceReference?: unknown;
+    approvedBy?: unknown;
+    approvedAt?: unknown;
+  };
+  return {
+    evidenceReference:
+      cleanString(approval.evidenceReference) ||
+      candidates.map((candidate) => cleanString(evidenceReferences[candidate])).find(Boolean) ||
+      cleanString(fallbackEvidenceReference),
+    approvedBy: cleanString(approval.approvedBy),
+    approvedAt: normalizeDate(approval.approvedAt),
   };
 }
 
@@ -766,6 +808,8 @@ export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): Pr
     selectedMediaSpend !== null &&
     normalizeState(section.contributionConfirmationState) === "known" &&
     normalizeState(section.paybackState) === "known";
+  const meta = (fieldKey: string, fallbackEvidenceReference: string | null = null) =>
+    fieldMetadata(section, fieldKey, fallbackEvidenceReference);
 
   const imagePack = {
     cover: mapSectorImage("cover", savedImageBySlot.get("cover"), variantImages.cover),
@@ -792,24 +836,24 @@ export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): Pr
       proposedStartDate: normalizeDate(proposal.startDate),
     },
     recipient: {
-      name: stated(proposal.contactName || null, proposal.contactName ? "known" : "to_confirm"),
-      email: stated(proposal.contactEmail || null, proposal.contactEmail ? "known" : "to_confirm"),
-      authorisedDecisionMaker: stated(proposal.contactName || null, proposal.contactName ? "known" : "to_confirm"),
+      name: stated(proposal.contactName || null, proposal.contactName ? "known" : "to_confirm", "CRM contact", null, null, meta("recipient.name", "CRM contact")),
+      email: stated(proposal.contactEmail || null, proposal.contactEmail ? "known" : "to_confirm", "CRM contact", null, null, meta("recipient.email", "CRM contact")),
+      authorisedDecisionMaker: stated(proposal.contactName || null, proposal.contactName ? "known" : "to_confirm", "CRM contact", null, null, meta("recipient.authorisedDecisionMaker", "CRM contact")),
     },
     clinic: {
-      name: stated(proposal.clientAccountName || proposal.accountName || null, proposal.clientAccountName || proposal.accountName ? "known" : "to_confirm"),
-      location: stated(section.clinicTypeAndLocations || null, section.clinicTypeAndLocations ? "working_diagnosis" : "to_confirm"),
+      name: stated(proposal.clientAccountName || proposal.accountName || null, proposal.clientAccountName || proposal.accountName ? "known" : "to_confirm", "CRM account", null, null, meta("clinic.name", "CRM account")),
+      location: stated(section.clinicTypeAndLocations || null, section.clinicTypeAndLocations ? "working_diagnosis" : "to_confirm", section.discoverySource || null, null, null, meta("clinic.location", section.discoverySource || null)),
       clinicType: clinicVariant.id,
       typeLabel: clinicVariant.label,
       typeShortLabel: clinicVariant.shortLabel,
       proofTags: clinicVariant.proofTags,
-      priorityServices: stated(priorityServices, section.priorityTreatments ? "working_diagnosis" : "to_confirm"),
+      priorityServices: stated(priorityServices, section.priorityTreatments ? "working_diagnosis" : "to_confirm", section.discoverySource || null, null, null, meta("clinic.priorityServices", section.discoverySource || null)),
     },
     selectedPackage,
     commercial: {
       monthlyFeeCents: selectedPackage.monthlyFeeCents,
       setupFeeCents: selectedPackage.setupFeeCents,
-      mediaSpend: stated(selectedMediaSpend, section.paybackState, section.commercialDataSource || null),
+      mediaSpend: stated(selectedMediaSpend, section.paybackState, section.commercialDataSource || null, null, null, meta("commercial.mediaSpend", section.commercialDataSource || null)),
       vatStatus: selectedPackage.vatStatus,
       mediaSpendRule: selectedPackage.mediaSpendRule,
       billingFrequency: selectedPackage.billingFrequency,
@@ -820,16 +864,16 @@ export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): Pr
     },
     discovery: {
       source: section.discoverySource || null,
-      customerWording: stated(section.customerWording || null, section.evidenceConfidenceState, section.discoverySource || null, null, section.customerWording || null),
-      goal: stated(section.primaryGoal || null, section.evidenceConfidenceState, section.discoverySource || null),
-      whyNow: stated(section.whyActNow || null, section.evidenceConfidenceState, section.discoverySource || null),
-      workingDiagnosis: stated(section.diagnosis || section.biggestRisk || null, section.evidenceConfidenceState, section.discoverySource || null),
-      currentSystems: stated(section.currentWebsiteCrmBookingSetup || null, section.evidenceConfidenceState, section.discoverySource || null),
+      customerWording: stated(section.customerWording || null, section.evidenceConfidenceState, section.discoverySource || null, null, section.customerWording || null, meta("discovery.customerWording", section.discoverySource || null)),
+      goal: stated(section.primaryGoal || null, section.evidenceConfidenceState, section.discoverySource || null, null, null, meta("discovery.goal", section.discoverySource || null)),
+      whyNow: stated(section.whyActNow || null, section.evidenceConfidenceState, section.discoverySource || null, null, null, meta("discovery.whyNow", section.discoverySource || null)),
+      workingDiagnosis: stated(section.diagnosis || section.biggestRisk || null, section.evidenceConfidenceState, section.discoverySource || null, null, null, meta("discovery.workingDiagnosis", section.discoverySource || null)),
+      currentSystems: stated(section.currentWebsiteCrmBookingSetup || null, section.evidenceConfidenceState, section.discoverySource || null, null, null, meta("discovery.currentSystems", section.discoverySource || null)),
     },
     journey: {
       stages: clinicVariant.journeyStages,
-      activeConstraint: stated(section.activeConstraintId || null, section.activeConstraintConfidenceState, section.discoverySource || null),
-      diagnosedLeaks: stated(splitLines(section.problemsDiscussed || section.currentlyUnmeasured), section.evidenceConfidenceState, section.discoverySource || null),
+      activeConstraint: stated(section.activeConstraintId || null, section.activeConstraintConfidenceState, section.discoverySource || null, null, null, meta("journey.activeConstraint", section.discoverySource || null)),
+      diagnosedLeaks: stated(splitLines(section.problemsDiscussed || section.currentlyUnmeasured), section.evidenceConfidenceState, section.discoverySource || null, null, null, meta("journey.diagnosedLeaks", section.discoverySource || null)),
       demandQuestion: clinicVariant.demandQuestion,
       progressionQuestion: clinicVariant.progressionQuestion,
       postBookingContinuation: clinicVariant.postBookingContinuation,
@@ -842,11 +886,18 @@ export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): Pr
       beforeSpend: "Choose demand, progression or neither.",
     },
     economics: {
-      economicUnit: section.economicUnit || clinicVariant.economicUnit,
-      contribution: stated(contribution, section.contributionConfirmationState, section.contributionEvidenceSourceDate || null),
+      economicUnit: stated(
+        section.economicUnit || clinicVariant.economicUnit,
+        section.contributionConfirmationState || section.evidenceConfidenceState,
+        section.contributionEvidenceSourceDate || section.discoverySource || null,
+        null,
+        null,
+        meta("economics.economicUnit", section.contributionEvidenceSourceDate || section.discoverySource || null),
+      ),
+      contribution: stated(contribution, section.contributionConfirmationState, section.contributionEvidenceSourceDate || null, null, null, meta("economics.contribution", section.contributionEvidenceSourceDate || null)),
       contributionEvidenceSourceDate: section.contributionEvidenceSourceDate || null,
-      capacity: stated(parseMoney(section.availableCommercialCapacity || section.availableCapacity), section.paybackState, section.commercialDataSource || null),
-      selectedMediaSpend: stated(selectedMediaSpend, section.paybackState, section.commercialDataSource || null),
+      capacity: stated(parseMoney(section.availableCommercialCapacity || section.availableCapacity), section.paybackState, section.commercialDataSource || null, null, null, meta("economics.capacity", section.commercialDataSource || null)),
+      selectedMediaSpend: stated(selectedMediaSpend, section.paybackState, section.commercialDataSource || null, null, null, meta("economics.selectedMediaSpend", section.commercialDataSource || null)),
       recurringBreakEvenUnits: canCalculateBreakEven && contribution ? Math.ceil((monthlyFee + selectedMediaSpend) / contribution) : null,
       firstMonthBreakEvenUnits: canCalculateBreakEven && contribution ? Math.ceil((monthlyFee + selectedMediaSpend + setupFee) / contribution) : null,
     },
@@ -863,14 +914,14 @@ export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): Pr
       currentSystems: section.currentWebsiteCrmBookingSetup || null,
       currentSystemsState: normalizeState(section.evidenceConfidenceState),
     }),
-    kpis: splitLines(section.successMetrics).map((metric) => {
+    kpis: splitLines(section.successMetrics).map((metric, index) => {
       const parts = metric.split("|").map((part) => cleanString(part));
       const name = parts[0] || metric;
       const baseline = parts[1] || null;
       const source = parts[2] || null;
       return {
         name,
-        baseline: stated(baseline, baseline ? "working_diagnosis" : "to_confirm"),
+        baseline: stated(baseline, baseline ? "working_diagnosis" : "to_confirm", source, null, null, meta(`kpis.${index}.baseline`, source)),
         cadence: null,
         source,
       };
@@ -982,8 +1033,27 @@ export function serializeProposalV5Snapshot(snapshot: ProposalV5Snapshot | null 
 export function sanitizeProposalV5SnapshotForPublic(snapshot: ProposalV5Snapshot | null | undefined): ProposalV5PublicSnapshot | null {
   if (!snapshot) return null;
   const publicSnapshot = JSON.parse(JSON.stringify(snapshot)) as Record<string, any>;
+
+  const stripInternalStatedMetadata = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const item of value) stripInternalStatedMetadata(item);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (Object.hasOwn(record, "value") && Object.hasOwn(record, "state")) {
+      delete record.source;
+      delete record.sourceDate;
+      delete record.evidenceReference;
+      delete record.approvedBy;
+      delete record.approvedAt;
+    }
+    for (const child of Object.values(record)) stripInternalStatedMetadata(child);
+  };
+
   delete publicSnapshot.snapshotHash;
   delete publicSnapshot.sourceProposalVersion;
+  stripInternalStatedMetadata(publicSnapshot);
   if (publicSnapshot.selectedPackage) {
     delete publicSnapshot.selectedPackage.id;
     delete publicSnapshot.selectedPackage.catalogueVersion;

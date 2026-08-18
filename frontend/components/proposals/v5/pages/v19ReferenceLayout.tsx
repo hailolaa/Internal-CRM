@@ -414,7 +414,7 @@ function priority(snapshot: ProposalV5Snapshot, spec: SectorSpec) {
 }
 
 function unitName(snapshot: ProposalV5Snapshot, spec: SectorSpec) {
-  return snapshot.economics.economicUnit || spec.unitName;
+  return snapshot.economics.economicUnit.value || spec.unitName;
 }
 
 function proofSearchText(asset: ProposalV5ProofAsset | null | undefined) {

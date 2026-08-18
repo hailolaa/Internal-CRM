@@ -80,6 +80,10 @@ export interface ProposalDiscoveryAnswer {
   state: ProposalDataState;
   sourceLabel: string | null;
   sourceAt: string | null;
+  evidenceReference?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  approvalStatus?: "not_required" | "pending" | "approved" | "rejected" | null;
   customerWording: string | null;
   notes?: string | null;
 }

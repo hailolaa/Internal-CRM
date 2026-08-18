@@ -1,0 +1,28 @@
+-- CG-052: Idempotent commercial event emitted when a proposal is accepted.
+CREATE TABLE IF NOT EXISTS `proposal_commercial_event` (
+  `id` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `proposal_id` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `acceptance_record_id` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `event_type` ENUM('proposal_accepted') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `idempotency_key` VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` ENUM('pending','processing','processed','failed','ignored') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `target_consumers` JSON NOT NULL,
+  `payload` JSON NOT NULL,
+  `published_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `processed_at` DATETIME DEFAULT NULL,
+  `failure_reason` TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_by` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_proposal_commercial_event_idempotency` (`clinic_id`, `idempotency_key`),
+  KEY `idx_proposal_commercial_event_status` (`clinic_id`, `event_type`, `status`, `published_at`),
+  KEY `idx_proposal_commercial_event_proposal` (`clinic_id`, `proposal_id`, `event_type`),
+  KEY `fk_proposal_commercial_event_acceptance` (`acceptance_record_id`),
+  KEY `fk_proposal_commercial_event_created_by` (`created_by`),
+  CONSTRAINT `fk_proposal_commercial_event_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_proposal_commercial_event_proposal` FOREIGN KEY (`proposal_id`) REFERENCES `proposal` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_proposal_commercial_event_acceptance` FOREIGN KEY (`acceptance_record_id`) REFERENCES `proposal_acceptance_record` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_proposal_commercial_event_created_by` FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

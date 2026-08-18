@@ -41,6 +41,9 @@ export interface ProposalV5Stated<T> {
   state: ProposalV5EvidenceState;
   source: string | null;
   sourceDate: string | null;
+  evidenceReference: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
   customerWording: string | null;
 }
 
@@ -228,7 +231,7 @@ export interface ProposalV5Snapshot {
     beforeSpend: string;
   };
   economics: {
-    economicUnit: string | null;
+    economicUnit: ProposalV5Stated<string>;
     contribution: ProposalV5Stated<number>;
     contributionEvidenceSourceDate: string | null;
     capacity: ProposalV5Stated<number>;
