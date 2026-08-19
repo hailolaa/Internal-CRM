@@ -8,6 +8,9 @@ import type {
   InboxConversationRecord,
   InboxThreadMessageRecord,
   InboxThreadRecord,
+  MissedCallRecoveryListResponse,
+  MissedCallRecoveryRecord,
+  MissedCallRecoveryState,
   WhatsAppAiReplyRecord,
   WhatsAppAiSettingsRecord,
   WhatsAppConversationRecord,
@@ -352,6 +355,26 @@ export function createCommsCallsApi(apiRequest: ApiRequest) {
         const response = await apiRequest<CallAiBreakdownRecord[]>(
           `/api/calls/analytics/breakdowns${buildCallsQuery(params)}`,
           { token },
+        );
+        return response.data!;
+      },
+    },
+    missedCallRecovery: {
+      async list(token: string) {
+        const response = await apiRequest<MissedCallRecoveryListResponse>(
+          "/api/missed-call-recovery",
+          { token },
+        );
+        return response.data!;
+      },
+      async updateState(token: string, recoveryId: string, state: MissedCallRecoveryState) {
+        const response = await apiRequest<MissedCallRecoveryRecord>(
+          `/api/missed-call-recovery/${recoveryId}/state`,
+          {
+            method: "PATCH",
+            token,
+            body: JSON.stringify({ state }),
+          },
         );
         return response.data!;
       },

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { Phone, Plus, Filter, Download } from "lucide-react";
+import Link from "next/link";
+import { Phone, Plus, Filter, Download, PhoneMissed } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { PageHeader, StatCardSkeleton, TableRowSkeleton } from "@/components/ui";
 import { SearchInput, FilterTabs } from "@/components/ui/forms";
@@ -367,6 +368,9 @@ export default function CallsPage() {
         iconBg="bg-[rgba(74,122,138,0.1)]"
         right={
           <div className="flex gap-2">
+            <Link href="/app/comms/calls/recovery" className="btn-secondary text-sm">
+              <PhoneMissed className="w-4 h-4" /> Recovery
+            </Link>
             <button
               onClick={handleExport}
               disabled={isLoading || calls.length === 0}

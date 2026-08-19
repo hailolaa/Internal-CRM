@@ -70,6 +70,7 @@ import commandPaletteRoutes from "./modules/command-palette/command-palette.rout
 import clickUpRoutes from "./modules/clickup/clickup.routes.js";
 import calendarRoutes from "./modules/calendar/calendar.routes.js";
 import quickBooksRoutes from "./modules/quickbooks/quickbooks.routes.js";
+import missedCallRecoveryRoutes from "./modules/missed-call-recovery/missed-call-recovery.routes.js";
 
 const app = express();
 
@@ -167,6 +168,7 @@ app.use("/api/command-palette", commandPaletteRoutes);
 app.use("/api/clickup", clickUpRoutes);
 app.use("/api/calendar", calendarRoutes);
 app.use("/api/quickbooks", quickBooksRoutes);
+app.use("/api/missed-call-recovery", missedCallRecoveryRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/health", healthRoutes);
 

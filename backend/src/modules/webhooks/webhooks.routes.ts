@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { webhooksController } from "./webhooks.controller.js";
 import { proposalsController } from "../proposals/proposals.controller.js";
+import { missedCallRecoveryController } from "../missed-call-recovery/missed-call-recovery.controller.js";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
@@ -42,6 +43,14 @@ router.post(
   proposalSignatureWebhookProviderValidator,
   validate,
   proposalsController.handleSignatureWebhook,
+);
+
+// @route   POST /api/webhooks/clinicgrower/missed-call-recovery
+// @desc    Signed ClinicGrower missed-call recovery event intake
+// @access  Public server-to-server provider webhook
+router.post(
+  "/clinicgrower/missed-call-recovery",
+  missedCallRecoveryController.handleClinicGrowerEvent,
 );
 
 router.use(authenticate);

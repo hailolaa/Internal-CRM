@@ -11,6 +11,55 @@ export type CallCommercialOutcome =
 export type CallSentiment = "positive" | "neutral" | "negative" | "unknown";
 export type CallBookingIntent = "none" | "low" | "medium" | "high" | "booked";
 
+export type MissedCallRecoveryState = "attempted" | "contacted" | "booked" | "closed_no_response";
+export type MissedCallSlaStatus = "due" | "due_soon" | "overdue" | "completed_within_sla" | "completed_after_sla";
+
+export interface MissedCallRecoveryRecord {
+  id: string;
+  clinicId: string;
+  clientAccountProfileId: string;
+  clientClinicId: string | null;
+  clientName: string;
+  contactId: string;
+  contactName: string;
+  contactPhone: string | null;
+  taskId: string | null;
+  ownerUserId: string | null;
+  ownerLabel: string;
+  state: MissedCallRecoveryState;
+  slaStatus: MissedCallSlaStatus;
+  occurredAt: string;
+  recoverySlaTargetAt: string;
+  attemptedAt: string | null;
+  contactedAt: string | null;
+  bookedAt: string | null;
+  closedNoResponseAt: string | null;
+  completedWithinSla: boolean | null;
+  missedCallState: "no_answer" | "busy" | "failed" | "canceled" | "voicemail";
+  voicemailState: string | null;
+  source: string | null;
+  trackingNumber: string | null;
+  providerCallSid: string;
+  clinicGrowerCallId: string;
+  acknowledgementStatus: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MissedCallRecoveryListResponse {
+  records: MissedCallRecoveryRecord[];
+  summary: {
+    total: number;
+    attempted: number;
+    contacted: number;
+    booked: number;
+    closedNoResponse: number;
+    dueSoon: number;
+    overdue: number;
+    voicemail: number;
+  };
+}
+
 export interface MessageTemplateRecord {
   id: string;
   name: string;

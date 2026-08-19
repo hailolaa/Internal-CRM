@@ -119,6 +119,11 @@ export const config = {
         webhookWorkspaceMap: parseJsonRecord(process.env.WHATSAPP_WEBHOOK_WORKSPACE_MAP),
     },
 
+    clinicGrowerEvents: {
+        signingSecret: process.env.CLINICGROWER_EVENT_SIGNING_SECRET || "",
+        timestampToleranceSeconds: parseInt(process.env.CLINICGROWER_EVENT_TIMESTAMP_TOLERANCE_SECONDS || "300", 10),
+    },
+
     esign: {
         provider: process.env.ESIGN_PROVIDER || "log",
         webhookSecret: process.env.ESIGN_WEBHOOK_SECRET || "",
@@ -410,6 +415,10 @@ export function getProductionConfigIssues() {
         Object.keys(config.whatsapp.webhookWorkspaceMap).length === 0
     ) {
         issues.push("WHATSAPP_WEBHOOK_WORKSPACE_ID or WHATSAPP_WEBHOOK_WORKSPACE_MAP must be set when WHATSAPP_PROVIDER=meta or twilio.");
+    }
+
+    if (!config.clinicGrowerEvents.signingSecret || config.clinicGrowerEvents.signingSecret.length < 32) {
+        issues.push("CLINICGROWER_EVENT_SIGNING_SECRET must be set to a strong secret of at least 32 characters.");
     }
 
     if (
