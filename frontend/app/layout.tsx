@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
+import { ClientObservability } from "@/components/observability/client-observability";
 import { GsapSiteEffects } from "@/components/motion/gsap-site-effects";
 import "./globals.css";
 
@@ -54,6 +55,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${plusJakarta.variable}`}>
       <body className={`${inter.className} antialiased`}>
+        <ClientObservability />
         {children}
         <GsapSiteEffects />
       </body>

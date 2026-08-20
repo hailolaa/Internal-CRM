@@ -1,14 +1,20 @@
 import winston from "winston";
 import { config } from "../config/index.js";
+import { redactSensitiveValue } from "./redaction.js";
+
+const redactFormat = winston.format((info) => {
+  return redactSensitiveValue(info) as any;
+});
 
 const logger = winston.createLogger({
   level: config.nodeEnv === "production" ? "info" : "debug",
   format: winston.format.combine(
     winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
     winston.format.errors({ stack: true }),
+    redactFormat(),
     winston.format.json()
   ),
-  defaultMeta: { service: "clinicgrower-crm" },
+  defaultMeta: { service: config.observability.serviceName },
   transports: [
     new winston.transports.Console({
       format: config.nodeEnv === "production"

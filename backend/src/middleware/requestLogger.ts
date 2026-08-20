@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import logger from "../utils/logger.js";
+import { redactTelemetryPath } from "../utils/redaction.js";
 
 export const requestLogger = (
   req: Request,
@@ -16,7 +17,7 @@ export const requestLogger = (
     logger.log(level, "http_request", {
       requestId: (req as any).requestId,
       method: req.method,
-      path: req.originalUrl,
+      path: redactTelemetryPath(req.originalUrl),
       statusCode,
       durationMs,
       ipAddress: req.ip,

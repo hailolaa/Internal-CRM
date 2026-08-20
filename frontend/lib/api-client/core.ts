@@ -1,5 +1,9 @@
 import { publicEnv } from "@/lib/env";
 import type { ApiEnvelope } from "@/lib/api-types";
+import {
+  createClientCorrelationId,
+  recordApiFailure,
+} from "@/lib/client-observability";
 
 export type ApiRequestOptions = RequestInit & {
   token?: string;
@@ -15,13 +19,21 @@ type AuthRefreshHandler = () => Promise<string | null>;
 
 let authRefreshHandler: AuthRefreshHandler | null = null;
 
+function readPayloadRequestId(payload: unknown) {
+  if (!payload || typeof payload !== "object" || !("requestId" in payload)) return null;
+  const requestId = (payload as { requestId?: unknown }).requestId;
+  return typeof requestId === "string" && requestId.trim() ? requestId : null;
+}
+
 export class ApiClientError extends Error {
   status: number;
+  requestId?: string | null;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, requestId?: string | null) {
     super(message);
     this.name = "ApiClientError";
     this.status = status;
+    this.requestId = requestId || null;
   }
 }
 
@@ -35,6 +47,11 @@ export async function apiRequest<T>(
 ) {
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
+  const correlationId = headers.get("x-correlation-id") || createClientCorrelationId();
+  headers.set("x-correlation-id", correlationId);
+  if (!headers.has("x-request-id")) {
+    headers.set("x-request-id", correlationId);
+  }
 
   if (
     options.body &&
@@ -48,14 +65,22 @@ export async function apiRequest<T>(
     headers.set("Authorization", `Bearer ${options.token}`);
   }
 
-  const response = await fetch(
-    `${publicEnv.apiBaseUrl}/${path.replace(/^\/+/, "").replace(/^api\//, "")}`,
-    {
-      ...options,
-      cache: options.cache || "no-store",
-      headers,
-    },
-  );
+  const normalizedPath = path.replace(/^\/+/, "").replace(/^api\//, "");
+  const response = await fetch(`${publicEnv.apiBaseUrl}/${normalizedPath}`, {
+    ...options,
+    cache: options.cache || "no-store",
+    headers,
+  }).catch((error) => {
+    recordApiFailure({
+      path: `/${normalizedPath}`,
+      method: options.method || "GET",
+      statusCode: null,
+      correlationId,
+      message: "API request failed before a response was received.",
+      error,
+    });
+    throw error;
+  });
 
   const text = await response.text();
   let payload: ApiEnvelope<T> | undefined;
@@ -78,10 +103,18 @@ export async function apiRequest<T>(
       }
     }
 
-    throw new ApiClientError(
-      payload?.message || `Request failed with ${response.status}`,
-      response.status,
-    );
+    const requestId = response.headers?.get?.("x-request-id") || readPayloadRequestId(payload);
+    const message = payload?.message || `Request failed with ${response.status}`;
+    recordApiFailure({
+      path: `/${normalizedPath}`,
+      method: options.method || "GET",
+      statusCode: response.status,
+      requestId,
+      correlationId,
+      message,
+    });
+
+    throw new ApiClientError(message, response.status, requestId);
   }
 
   return payload as ApiEnvelope<T>;
@@ -92,23 +125,31 @@ export async function downloadCsv(
   token: string,
   fallbackFileName: string,
 ) {
-  const response = await fetch(
-    `${publicEnv.apiBaseUrl}/${path.replace(/^\/+/, "").replace(/^api\//, "")}`,
-    {
-      cache: "no-store",
-      headers: {
-        Accept: "text/csv",
-        Authorization: `Bearer ${token}`,
-      },
+  const normalizedPath = path.replace(/^\/+/, "").replace(/^api\//, "");
+  const correlationId = createClientCorrelationId();
+  const response = await fetch(`${publicEnv.apiBaseUrl}/${normalizedPath}`, {
+    cache: "no-store",
+    headers: {
+      Accept: "text/csv",
+      Authorization: `Bearer ${token}`,
+      "x-correlation-id": correlationId,
+      "x-request-id": correlationId,
     },
-  );
+  });
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    throw new ApiClientError(
-      payload?.message || `CSV export failed with ${response.status}`,
-      response.status,
-    );
+    const requestId = response.headers?.get?.("x-request-id") || payload?.requestId || null;
+    const message = payload?.message || `CSV export failed with ${response.status}`;
+    recordApiFailure({
+      path: `/${normalizedPath}`,
+      method: "GET",
+      statusCode: response.status,
+      requestId,
+      correlationId,
+      message,
+    });
+    throw new ApiClientError(message, response.status, requestId);
   }
 
   const disposition = response.headers.get("content-disposition") || "";

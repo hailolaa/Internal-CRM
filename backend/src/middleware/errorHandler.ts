@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import logger from "../utils/logger.js";
 import { config } from "../config/index.js";
 import { notifyObservabilityAlert } from "../utils/observability.js";
+import { redactSensitiveValue, redactTelemetryPath } from "../utils/redaction.js";
 
 const errorHandler = (
     err: Error,
@@ -31,8 +32,8 @@ const errorHandler = (
         logger.error(`${req.method} ${req.path} - ${err.message}`, {
             requestId: (req as any).requestId,
             stack: err.stack,
-            body: req.body,
-            user: (req as any).user,
+            requestBody: redactSensitiveValue(req.body),
+            user: redactSensitiveValue((req as any).user),
         });
         void notifyObservabilityAlert({
             type: "api_error",
@@ -44,7 +45,7 @@ const errorHandler = (
             clinicId: (req as any).user?.clinicId || null,
             userId: (req as any).user?.userId || null,
             statusCode,
-            path: req.originalUrl,
+            path: redactTelemetryPath(req.originalUrl),
             method: req.method,
             error: err,
         });

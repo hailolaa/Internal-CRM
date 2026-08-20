@@ -53,4 +53,19 @@ export const publicEnv = {
   stripePublishableKey: readPublicConfigValue(
     process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
   ),
+  observabilityClientEndpoint: readPublicConfigValue(
+    process.env.NEXT_PUBLIC_OBSERVABILITY_CLIENT_ENDPOINT,
+  ),
+  observabilityServiceName: readPublicConfigValue(
+    process.env.NEXT_PUBLIC_OBSERVABILITY_SERVICE_NAME,
+  ) || "mission-control-frontend",
+  releaseId: readPublicConfigValue(
+    process.env.NEXT_PUBLIC_RELEASE_ID || process.env.RELEASE_ID || process.env.RELEASE_VERSION,
+  ),
+  releaseEnvironment: readPublicConfigValue(
+    process.env.NEXT_PUBLIC_RELEASE_ENVIRONMENT || process.env.NODE_ENV,
+  ) || "development",
+  releaseCommitSha: readPublicConfigValue(
+    process.env.NEXT_PUBLIC_RELEASE_COMMIT_SHA || process.env.RELEASE_COMMIT_SHA || process.env.GITHUB_SHA,
+  ),
 } as const;

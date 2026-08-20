@@ -3,6 +3,7 @@
 import { Component, type ReactNode } from "react";
 import { AlertTriangle, RefreshCw, Home } from "lucide-react";
 import Link from "next/link";
+import { captureFrontendError } from "@/lib/client-observability";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -28,7 +29,16 @@ export class ErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("[ErrorBoundary]", error, errorInfo);
+    captureFrontendError({
+      eventType: "frontend_error",
+      severity: "error",
+      message: "React render error boundary captured an error.",
+      error,
+      component: "ErrorBoundary",
+      context: {
+        componentStack: errorInfo.componentStack,
+      },
+    });
   }
 
   handleReset = () => {
@@ -63,22 +73,6 @@ export class ErrorBoundary extends Component<
               An unexpected error occurred. Try refreshing or go back to the
               dashboard.
             </p>
-            {this.state.error && (
-              <div
-                className="rounded-[16px] p-4 mb-6 text-left"
-                style={{
-                  backgroundColor: "rgba(154,85,36,0.04)",
-                  border: "1px solid rgba(154,85,36,0.10)",
-                }}
-              >
-                <p
-                  className="text-xs font-mono break-all"
-                  style={{ color: "#9a5524" }}
-                >
-                  {this.state.error.message}
-                </p>
-              </div>
-            )}
             <div className="flex items-center justify-center gap-3">
               <button
                 onClick={this.handleReset}
@@ -138,7 +132,6 @@ export class ErrorBoundary extends Component<
 }
 
 export function ErrorFallback({
-  error,
   onReset,
 }: {
   error?: Error | null;
@@ -161,7 +154,7 @@ export function ErrorFallback({
         Failed to load
       </h3>
       <p className="text-sm mb-4" style={{ color: "#5e8a8d" }}>
-        {error?.message || "An unexpected error occurred."}
+        An unexpected error occurred.
       </p>
       {onReset && (
         <button
