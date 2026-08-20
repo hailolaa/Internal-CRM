@@ -27,6 +27,7 @@
     "setup:brevo-inbound": "node scripts/setup-brevo-inbound-webhook.mjs",
     "seed:staging-demo": "node scripts/seed-staging-demo.mjs",
     "credentials:rewrap": "node scripts/rewrap-provider-credentials.mjs",
+    "security:scan": "node ../scripts/scan-secrets.mjs --include-build-output",
     "test": "npm run build && npm run test:smoke",
     "db:migrate": "node scripts/db-migrate.mjs",
     "test:smoke": "NODE_ENV=test node --test --test-force-exit --test-concurrency=1 scripts/backup-db-options.test.mjs dist/test/test-csv.js dist/test/test-export-validators.js dist/test/test-command-palette.js dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js dist/test/test-client-accounts.js dist/test/test-lead-hub.js dist/test/test-landing-page-lead-intake.js dist/test/test-observability.js dist/test/test-proposals-public.js dist/test/test-proposals.js dist/test/test-roles-management.js dist/test/test-scoro-import-templates.js",
@@ -40,6 +41,7 @@
     "test:quickbooks": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-quickbooks-oauth.js",
     "test:landing-page-leads": "npm run build && node --test --test-force-exit --test-concurrency=1 dist/test/test-landing-page-lead-intake.js",
     "test:data-state": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-data-state-safety.js",
+    "test:security": "npm run build && node --test --experimental-test-isolation=none dist/test/test-secret-config.js && npm run security:scan",
     "qa:phase1": "node scripts/phase1-browser-qa.mjs"
   },
   "dependencies": {

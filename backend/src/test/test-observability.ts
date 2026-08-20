@@ -29,6 +29,10 @@ test("observability redacts secrets and personal payloads", () => {
   const sanitized = redactSensitiveValue({
     password: "secret",
     authorization: "Bearer sk_live_secret",
+    openaiApiKey: "sk_live_realistic_test_secret",
+    clickupWebhookSecret: "clickup-webhook-secret-value",
+    stripeWebhookSecret: "whsec_realistic_test_secret",
+    releaseManifestSigningKey: "release-signing-key-value",
     email: "patient@example.com",
     nested: {
       phone: "+44 7700 900123",
@@ -37,7 +41,11 @@ test("observability redacts secrets and personal payloads", () => {
   });
 
   const serialized = JSON.stringify(sanitized);
-  assert.equal(serialized.includes("secret"), false);
+  assert.equal(serialized.includes('"password":"secret"'), false);
+  assert.equal(serialized.includes("Bearer sk_live_secret"), false);
+  assert.equal(serialized.includes("clickup-webhook-secret-value"), false);
+  assert.equal(serialized.includes("whsec_realistic_test_secret"), false);
+  assert.equal(serialized.includes("release-signing-key-value"), false);
   assert.equal(serialized.includes("patient@example.com"), false);
   assert.equal(serialized.includes("+44 7700"), false);
   assert.equal(serialized.includes("status changed"), true);

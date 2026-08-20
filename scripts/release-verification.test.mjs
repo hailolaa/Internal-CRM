@@ -40,6 +40,7 @@ test("create-release-manifest records pending deployment verification in the sig
   assert.equal(manifest.deploymentVerification.reportPath, "release/deployment-verification.json");
   assert.equal(manifest.deploymentVerification.deployedRevision, null);
   assert.equal(manifest.signature.algorithm, "hmac-sha256");
+  assert.equal(JSON.stringify(manifest).includes(key), false);
 });
 
 test("verify-deployment passes when deployed version matches the signed manifest", async () => {

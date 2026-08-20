@@ -94,3 +94,17 @@ Before this is treated as complete, the reviewer should confirm:
 - the deployment environment has `JWT_SECRET` and `CREDENTIAL_ENCRYPTION_KEY` set separately
 - connector tokens can be decrypted with the current key
 - the rewrap script has been dry-run before any JWT rotation
+
+## CG-019 Repo-Side Hardening
+
+Engineering-prepared controls are now in place:
+
+- backend production config rejects missing, reused or placeholder secret values without printing them
+- local/test execution uses an explicit test-only JWT fixture instead of a production fallback
+- `npm run test:security` runs the backend secret-config checks and repository scanner
+- `npm run security:scan` scans tracked files and available build output, skipping real `.env` and `.tmp` artifacts
+- frontend `npm run test:security` also verifies the public-env allowlist
+
+External owner action is still required before this can be called fully operational: the approved vault or password manager must be chosen, live credentials must be moved there, and at least one staging rotation rehearsal must be completed.
+
+See `docs/secret-inventory.md` for the no-values inventory.

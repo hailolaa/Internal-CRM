@@ -18,6 +18,9 @@ describe("client observability", () => {
       email: "patient@example.com",
       phone: "+44 7700 900123",
       token: "sk_live_secret",
+      openaiApiKey: "sk_live_realistic_test_secret",
+      clickupWebhookSecret: "clickup-webhook-secret-value",
+      stripeWebhookSecret: "whsec_realistic_test_secret",
       nested: { safe: "visible" },
     });
 
@@ -25,6 +28,8 @@ describe("client observability", () => {
     expect(serialized).not.toContain("patient@example.com");
     expect(serialized).not.toContain("+44 7700");
     expect(serialized).not.toContain("sk_live_secret");
+    expect(serialized).not.toContain("clickup-webhook-secret-value");
+    expect(serialized).not.toContain("whsec_realistic_test_secret");
     expect(serialized).toContain("visible");
   });
 

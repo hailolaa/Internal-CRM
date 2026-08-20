@@ -8,6 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "security:scan": "node ../scripts/scan-secrets.mjs --include-build-output",
+    "security:public-env": "node scripts/scan-public-env.mjs --include-build-output",
+    "test:security": "npm run security:public-env && npm run security:scan",
     "test": "vitest run",
     "test:watch": "vitest"
   },

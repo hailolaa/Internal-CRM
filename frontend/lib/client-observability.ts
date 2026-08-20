@@ -7,7 +7,7 @@ type ClientEventType = "frontend_error" | "frontend_api_failure";
 
 const REDACTED = "[redacted]";
 const SENSITIVE_KEY_PATTERN =
-  /(^|_|-)(password|passcode|token|access.?token|refresh.?token|authorization|cookie|api.?key|secret|client.?secret|oauth|stripe|card|payment|cvv|cvc|email|phone|name|first.?name|last.?name|patient|contact|body)(_|-|$)/i;
+  /(^|_|-)(password|passcode|token|auth.?token|access.?token|refresh.?token|authorization|cookie|api.?key|signing.?key|developer.?token|secret|client.?secret|oauth|stripe|card|payment|cvv|cvc|email|phone|name|first.?name|last.?name|patient|contact|body)(_|-|$)/i;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const PHONE_PATTERN = /(?:\+?\d[\d\s().-]{7,}\d)/g;
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
@@ -31,6 +31,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
+function isSensitiveKey(key: string) {
+  const normalized = key.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
+  return SENSITIVE_KEY_PATTERN.test(normalized);
+}
+
 export function redactClientTelemetry(value: unknown, depth = 0): unknown {
   if (value == null) return value;
   if (typeof value === "string") return sanitizeString(value);
@@ -48,7 +53,7 @@ export function redactClientTelemetry(value: unknown, depth = 0): unknown {
 
   const safe: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value)) {
-    safe[key] = SENSITIVE_KEY_PATTERN.test(key)
+    safe[key] = isSensitiveKey(key)
       ? REDACTED
       : redactClientTelemetry(nested, depth + 1);
   }

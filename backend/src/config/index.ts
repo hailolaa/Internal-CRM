@@ -1,6 +1,20 @@
 import "dotenv/config";
 
 const hasOpenAIApiKey = Boolean(process.env.OPENAI_API_KEY);
+const TEST_ONLY_JWT_SECRET = "test-only-jwt-secret-for-node-tests-32-chars";
+
+const PLACEHOLDER_SECRET_PATTERN =
+    /^(|changeme|change-me|replace-me|placeholder|example|sample|dummy|fake|test|secret|password|token|key|your[_-]?.*|.*\.\.\..*)$/i;
+
+const LOCAL_ENVIRONMENTS = new Set(["development", "test", "local"]);
+
+type SecretRequirement = {
+    name: string;
+    value: string | undefined;
+    required?: boolean;
+    minLength?: number;
+    pairedWith?: string[];
+};
 
 function parseCsv(value: string | undefined) {
     return (value || "")
@@ -31,6 +45,104 @@ function parseJsonRecord(value: string | undefined): Record<string, string> {
     }
 }
 
+function trimSecret(value: string | undefined) {
+    return (value || "").trim();
+}
+
+export function getConfiguredJwtSecret(env: NodeJS.ProcessEnv = process.env) {
+    const configured = trimSecret(env.JWT_SECRET);
+    if (configured) return configured;
+    return env.NODE_ENV === "test" ? TEST_ONLY_JWT_SECRET : "";
+}
+
+function isKnownUnsafeSecret(value: string | undefined) {
+    const candidate = trimSecret(value);
+    if (!candidate) return true;
+    if (PLACEHOLDER_SECRET_PATTERN.test(candidate)) return true;
+    if (/^(.)\1{7,}$/.test(candidate)) return true;
+    return false;
+}
+
+function validateSecret(requirement: SecretRequirement) {
+    const minLength = requirement.minLength ?? 16;
+    const value = trimSecret(requirement.value);
+    const issues: string[] = [];
+
+    if (requirement.required && !value) {
+        issues.push(`${requirement.name} must be configured.`);
+        return issues;
+    }
+
+    if (!value) return issues;
+
+    if (value.length < minLength || isKnownUnsafeSecret(value)) {
+        issues.push(`${requirement.name} must be a real secret of at least ${minLength} characters.`);
+    }
+
+    return issues;
+}
+
+function requirePairedSecrets(env: NodeJS.ProcessEnv, names: string[]) {
+    const configured = names.filter((name) => Boolean(trimSecret(env[name])));
+    if (configured.length === 0 || configured.length === names.length) return [];
+    return [`${names.join(" and ")} must be configured together.`];
+}
+
+export function getSecretConfigurationIssues(env: NodeJS.ProcessEnv = process.env) {
+    const nodeEnv = env.NODE_ENV || "development";
+    const nonLocal = !LOCAL_ENVIRONMENTS.has(nodeEnv);
+    const issues: string[] = [];
+
+    const checks: SecretRequirement[] = [
+        { name: "JWT_SECRET", value: getConfiguredJwtSecret(env), required: nonLocal || Boolean(env.JWT_SECRET), minLength: 32 },
+        { name: "DB_PASSWORD", value: env.DB_PASSWORD, required: nonLocal, minLength: 12 },
+        { name: "BACKUP_ENCRYPTION_KEY", value: env.BACKUP_ENCRYPTION_KEY, required: nonLocal, minLength: 32 },
+        { name: "CREDENTIAL_ENCRYPTION_KEY", value: env.CREDENTIAL_ENCRYPTION_KEY, required: nonLocal, minLength: 32 },
+        { name: "CLINICGROWER_EVENT_SIGNING_SECRET", value: env.CLINICGROWER_EVENT_SIGNING_SECRET, required: nonLocal, minLength: 32 },
+        { name: "OBSERVABILITY_ALERT_WEBHOOK_TOKEN", value: env.OBSERVABILITY_ALERT_WEBHOOK_TOKEN, required: Boolean(env.OBSERVABILITY_ALERT_WEBHOOK_URL), minLength: 24 },
+        { name: "BREVO_API_KEY", value: env.BREVO_API_KEY, required: env.EMAIL_PROVIDER === "brevo", minLength: 24 },
+        {
+            name: "OPENAI_API_KEY",
+            value: env.OPENAI_API_KEY,
+            required:
+                parseBoolean(env.OPENAI_INSIGHTS_ENABLED, false) ||
+                parseBoolean(env.OPENAI_CALL_INTELLIGENCE_ENABLED, false) ||
+                parseBoolean(env.OPENAI_CALL_TRANSCRIPTION_ENABLED, false),
+            minLength: 24,
+        },
+        { name: "TWILIO_AUTH_TOKEN", value: env.TWILIO_AUTH_TOKEN, required: env.WHATSAPP_PROVIDER === "twilio", minLength: 24 },
+        { name: "TWILIO_WEBHOOK_SECRET", value: env.TWILIO_WEBHOOK_SECRET, required: env.WHATSAPP_PROVIDER === "twilio", minLength: 24 },
+        { name: "WHATSAPP_ACCESS_TOKEN", value: env.WHATSAPP_ACCESS_TOKEN, required: env.WHATSAPP_PROVIDER === "meta", minLength: 24 },
+        { name: "WHATSAPP_VERIFY_TOKEN", value: env.WHATSAPP_VERIFY_TOKEN, required: env.WHATSAPP_PROVIDER === "meta", minLength: 24 },
+        { name: "WHATSAPP_APP_SECRET", value: env.WHATSAPP_APP_SECRET || env.FACEBOOK_APP_SECRET, required: env.WHATSAPP_PROVIDER === "meta", minLength: 24 },
+        { name: "ESIGN_API_KEY", value: env.ESIGN_API_KEY, required: Boolean(env.ESIGN_PROVIDER && env.ESIGN_PROVIDER !== "log"), minLength: 24 },
+        { name: "ESIGN_WEBHOOK_SECRET", value: env.ESIGN_WEBHOOK_SECRET, required: Boolean(env.ESIGN_PROVIDER && env.ESIGN_PROVIDER !== "log"), minLength: 24 },
+        { name: "CLICKUP_CLIENT_SECRET", value: env.CLICKUP_CLIENT_SECRET, required: Boolean(env.CLICKUP_CLIENT_ID), minLength: 24 },
+        { name: "CLICKUP_API_TOKEN", value: env.CLICKUP_API_TOKEN, required: Boolean(env.CLICKUP_TEAM_ID), minLength: 20 },
+        { name: "CLICKUP_WEBHOOK_SECRET", value: env.CLICKUP_WEBHOOK_SECRET, required: Boolean(env.CLICKUP_CLIENT_ID || env.CLICKUP_API_TOKEN), minLength: 24 },
+        { name: "QUICKBOOKS_CLIENT_SECRET", value: env.QUICKBOOKS_CLIENT_SECRET, required: parseBoolean(env.QUICKBOOKS_OAUTH_ENABLED, false), minLength: 24 },
+        { name: "GOOGLE_CLIENT_SECRET", value: env.GOOGLE_CLIENT_SECRET, required: parseBoolean(env.GOOGLE_CALENDAR_OAUTH_ENABLED, false), minLength: 24 },
+        { name: "GOOGLE_DRIVE_REFRESH_TOKEN", value: env.GOOGLE_DRIVE_REFRESH_TOKEN, minLength: 24 },
+        { name: "GOOGLE_DRIVE_SERVICE_ACCOUNT_PRIVATE_KEY", value: env.GOOGLE_DRIVE_SERVICE_ACCOUNT_PRIVATE_KEY, minLength: 32 },
+        { name: "GOOGLE_ADS_DEVELOPER_TOKEN", value: env.GOOGLE_ADS_DEVELOPER_TOKEN, minLength: 16 },
+        { name: "STRIPE_SECRET_KEY", value: env.STRIPE_SECRET_KEY, minLength: 16 },
+        { name: "STRIPE_WEBHOOK_SECRET", value: env.STRIPE_WEBHOOK_SECRET, required: Boolean(env.STRIPE_SECRET_KEY), minLength: 16 },
+    ];
+
+    for (const check of checks) {
+        issues.push(...validateSecret(check));
+    }
+
+    issues.push(...requirePairedSecrets(env, ["CLICKUP_CLIENT_ID", "CLICKUP_CLIENT_SECRET"]));
+    issues.push(...requirePairedSecrets(env, ["CLICKUP_API_TOKEN", "CLICKUP_TEAM_ID"]));
+
+    if (trimSecret(env.JWT_SECRET) && trimSecret(env.JWT_SECRET) === trimSecret(env.CREDENTIAL_ENCRYPTION_KEY)) {
+        issues.push("JWT_SECRET and CREDENTIAL_ENCRYPTION_KEY must be different secrets.");
+    }
+
+    return issues;
+}
+
 export const config = {
     port: parseInt(process.env.PORT || "3000", 10),
     nodeEnv: process.env.NODE_ENV || "development",
@@ -49,7 +161,7 @@ export const config = {
     },
 
     jwt: {
-        secret: process.env.JWT_SECRET || "fallback-secret-do-not-use",
+        secret: getConfiguredJwtSecret(),
         expiresIn: process.env.JWT_EXPIRES_IN || "7d"
     },
 
@@ -279,9 +391,7 @@ export function getProductionConfigIssues() {
     const issues: string[] = [];
     const warnings: string[] = [];
 
-    if (!config.jwt.secret || config.jwt.secret === "fallback-secret-do-not-use" || config.jwt.secret.length < 32) {
-        issues.push("JWT_SECRET must be set to a strong secret of at least 32 characters.");
-    }
+    issues.push(...getSecretConfigurationIssues());
 
     if (!config.frontendUrl.startsWith("https://")) {
         warnings.push("FRONTEND_URL should be an HTTPS URL in production.");
@@ -307,19 +417,11 @@ export function getProductionConfigIssues() {
         warnings.push("OBSERVABILITY_ALERT_WEBHOOK_URL is not configured; critical alerts will be logged but not routed externally.");
     }
 
-    if (!config.backups.encryptionKeyConfigured) {
-        issues.push("BACKUP_ENCRYPTION_KEY must be set to a strong secret of at least 32 characters.");
-    }
-
     if (!config.backups.offsiteConfigured) {
         warnings.push("BACKUP_OFFSITE_DIR is not configured; backups will not be copied to off-site storage.");
     }
 
     issues.push(...getDemoSeedProductionIssues());
-
-    if (!config.credentials.encryptionKey || config.credentials.encryptionKey.length < 32) {
-        issues.push("CREDENTIAL_ENCRYPTION_KEY must be set to a strong secret of at least 32 characters.");
-    }
 
     if (config.email.provider === "brevo" && !config.email.brevoApiKey) {
         issues.push("BREVO_API_KEY must be set when EMAIL_PROVIDER=brevo.");
