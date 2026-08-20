@@ -77,6 +77,13 @@ export function useSorting<T>(items: T[], defaultSort?: SortConfig) {
     });
   }, []);
 
+  const setSort = useCallback(
+    (key: string, direction: Exclude<SortDirection, null>) => {
+      setSortConfig({ key, direction });
+    },
+    [],
+  );
+
   const sortedItems = useMemo(() => {
     if (!sortConfig.key || !sortConfig.direction) return items;
 
@@ -126,6 +133,7 @@ export function useSorting<T>(items: T[], defaultSort?: SortConfig) {
     sortedItems,
     sortConfig,
     toggleSort,
+    setSort,
     getSortDirection,
     clearSort,
   } as const;
@@ -147,7 +155,7 @@ export function useFilteredSortedPaginated<T>(
     return items.filter((item) => searchFn(item, searchQuery.toLowerCase()));
   }, [items, searchQuery, searchFn]);
 
-  const { sortedItems, sortConfig, toggleSort, getSortDirection, clearSort } =
+  const { sortedItems, sortConfig, toggleSort, setSort, getSortDirection, clearSort } =
     useSorting(filtered, defaultSort);
 
   const pagination = usePagination(sortedItems, pageSize);
@@ -168,6 +176,7 @@ export function useFilteredSortedPaginated<T>(
     // Sorting
     sortConfig,
     toggleSort,
+    setSort,
     getSortDirection,
     clearSort,
     // Pagination

@@ -40,6 +40,11 @@ import {
   nextBestActionBadgeClass,
   type NextBestActionResult,
 } from "@/lib/next-best-action";
+import {
+  getMobileProspectSortValue,
+  MOBILE_PROSPECT_SORT_OPTIONS,
+  type MobileProspectSortValue,
+} from "@/lib/mobile-prospect-list";
 import { salesOutcomeLabel } from "@/lib/sales-outcomes";
 import { AlertTriangle, Download, Plus, PoundSterling, Target, Users } from "lucide-react";
 import { DashboardReturnLink } from "@/components/dashboard-return-link";
@@ -435,6 +440,165 @@ function enrichLeadWithContactAndTask(
   }));
 }
 
+function MobileLeadSkeleton() {
+  return (
+    <div className="rounded-2xl border border-[#E7E1DA] bg-[#FFFCF9] p-4">
+      <div className="h-3 w-24 rounded-full bg-[#EDE8E2]" />
+      <div className="mt-3 h-5 w-4/5 rounded-full bg-[#EDE8E2]" />
+      <div className="mt-2 h-4 w-2/3 rounded-full bg-[#F3EEE8]" />
+      <div className="mt-4 h-16 rounded-xl bg-[#F3EEE8]" />
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="h-14 rounded-xl bg-[#F3EEE8]" />
+        <div className="h-14 rounded-xl bg-[#F3EEE8]" />
+      </div>
+    </div>
+  );
+}
+
+function MobileLeadCard({
+  lead,
+  onOpen,
+}: {
+  lead: Lead;
+  onOpen: (lead: Lead) => void;
+}) {
+  const stageClass =
+    STAGE_COLORS_WARM[lead.stage] ||
+    "bg-[#F6F3EF] text-[#6F6A66] border border-[#E7E1DA]";
+  const followUpClass = lead.followUpOverdue
+    ? "border-red-200 bg-red-50 text-red-700"
+    : "border-[#E7E1DA] bg-[#F6F3EF] text-[#4D4843]";
+  const slaClass =
+    lead.slaStatus === "overdue"
+      ? "border-red-200 bg-red-50 text-red-700"
+      : lead.slaStatus === "uncontacted"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-emerald-200 bg-emerald-50 text-emerald-700";
+  const auditClass =
+    lead.auditOverdue || lead.auditStatus === "follow_up_due"
+      ? "border-amber-200 bg-amber-50 text-amber-700"
+      : lead.auditStatus
+        ? "border-violet-200 bg-violet-50 text-violet-700"
+        : "border-[#E7E1DA] bg-[#F6F3EF] text-[#6F6A66]";
+
+  return (
+    <article
+      aria-label={`Mobile prospect ${lead.contact}`}
+      className="rounded-2xl border border-[#E7E1DA] bg-[#FFFCF9] p-4 shadow-[0_2px_12px_rgba(27,29,34,0.05)]"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span
+            className={`inline-flex max-w-full rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] ${stageClass}`}
+          >
+            <span className="truncate">{lead.stage}</span>
+          </span>
+          <h3 className="mt-2 break-words text-base font-bold leading-tight text-[#1B1D22]">
+            {lead.clinic}
+          </h3>
+          <p className="mt-1 break-words text-sm font-medium leading-snug text-[#5F5A55]">
+            {lead.contact}
+          </p>
+          {lead.email !== "-" && (
+            <p className="mt-1 break-all text-xs leading-5 text-[#8B8580]">
+              {lead.email}
+            </p>
+          )}
+        </div>
+        <p className="shrink-0 text-right text-sm font-bold text-[#1B1D22]">
+          {formatMoney(lead.revenue)}
+        </p>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span
+          title={lead.priorityReasons.join("; ")}
+          className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${leadPriorityBadgeClass(lead.priorityTier)}`}
+        >
+          {lead.priorityScore} {lead.priorityLabel}
+        </span>
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${slaClass}`}>
+          {slaLabel(lead.slaStatus)}
+        </span>
+      </div>
+
+      <div className={`mt-3 rounded-xl border px-3 py-2 ${followUpClass}`}>
+        <p className="text-[11px] font-bold uppercase tracking-[0.08em] opacity-75">
+          Next follow-up
+        </p>
+        <p className="mt-0.5 text-sm font-semibold leading-5">
+          {lead.followUpDate}
+        </p>
+        <p className="mt-1 text-xs leading-5 opacity-80">
+          Last contact: {lead.lastContactDate}
+        </p>
+      </div>
+
+      <div
+        title={lead.nextBestAction.detail}
+        className={`mt-3 rounded-xl border px-3 py-2 text-sm font-semibold ${nextBestActionBadgeClass(lead.nextBestAction.urgency)}`}
+      >
+        <p className="text-[11px] font-bold uppercase tracking-[0.08em] opacity-75">
+          Next action
+        </p>
+        <p className="mt-0.5 leading-5">{lead.nextBestAction.label}</p>
+        <p className="mt-1 text-xs font-medium leading-5 opacity-80">
+          {lead.nextBestAction.detail}
+        </p>
+      </div>
+
+      <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <div className="min-w-0 rounded-xl bg-[#F6F3EF] px-3 py-2">
+          <dt className="font-bold uppercase tracking-[0.08em] text-[#8B8580]">
+            Treatment
+          </dt>
+          <dd className="mt-1 line-clamp-2 break-words font-medium text-[#1B1D22]">
+            {lead.packageInterest}
+          </dd>
+        </div>
+        <div className="min-w-0 rounded-xl bg-[#F6F3EF] px-3 py-2">
+          <dt className="font-bold uppercase tracking-[0.08em] text-[#8B8580]">
+            Owner
+          </dt>
+          <dd className="mt-1 truncate font-medium text-[#1B1D22]">
+            {lead.owner}
+          </dd>
+        </div>
+        <div className="min-w-0 rounded-xl bg-[#F6F3EF] px-3 py-2">
+          <dt className="font-bold uppercase tracking-[0.08em] text-[#8B8580]">
+            Source
+          </dt>
+          <dd className="mt-1 line-clamp-2 break-words font-medium text-[#1B1D22]">
+            {formatSourceLabel(lead.source)}
+          </dd>
+        </div>
+        <div className="min-w-0 rounded-xl bg-[#F6F3EF] px-3 py-2">
+          <dt className="font-bold uppercase tracking-[0.08em] text-[#8B8580]">
+            Attempts
+          </dt>
+          <dd className="mt-1 font-medium text-[#1B1D22]">
+            {lead.attemptCount}
+          </dd>
+        </div>
+      </dl>
+
+      <div className={`mt-3 rounded-xl border px-3 py-2 text-xs ${auditClass}`}>
+        <p className="font-semibold">{lead.auditLabel}</p>
+        <p className="mt-1 opacity-80">{lead.auditDueDate}</p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onOpen(lead)}
+        disabled={!lead.contactId}
+        className="mt-4 min-h-11 w-full rounded-xl bg-[#151F21] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#2A3638] disabled:cursor-not-allowed disabled:opacity-45"
+      >
+        {lead.contactId ? "Open prospect" : "No linked contact"}
+      </button>
+    </article>
+  );
+}
+
 export default function LeadsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -620,7 +784,9 @@ export default function LeadsPage() {
   const {
     searchQuery,
     setSearchQuery,
+    sortConfig,
     toggleSort,
+    setSort,
     getSortDirection,
     paginatedItems,
     currentPage,
@@ -633,7 +799,23 @@ export default function LeadsPage() {
     goToPage,
     hasNextPage,
     hasPrevPage,
-  } = useFilteredSortedPaginated(filteredLeads, searchFn, 10);
+  } = useFilteredSortedPaginated(filteredLeads, searchFn, 10, {
+    key: "sortDate",
+    direction: "desc",
+  });
+
+  const mobileSortValue = getMobileProspectSortValue(
+    sortConfig.key,
+    sortConfig.direction,
+  );
+
+  const handleMobileSortChange = (value: MobileProspectSortValue) => {
+    const option = MOBILE_PROSPECT_SORT_OPTIONS.find(
+      (item) => item.value === value,
+    );
+    if (!option) return;
+    setSort(option.key, option.direction);
+  };
 
   const openLead = (lead: Lead) => {
     if (!lead.contactId) return;
@@ -864,7 +1046,50 @@ export default function LeadsPage() {
           boxShadow: "0 2px 12px rgba(27, 29, 34, 0.05)",
         }}
       >
-        <div className="w-full overflow-hidden">
+        <div aria-label="Mobile prospects list" className="space-y-3 p-3 md:hidden">
+          <div className="rounded-xl border border-[#E7E1DA] bg-[#F6F3EF] p-3">
+            <label
+              htmlFor="mobile-prospect-sort"
+              className="block text-[11px] font-bold uppercase tracking-[0.08em] text-[#5e8a8d]"
+            >
+              Sort prospects
+            </label>
+            <select
+              id="mobile-prospect-sort"
+              value={mobileSortValue}
+              onChange={(event) =>
+                handleMobileSortChange(event.target.value as MobileProspectSortValue)
+              }
+              className="mt-2 min-h-11 w-full rounded-xl border border-[#DCD7D0] bg-[#FFFCF9] px-3 text-sm font-semibold text-[#151f21] outline-none focus:border-[#6E6AE8] focus:ring-2 focus:ring-[#6E6AE8]/20"
+            >
+              {MOBILE_PROSPECT_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {isLoading &&
+            Array.from({ length: 4 }, (_, index) => (
+              <MobileLeadSkeleton key={index} />
+            ))}
+
+          {!isLoading &&
+            paginatedItems.map((lead) => (
+              <MobileLeadCard key={lead.id} lead={lead} onOpen={openLead} />
+            ))}
+
+          {!isLoading && paginatedItems.length === 0 && (
+            <div className="rounded-2xl border border-[#E7E1DA] bg-[#FFFCF9] px-4 py-10 text-center text-sm text-[#7A746A]">
+              {searchQuery
+                ? "No prospects match your search."
+                : "No live prospects are available for this workspace yet."}
+            </div>
+          )}
+        </div>
+
+        <div aria-label="Desktop prospects table" className="hidden w-full overflow-hidden md:block">
           <table className="w-full table-fixed">
             <thead>
               <tr
@@ -1053,18 +1278,20 @@ export default function LeadsPage() {
           </table>
         </div>
 
-        <PaginationControls
-          currentPage={currentPage}
-          totalPages={totalPages}
-          startIndex={startIndex}
-          endIndex={endIndex}
-          totalItems={totalItems}
-          onPrevious={prevPage}
-          onNext={nextPage}
-          onGoToPage={goToPage}
-          hasPrevPage={hasPrevPage}
-          hasNextPage={hasNextPage}
-        />
+        <div className="overflow-x-auto">
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            startIndex={startIndex}
+            endIndex={endIndex}
+            totalItems={totalItems}
+            onPrevious={prevPage}
+            onNext={nextPage}
+            onGoToPage={goToPage}
+            hasPrevPage={hasPrevPage}
+            hasNextPage={hasNextPage}
+          />
+        </div>
       </div>
     </div>
   );

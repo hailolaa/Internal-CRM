@@ -45,6 +45,9 @@ import {
   dedupePipelineStages,
   getPipelineStageKey,
 } from "@/lib/pipeline-stage-normalization";
+import {
+  resolveMobilePipelineStageId,
+} from "@/lib/pipeline-mobile";
 import { useReportCsvExport } from "@/hooks/use-report-csv-export";
 import { AlertBanner, PageHeader, PipelineSkeleton } from "@/components/ui";
 import {
@@ -479,6 +482,343 @@ function DealCard({
   );
 }
 
+function MobileDealCard({
+  deal,
+  stage,
+  isSelected,
+  isMoving,
+  isRemoving,
+  canEdit,
+  canMovePrevious,
+  canMoveNext,
+  onClick,
+  onMovePrevious,
+  onMoveNext,
+  onRemove,
+  onCreateProposal,
+}: {
+  deal: PipelineDealData;
+  stage: PipelineStageData;
+  isSelected: boolean;
+  isMoving: boolean;
+  isRemoving: boolean;
+  canEdit: boolean;
+  canMovePrevious: boolean;
+  canMoveNext: boolean;
+  onClick: () => void;
+  onMovePrevious: (deal: PipelineDealData) => void;
+  onMoveNext: (deal: PipelineDealData) => void;
+  onRemove: (deal: PipelineDealData) => void;
+  onCreateProposal: (deal: PipelineDealData) => void;
+}) {
+  const followUpOverdue = isFollowUpOverdue(deal.nextFollowUpDate);
+  const followUpLabel = deal.nextFollowUpDate
+    ? `${followUpOverdue ? "Overdue" : "Follow-up"} ${formatFollowUpDate(deal.nextFollowUpDate)}`
+    : "No follow-up set";
+  const auditStatus = formatAuditStatus(deal.raw.auditStatus);
+
+  return (
+    <article
+      className={`rounded-2xl border bg-[#FFFCF9] p-4 shadow-sm ${
+        isSelected ? "border-[#6E6AE8]/40" : "border-black/[0.07]"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6E6AE8]/40"
+        aria-label={`Open ${deal.name} opportunity details`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-[rgba(110,106,232,0.08)] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6E6AE8]">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${stage.color}`} />
+              <span className="truncate">{stage.name}</span>
+            </span>
+            <h3 className="mt-2 break-words text-base font-bold leading-tight text-[#111111]">
+              {deal.name}
+            </h3>
+            <p className="mt-1 break-words text-sm leading-snug text-[#5F5A55]">
+              {deal.treatment}
+            </p>
+          </div>
+          <strong className="shrink-0 text-sm font-bold text-[#1B1D22]">
+            {deal.value}
+          </strong>
+        </div>
+      </button>
+
+      <div
+        className={`mt-3 rounded-xl border px-3 py-2 ${
+          followUpOverdue
+            ? "border-red-200 bg-red-50 text-red-800"
+            : "border-black/[0.06] bg-[#FAF8F5] text-[#354943]"
+        }`}
+      >
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] opacity-75">
+          Next action
+        </p>
+        <p className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold">
+          {followUpOverdue ? (
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <Clock className="h-3.5 w-3.5 shrink-0" />
+          )}
+          <span>{followUpLabel}</span>
+        </p>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span
+          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${
+            deal.priority ? PRIORITY_STYLES[deal.priority] : "bg-slate-100 text-slate-500"
+          }`}
+        >
+          {deal.priority ? `${deal.priority} priority` : "No priority"}
+        </span>
+        <span
+          title={deal.leadPriority.reasons.join("; ")}
+          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${leadPriorityBadgeClass(deal.leadPriority.tier)}`}
+        >
+          {deal.leadPriority.score} {deal.leadPriority.label}
+        </span>
+      </div>
+
+      <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <div className="min-w-0 rounded-xl bg-[#FAF8F5] px-3 py-2">
+          <dt className="font-semibold uppercase tracking-[0.08em] text-[#8B8580]">Owner</dt>
+          <dd className="mt-1 truncate text-[#1B1D22]">{deal.owner}</dd>
+        </div>
+        <div className="min-w-0 rounded-xl bg-[#FAF8F5] px-3 py-2">
+          <dt className="font-semibold uppercase tracking-[0.08em] text-[#8B8580]">Source</dt>
+          <dd className="mt-1 truncate text-[#1B1D22]">{deal.source}</dd>
+        </div>
+        <div className="min-w-0 rounded-xl bg-[#FAF8F5] px-3 py-2">
+          <dt className="font-semibold uppercase tracking-[0.08em] text-[#8B8580]">Stage time</dt>
+          <dd className="mt-1 text-[#1B1D22]">{deal.daysInStage} days</dd>
+        </div>
+        <div className="min-w-0 rounded-xl bg-[#FAF8F5] px-3 py-2">
+          <dt className="font-semibold uppercase tracking-[0.08em] text-[#8B8580]">Value</dt>
+          <dd className="mt-1 text-[#1B1D22]">{deal.value}</dd>
+        </div>
+      </dl>
+
+      {auditStatus && (
+        <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-700">
+          <span className="font-semibold">{auditStatus}</span>
+          {deal.raw.auditFollowUpDueAt ? (
+            <span className="ml-1 text-violet-600">
+              due {new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(new Date(deal.raw.auditFollowUpDueAt))}
+            </span>
+          ) : null}
+        </div>
+      )}
+
+      <div className="mt-4 grid grid-cols-2 gap-2 border-t border-black/[0.06] pt-3">
+        <a
+          href={deal.raw.contactPhone ? `tel:${deal.raw.contactPhone}` : undefined}
+          aria-label={`Call ${deal.name}`}
+          className={`inline-flex min-h-11 items-center justify-center gap-1 rounded-xl border border-black/[0.06] bg-[#FAF8F5] text-sm font-semibold text-[#5F5A55] ${deal.raw.contactPhone ? "" : "pointer-events-none opacity-50"}`}
+        >
+          <Phone className="h-4 w-4" /> Call
+        </a>
+        <a
+          href={deal.raw.contactEmail ? `mailto:${deal.raw.contactEmail}` : undefined}
+          aria-label={`Email ${deal.name}`}
+          className={`inline-flex min-h-11 items-center justify-center gap-1 rounded-xl border border-black/[0.06] bg-[#FAF8F5] text-sm font-semibold text-[#5F5A55] ${deal.raw.contactEmail ? "" : "pointer-events-none opacity-50"}`}
+        >
+          <Mail className="h-4 w-4" /> Email
+        </a>
+        <button
+          type="button"
+          disabled={isMoving || !canEdit || !canMovePrevious}
+          onClick={() => onMovePrevious(deal)}
+          className="inline-flex min-h-11 items-center justify-center gap-1 rounded-xl bg-[rgba(110,106,232,0.08)] text-sm font-semibold text-[#6E6AE8] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back
+        </button>
+        <button
+          type="button"
+          disabled={isMoving || !canEdit || !canMoveNext}
+          onClick={() => onMoveNext(deal)}
+          className="inline-flex min-h-11 items-center justify-center gap-1 rounded-xl bg-[rgba(110,106,232,0.08)] text-sm font-semibold text-[#6E6AE8] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <ArrowRight className="h-4 w-4" /> {isMoving ? "Moving" : "Next"}
+        </button>
+        <button
+          type="button"
+          onClick={() => onCreateProposal(deal)}
+          className="col-span-2 inline-flex min-h-11 items-center justify-center gap-1 rounded-xl bg-[#315f51] text-sm font-semibold text-white"
+        >
+          <FileText className="h-4 w-4" />
+          Create proposal
+        </button>
+        <button
+          type="button"
+          disabled={isMoving || isRemoving || !canEdit}
+          onClick={() => onRemove(deal)}
+          className="col-span-2 inline-flex min-h-11 items-center justify-center gap-1 rounded-xl bg-red-50 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isRemoving ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+          {isRemoving ? "Removing" : "Remove from pipeline"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function MobilePipelineBoard({
+  stages,
+  activeStageId,
+  selectedDeal,
+  movingDealId,
+  removingDealId,
+  canWriteContacts,
+  orderedStageCount,
+  onSelectStage,
+  onDealClick,
+  onMovePrevious,
+  onMoveNext,
+  onRemove,
+  onCreateProposal,
+  onAddDeal,
+  getStageIndex,
+}: {
+  stages: PipelineStageData[];
+  activeStageId: string | null;
+  selectedDeal: string | null;
+  movingDealId: string | null;
+  removingDealId: string | null;
+  canWriteContacts: boolean;
+  orderedStageCount: number;
+  onSelectStage: (stageId: string) => void;
+  onDealClick: (dealId: string) => void;
+  onMovePrevious: (deal: PipelineDealData) => void;
+  onMoveNext: (deal: PipelineDealData) => void;
+  onRemove: (deal: PipelineDealData) => void;
+  onCreateProposal: (deal: PipelineDealData) => void;
+  onAddDeal: (stageId: string) => void;
+  getStageIndex: (deal: PipelineDealData) => number;
+}) {
+  const activeStage = stages.find((stage) => stage.id === activeStageId) || null;
+  const totalVisibleDeals = stages.reduce((sum, stage) => sum + stage.deals.length, 0);
+
+  return (
+    <div className="space-y-3 md:hidden">
+      <div className="rounded-2xl border border-black/[0.06] bg-[#FFFCF9] p-3 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6E6AE8]">
+              Stage view
+            </p>
+            <p className="mt-1 text-sm text-[#6F6A66]">
+              {stages.length} stages visible
+            </p>
+          </div>
+          <span className="shrink-0 rounded-full bg-[#F4F1ED] px-2.5 py-1 text-xs font-semibold text-[#5F5A55]">
+            {totalVisibleDeals} total
+          </span>
+        </div>
+        <div
+          className="-mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]"
+          aria-label="Mobile pipeline stage selector"
+        >
+          {stages.map((stage) => (
+            <button
+              key={stage.id}
+              type="button"
+              aria-pressed={stage.id === activeStageId}
+              onClick={() => onSelectStage(stage.id)}
+              className={`shrink-0 rounded-xl border px-3 py-2 text-left text-sm font-semibold ${
+                stage.id === activeStageId
+                  ? "border-[#6E6AE8]/35 bg-[#EEEAFB] text-[#4F46C7]"
+                  : "border-black/[0.06] bg-[#FAF8F5] text-[#5F5A55]"
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${stage.color}`} />
+                {stage.name}
+              </span>
+              <span className="mt-1 block text-xs font-medium opacity-70">
+                {stage.deals.length} opportunities
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeStage ? (
+        <section
+          className="rounded-2xl border border-black/[0.06] bg-[#F4F1ED] p-3"
+          aria-label={`${activeStage.name} mobile pipeline stage`}
+        >
+          <div className="mb-3 rounded-xl border-t-2 border-black/10 bg-[#FFFCF9] px-3 py-2.5 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="break-words text-base font-bold text-[#111111]">
+                  {activeStage.name}
+                </h2>
+                <p className="mt-1 text-xs font-medium text-[#8B8580]">
+                  {activeStage.deals.length} opportunities sorted by the selected order
+                </p>
+              </div>
+              <strong className="shrink-0 text-sm text-[#1B1D22]">
+                £{(activeStage.deals.reduce((sum, deal) => sum + deal.raw.valueCents, 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </strong>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {activeStage.deals.map((deal) => {
+              const stageIndex = getStageIndex(deal);
+              return (
+                <MobileDealCard
+                  key={deal.id}
+                  deal={deal}
+                  stage={activeStage}
+                  isSelected={selectedDeal === deal.id}
+                  isMoving={movingDealId === deal.id}
+                  isRemoving={removingDealId === deal.id}
+                  canEdit={canWriteContacts}
+                  canMovePrevious={stageIndex > 0}
+                  canMoveNext={stageIndex < orderedStageCount - 1}
+                  onClick={() => onDealClick(deal.id)}
+                  onMovePrevious={onMovePrevious}
+                  onMoveNext={onMoveNext}
+                  onRemove={onRemove}
+                  onCreateProposal={onCreateProposal}
+                />
+              );
+            })}
+            {activeStage.deals.length === 0 && activeStage.raw.kind !== "won" && activeStage.raw.kind !== "lost" && (
+              <button
+                type="button"
+                onClick={() => onAddDeal(activeStage.id)}
+                className="flex min-h-28 w-full items-center justify-center gap-1 rounded-xl border border-dashed border-black/10 bg-[#FFFCF9] text-sm font-semibold text-[#8B8580]"
+              >
+                <Plus className="h-4 w-4" /> No opportunities - Add
+              </button>
+            )}
+            {activeStage.deals.length === 0 && (activeStage.raw.kind === "won" || activeStage.raw.kind === "lost") && (
+              <div className="rounded-xl border border-dashed border-black/10 bg-[#FFFCF9] px-4 py-8 text-center text-sm text-[#8B8580]">
+                No opportunities in this stage.
+              </div>
+            )}
+          </div>
+        </section>
+      ) : (
+        <div className="rounded-2xl border border-[rgba(0,0,0,0.06)] bg-[#FFFCF9] p-6 text-sm text-[#6B7280]">
+          No pipeline stages loaded yet.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddDealModal({
   contacts,
   contactsError,
@@ -809,6 +1149,7 @@ export default function PipelinePage() {
   const [sourceFilter, setSourceFilter] = useState("all");
   const [sortBy, setSortBy] = useState("attention");
   const [boardView, setBoardView] = useState<"kanban" | "list">("kanban");
+  const [mobileStageId, setMobileStageId] = useState<string | null>(null);
   const [stages, setStages] = useState<PipelineStageData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -1414,6 +1755,10 @@ export default function PipelinePage() {
         }),
       }));
   }, [ownerFilter, requestedContactId, requestedDeal, requestedStage, requestedStatus, requestedView, searchQuery, serviceFilter, sortBy, sourceFilter, stages, statusFilter]);
+  const activeMobileStageId = resolveMobilePipelineStageId(
+    filteredStages,
+    mobileStageId,
+  );
 
   const totalValue = stages.reduce(
     (acc, stage) =>
@@ -1640,7 +1985,7 @@ export default function PipelinePage() {
           >
             <Settings className="w-4 h-4" /> Stages
           </button>
-          <div className="flex rounded-xl border border-black/[0.07] bg-white p-1">
+          <div className="hidden rounded-xl border border-black/[0.07] bg-white p-1 md:flex">
             <button aria-label="Kanban view" onClick={() => setBoardView("kanban")} className={`rounded-lg p-1.5 ${boardView === "kanban" ? "bg-[#EEEAFB] text-[#6E6AE8]" : "text-[#8B8580]"}`}><LayoutGrid className="h-4 w-4" /></button>
             <button aria-label="List view" onClick={() => setBoardView("list")} className={`rounded-lg p-1.5 ${boardView === "list" ? "bg-[#EEEAFB] text-[#6E6AE8]" : "text-[#8B8580]"}`}><List className="h-4 w-4" /></button>
           </div>
@@ -1652,7 +1997,24 @@ export default function PipelinePage() {
         <PipelineSkeleton columns={5} />
       ) : (
       <>
-      {boardView === "kanban" ? <div ref={boardScrollRef} tabIndex={-1} className="flex gap-3 overflow-x-auto pb-5 [scrollbar-color:#C9C3D8_transparent] [scrollbar-width:thin]">
+      <MobilePipelineBoard
+        stages={filteredStages}
+        activeStageId={activeMobileStageId}
+        selectedDeal={selectedDeal}
+        movingDealId={movingDealId}
+        removingDealId={removingDealId}
+        canWriteContacts={canWriteContacts}
+        orderedStageCount={orderedStages.length}
+        onSelectStage={setMobileStageId}
+        onDealClick={setSelectedDeal}
+        onMovePrevious={handleMovePrevious}
+        onMoveNext={handleMoveNext}
+        onRemove={handleRemoveDeal}
+        onCreateProposal={openProposalBuilder}
+        onAddDeal={openAddDeal}
+        getStageIndex={findDealStageIndex}
+      />
+      {boardView === "kanban" ? <div ref={boardScrollRef} tabIndex={-1} className="hidden gap-3 overflow-x-auto pb-5 [scrollbar-color:#C9C3D8_transparent] [scrollbar-width:thin] md:flex">
         {filteredStages.map((stage) => (
           <div
             key={stage.id}
@@ -1737,7 +2099,7 @@ export default function PipelinePage() {
             No pipeline stages loaded yet.
           </div>
         )}
-      </div> : <div className="overflow-hidden rounded-2xl border border-black/[0.06] bg-[#FFFCF9]">{filteredStages.flatMap((stage) => stage.deals.map((deal) => <button key={deal.id} onClick={() => setSelectedDeal(deal.id)} className="grid w-full grid-cols-[1fr_auto] gap-4 border-b border-black/[0.05] px-4 py-3 text-left hover:bg-[#F8F6F3] sm:grid-cols-[1.2fr_1fr_1fr_auto]"><span><strong className="block text-sm text-[#1B1D22]">{deal.raw.title}</strong><small className="text-[#8B8580]">{deal.name}</small></span><span className="hidden text-sm text-[#6F6A66] sm:block">{stage.name}</span><span className="hidden text-sm text-[#6F6A66] sm:block">{deal.treatment}</span><strong className="text-sm text-[#1B1D22]">{deal.value}</strong></button>))}{filteredStages.every((stage) => stage.deals.length === 0) && <p className="p-8 text-center text-sm text-[#8B8580]">No opportunities match these filters.</p>}</div>}
+      </div> : <div className="hidden overflow-hidden rounded-2xl border border-black/[0.06] bg-[#FFFCF9] md:block">{filteredStages.flatMap((stage) => stage.deals.map((deal) => <button key={deal.id} onClick={() => setSelectedDeal(deal.id)} className="grid w-full grid-cols-[1fr_auto] gap-4 border-b border-black/[0.05] px-4 py-3 text-left hover:bg-[#F8F6F3] sm:grid-cols-[1.2fr_1fr_1fr_auto]"><span><strong className="block text-sm text-[#1B1D22]">{deal.raw.title}</strong><small className="text-[#8B8580]">{deal.name}</small></span><span className="hidden text-sm text-[#6F6A66] sm:block">{stage.name}</span><span className="hidden text-sm text-[#6F6A66] sm:block">{deal.treatment}</span><strong className="text-sm text-[#1B1D22]">{deal.value}</strong></button>))}{filteredStages.every((stage) => stage.deals.length === 0) && <p className="p-8 text-center text-sm text-[#8B8580]">No opportunities match these filters.</p>}</div>}
       </>
       )}
 
