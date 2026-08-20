@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeLeadRows } from "./lead-list";
+import { leadContactDetailHref, mergeLeadRows } from "./lead-list";
 
 describe("mergeLeadRows", () => {
   it("keeps manual leads while preferring deal-backed rows for linked contacts", () => {
@@ -15,5 +15,22 @@ describe("mergeLeadRows", () => {
       dealRows[0],
       contactRows[1],
     ]);
+  });
+});
+
+describe("leadContactDetailHref", () => {
+  it("creates a distinct detail destination for each contact", () => {
+    expect(leadContactDetailHref("contact-1")).toBe(
+      "/app/crm/contacts/detail?id=contact-1",
+    );
+    expect(leadContactDetailHref("contact-2")).toBe(
+      "/app/crm/contacts/detail?id=contact-2",
+    );
+  });
+
+  it("encodes contact ids before putting them in the query string", () => {
+    expect(leadContactDetailHref("contact/id?source=lead")).toBe(
+      "/app/crm/contacts/detail?id=contact%2Fid%3Fsource%3Dlead",
+    );
   });
 });

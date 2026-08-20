@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/table-controls";
 import { useFilteredSortedPaginated } from "@/hooks/use-table";
 import { api } from "@/lib/api-client";
-import { mergeLeadRows } from "@/lib/lead-list";
+import { leadContactDetailHref, mergeLeadRows } from "@/lib/lead-list";
 import { SALES_NAV } from "@/lib/section-nav";
 import type {
   AuditWorkflowStatus,
@@ -633,7 +633,7 @@ export default function LeadsPage() {
 
   const openLead = (lead: Lead) => {
     if (!lead.contactId) return;
-    router.push(`/app/crm/contacts/detail?id=${lead.contactId}`);
+    window.location.assign(leadContactDetailHref(lead.contactId));
   };
 
   const handleExport = useCallback(async () => {

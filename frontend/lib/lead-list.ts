@@ -11,3 +11,7 @@ export function mergeLeadRows<T extends { contactId: string | null }>(
     ...contactRows.filter((lead) => !lead.contactId || !dealContactIds.has(lead.contactId)),
   ];
 }
+
+export function leadContactDetailHref(contactId: string) {
+  return `/app/crm/contacts/detail?id=${encodeURIComponent(contactId)}`;
+}
