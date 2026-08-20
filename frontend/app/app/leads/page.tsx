@@ -16,7 +16,11 @@ import {
 } from "@/components/ui/table-controls";
 import { useFilteredSortedPaginated } from "@/hooks/use-table";
 import { api } from "@/lib/api-client";
-import { leadContactDetailHref, mergeLeadRows } from "@/lib/lead-list";
+import {
+  formatLeadListValue,
+  leadContactDetailHref,
+  mergeLeadRows,
+} from "@/lib/lead-list";
 import { SALES_NAV } from "@/lib/section-nav";
 import type {
   AuditWorkflowStatus,
@@ -224,7 +228,7 @@ function uniqueOptions(values: string[]) {
 }
 
 function formatSourceLabel(source: string) {
-  return SOURCE_LABELS[source] || source;
+  return formatLeadListValue(SOURCE_LABELS[source] || source);
 }
 
 function formatAuditStatus(status: AuditWorkflowStatus | null | undefined) {
@@ -922,14 +926,14 @@ export default function LeadsPage() {
                     <div className="min-w-0">
                       <p className="truncate font-medium text-[#1B1D22]">{formatSourceLabel(lead.source)}</p>
                       <p className="mt-1 truncate text-xs text-[#9E9890]">
-                        Package: {lead.packageInterest}
+                        Package: {formatLeadListValue(lead.packageInterest)}
                       </p>
                       <p className="mt-1 truncate text-xs text-[#9E9890]">
-                        Recommend: {lead.recommendedPackage}
+                        Recommend: {formatLeadListValue(lead.recommendedPackage)}
                       </p>
                       {lead.attributionDetail !== "-" && (
                         <p className="mt-1 truncate text-xs text-[#9E9890]">
-                          Attribution: {lead.attributionDetail}
+                          Attribution: {formatLeadListValue(lead.attributionDetail)}
                         </p>
                       )}
                     </div>

@@ -15,3 +15,18 @@ export function mergeLeadRows<T extends { contactId: string | null }>(
 export function leadContactDetailHref(contactId: string) {
   return `/app/crm/contacts/detail?id=${encodeURIComponent(contactId)}`;
 }
+
+export function formatLeadListValue(value: string) {
+  if (!value || value === "-") return value;
+
+  const trimmedValue = value.trim();
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(trimmedValue)) return trimmedValue;
+
+  return trimmedValue
+    .replace(/[_-]+/g, " ")
+    .replace(/\S+/g, (word) =>
+      word === word.toUpperCase()
+        ? word
+        : `${word.charAt(0).toUpperCase()}${word.slice(1)}`,
+    );
+}

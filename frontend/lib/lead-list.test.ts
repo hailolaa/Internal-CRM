@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { leadContactDetailHref, mergeLeadRows } from "./lead-list";
+import {
+  formatLeadListValue,
+  leadContactDetailHref,
+  mergeLeadRows,
+} from "./lead-list";
 
 describe("mergeLeadRows", () => {
   it("keeps manual leads while preferring deal-backed rows for linked contacts", () => {
@@ -31,6 +35,26 @@ describe("leadContactDetailHref", () => {
   it("encodes contact ids before putting them in the query string", () => {
     expect(leadContactDetailHref("contact/id?source=lead")).toBe(
       "/app/crm/contacts/detail?id=contact%2Fid%3Fsource%3Dlead",
+    );
+  });
+});
+
+describe("formatLeadListValue", () => {
+  it("capitalises source and package values", () => {
+    expect(formatLeadListValue("google")).toBe("Google");
+    expect(formatLeadListValue("clinic growth package")).toBe(
+      "Clinic Growth Package",
+    );
+  });
+
+  it("makes machine-formatted values readable and preserves acronyms", () => {
+    expect(formatLeadListValue("google_ads-campaign")).toBe(
+      "Google Ads Campaign",
+    );
+    expect(formatLeadListValue("SEO package")).toBe("SEO Package");
+    expect(formatLeadListValue("-")).toBe("-");
+    expect(formatLeadListValue("https://example.com/google-ads")).toBe(
+      "https://example.com/google-ads",
     );
   });
 });
