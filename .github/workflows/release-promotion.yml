@@ -72,6 +72,10 @@ jobs:
       RELEASE_MANIFEST_SIGNING_KEY: ${{ secrets.RELEASE_MANIFEST_SIGNING_KEY }}
       PROMOTION_DEPLOY_WEBHOOK_URL: ${{ secrets.PROMOTION_DEPLOY_WEBHOOK_URL }}
       PROMOTION_DEPLOY_WEBHOOK_TOKEN: ${{ secrets.PROMOTION_DEPLOY_WEBHOOK_TOKEN }}
+      RELEASE_BACKEND_URL: ${{ vars.RELEASE_BACKEND_URL }}
+      RELEASE_FRONTEND_URL: ${{ vars.RELEASE_FRONTEND_URL }}
+      RELEASE_AUTHENTICATED_API_HEALTH_URL: ${{ vars.RELEASE_AUTHENTICATED_API_HEALTH_URL }}
+      RELEASE_SMOKE_AUTH_TOKEN: ${{ secrets.RELEASE_SMOKE_AUTH_TOKEN }}
     steps:
       - name: Checkout release revision
         uses: actions/checkout@v4
@@ -127,6 +131,9 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Run release tooling tests
+        run: node --test --experimental-test-isolation=none scripts/release-verification.test.mjs
+
       - name: Create signed release manifest
         run: |
           node scripts/create-release-manifest.mjs \
@@ -150,6 +157,10 @@ jobs:
         if: ${{ inputs.promote }}
         run: node scripts/promote-release.mjs --environment "${{ inputs.environment }}"
 
+      - name: Verify promoted deployment
+        if: ${{ inputs.promote }}
+        run: node scripts/verify-deployment.mjs --environment "${{ inputs.environment }}" --require-signature
+
       - name: Upload release artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -159,6 +170,8 @@ jobs:
             release/current-release.json
             release/current-release.json.sha256
             release/rollback-rehearsal.md
+            release/deployment-verification.json
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Write release summary
@@ -174,6 +187,7 @@ jobs:
             echo "| Promotion requested | ${{ inputs.promote }} |"
             echo "| Clinic OS frontend revision | ${{ inputs.clinic_os_frontend_revision }} |"
             echo "| Clinic OS backend revision | ${{ inputs.clinic_os_backend_revision }} |"
+            echo "| Deployment verification | Runs after promotion when release URLs are configured |"
             echo ""
             echo "Release manifest and rollback rehearsal artifacts are retained for 30 days."
           } >> "$GITHUB_STEP_SUMMARY"

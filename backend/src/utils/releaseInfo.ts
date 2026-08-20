@@ -29,6 +29,13 @@ type ReleaseManifest = {
     previousMissionControlRevision?: string | null;
     databaseBackup?: string | null;
   };
+  deploymentVerification?: {
+    state?: string | null;
+    deployedRevision?: string | null;
+    verifiedAt?: string | null;
+    reportPath?: string | null;
+    requiredChecks?: string[];
+  };
   signature?: {
     algorithm?: string;
     keyId?: string;
@@ -85,6 +92,13 @@ export function getReleaseInfo() {
         previousMissionControlRevision: manifest.manifest.rollback?.previousMissionControlRevision || null,
         databaseBackup: manifest.manifest.rollback?.databaseBackup || null,
       },
+      deploymentVerification: {
+        state: manifest.manifest.deploymentVerification?.state || "unknown",
+        deployedRevision: manifest.manifest.deploymentVerification?.deployedRevision || null,
+        verifiedAt: manifest.manifest.deploymentVerification?.verifiedAt || null,
+        reportPath: manifest.manifest.deploymentVerification?.reportPath || null,
+        requiredChecks: manifest.manifest.deploymentVerification?.requiredChecks || [],
+      },
       signature: {
         present: Boolean(manifest.manifest.signature?.value),
         algorithm: manifest.manifest.signature?.algorithm || null,
@@ -118,6 +132,15 @@ export function getReleaseInfo() {
       previousReleaseId: process.env.PREVIOUS_RELEASE_ID || null,
       previousMissionControlRevision: process.env.PREVIOUS_MISSION_CONTROL_REVISION || null,
       databaseBackup: process.env.RELEASE_DATABASE_BACKUP || null,
+    },
+    deploymentVerification: {
+      state: process.env.RELEASE_DEPLOYMENT_VERIFICATION_STATE || "environment_only",
+      deployedRevision: process.env.RELEASE_DEPLOYED_REVISION || null,
+      verifiedAt: process.env.RELEASE_VERIFIED_AT || null,
+      reportPath: process.env.RELEASE_DEPLOYMENT_VERIFICATION_REPORT || null,
+      requiredChecks: process.env.RELEASE_DEPLOYMENT_REQUIRED_CHECKS
+        ? process.env.RELEASE_DEPLOYMENT_REQUIRED_CHECKS.split(",").map((item) => item.trim()).filter(Boolean)
+        : [],
     },
     signature: {
       present: Boolean(process.env.RELEASE_MANIFEST_SIGNATURE),

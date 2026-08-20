@@ -55,6 +55,19 @@ const manifestBody = {
     ciWorkflow: await optionalFileEntry(".github/workflows/mission-control-ci.yml"),
     promotionWorkflow: await optionalFileEntry(".github/workflows/release-promotion.yml"),
   },
+  deploymentVerification: {
+    state: "pending_external_deployment",
+    deployedRevision: null,
+    verifiedAt: null,
+    reportPath: "release/deployment-verification.json",
+    requiredChecks: [
+      "backend_live",
+      "backend_ready",
+      "backend_version",
+      "frontend_availability",
+      "manifest_match",
+    ],
+  },
   rollback: {
     previousReleaseId: args.previousReleaseId || null,
     previousMissionControlRevision: args.previousMissionControlRevision || null,

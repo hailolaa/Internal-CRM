@@ -12,7 +12,7 @@ if (!environment || !["staging", "production"].includes(environment)) {
 }
 
 if (!deployUrl) {
-  fail("PROMOTION_DEPLOY_WEBHOOK_URL is required for release promotion");
+  fail("External dependency missing: PROMOTION_DEPLOY_WEBHOOK_URL is required for release promotion");
 }
 
 const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));

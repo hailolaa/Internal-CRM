@@ -18,6 +18,7 @@ import type {
   BackgroundJobsResponse,
   BillingStatus,
   HealthStatus,
+  ReleaseVersionStatus,
   TeamMember,
 } from "@/lib/api-types";
 
@@ -42,6 +43,7 @@ export default function AdminPage() {
   const { session } = useAuth();
   const [liveHealth, setLiveHealth] = useState<HealthStatus | null>(null);
   const [readyHealth, setReadyHealth] = useState<HealthStatus | null>(null);
+  const [releaseVersion, setReleaseVersion] = useState<ReleaseVersionStatus | null>(null);
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditLogEntry[]>([]);
@@ -55,15 +57,17 @@ export default function AdminPage() {
     Promise.all([
       api.health.live(),
       api.health.ready(),
+      api.health.version(),
       api.billing.getStatus(session.token),
       api.team.getMembers(session.token),
       api.auditLog.list(session.token, { page: 1, pageSize: 5 }),
       api.backgroundJobs.list(session.token),
     ])
-      .then(([live, ready, billingStatus, teamMembers, audit, jobStatus]) => {
+      .then(([live, ready, version, billingStatus, teamMembers, audit, jobStatus]) => {
         if (!isMounted) return;
         setLiveHealth(live);
         setReadyHealth(ready);
+        setReleaseVersion(version);
         setBilling(billingStatus);
         setMembers(teamMembers);
         setAuditEntries(audit.entries);
@@ -114,6 +118,18 @@ export default function AdminPage() {
     ],
     [liveHealth, readyHealth],
   );
+
+  const releaseRows = useMemo(() => {
+    const release = releaseVersion?.release;
+    return [
+      { label: "Release ID", value: release?.releaseId || "Not recorded" },
+      { label: "Revision", value: release?.missionControl.revision?.slice(0, 12) || "Not recorded" },
+      { label: "Manifest", value: release?.signature.present ? "Signed" : "Not signed" },
+      { label: "Clinic OS frontend", value: release?.pairedRevisions.clinicOsFrontend?.slice(0, 12) || "Not paired" },
+      { label: "Clinic OS backend", value: release?.pairedRevisions.clinicOsBackend?.slice(0, 12) || "Not paired" },
+      { label: "Deploy verification", value: release?.deploymentVerification.state || "Unknown" },
+    ];
+  }, [releaseVersion]);
 
   return (
     <div className="space-y-6">
@@ -189,6 +205,19 @@ export default function AdminPage() {
                 </span>
               </div>
             ))}
+          </div>
+          <div className="mt-5 border-t border-[#EDE8E2] pt-4">
+            <h3 className="text-sm font-semibold text-[#252421]">Release Version</h3>
+            <div className="mt-3 space-y-3">
+              {releaseRows.map((item) => (
+                <div key={item.label} className="flex items-center justify-between gap-4">
+                  <span className="text-xs text-[#7A746A]">{item.label}</span>
+                  <span className="break-all text-right text-xs font-semibold text-[#315f62]">
+                    {item.value}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </Card>
 

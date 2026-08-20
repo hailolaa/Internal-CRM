@@ -1,4 +1,4 @@
-import type { AuditLogList, HealthStatus } from "@/lib/api-types";
+import type { AuditLogList, HealthStatus, ReleaseVersionStatus } from "@/lib/api-types";
 import type { ApiRequest } from "./core";
 
 export function createHealthAuditApi(apiRequest: ApiRequest) {
@@ -10,6 +10,10 @@ export function createHealthAuditApi(apiRequest: ApiRequest) {
       },
       async ready() {
         const response = await apiRequest<HealthStatus>("/api/health/ready");
+        return response.data!;
+      },
+      async version() {
+        const response = await apiRequest<ReleaseVersionStatus>("/api/health/version");
         return response.data!;
       },
     },

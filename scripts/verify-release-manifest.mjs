@@ -10,6 +10,7 @@ const signingKey = process.env[args.signingKeyEnv || "RELEASE_MANIFEST_SIGNING_K
 const requireSignature = args.requireSignature === true;
 
 const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+verifyManifestShape(manifest);
 
 if (requireSignature && !manifest.signature?.value) {
   fail("Release manifest signature is required");
@@ -34,6 +35,26 @@ for (const artifact of Object.values(manifest.artifacts || {})) {
 console.log(`Release manifest verified: ${manifest.releaseId}`);
 console.log(`Environment: ${manifest.environment}`);
 console.log(`Mission Control revision: ${manifest.repository?.revision || "unknown"}`);
+
+function verifyManifestShape(candidate) {
+  if (candidate.schemaVersion !== 1) fail("Manifest schemaVersion must be 1");
+  if (!candidate.releaseId) fail("Manifest releaseId is required");
+  if (!["staging", "production"].includes(candidate.environment)) fail("Manifest environment must be staging or production");
+  if (!candidate.repository?.revision) fail("Manifest repository revision is required");
+  if (!candidate.database?.baseSchema?.path || !candidate.database?.baseSchema?.sha256) {
+    fail("Manifest database baseSchema entry is required");
+  }
+  if (!Array.isArray(candidate.database?.migrations)) fail("Manifest database migrations must be an array");
+
+  const paths = candidate.database.migrations.map((migration) => migration.path);
+  const sorted = [...paths].sort();
+  if (paths.some((value, index) => value !== sorted[index])) fail("Manifest migrations must be sorted in filename order");
+  if (new Set(paths).size !== paths.length) fail("Manifest contains duplicate migration entries");
+
+  for (const migration of candidate.database.migrations) {
+    if (!migration.path || !migration.sha256) fail("Manifest contains an invalid migration entry");
+  }
+}
 
 function parseArgs(items) {
   const parsed = {};
