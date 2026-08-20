@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -18,6 +19,7 @@ const routesPath = resolve(currentDir, "../modules/clickup/clickup.routes.js");
 const migrationPaths = [
   resolve(currentDir, "../../scripts/migrations/20260730_add_clickup_oauth_and_mappings.sql"),
   resolve(currentDir, "../../scripts/migrations/20260805_add_clickup_category_priority_mappings.sql"),
+  resolve(currentDir, "../../scripts/migrations/20260820_add_clickup_lifecycle_sync.sql"),
 ];
 
 function unique(prefix: string) {
@@ -152,6 +154,105 @@ async function createClientAccount(prefix: string) {
   );
 
   return { clientClinicId, profileId };
+}
+
+async function createClickUpLifecycleFixture(prefix: string) {
+  const workspace = await createWorkspace(prefix);
+  const client = await createClientAccount(`${prefix}-client`);
+  const connectionId = uuidv4();
+  const taskId = uuidv4();
+  const mappingId = uuidv4();
+  const clientMappingId = uuidv4();
+  const externalSuffix = unique(prefix);
+  const clickupWorkspaceId = `${externalSuffix}-workspace`;
+  const clickupListId = `${externalSuffix}-list`;
+  const clickupTaskId = `${externalSuffix}-task`;
+
+  const mutableConfig = config as typeof config & {
+    credentials: { encryptionKey: string };
+  };
+  mutableConfig.credentials.encryptionKey = "clickup-test-encryption-key-32-chars-minimum";
+
+  await pool.execute(
+    `INSERT INTO clickup_connection
+      (id, clinic_id, workspace_id, workspace_name, status, encrypted_access_token,
+       scopes, connected_at, connected_by, last_checked_at)
+     VALUES (?, ?, ?, 'Lifecycle workspace', 'connected', ?, JSON_ARRAY('personal_api_token'), CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)`,
+    [connectionId, workspace.clinicId, clickupWorkspaceId, encryptProviderCredential("pk_clickup_lifecycle"), workspace.userId],
+  );
+
+  await pool.execute(
+    `INSERT INTO clickup_client_mapping
+      (id, clinic_id, client_account_profile_id, connection_id, workspace_id,
+       space_id, folder_id, list_id, mapping_status, mapping_source, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, 'space-1', 'folder-1', ?, 'active', 'api_lookup', ?, ?)`,
+    [clientMappingId, workspace.clinicId, client.profileId, connectionId, clickupWorkspaceId, clickupListId, workspace.userId, workspace.userId],
+  );
+
+  await pool.execute(
+    `INSERT INTO task
+      (id, clinic_id, is_internal, title, description, priority, status, board_key,
+       client_account_profile_id, due_date, assigned_to, created_by)
+     VALUES (?, ?, 1, 'Lifecycle synced task', 'Sync target', 'medium', 'pending', 'delivery', ?, CURRENT_DATE, NULL, ?)`,
+    [taskId, workspace.clinicId, client.profileId, workspace.userId],
+  );
+
+  await pool.execute(
+    `INSERT INTO clickup_task_mapping
+      (id, clinic_id, client_account_profile_id, internal_task_id, connection_id,
+       workspace_id, clickup_task_id, clickup_list_id, clickup_url, sync_direction,
+       mapping_status, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'mission_control_to_clickup', 'active', ?, ?)`,
+    [
+      mappingId,
+      workspace.clinicId,
+      client.profileId,
+      taskId,
+      connectionId,
+      clickupWorkspaceId,
+      clickupTaskId,
+      clickupListId,
+      `https://app.clickup.com/t/${clickupTaskId}`,
+      workspace.userId,
+      workspace.userId,
+    ],
+  );
+
+  return {
+    ...workspace,
+    client,
+    connectionId,
+    taskId,
+    mappingId,
+    clickupWorkspaceId,
+    clickupListId,
+    clickupTaskId,
+  };
+}
+
+function signedClickUpPayload(payload: Record<string, unknown>, secret: string) {
+  const raw = JSON.stringify(payload);
+  return {
+    raw,
+    signature: createHmac("sha256", secret).update(raw, "utf8").digest("hex"),
+  };
+}
+
+async function postClickUpWebhook(port: number, payload: Record<string, unknown>, secret: string, signatureOverride?: string) {
+  const signed = signedClickUpPayload(payload, secret);
+  const response = await fetch(`http://127.0.0.1:${port}/api/clickup/webhook`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Signature": signatureOverride || signed.signature,
+    },
+    body: signed.raw,
+  });
+  const body: any = await response.json().catch(() => ({}));
+  return {
+    response,
+    body,
+  };
 }
 
 test.before(async () => {
@@ -549,6 +650,95 @@ test("ClickUp configured API token connection validates team ID and stores encry
   }
 });
 
+test("ClickUp OAuth connection refreshes expired tokens before provider requests", async () => {
+  const workspace = await createWorkspace("clickup-oauth-refresh");
+  const originalFetch = globalThis.fetch;
+  const originalConfig = {
+    clientId: config.clickup.clientId,
+    clientSecret: config.clickup.clientSecret,
+    encryptionKey: config.credentials.encryptionKey,
+  };
+  const mutableConfig = config as unknown as {
+    clickup: { clientId: string; clientSecret: string };
+    credentials: { encryptionKey: string };
+  };
+  mutableConfig.clickup.clientId = "clickup-oauth-client";
+  mutableConfig.clickup.clientSecret = "clickup-oauth-secret";
+  mutableConfig.credentials.encryptionKey = "clickup-test-encryption-key-32-chars-minimum";
+
+  const connectionId = uuidv4();
+  await pool.execute(
+    `INSERT INTO clickup_connection
+      (id, clinic_id, workspace_id, workspace_name, status, encrypted_access_token,
+       encrypted_refresh_token, token_expires_at, scopes, connected_by, connected_at)
+     VALUES (?, ?, 'cu-workspace-refresh', 'Refresh Workspace', 'connected', ?, ?,
+       '2000-01-01 00:00:00', JSON_ARRAY('task:read'), ?, CURRENT_TIMESTAMP)`,
+    [
+      connectionId,
+      workspace.clinicId,
+      encryptProviderCredential("expired-access-token"),
+      encryptProviderCredential("refresh-token-one"),
+      workspace.userId,
+    ],
+  );
+
+  const seenAuthorizationHeaders: string[] = [];
+  globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/oauth/token")) {
+      const body = JSON.parse(String(init?.body || "{}"));
+      assert.equal(body.client_id, "clickup-oauth-client");
+      assert.equal(body.client_secret, "clickup-oauth-secret");
+      assert.equal(body.grant_type, "refresh_token");
+      assert.equal(body.refresh_token, "refresh-token-one");
+      return new Response(JSON.stringify({
+        access_token: "refreshed-access-token",
+        refresh_token: "refresh-token-two",
+        expires_in: 3600,
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (url.endsWith("/team/cu-workspace-refresh/space?archived=false")) {
+      const headers = init?.headers instanceof Headers
+        ? init.headers
+        : new Headers(init?.headers || {});
+      seenAuthorizationHeaders.push(String(headers.get("Authorization")));
+      return new Response(JSON.stringify({ spaces: [{ id: "space-1", name: "Delivery" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ err: "unexpected" }), { status: 500, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    const spaces = await clickUpService.listRemoteSpaces(workspace.clinicId, "cu-workspace-refresh");
+    assert.deepEqual(spaces, [{ id: "space-1", name: "Delivery" }]);
+    assert.deepEqual(seenAuthorizationHeaders, ["Bearer refreshed-access-token"]);
+
+    const [rows]: any = await pool.execute(
+      `SELECT encrypted_access_token as encryptedAccessToken,
+              encrypted_refresh_token as encryptedRefreshToken,
+              token_expires_at as tokenExpiresAt,
+              last_error as lastError
+       FROM clickup_connection
+       WHERE id = ?
+       LIMIT 1`,
+      [connectionId],
+    );
+    assert.notEqual(rows[0].encryptedAccessToken, "refreshed-access-token");
+    assert.notEqual(rows[0].encryptedRefreshToken, "refresh-token-two");
+    assert.ok(rows[0].encryptedAccessToken.startsWith("enc:cred:"));
+    assert.ok(rows[0].encryptedRefreshToken.startsWith("enc:cred:"));
+    assert.ok(rows[0].tokenExpiresAt);
+    assert.equal(rows[0].lastError, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+    mutableConfig.clickup.clientId = originalConfig.clientId;
+    mutableConfig.clickup.clientSecret = originalConfig.clientSecret;
+    mutableConfig.credentials.encryptionKey = originalConfig.encryptionKey;
+  }
+});
+
 test("ClickUp member lookup falls back to workspace payload when the direct members endpoint fails", async () => {
   const workspace = await createWorkspace("clickup-member-fallback");
   const originalFetch = globalThis.fetch;
@@ -895,5 +1085,311 @@ test("ClickUp task creation saves local mapping before attachment upload failure
   } finally {
     globalThis.fetch = originalFetch;
     mutableConfig.credentials.encryptionKey = originalConfig.encryptionKey;
+  }
+});
+
+test("ClickUp webhook applies mapped lifecycle events exactly once and rejects stale updates", async () => {
+  const fixture = await createClickUpLifecycleFixture("clickup-webhook-status");
+  const secret = "clickup-webhook-secret-32-character-value";
+  const mutableConfig = config as typeof config & { clickup: { webhookSecret: string } };
+  const originalSecret = config.clickup.webhookSecret;
+  mutableConfig.clickup.webhookSecret = secret;
+  const server = app.listen(0);
+
+  try {
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const webhookId = unique("wh-status");
+    const newerDate = Date.now();
+    const completePayload = {
+      webhook_id: webhookId,
+      event: "taskStatusUpdated",
+      task_id: fixture.clickupTaskId,
+      history_items: [{
+        id: `${webhookId}-complete`,
+        date: newerDate,
+        after: { status: "complete", type: "closed" },
+      }],
+    };
+
+    const first = await postClickUpWebhook(port, completePayload, secret);
+    assert.equal(first.response.status, 202);
+    assert.equal(first.body.data.duplicate, false);
+    assert.equal(first.body.data.processingStatus, "processed");
+
+    const duplicate = await postClickUpWebhook(port, completePayload, secret);
+    assert.equal(duplicate.response.status, 202);
+    assert.equal(duplicate.body.data.duplicate, true);
+
+    const stalePayload = {
+      webhook_id: webhookId,
+      event: "taskStatusUpdated",
+      task_id: fixture.clickupTaskId,
+      history_items: [{
+        id: `${webhookId}-stale`,
+        date: newerDate - 60_000,
+        after: { status: "open", type: "open" },
+      }],
+    };
+    const stale = await postClickUpWebhook(port, stalePayload, secret);
+    assert.equal(stale.response.status, 202);
+    assert.equal(stale.body.data.processingStatus, "stale");
+
+    const [taskRows]: any = await pool.execute(
+      "SELECT status FROM task WHERE id = ?",
+      [fixture.taskId],
+    );
+    assert.equal(taskRows[0].status, "completed");
+
+    const [eventRows]: any = await pool.execute(
+      "SELECT COUNT(*) as count FROM clickup_webhook_event WHERE provider_event_key = ?",
+      [`${webhookId}:${webhookId}-complete`],
+    );
+    assert.equal(Number(eventRows[0].count), 1);
+  } finally {
+    mutableConfig.clickup.webhookSecret = originalSecret;
+    await closeServer(server);
+  }
+});
+
+test("ClickUp webhook blocks invalid signatures and quarantines unmapped events", async () => {
+  const secret = "clickup-webhook-secret-32-character-value";
+  const mutableConfig = config as typeof config & { clickup: { webhookSecret: string } };
+  const originalSecret = config.clickup.webhookSecret;
+  mutableConfig.clickup.webhookSecret = secret;
+  const server = app.listen(0);
+
+  try {
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const webhookId = unique("wh-invalid");
+    const payload = {
+      webhook_id: webhookId,
+      event: "taskStatusUpdated",
+      task_id: "unknown-task",
+      history_items: [{ id: `${webhookId}-history`, date: Date.now(), after: { status: "complete" } }],
+    };
+
+    const invalid = await postClickUpWebhook(port, payload, secret, "0".repeat(64));
+    assert.equal(invalid.response.status, 401);
+
+    const accepted = await postClickUpWebhook(port, payload, secret);
+    assert.equal(accepted.response.status, 202);
+    assert.equal(accepted.body.data.processingStatus, "quarantined");
+    const [rows]: any = await pool.execute(
+      `SELECT processing_status as processingStatus, error_class as errorClass
+       FROM clickup_webhook_event
+       WHERE provider_event_key = ?`,
+      [`${webhookId}:${webhookId}-history`],
+    );
+    assert.equal(rows[0].processingStatus, "quarantined");
+    assert.equal(rows[0].errorClass, "unmapped_client");
+  } finally {
+    mutableConfig.clickup.webhookSecret = originalSecret;
+    await closeServer(server);
+  }
+});
+
+test("ClickUp webhook updates due date, assignee and provider-created tasks without leaking raw payloads", async () => {
+  const fixture = await createClickUpLifecycleFixture("clickup-webhook-fields");
+  const secret = "clickup-webhook-secret-32-character-value";
+  const mutableConfig = config as typeof config & { clickup: { webhookSecret: string } };
+  const originalSecret = config.clickup.webhookSecret;
+  mutableConfig.clickup.webhookSecret = secret;
+  const server = app.listen(0);
+
+  try {
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const webhookId = unique("wh-fields");
+    const dueDate = new Date("2026-08-28T12:00:00Z").getTime();
+    const duePayload = {
+      webhook_id: webhookId,
+      event: "taskDueDateUpdated",
+      task_id: fixture.clickupTaskId,
+      history_items: [{ id: `${webhookId}-due`, date: Date.now(), after: dueDate }],
+    };
+    const assigneePayload = {
+      webhook_id: webhookId,
+      event: "taskAssigneeUpdated",
+      task_id: fixture.clickupTaskId,
+      history_items: [{ id: `${webhookId}-assignee`, date: Date.now() + 1, after: [{ id: "105" }, { id: "106", email: "hidden@example.com" }] }],
+    };
+    const createdPayload = {
+      webhook_id: webhookId,
+      event: "taskCreated",
+      task_id: `${webhookId}-provider-created-task`,
+      list_id: fixture.clickupListId,
+      history_items: [{ id: `${webhookId}-created`, date: Date.now() + 2 }],
+    };
+
+    assert.equal((await postClickUpWebhook(port, duePayload, secret)).body.data.processingStatus, "processed");
+    assert.equal((await postClickUpWebhook(port, assigneePayload, secret)).body.data.processingStatus, "processed");
+    assert.equal((await postClickUpWebhook(port, createdPayload, secret)).body.data.processingStatus, "processed");
+
+    const [taskRows]: any = await pool.execute(
+      "SELECT DATE_FORMAT(due_date, '%Y-%m-%d') as dueDate, assigned_to as assignedTo FROM task WHERE id = ?",
+      [fixture.taskId],
+    );
+    assert.equal(taskRows[0].dueDate, "2026-08-28");
+    assert.equal(taskRows[0].assignedTo, "ClickUp assignee 105, ClickUp assignee 106");
+
+    const [mappingRows]: any = await pool.execute(
+      `SELECT mapping_status as mappingStatus, internal_task_id as internalTaskId
+       FROM clickup_task_mapping
+       WHERE clickup_task_id = ?`,
+      [`${webhookId}-provider-created-task`],
+    );
+    assert.equal(mappingRows[0].mappingStatus, "needs_review");
+    assert.equal(mappingRows[0].internalTaskId, null);
+
+    const [payloadRows]: any = await pool.execute(
+      `SELECT payload_summary as payloadSummary
+       FROM clickup_webhook_event
+       WHERE provider_event_key = ?`,
+      [`${webhookId}:${webhookId}-assignee`],
+    );
+    assert.doesNotMatch(JSON.stringify(payloadRows[0].payloadSummary), /hidden@example\.com/);
+  } finally {
+    mutableConfig.clickup.webhookSecret = originalSecret;
+    await closeServer(server);
+  }
+});
+
+test("ClickUp delete archive and moved lifecycle events are non destructive and mark review where needed", async () => {
+  const archiveFixture = await createClickUpLifecycleFixture("clickup-webhook-archive");
+  const moveFixture = await createClickUpLifecycleFixture("clickup-webhook-move");
+  const secret = "clickup-webhook-secret-32-character-value";
+  const mutableConfig = config as typeof config & { clickup: { webhookSecret: string } };
+  const originalSecret = config.clickup.webhookSecret;
+  mutableConfig.clickup.webhookSecret = secret;
+  const server = app.listen(0);
+
+  try {
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const archiveWebhookId = unique("wh-archive");
+    const moveWebhookId = unique("wh-move");
+    assert.equal((await postClickUpWebhook(port, {
+      webhook_id: archiveWebhookId,
+      event: "taskArchived",
+      task_id: archiveFixture.clickupTaskId,
+      history_items: [{ id: `${archiveWebhookId}-history`, date: Date.now() }],
+    }, secret)).body.data.processingStatus, "processed");
+
+    assert.equal((await postClickUpWebhook(port, {
+      webhook_id: moveWebhookId,
+      event: "taskMoved",
+      task_id: moveFixture.clickupTaskId,
+      list_id: "other-client-list",
+      history_items: [{ id: `${moveWebhookId}-history`, date: Date.now(), after: { list_id: "other-client-list" } }],
+    }, secret)).body.data.processingStatus, "processed");
+
+    const [archivedRows]: any = await pool.execute(
+      "SELECT deleted_at as deletedAt, archived_at as archivedAt FROM task WHERE id = ?",
+      [archiveFixture.taskId],
+    );
+    assert.equal(archivedRows[0].deletedAt, null);
+    assert.ok(archivedRows[0].archivedAt, "provider archive should soft-archive the internal task");
+
+    const [moveRows]: any = await pool.execute(
+      `SELECT mapping_status as mappingStatus
+       FROM clickup_task_mapping
+       WHERE id = ?`,
+      [moveFixture.mappingId],
+    );
+    assert.equal(moveRows[0].mappingStatus, "needs_review");
+  } finally {
+    mutableConfig.clickup.webhookSecret = originalSecret;
+    await closeServer(server);
+  }
+});
+
+test("ClickUp reconciliation classifies 429, 5xx and permanent 4xx provider failures", async () => {
+  const fixture429 = await createClickUpLifecycleFixture("clickup-reconcile-429");
+  const fixture500 = await createClickUpLifecycleFixture("clickup-reconcile-500");
+  const fixture404 = await createClickUpLifecycleFixture("clickup-reconcile-404");
+  const originalFetch = globalThis.fetch;
+
+  try {
+    let call = 0;
+    globalThis.fetch = (async () => {
+      call += 1;
+      if (call === 1) {
+        return new Response(JSON.stringify({ err: "rate limited" }), {
+          status: 429,
+          headers: { "Retry-After": "2" },
+        });
+      }
+      if (call === 2) {
+        return new Response(JSON.stringify({ err: "provider unavailable" }), { status: 503 });
+      }
+      return new Response(JSON.stringify({ err: "not found" }), { status: 404 });
+    }) as typeof fetch;
+
+    const result429 = await clickUpService.runIncrementalReconciliation(1, fixture429.clinicId);
+    const result500 = await clickUpService.runIncrementalReconciliation(1, fixture500.clinicId);
+    const result404 = await clickUpService.runIncrementalReconciliation(1, fixture404.clinicId);
+    assert.equal(result429.failed, 1);
+    assert.equal(result500.failed, 1);
+    assert.equal(result404.needsReview, 1);
+
+    const [checkpointRows]: any = await pool.execute(
+      `SELECT sync_status as syncStatus, last_error as lastError
+       FROM clickup_sync_checkpoint
+       WHERE clinic_id IN (?, ?, ?)
+       ORDER BY created_at ASC`,
+      [fixture429.clinicId, fixture500.clinicId, fixture404.clinicId],
+    );
+    assert.equal(checkpointRows.some((row: any) => row.syncStatus === "retrying" && /rate limited/.test(row.lastError)), true);
+    assert.equal(checkpointRows.some((row: any) => row.syncStatus === "retrying" && /provider unavailable/.test(row.lastError)), true);
+    assert.equal(checkpointRows.some((row: any) => row.syncStatus === "reconciliation_needed" && /not found/.test(row.lastError)), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("ClickUp dead-letter replay reprocesses the original event with idempotency intact", async () => {
+  const fixture = await createClickUpLifecycleFixture("clickup-dead-letter");
+  const secret = "clickup-webhook-secret-32-character-value";
+  const mutableConfig = config as typeof config & { clickup: { webhookSecret: string } };
+  const originalSecret = config.clickup.webhookSecret;
+  mutableConfig.clickup.webhookSecret = secret;
+  const server = app.listen(0);
+
+  try {
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const webhookId = unique("wh-dead");
+    const payload = {
+      webhook_id: webhookId,
+      event: "taskStatusUpdated",
+      task_id: fixture.clickupTaskId,
+      history_items: [{ id: `${webhookId}-history`, date: Date.now(), after: { status: "open" } }],
+    };
+    const receipt = await postClickUpWebhook(port, payload, secret);
+    const eventId = receipt.body.data.eventId;
+    await pool.execute(
+      `UPDATE clickup_webhook_event
+       SET processing_status = 'dead_letter',
+           error_class = 'processing_error',
+           error_message = 'forced test dead letter'
+       WHERE id = ?`,
+      [eventId],
+    );
+
+    const replayed = await clickUpService.replayDeadLetterEvent(fixture.clinicId, eventId);
+    assert.equal(replayed.processingStatus, "processed");
+
+    const [eventRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count
+       FROM clickup_webhook_event
+       WHERE provider_event_key = ?`,
+      [`${webhookId}:${webhookId}-history`],
+    );
+    assert.equal(Number(eventRows[0].count), 1);
+  } finally {
+    mutableConfig.clickup.webhookSecret = originalSecret;
+    await closeServer(server);
   }
 });

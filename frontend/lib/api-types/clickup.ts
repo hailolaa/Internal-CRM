@@ -20,6 +20,7 @@ export interface ClickUpConnectionRecord {
 export interface ClickUpIntegrationStatus {
   oauthConfigured: boolean;
   apiTokenConfigured: boolean;
+  webhookConfigured?: boolean;
   connections: ClickUpConnectionRecord[];
   clientMappingCount: number;
   taskMappingCount: number;
@@ -212,6 +213,72 @@ export interface FailedTaskMapping {
   clientName: string;
   clickupListId: string | null;
   updatedAt: string;
+}
+
+export type ClickUpWebhookProcessingStatus =
+  | "queued"
+  | "processing"
+  | "processed"
+  | "duplicate"
+  | "stale"
+  | "quarantined"
+  | "retrying"
+  | "dead_letter"
+  | "failed"
+  | "ignored";
+
+export type ClickUpSyncHealthStatus =
+  | "healthy"
+  | "delayed"
+  | "retrying"
+  | "dead_letter"
+  | "disconnected"
+  | "reconciliation_needed";
+
+export interface ClickUpSyncHealthRecord {
+  id: string;
+  clientAccountProfileId: string;
+  clientClinicId: string | null;
+  clientName: string;
+  workspaceId: string;
+  clickupListId: string | null;
+  syncStatus: ClickUpSyncHealthStatus;
+  lastEventAt: string | null;
+  lastProcessedEventAt: string | null;
+  lastReconciledAt: string | null;
+  lastError: string | null;
+  retryingCount: number;
+  deadLetterCount: number;
+  updatedAt: string;
+}
+
+export interface ClickUpWebhookEventRecord {
+  id: string;
+  providerEventKey: string;
+  providerEventType: string;
+  clickupTaskId: string | null;
+  clientAccountProfileId: string | null;
+  clientName: string | null;
+  processingStatus: ClickUpWebhookProcessingStatus;
+  retryCount: number;
+  nextRetryAt: string | null;
+  errorClass: string | null;
+  errorMessage: string | null;
+  receivedAt: string;
+  processedAt: string | null;
+}
+
+export interface ClickUpReconciliationResponse {
+  syncHealth: ClickUpSyncHealthRecord[];
+  failedTaskMappings: FailedTaskMapping[];
+  deadLetterEvents: ClickUpWebhookEventRecord[];
+}
+
+export interface ClickUpReconciliationRunResult {
+  checked: number;
+  updated: number;
+  failed: number;
+  queuedForReview: number;
 }
 
 export interface CreateClickUpTaskResult {

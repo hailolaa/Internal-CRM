@@ -1,4 +1,5 @@
 import pool from "../../config/database.js";
+import { clickUpService } from "../clickup/clickup.service.js";
 import { sequencesService } from "../sequences/sequences.service.js";
 import { slaService } from "../sla/sla.service.js";
 import { tasksService } from "../tasks/tasks.service.js";
@@ -75,6 +76,21 @@ export async function runRecurringTasksGeneration(): Promise<BackgroundJobTaskRe
 
 export async function runSequenceExecution(): Promise<BackgroundJobTaskResult> {
   return sequencesService.processDueSequences({ limit: 100 });
+}
+
+export async function runClickUpLifecycleSync(): Promise<BackgroundJobTaskResult> {
+  const events = await clickUpService.processQueuedWebhookEvents({ limit: 50 });
+  const reconciliation = await clickUpService.runIncrementalReconciliation(50);
+  return {
+    eventsAttempted: events.attempted,
+    eventsProcessed: events.processed,
+    eventsRetrying: events.retried,
+    eventsDeadLetter: events.deadLetter,
+    mappingsChecked: reconciliation.checked,
+    mappingsUpdated: reconciliation.updated,
+    mappingsNeedsReview: reconciliation.needsReview,
+    reconciliationFailed: reconciliation.failed,
+  };
 }
 
 export async function runObservabilityFailureProbe(): Promise<BackgroundJobTaskResult> {

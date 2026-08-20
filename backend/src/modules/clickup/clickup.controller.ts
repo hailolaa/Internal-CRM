@@ -36,6 +36,22 @@ export class ClickUpController {
     }
   };
 
+  receiveWebhook = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const receipt = await clickUpService.receiveWebhook(
+        req.headers as Record<string, string | string[] | undefined>,
+        req.body,
+        (req as any).rawBody || null,
+      );
+      res.status(202).json({
+        status: "success",
+        data: receipt,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getStatus = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;
@@ -331,6 +347,42 @@ export class ClickUpController {
       res.status(200).json({
         status: "success",
         data: await clickUpService.listFailedTaskMappings(user.clinicId),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getReconciliationStatus = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.getReconciliationStatus(user.clinicId),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  replayDeadLetterEvent = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.replayDeadLetterEvent(user.clinicId, String(req.params.eventId)),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  runReconciliation = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.runIncrementalReconciliation(50, user.clinicId),
       });
     } catch (error) {
       next(error);

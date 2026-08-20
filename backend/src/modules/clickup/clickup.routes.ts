@@ -19,6 +19,7 @@ import {
   saveClickUpPriorityMappingValidator,
   saveClickUpTaskMappingValidator,
   clickUpMappingIdParamValidator,
+  clickUpEventIdParamValidator,
 } from "./clickup.validators.js";
 
 const router = Router();
@@ -48,6 +49,11 @@ router.get(
   clickUpOAuthCallbackValidator,
   validate,
   clickUpController.completeOAuthRedirect,
+);
+
+router.post(
+  "/webhook",
+  clickUpController.receiveWebhook,
 );
 
 router.use(authenticate);
@@ -213,6 +219,26 @@ router.get(
   "/reconciliation/failed-tasks",
   authorizePermission("internal_tasks:read"),
   clickUpController.listFailedTaskMappings,
+);
+
+router.get(
+  "/reconciliation/status",
+  authorizePermission("internal_tasks:read"),
+  clickUpController.getReconciliationStatus,
+);
+
+router.post(
+  "/reconciliation/run",
+  authorizePermission("internal_tasks:write"),
+  clickUpController.runReconciliation,
+);
+
+router.post(
+  "/reconciliation/dead-letter/:eventId/replay",
+  authorizePermission("internal_tasks:write"),
+  clickUpEventIdParamValidator,
+  validate,
+  clickUpController.replayDeadLetterEvent,
 );
 
 router.post(

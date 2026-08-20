@@ -1,5 +1,6 @@
 import {
   runDailySlaReport,
+  runClickUpLifecycleSync,
   runObservabilityFailureProbe,
   runRecurringTasksGeneration,
   runSequenceExecution,
@@ -63,6 +64,15 @@ export const backgroundJobDefinitions: BackgroundJobDefinition[] = [
     category: "Communications",
     getNextRunAt: nextIntervalRun(5 * minuteMs),
     handler: runSequenceExecution,
+  },
+  {
+    id: "clickup-lifecycle-sync",
+    name: "ClickUp Lifecycle Sync",
+    description: "Processes ClickUp task lifecycle webhooks and reconciles known mapped tasks without whole-workspace polling.",
+    schedule: "Every 5 minutes",
+    category: "Integrations",
+    getNextRunAt: nextIntervalRun(5 * minuteMs),
+    handler: runClickUpLifecycleSync,
   },
 ];
 

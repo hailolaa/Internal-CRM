@@ -45,6 +45,10 @@ export const clickUpMappingIdParamValidator = [
   param("mappingId").isString().trim().notEmpty().isLength({ max: 36 }),
 ];
 
+export const clickUpEventIdParamValidator = [
+  param("eventId").isString().trim().notEmpty().isLength({ max: 36 }),
+];
+
 
 export const clickUpLookupQueryValidator = [
   query("workspaceId").optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 64 }),

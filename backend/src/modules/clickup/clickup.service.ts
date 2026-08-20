@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import { createHmac, createHash, timingSafeEqual } from "node:crypto";
 import type { PoolConnection } from "mysql2/promise";
 import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
@@ -28,6 +29,11 @@ import type {
   StartClickUpOAuthResponse,
   CreateClickUpTaskResult,
   FailedTaskMapping,
+  ClickUpReconciliationResponse,
+  ClickUpSyncHealthRecord,
+  ClickUpWebhookEventRecord,
+  ClickUpWebhookProcessingStatus,
+  ClickUpWebhookReceipt,
 } from "./clickup.types.js";
 
 const OAUTH_STATE_TTL_MINUTES = 20;
@@ -35,6 +41,22 @@ const CATEGORY_KEYS: ClickUpCategoryKey[] = ["development", "seo", "gmb_local_se
 const OPERATIONS_DASHBOARD_PAGE_LIMIT = 5;
 const OPERATIONS_DASHBOARD_TASKS_PER_PAGE = 100;
 const OPERATIONS_DASHBOARD_QUEUE_LIMIT = 12;
+const CLICKUP_WEBHOOK_EVENT_VERSION = "v1";
+const CLICKUP_EVENT_MAX_RETRIES = 5;
+const CLICKUP_RECONCILIATION_LIMIT = 50;
+const CLICKUP_LIFECYCLE_EVENTS = new Set([
+  "taskCreated",
+  "taskUpdated",
+  "taskStatusUpdated",
+  "taskAssigneeUpdated",
+  "taskDueDateUpdated",
+  "taskPriorityUpdated",
+  "taskCompleted",
+  "taskDeleted",
+  "taskArchived",
+  "taskUnarchived",
+  "taskMoved",
+]);
 
 function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
@@ -374,6 +396,43 @@ function mapPriorityMapping(row: any): ClickUpPriorityMappingResponse {
   };
 }
 
+function mapSyncHealth(row: any): ClickUpSyncHealthRecord {
+  return {
+    id: row.id,
+    clientAccountProfileId: row.clientAccountProfileId,
+    clientClinicId: row.clientClinicId || null,
+    clientName: row.clientName || "Mapped client",
+    workspaceId: row.workspaceId,
+    clickupListId: row.clickupListId || null,
+    syncStatus: row.syncStatus,
+    lastEventAt: toIsoString(row.lastEventAt),
+    lastProcessedEventAt: toIsoString(row.lastProcessedEventAt),
+    lastReconciledAt: toIsoString(row.lastReconciledAt),
+    lastError: row.lastError || null,
+    retryingCount: Number(row.retryingCount || 0),
+    deadLetterCount: Number(row.deadLetterCount || 0),
+    updatedAt: toIsoString(row.updatedAt) || new Date().toISOString(),
+  };
+}
+
+function mapWebhookEvent(row: any): ClickUpWebhookEventRecord {
+  return {
+    id: row.id,
+    providerEventKey: row.providerEventKey,
+    providerEventType: row.providerEventType,
+    clickupTaskId: row.clickupTaskId || null,
+    clientAccountProfileId: row.clientAccountProfileId || null,
+    clientName: row.clientName || null,
+    processingStatus: row.processingStatus,
+    retryCount: Number(row.retryCount || 0),
+    nextRetryAt: toIsoString(row.nextRetryAt),
+    errorClass: row.errorClass || null,
+    errorMessage: row.errorMessage || null,
+    receivedAt: toIsoString(row.receivedAt) || new Date().toISOString(),
+    processedAt: toIsoString(row.processedAt),
+  };
+}
+
 function uniqueStrings(values: unknown[] | undefined) {
   return [...new Set((values || []).map(String).map((value) => value.trim()).filter(Boolean))];
 }
@@ -393,6 +452,235 @@ function extractClickUpMembers(payload: any) {
   }
 
   return [];
+}
+
+function toMysqlDateTime(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+function parseClickUpDate(value: unknown): Date | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    const date = new Date(numeric);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function firstHistoryItem(payload: any) {
+  return Array.isArray(payload?.history_items) && payload.history_items.length > 0 ? payload.history_items[0] : null;
+}
+
+function firstDefined(...values: unknown[]) {
+  return values.find((value) => value !== undefined && value !== null && value !== "");
+}
+
+function normalizeClickUpId(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    return cleanString(record.id) || cleanString(record.task_id) || cleanString(record.list_id);
+  }
+  return cleanString(String(value));
+}
+
+function extractTaskId(payload: any) {
+  return normalizeClickUpId(firstDefined(payload?.task_id, payload?.taskId, payload?.task?.id, firstHistoryItem(payload)?.task_id));
+}
+
+function extractListId(payload: any) {
+  const history = firstHistoryItem(payload);
+  return normalizeClickUpId(firstDefined(
+    payload?.list_id,
+    payload?.listId,
+    payload?.list?.id,
+    payload?.task?.list?.id,
+    history?.list_id,
+    history?.parent_id,
+    history?.after?.list_id,
+    history?.after?.list?.id,
+    history?.after?.id,
+  ));
+}
+
+function extractWebhookId(payload: any) {
+  return cleanString(payload?.webhook_id) || cleanString(payload?.webhookId) || "unknown-webhook";
+}
+
+function payloadHash(rawBody: Buffer | string | null | undefined, payload: any) {
+  const raw = rawBody
+    ? Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(String(rawBody), "utf8")
+    : Buffer.from(JSON.stringify(payload || {}), "utf8");
+  return createHash("sha256").update(raw).digest("hex");
+}
+
+function stablePayloadString(rawBody: Buffer | string | null | undefined, payload: any) {
+  if (rawBody) return Buffer.isBuffer(rawBody) ? rawBody.toString("utf8") : String(rawBody);
+  return JSON.stringify(payload || {});
+}
+
+function safeTimingEqual(left: string, right: string) {
+  const a = Buffer.from(left, "hex");
+  const b = Buffer.from(right, "hex");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function extractProviderEventKey(payload: any, hash: string) {
+  const webhookId = extractWebhookId(payload);
+  const history = firstHistoryItem(payload);
+  const historyId = cleanString(history?.id);
+  if (historyId) return `${webhookId}:${historyId}`;
+
+  const event = cleanString(payload?.event) || "unknown";
+  const taskId = extractTaskId(payload) || "unknown-task";
+  const eventDate = cleanString(history?.date) || cleanString(payload?.date) || cleanString(payload?.date_updated) || hash.slice(0, 32);
+  return `${webhookId}:${event}:${taskId}:${eventDate}`;
+}
+
+function extractEventOccurredAt(payload: any) {
+  const history = firstHistoryItem(payload);
+  return parseClickUpDate(firstDefined(history?.date, payload?.date, payload?.date_updated, payload?.task?.date_updated));
+}
+
+function statusValue(value: unknown) {
+  if (!value) return null;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    return cleanString(record.status) || cleanString(record.name) || cleanString(record.value) || cleanString(record.type);
+  }
+  return cleanString(String(value));
+}
+
+function statusTypeValue(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return cleanString((value as Record<string, unknown>).type);
+}
+
+function extractStatusAfter(payload: any) {
+  const history = firstHistoryItem(payload);
+  return statusValue(firstDefined(payload?.task?.status, history?.after?.status, history?.after));
+}
+
+function extractStatusTypeAfter(payload: any) {
+  const history = firstHistoryItem(payload);
+  return statusTypeValue(firstDefined(payload?.task?.status, history?.after?.status, history?.after));
+}
+
+function extractDueAfter(payload: any) {
+  const history = firstHistoryItem(payload);
+  return parseClickUpDate(firstDefined(payload?.task?.due_date, history?.after?.due_date, history?.after));
+}
+
+function extractPriorityAfter(payload: any) {
+  const history = firstHistoryItem(payload);
+  const value = firstDefined(payload?.task?.priority, history?.after?.priority, history?.after);
+  if (!value) return null;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    return cleanString(record.priority) || cleanString(record.name) || cleanString(record.id);
+  }
+  return cleanString(String(value));
+}
+
+function extractAssigneeIdsFromValue(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return uniqueStrings(value.map((item) => normalizeClickUpId(item)));
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return uniqueStrings([
+      record.id,
+      record.user_id,
+      record.userid,
+      ...(Array.isArray(record.assignees) ? record.assignees.map((item) => normalizeClickUpId(item)) : []),
+    ]);
+  }
+  return uniqueStrings([value]);
+}
+
+function extractAssigneeIdsAfter(payload: any) {
+  const history = firstHistoryItem(payload);
+  return uniqueStrings([
+    ...extractAssigneeIdsFromValue(payload?.task?.assignees),
+    ...extractAssigneeIdsFromValue(history?.after?.assignees),
+    ...extractAssigneeIdsFromValue(history?.after),
+  ]);
+}
+
+function mapProviderPriority(value: string | null): "low" | "medium" | "high" | null {
+  const text = String(value || "").toLowerCase();
+  if (!text) return null;
+  if (/\b(urgent|high|1|2)\b/.test(text)) return "high";
+  if (/\b(low|4)\b/.test(text)) return "low";
+  return "medium";
+}
+
+function isCompletedStatus(status: string | null, eventType: string) {
+  if (eventType === "taskCompleted") return true;
+  return /\b(closed|complete|completed|done)\b/i.test(status || "");
+}
+
+function sanitizeWebhookPayload(payload: any, hash: string) {
+  const history = firstHistoryItem(payload);
+  const eventType = cleanString(payload?.event) || "unknown";
+  const statusAfter = extractStatusAfter(payload);
+  const dueAfter = extractDueAfter(payload);
+  const assigneeIds = extractAssigneeIdsAfter(payload);
+  const priorityAfter = extractPriorityAfter(payload);
+  const listId = extractListId(payload);
+
+  return {
+    schema: CLICKUP_WEBHOOK_EVENT_VERSION,
+    event: eventType,
+    webhookId: extractWebhookId(payload),
+    historyItemId: cleanString(history?.id),
+    historyType: history?.type === undefined ? null : String(history.type),
+    taskId: extractTaskId(payload),
+    listId,
+    statusAfter,
+    statusTypeAfter: extractStatusTypeAfter(payload),
+    dueAfter: dueAfter ? dueAfter.toISOString() : null,
+    priorityAfter,
+    assigneeIds,
+    payloadHash: hash,
+  };
+}
+
+function parseSummary(value: unknown) {
+  if (!value) return {};
+  if (typeof value === "object") return value as Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function classifyClickUpProviderFailure(error: any) {
+  const details = error?.details || {};
+  const providerStatus = Number(details.providerStatus || error?.providerStatus || 0);
+  const retryAfterMs = Number(details.retryAfterMs || error?.retryAfterMs || 0);
+  if (providerStatus === 429) {
+    return { errorClass: "rate_limited", retryable: true, retryAfterMs };
+  }
+  if (providerStatus >= 500 || error?.code === "ECONNRESET" || error?.name === "AbortError") {
+    return { errorClass: "provider_transient", retryable: true, retryAfterMs: 0 };
+  }
+  if (providerStatus >= 400) {
+    return { errorClass: "provider_permanent", retryable: false, retryAfterMs: 0 };
+  }
+  return { errorClass: "processing_error", retryable: false, retryAfterMs: 0 };
 }
 
 export class ClickUpService {
@@ -429,6 +717,7 @@ export class ClickUpService {
     return {
       oauthConfigured: Boolean(config.clickup.clientId && config.clickup.clientSecret),
       apiTokenConfigured: Boolean(config.clickup.apiToken && config.clickup.teamId),
+      webhookConfigured: Boolean(config.clickup.webhookSecret),
       connections: rows.map(mapConnection),
       clientMappingCount: Number(mappingRows[0]?.clientMappingCount || 0),
       taskMappingCount: Number(mappingRows[0]?.taskMappingCount || 0),
@@ -1328,6 +1617,294 @@ export class ClickUpService {
     return { mapping: updatedMapping, attachmentErrors };
   }
 
+  async receiveWebhook(
+    headers: Record<string, string | string[] | undefined>,
+    body: unknown,
+    rawBody?: Buffer | string | null,
+  ): Promise<ClickUpWebhookReceipt> {
+    if (!config.clickup.webhookSecret) {
+      throw ApiError.serviceUnavailable("ClickUp webhook secret is not configured.");
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw ApiError.badRequest("ClickUp webhook payload must be a JSON object.");
+    }
+
+    const payload = body as Record<string, unknown>;
+    const signature = this.headerValue(headers, "x-signature");
+    this.verifyWebhookSignature(signature, stablePayloadString(rawBody, payload));
+
+    const hash = payloadHash(rawBody, payload);
+    const summary = sanitizeWebhookPayload(payload, hash);
+    const providerEventType = cleanString(payload.event) || "unknown";
+    const providerEventKey = extractProviderEventKey(payload, hash);
+    const eventOccurredAt = extractEventOccurredAt(payload);
+    const resolved = await this.resolveWebhookMapping(summary);
+    const timestampStatus = this.validateWebhookTimestamp(eventOccurredAt);
+    const unsupported = !CLICKUP_LIFECYCLE_EVENTS.has(providerEventType);
+    const processingStatus: ClickUpWebhookProcessingStatus = unsupported
+      ? "ignored"
+      : timestampStatus || resolved.initialStatus || "queued";
+    const eventId = uuidv4();
+    const eventValues: any[] = [
+      eventId,
+      resolved.clinicId,
+      resolved.connectionId,
+      resolved.clientAccountProfileId,
+      resolved.taskMappingId,
+      resolved.workspaceId,
+      String(summary.webhookId || "unknown-webhook"),
+      providerEventKey,
+      providerEventType,
+      CLICKUP_WEBHOOK_EVENT_VERSION,
+      summary.taskId || null,
+      summary.listId || null,
+      toMysqlDateTime(eventOccurredAt),
+      toMysqlDateTime(eventOccurredAt),
+      hash,
+      JSON.stringify(summary),
+      processingStatus,
+      unsupported ? "unsupported_event" : resolved.errorClass || null,
+      unsupported ? "ClickUp event type is not part of the approved lifecycle sync." : resolved.errorMessage || null,
+      ["ignored", "quarantined", "stale"].includes(processingStatus) ? new Date() : null,
+    ];
+
+    try {
+      await pool.execute(
+        `INSERT INTO clickup_webhook_event
+          (id, clinic_id, connection_id, client_account_profile_id, task_mapping_id,
+           workspace_id, webhook_id, provider_event_key, provider_event_type,
+           provider_event_version, clickup_task_id, clickup_list_id, event_occurred_at,
+           provider_updated_at, payload_hash, payload_summary, processing_status,
+           error_class, error_message, processed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        eventValues,
+      );
+    } catch (error: any) {
+      if (error?.code === "ER_DUP_ENTRY") {
+        const existing = await this.getWebhookEventByKey(providerEventKey);
+        return {
+          accepted: true,
+          duplicate: true,
+          eventId: existing.id,
+          processingStatus: existing.processingStatus,
+        };
+      }
+      throw error;
+    }
+
+    if (processingStatus === "queued") {
+      await this.processQueuedWebhookEvents({ eventId, limit: 1 });
+    } else if (resolved.clinicId && resolved.clientAccountProfileId) {
+      await this.upsertSyncCheckpoint({
+        clinicId: resolved.clinicId,
+        connectionId: resolved.connectionId,
+        clientAccountProfileId: resolved.clientAccountProfileId,
+        workspaceId: resolved.workspaceId || "",
+        clickupListId: resolved.clickupListId || summary.listId || "",
+        syncStatus: processingStatus === "ignored" ? "healthy" : "reconciliation_needed",
+        lastEventAt: eventOccurredAt,
+        lastError: resolved.errorMessage || (unsupported ? "Unsupported ClickUp event ignored." : null),
+      });
+    }
+
+    const saved = await this.getWebhookEventById(eventId);
+    return {
+      accepted: true,
+      duplicate: false,
+      eventId,
+      processingStatus: saved.processingStatus,
+    };
+  }
+
+  async processQueuedWebhookEvents(options: { eventId?: string; limit?: number } = {}) {
+    const values: any[] = [];
+    let where = "processing_status IN ('queued','retrying') AND (next_retry_at IS NULL OR next_retry_at <= CURRENT_TIMESTAMP)";
+    if (options.eventId) {
+      where = "id = ? AND processing_status IN ('queued','retrying')";
+      values.push(options.eventId);
+    }
+    const queryLimit = Math.max(1, Math.min(options.limit || 25, 100));
+
+    const [rows]: any = await pool.execute(
+      `SELECT id
+       FROM clickup_webhook_event
+       WHERE ${where}
+       ORDER BY COALESCE(event_occurred_at, received_at) ASC
+       LIMIT ${queryLimit}`,
+      values,
+    );
+
+    let processed = 0;
+    let retried = 0;
+    let deadLetter = 0;
+    let quarantined = 0;
+
+    for (const row of rows) {
+      try {
+        const result = await this.processWebhookEvent(String(row.id));
+        if (result === "processed" || result === "stale" || result === "ignored") processed += 1;
+        if (result === "retrying") retried += 1;
+        if (result === "dead_letter") deadLetter += 1;
+        if (result === "quarantined") quarantined += 1;
+      } catch {
+        deadLetter += 1;
+      }
+    }
+
+    return { attempted: rows.length, processed, retried, deadLetter, quarantined };
+  }
+
+  async runIncrementalReconciliation(limit = CLICKUP_RECONCILIATION_LIMIT, clinicId?: string | null) {
+    const clinicClause = clinicId ? "AND m.clinic_id = ?" : "";
+    const values: any[] = clinicId ? [clinicId] : [];
+    const queryLimit = Math.max(1, Math.min(limit, 100));
+    const [rows]: any = await pool.execute(
+      `SELECT m.id as mappingId,
+              m.clinic_id as clinicId,
+              m.client_account_profile_id as clientAccountProfileId,
+              m.connection_id as connectionId,
+              m.workspace_id as workspaceId,
+              m.clickup_task_id as clickupTaskId,
+              m.clickup_list_id as clickupListId,
+              m.internal_task_id as internalTaskId
+       FROM clickup_task_mapping m
+       LEFT JOIN clickup_sync_checkpoint cp
+         ON cp.clinic_id = m.clinic_id
+        AND cp.client_account_profile_id = m.client_account_profile_id
+        AND cp.workspace_id = m.workspace_id
+        AND cp.clickup_list_id <=> m.clickup_list_id
+       WHERE m.mapping_status = 'active'
+         AND m.internal_task_id IS NOT NULL
+         ${clinicClause}
+         AND (cp.last_reconciled_at IS NULL OR cp.last_reconciled_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 15 MINUTE))
+       ORDER BY cp.last_reconciled_at IS NULL DESC, cp.last_reconciled_at ASC, m.updated_at ASC
+       LIMIT ${queryLimit}`,
+      values,
+    );
+
+    let checked = 0;
+    let updated = 0;
+    let needsReview = 0;
+    let failed = 0;
+
+    for (const row of rows) {
+      checked += 1;
+      try {
+        const connection = await this.getActiveConnection(row.clinicId, row.workspaceId);
+        const remoteTask = await this.clickUpRequest(
+          connection,
+          `/task/${encodeURIComponent(row.clickupTaskId)}`,
+        );
+        const changed = await this.applyRemoteTaskState(row, remoteTask);
+        if (changed) updated += 1;
+        await this.upsertSyncCheckpoint({
+          clinicId: row.clinicId,
+          connectionId: row.connectionId,
+          clientAccountProfileId: row.clientAccountProfileId,
+          workspaceId: row.workspaceId,
+          clickupListId: row.clickupListId || "",
+          syncStatus: "healthy",
+          lastReconciledAt: new Date(),
+          lastError: null,
+        });
+      } catch (error: any) {
+        const classified = classifyClickUpProviderFailure(error);
+        const status = classified.retryable ? "retrying" : "reconciliation_needed";
+        if (!classified.retryable) {
+          await pool.execute(
+            `UPDATE clickup_task_mapping
+             SET mapping_status = 'needs_review',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [row.mappingId],
+          );
+          needsReview += 1;
+        }
+        failed += 1;
+        await this.upsertSyncCheckpoint({
+          clinicId: row.clinicId,
+          connectionId: row.connectionId,
+          clientAccountProfileId: row.clientAccountProfileId,
+          workspaceId: row.workspaceId,
+          clickupListId: row.clickupListId || "",
+          syncStatus: status,
+          lastReconciledAt: new Date(),
+          lastError: this.safeErrorMessage(error),
+        });
+      }
+    }
+
+    return { checked, updated, needsReview, failed };
+  }
+
+  async getReconciliationStatus(clinicId: string): Promise<ClickUpReconciliationResponse> {
+    const [healthRows]: any = await pool.execute(
+      `SELECT COALESCE(cp.id, m.id) as id,
+              m.client_account_profile_id as clientAccountProfileId,
+              cap.clinic_id as clientClinicId,
+              c.name as clientName,
+              m.workspace_id as workspaceId,
+              m.list_id as clickupListId,
+              CASE
+                WHEN cc.status IS NULL OR cc.status <> 'connected' THEN 'disconnected'
+                ELSE COALESCE(cp.sync_status, 'healthy')
+              END as syncStatus,
+              cp.last_event_at as lastEventAt,
+              cp.last_processed_event_at as lastProcessedEventAt,
+              cp.last_reconciled_at as lastReconciledAt,
+              cp.last_error as lastError,
+              COALESCE(cp.retrying_count, 0) as retryingCount,
+              COALESCE(cp.dead_letter_count, 0) as deadLetterCount,
+              COALESCE(cp.updated_at, m.updated_at) as updatedAt
+       FROM clickup_client_mapping m
+       JOIN client_account_profile cap
+         ON cap.id = m.client_account_profile_id
+       JOIN clinic c
+         ON c.id = cap.clinic_id
+        AND c.deleted_at IS NULL
+       LEFT JOIN clickup_connection cc
+         ON cc.id = m.connection_id
+       LEFT JOIN clickup_sync_checkpoint cp
+         ON cp.clinic_id = m.clinic_id
+        AND cp.client_account_profile_id = m.client_account_profile_id
+        AND cp.workspace_id = m.workspace_id
+        AND cp.clickup_list_id <=> COALESCE(m.list_id, '')
+       WHERE m.clinic_id = ?
+         AND m.mapping_status <> 'archived'
+       ORDER BY FIELD(syncStatus, 'dead_letter', 'retrying', 'reconciliation_needed', 'delayed', 'disconnected', 'healthy'),
+                c.name ASC`,
+      [clinicId],
+    );
+
+    return {
+      syncHealth: healthRows.map(mapSyncHealth),
+      failedTaskMappings: await this.listFailedTaskMappings(clinicId),
+      deadLetterEvents: await this.listDeadLetterEvents(clinicId),
+    };
+  }
+
+  async replayDeadLetterEvent(clinicId: string, eventId: string) {
+    const event = await this.getWebhookEventById(eventId);
+    if (event.clinicId !== clinicId) throw ApiError.notFound("ClickUp event not found.");
+    if (event.processingStatus !== "dead_letter") {
+      throw ApiError.badRequest("Only dead-letter ClickUp events can be replayed.");
+    }
+
+    await pool.execute(
+      `UPDATE clickup_webhook_event
+       SET processing_status = 'queued',
+           next_retry_at = NULL,
+           error_class = NULL,
+           error_message = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [eventId],
+    );
+
+    await this.processQueuedWebhookEvents({ eventId, limit: 1 });
+    return this.getWebhookEventById(eventId).then(mapWebhookEvent);
+  }
+
   async listFailedTaskMappings(clinicId: string): Promise<FailedTaskMapping[]> {
     const [rows] = await pool.execute<any[]>(
       `SELECT m.id, m.internal_task_id, m.client_account_profile_id,
@@ -1504,6 +2081,731 @@ export class ClickUpService {
     return { success: true };
   }
 
+  private headerValue(headers: Record<string, string | string[] | undefined>, name: string) {
+    const exact = headers[name] || headers[name.toLowerCase()] || headers[name.toUpperCase()];
+    if (Array.isArray(exact)) return exact[0] || "";
+    return exact || "";
+  }
+
+  private verifyWebhookSignature(signature: string, rawPayload: string) {
+    if (!signature) throw ApiError.unauthorized("ClickUp webhook signature is required.");
+    const normalized = signature.replace(/^sha256=/i, "").trim().toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(normalized)) {
+      throw ApiError.unauthorized("ClickUp webhook signature is invalid.");
+    }
+
+    const expected = createHmac("sha256", config.clickup.webhookSecret)
+      .update(rawPayload, "utf8")
+      .digest("hex");
+    if (!safeTimingEqual(normalized, expected)) {
+      throw ApiError.unauthorized("ClickUp webhook signature did not match.");
+    }
+  }
+
+  private validateWebhookTimestamp(eventOccurredAt: Date | null): ClickUpWebhookProcessingStatus | null {
+    if (!eventOccurredAt) return "quarantined";
+    const now = Date.now();
+    const eventMs = eventOccurredAt.getTime();
+    if (eventMs > now + config.clickup.webhookFutureToleranceSeconds * 1000) return "quarantined";
+    if (eventMs < now - config.clickup.webhookMaxEventAgeSeconds * 1000) return "quarantined";
+    return null;
+  }
+
+  private async resolveWebhookMapping(summary: Record<string, unknown>): Promise<{
+    clinicId: string | null;
+    connectionId: string | null;
+    clientAccountProfileId: string | null;
+    taskMappingId: string | null;
+    internalTaskId: string | null;
+    workspaceId: string | null;
+    clickupListId: string | null;
+    initialStatus?: ClickUpWebhookProcessingStatus;
+    errorClass?: string | null;
+    errorMessage?: string | null;
+  }> {
+    const taskId = cleanString(summary.taskId);
+    const listId = cleanString(summary.listId);
+
+    if (taskId) {
+      const [taskRows]: any = await pool.execute(
+        `SELECT m.id as taskMappingId,
+                m.clinic_id as clinicId,
+                m.connection_id as connectionId,
+                m.client_account_profile_id as clientAccountProfileId,
+                m.internal_task_id as internalTaskId,
+                m.workspace_id as workspaceId,
+                m.clickup_list_id as clickupListId,
+                m.mapping_status as mappingStatus
+         FROM clickup_task_mapping m
+         WHERE m.clickup_task_id = ?
+           AND m.mapping_status <> 'archived'
+         LIMIT 3`,
+        [taskId],
+      );
+      const activeRows = taskRows.filter((row: any) => row.mappingStatus === "active");
+      const candidateRows = activeRows.length ? activeRows : taskRows;
+      if (candidateRows.length === 1) {
+        const row = candidateRows[0];
+        return {
+          clinicId: row.clinicId,
+          connectionId: row.connectionId || null,
+          clientAccountProfileId: row.clientAccountProfileId,
+          taskMappingId: row.taskMappingId,
+          internalTaskId: row.internalTaskId || null,
+          workspaceId: row.workspaceId,
+          clickupListId: row.clickupListId || listId,
+          initialStatus: row.mappingStatus === "active" ? "queued" : "quarantined",
+          errorClass: row.mappingStatus === "active" ? null : "inactive_task_mapping",
+          errorMessage: row.mappingStatus === "active" ? null : "ClickUp task mapping is not active.",
+        };
+      }
+      if (candidateRows.length > 1) {
+        return this.unresolvedWebhookMapping("ambiguous_task_mapping", "ClickUp task resolves to multiple Mission Control mappings.");
+      }
+    }
+
+    if (listId) {
+      const [listRows]: any = await pool.execute(
+        `SELECT m.id as clientMappingId,
+                m.clinic_id as clinicId,
+                m.connection_id as connectionId,
+                m.client_account_profile_id as clientAccountProfileId,
+                m.workspace_id as workspaceId,
+                m.list_id as clickupListId,
+                m.mapping_status as mappingStatus
+         FROM clickup_client_mapping m
+         WHERE m.list_id = ?
+           AND m.mapping_status <> 'archived'
+         LIMIT 3`,
+        [listId],
+      );
+      const activeRows = listRows.filter((row: any) => row.mappingStatus === "active");
+      if (activeRows.length === 1) {
+        const row = activeRows[0];
+        return {
+          clinicId: row.clinicId,
+          connectionId: row.connectionId || null,
+          clientAccountProfileId: row.clientAccountProfileId,
+          taskMappingId: null,
+          internalTaskId: null,
+          workspaceId: row.workspaceId,
+          clickupListId: row.clickupListId || listId,
+          initialStatus: "queued",
+        };
+      }
+      if (activeRows.length > 1) {
+        return this.unresolvedWebhookMapping("ambiguous_client_mapping", "ClickUp list resolves to multiple Mission Control clients.");
+      }
+      if (listRows.length > 0) {
+        return this.unresolvedWebhookMapping("inactive_client_mapping", "ClickUp list mapping is not active.");
+      }
+    }
+
+    return this.unresolvedWebhookMapping("unmapped_client", "ClickUp event could not be mapped to an active Mission Control client.");
+  }
+
+  private unresolvedWebhookMapping(errorClass: string, errorMessage: string) {
+    return {
+      clinicId: null,
+      connectionId: null,
+      clientAccountProfileId: null,
+      taskMappingId: null,
+      internalTaskId: null,
+      workspaceId: null,
+      clickupListId: null,
+      initialStatus: "quarantined" as ClickUpWebhookProcessingStatus,
+      errorClass,
+      errorMessage,
+    };
+  }
+
+  private async getWebhookEventByKey(providerEventKey: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT ${this.webhookEventSelectColumns()}
+       FROM clickup_webhook_event e
+       LEFT JOIN client_account_profile cap
+         ON cap.id = e.client_account_profile_id
+       LEFT JOIN clinic c
+         ON c.id = cap.clinic_id
+       WHERE e.provider_event_key = ?
+       LIMIT 1`,
+      [providerEventKey],
+    );
+    if (!rows[0]) throw ApiError.notFound("ClickUp webhook event not found.");
+    return rows[0];
+  }
+
+  private async getWebhookEventById(eventId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT ${this.webhookEventSelectColumns()}
+       FROM clickup_webhook_event e
+       LEFT JOIN client_account_profile cap
+         ON cap.id = e.client_account_profile_id
+       LEFT JOIN clinic c
+         ON c.id = cap.clinic_id
+       WHERE e.id = ?
+       LIMIT 1`,
+      [eventId],
+    );
+    if (!rows[0]) throw ApiError.notFound("ClickUp webhook event not found.");
+    return rows[0];
+  }
+
+  private webhookEventSelectColumns() {
+    return `e.id,
+            e.clinic_id as clinicId,
+            e.connection_id as connectionId,
+            e.client_account_profile_id as clientAccountProfileId,
+            e.task_mapping_id as taskMappingId,
+            e.workspace_id as workspaceId,
+            e.provider_event_key as providerEventKey,
+            e.provider_event_type as providerEventType,
+            e.clickup_task_id as clickupTaskId,
+            e.clickup_list_id as clickupListId,
+            e.event_occurred_at as eventOccurredAt,
+            e.provider_updated_at as providerUpdatedAt,
+            e.payload_summary as payloadSummary,
+            e.processing_status as processingStatus,
+            e.retry_count as retryCount,
+            e.next_retry_at as nextRetryAt,
+            e.error_class as errorClass,
+            e.error_message as errorMessage,
+            e.received_at as receivedAt,
+            e.processed_at as processedAt,
+            c.name as clientName`;
+  }
+
+  private async processWebhookEvent(eventId: string): Promise<ClickUpWebhookProcessingStatus> {
+    const event = await this.getWebhookEventById(eventId);
+    if (!["queued", "retrying"].includes(event.processingStatus)) return event.processingStatus;
+
+    await pool.execute(
+      `UPDATE clickup_webhook_event
+       SET processing_status = 'processing',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND processing_status IN ('queued','retrying')`,
+      [eventId],
+    );
+
+    try {
+      const status = await this.applyWebhookEvent(event);
+      await pool.execute(
+        `UPDATE clickup_webhook_event
+         SET processing_status = ?,
+             processed_at = CURRENT_TIMESTAMP,
+             next_retry_at = NULL,
+             error_class = NULL,
+             error_message = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [status, eventId],
+      );
+      return status;
+    } catch (error: any) {
+      return this.scheduleWebhookEventFailure(event, error);
+    }
+  }
+
+  private async applyWebhookEvent(event: any): Promise<ClickUpWebhookProcessingStatus> {
+    const summary = parseSummary(event.payloadSummary);
+    const mapping = await this.getLifecycleTaskMapping(event, summary);
+
+    if (!mapping && event.providerEventType === "taskCreated") {
+      await this.createNeedsReviewMappingFromProviderTask(event, summary);
+      return "processed";
+    }
+
+    if (!mapping?.internalTaskId) {
+      await this.upsertSyncCheckpoint({
+        clinicId: event.clinicId,
+        connectionId: event.connectionId,
+        clientAccountProfileId: event.clientAccountProfileId,
+        workspaceId: event.workspaceId || "",
+        clickupListId: event.clickupListId || cleanString(summary.listId) || "",
+        syncStatus: "reconciliation_needed",
+        lastEventAt: parseClickUpDate(event.eventOccurredAt),
+        lastError: "ClickUp event does not have an active internal task mapping.",
+      });
+      return "quarantined";
+    }
+
+    const cached = await this.getTaskStateCache(mapping.id);
+    const occurredAt = parseClickUpDate(event.eventOccurredAt);
+    const cachedUpdatedAt = parseClickUpDate(cached?.providerUpdatedAt);
+    if (occurredAt && cachedUpdatedAt && occurredAt.getTime() < cachedUpdatedAt.getTime()) {
+      return "stale";
+    }
+
+    await this.applyMappedLifecycleChanges(mapping, event, summary);
+    await this.upsertTaskStateCache(mapping, event, summary);
+    await this.upsertSyncCheckpoint({
+      clinicId: mapping.clinicId,
+      connectionId: mapping.connectionId,
+      clientAccountProfileId: mapping.clientAccountProfileId,
+      workspaceId: mapping.workspaceId,
+      clickupListId: mapping.clickupListId || cleanString(summary.listId) || "",
+      syncStatus: "healthy",
+      lastEventAt: occurredAt,
+      lastProcessedEventAt: new Date(),
+      lastError: null,
+    });
+
+    return "processed";
+  }
+
+  private async getLifecycleTaskMapping(event: any, summary: Record<string, unknown>) {
+    if (event.taskMappingId) {
+      const [rows]: any = await pool.execute(
+        `SELECT id,
+                clinic_id as clinicId,
+                client_account_profile_id as clientAccountProfileId,
+                internal_task_id as internalTaskId,
+                connection_id as connectionId,
+                workspace_id as workspaceId,
+                clickup_task_id as clickupTaskId,
+                clickup_list_id as clickupListId,
+                mapping_status as mappingStatus
+         FROM clickup_task_mapping
+         WHERE id = ?
+           AND mapping_status <> 'archived'
+         LIMIT 1`,
+        [event.taskMappingId],
+      );
+      return rows[0] || null;
+    }
+
+    const taskId = cleanString(summary.taskId) || event.clickupTaskId;
+    if (!taskId) return null;
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              clinic_id as clinicId,
+              client_account_profile_id as clientAccountProfileId,
+              internal_task_id as internalTaskId,
+              connection_id as connectionId,
+              workspace_id as workspaceId,
+              clickup_task_id as clickupTaskId,
+              clickup_list_id as clickupListId,
+              mapping_status as mappingStatus
+       FROM clickup_task_mapping
+       WHERE clickup_task_id = ?
+         AND mapping_status <> 'archived'
+       LIMIT 2`,
+      [taskId],
+    );
+    return rows.length === 1 ? rows[0] : null;
+  }
+
+  private async createNeedsReviewMappingFromProviderTask(event: any, summary: Record<string, unknown>) {
+    if (!event.clinicId || !event.clientAccountProfileId || !event.workspaceId || !event.clickupTaskId) {
+      await this.upsertSyncCheckpoint({
+        clinicId: event.clinicId,
+        connectionId: event.connectionId,
+        clientAccountProfileId: event.clientAccountProfileId,
+        workspaceId: event.workspaceId || "",
+        clickupListId: event.clickupListId || cleanString(summary.listId) || "",
+        syncStatus: "reconciliation_needed",
+        lastEventAt: parseClickUpDate(event.eventOccurredAt),
+        lastError: "Provider-created ClickUp task could not be mapped to a client list.",
+      });
+      return;
+    }
+
+    const mappingId = uuidv4();
+    await pool.execute(
+      `INSERT INTO clickup_task_mapping
+        (id, clinic_id, client_account_profile_id, internal_task_id, connection_id,
+         workspace_id, clickup_task_id, clickup_list_id, clickup_url, sync_direction,
+         mapping_status, created_by, updated_by)
+       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, 'clickup_to_mission_control', 'needs_review', NULL, NULL)
+       ON DUPLICATE KEY UPDATE
+         mapping_status = IF(mapping_status = 'archived', 'needs_review', mapping_status),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        mappingId,
+        event.clinicId,
+        event.clientAccountProfileId,
+        event.connectionId || null,
+        event.workspaceId,
+        event.clickupTaskId,
+        event.clickupListId || cleanString(summary.listId) || null,
+        `https://app.clickup.com/t/${event.clickupTaskId}`,
+      ],
+    );
+    const [rows]: any = await pool.execute(
+      `SELECT id
+       FROM clickup_task_mapping
+       WHERE clinic_id = ?
+         AND workspace_id = ?
+         AND clickup_task_id = ?
+       LIMIT 1`,
+      [event.clinicId, event.workspaceId, event.clickupTaskId],
+    );
+    const savedMappingId = rows[0]?.id || mappingId;
+    await pool.execute(
+      `UPDATE clickup_webhook_event
+       SET task_mapping_id = ?
+       WHERE id = ?`,
+      [savedMappingId, event.id],
+    );
+    await this.upsertSyncCheckpoint({
+      clinicId: event.clinicId,
+      connectionId: event.connectionId,
+      clientAccountProfileId: event.clientAccountProfileId,
+      workspaceId: event.workspaceId,
+      clickupListId: event.clickupListId || cleanString(summary.listId) || "",
+      syncStatus: "reconciliation_needed",
+      lastEventAt: parseClickUpDate(event.eventOccurredAt),
+      lastProcessedEventAt: new Date(),
+      lastError: "Provider-created task needs Mission Control review before linking to an internal task.",
+    });
+  }
+
+  private async applyMappedLifecycleChanges(mapping: any, event: any, summary: Record<string, unknown>) {
+    const eventType = event.providerEventType as string;
+    const statusAfter = cleanString(summary.statusAfter);
+    const dueAfter = parseClickUpDate(summary.dueAfter);
+    const priorityAfter = mapProviderPriority(cleanString(summary.priorityAfter));
+    const assigneeIds = Array.isArray(summary.assigneeIds) ? summary.assigneeIds.map(String).filter(Boolean) : [];
+    const taskFields: string[] = [];
+    const values: any[] = [];
+    const changes: Record<string, unknown> = {
+      providerEventType: eventType,
+      providerEventKey: event.providerEventKey,
+    };
+
+    if (eventType === "taskCompleted" || eventType === "taskStatusUpdated" || (eventType === "taskUpdated" && statusAfter)) {
+      const completed = isCompletedStatus(statusAfter, eventType);
+      taskFields.push("status = ?", "completed_at = ?");
+      values.push(completed ? "completed" : "pending", completed ? new Date() : null);
+      changes.status = completed ? "completed" : "pending";
+    }
+
+    if ((eventType === "taskDueDateUpdated" || eventType === "taskUpdated") && dueAfter) {
+      taskFields.push("due_date = ?");
+      values.push(toMysqlDateTime(dueAfter)?.slice(0, 10) || null);
+      changes.dueDate = dueAfter.toISOString().slice(0, 10);
+    }
+
+    if ((eventType === "taskAssigneeUpdated" || eventType === "taskUpdated") && assigneeIds.length > 0) {
+      const assignedTo = assigneeIds.map((id) => `ClickUp assignee ${id}`).join(", ");
+      taskFields.push("assigned_to = ?");
+      values.push(assignedTo);
+      changes.assigneeIds = assigneeIds;
+    }
+
+    if ((eventType === "taskPriorityUpdated" || eventType === "taskUpdated") && priorityAfter) {
+      taskFields.push("priority = ?");
+      values.push(priorityAfter);
+      changes.priority = priorityAfter;
+    }
+
+    if (eventType === "taskArchived") {
+      taskFields.push("archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP)");
+      await pool.execute(
+        `UPDATE clickup_task_mapping
+         SET mapping_status = 'needs_review',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [mapping.id],
+      );
+      changes.mappingStatus = "needs_review";
+      changes.providerArchived = true;
+    }
+
+    if (eventType === "taskDeleted") {
+      await pool.execute(
+        `UPDATE clickup_task_mapping
+         SET mapping_status = 'needs_review',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [mapping.id],
+      );
+      changes.mappingStatus = "needs_review";
+      changes.providerDeleted = true;
+    }
+
+    if (eventType === "taskMoved") {
+      const nextListId = cleanString(summary.listId) || event.clickupListId || mapping.clickupListId;
+      const sameClient = nextListId
+        ? await this.listBelongsToClient(mapping.clinicId, mapping.clientAccountProfileId, mapping.workspaceId, nextListId)
+        : false;
+      await pool.execute(
+        `UPDATE clickup_task_mapping
+         SET clickup_list_id = ?,
+             mapping_status = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [nextListId || mapping.clickupListId, sameClient ? "active" : "needs_review", mapping.id],
+      );
+      changes.clickupListId = nextListId;
+      changes.mappingStatus = sameClient ? "active" : "needs_review";
+      changes.providerMoved = true;
+    }
+
+    if (taskFields.length > 0) {
+      values.push(mapping.internalTaskId, mapping.clinicId);
+      await pool.execute(
+        `UPDATE task
+         SET ${taskFields.join(", ")},
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND clinic_id = ?
+           AND is_internal = 1
+           AND deleted_at IS NULL`,
+        values,
+      );
+    }
+
+    await insertAuditEvent(pool, {
+      clinicId: mapping.clinicId,
+      userId: null,
+      action: "CLICKUP_LIFECYCLE_EVENT_APPLIED",
+      entityType: "task",
+      entityId: mapping.internalTaskId,
+      changes,
+      ipAddress: null,
+      userAgent: null,
+    });
+  }
+
+  private async getTaskStateCache(taskMappingId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT provider_updated_at as providerUpdatedAt
+       FROM clickup_task_state_cache
+       WHERE task_mapping_id = ?
+       LIMIT 1`,
+      [taskMappingId],
+    );
+    return rows[0] || null;
+  }
+
+  private async upsertTaskStateCache(mapping: any, event: any, summary: Record<string, unknown>) {
+    const eventType = String(event.providerEventType || "");
+    const assigneeIds = Array.isArray(summary.assigneeIds) ? summary.assigneeIds.map(String).filter(Boolean) : [];
+    await pool.execute(
+      `INSERT INTO clickup_task_state_cache
+        (id, clinic_id, client_account_profile_id, task_mapping_id, workspace_id,
+         clickup_task_id, clickup_list_id, clickup_status, clickup_status_type,
+         clickup_priority, clickup_due_at, clickup_assignee_ids, provider_deleted,
+         provider_archived, provider_moved, provider_updated_at, last_event_key,
+         last_event_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         clickup_list_id = VALUES(clickup_list_id),
+         clickup_status = COALESCE(VALUES(clickup_status), clickup_status),
+         clickup_status_type = COALESCE(VALUES(clickup_status_type), clickup_status_type),
+         clickup_priority = COALESCE(VALUES(clickup_priority), clickup_priority),
+         clickup_due_at = COALESCE(VALUES(clickup_due_at), clickup_due_at),
+         clickup_assignee_ids = COALESCE(VALUES(clickup_assignee_ids), clickup_assignee_ids),
+         provider_deleted = GREATEST(provider_deleted, VALUES(provider_deleted)),
+         provider_archived = GREATEST(provider_archived, VALUES(provider_archived)),
+         provider_moved = GREATEST(provider_moved, VALUES(provider_moved)),
+         provider_updated_at = COALESCE(VALUES(provider_updated_at), provider_updated_at),
+         last_event_key = VALUES(last_event_key),
+         last_event_type = VALUES(last_event_type),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        uuidv4(),
+        mapping.clinicId,
+        mapping.clientAccountProfileId,
+        mapping.id,
+        mapping.workspaceId,
+        mapping.clickupTaskId,
+        cleanString(summary.listId) || mapping.clickupListId || null,
+        cleanString(summary.statusAfter),
+        cleanString(summary.statusTypeAfter),
+        cleanString(summary.priorityAfter),
+        toMysqlDateTime(parseClickUpDate(summary.dueAfter)),
+        assigneeIds.length ? JSON.stringify(assigneeIds) : null,
+        eventType === "taskDeleted" ? 1 : 0,
+        eventType === "taskArchived" ? 1 : 0,
+        eventType === "taskMoved" ? 1 : 0,
+        toMysqlDateTime(parseClickUpDate(event.eventOccurredAt)),
+        event.providerEventKey,
+        eventType,
+      ],
+    );
+  }
+
+  private async upsertSyncCheckpoint(data: {
+    clinicId: string | null;
+    connectionId?: string | null;
+    clientAccountProfileId: string | null;
+    workspaceId: string;
+    clickupListId?: string | null;
+    syncStatus: string;
+    lastEventAt?: Date | null;
+    lastProcessedEventAt?: Date | null;
+    lastReconciledAt?: Date | null;
+    lastError?: string | null;
+  }) {
+    if (!data.clinicId || !data.clientAccountProfileId || !data.workspaceId) return;
+    const listId = data.clickupListId || "";
+    const [countRows]: any = await pool.execute(
+      `SELECT
+          SUM(processing_status IN ('queued','retrying','processing')) as retryingCount,
+          SUM(processing_status = 'dead_letter') as deadLetterCount
+       FROM clickup_webhook_event
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?
+         AND workspace_id = ?
+         AND COALESCE(clickup_list_id, '') = ?`,
+      [data.clinicId, data.clientAccountProfileId, data.workspaceId, listId],
+    );
+    const deadLetterCount = Number(countRows[0]?.deadLetterCount || 0);
+    const retryingCount = Number(countRows[0]?.retryingCount || 0);
+    const syncStatus = deadLetterCount > 0
+      ? "dead_letter"
+      : retryingCount > 0 && data.syncStatus === "healthy"
+        ? "retrying"
+        : data.syncStatus;
+
+    await pool.execute(
+      `INSERT INTO clickup_sync_checkpoint
+        (id, clinic_id, connection_id, client_account_profile_id, workspace_id,
+         clickup_list_id, sync_status, last_event_at, last_processed_event_at,
+         last_reconciled_at, last_error, retrying_count, dead_letter_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         connection_id = COALESCE(VALUES(connection_id), connection_id),
+         sync_status = VALUES(sync_status),
+         last_event_at = COALESCE(VALUES(last_event_at), last_event_at),
+         last_processed_event_at = COALESCE(VALUES(last_processed_event_at), last_processed_event_at),
+         last_reconciled_at = COALESCE(VALUES(last_reconciled_at), last_reconciled_at),
+         last_error = VALUES(last_error),
+         retrying_count = VALUES(retrying_count),
+         dead_letter_count = VALUES(dead_letter_count),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        uuidv4(),
+        data.clinicId,
+        data.connectionId || null,
+        data.clientAccountProfileId,
+        data.workspaceId,
+        listId,
+        syncStatus,
+        toMysqlDateTime(data.lastEventAt),
+        toMysqlDateTime(data.lastProcessedEventAt),
+        toMysqlDateTime(data.lastReconciledAt),
+        data.lastError || null,
+        retryingCount,
+        deadLetterCount,
+      ],
+    );
+  }
+
+  private async scheduleWebhookEventFailure(event: any, error: any): Promise<ClickUpWebhookProcessingStatus> {
+    const classified = classifyClickUpProviderFailure(error);
+    const nextRetryCount = Number(event.retryCount || 0) + 1;
+    const canRetry = classified.retryable && nextRetryCount <= CLICKUP_EVENT_MAX_RETRIES;
+    const backoffMs = classified.retryAfterMs > 0
+      ? classified.retryAfterMs
+      : Math.min(15 * 60 * 1000, (2 ** Math.max(0, nextRetryCount - 1)) * 60 * 1000);
+    const nextRetryAt = canRetry ? new Date(Date.now() + backoffMs) : null;
+    const processingStatus: ClickUpWebhookProcessingStatus = canRetry ? "retrying" : "dead_letter";
+
+    await pool.execute(
+      `UPDATE clickup_webhook_event
+       SET processing_status = ?,
+           retry_count = ?,
+           next_retry_at = ?,
+           error_class = ?,
+           error_message = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [
+        processingStatus,
+        nextRetryCount,
+        toMysqlDateTime(nextRetryAt),
+        classified.errorClass,
+        this.safeErrorMessage(error),
+        event.id,
+      ],
+    );
+
+    await this.upsertSyncCheckpoint({
+      clinicId: event.clinicId,
+      connectionId: event.connectionId,
+      clientAccountProfileId: event.clientAccountProfileId,
+      workspaceId: event.workspaceId || "",
+      clickupListId: event.clickupListId || "",
+      syncStatus: processingStatus === "retrying" ? "retrying" : "dead_letter",
+      lastEventAt: parseClickUpDate(event.eventOccurredAt),
+      lastError: this.safeErrorMessage(error),
+    });
+
+    return processingStatus;
+  }
+
+  private safeErrorMessage(error: any) {
+    const message = String(error?.message || "ClickUp sync failed.");
+    return message.replace(/Bearer\s+[A-Za-z0-9._~+/-]+/g, "Bearer [redacted]").slice(0, 1000);
+  }
+
+  private async listBelongsToClient(clinicId: string, clientAccountProfileId: string, workspaceId: string, listId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT id
+       FROM clickup_client_mapping
+       WHERE clinic_id = ?
+         AND client_account_profile_id = ?
+         AND workspace_id = ?
+         AND list_id = ?
+         AND mapping_status = 'active'
+       LIMIT 1`,
+      [clinicId, clientAccountProfileId, workspaceId, listId],
+    );
+    return rows.length > 0;
+  }
+
+  private async listDeadLetterEvents(clinicId: string): Promise<ClickUpWebhookEventRecord[]> {
+    const [rows]: any = await pool.execute(
+      `SELECT ${this.webhookEventSelectColumns()}
+       FROM clickup_webhook_event e
+       LEFT JOIN client_account_profile cap
+         ON cap.id = e.client_account_profile_id
+       LEFT JOIN clinic c
+         ON c.id = cap.clinic_id
+       WHERE e.clinic_id = ?
+         AND e.processing_status = 'dead_letter'
+       ORDER BY e.updated_at DESC
+       LIMIT 50`,
+      [clinicId],
+    );
+    return rows.map(mapWebhookEvent);
+  }
+
+  private async applyRemoteTaskState(mapping: any, remoteTask: any) {
+    const summary = {
+      taskId: String(remoteTask?.id || mapping.clickupTaskId),
+      listId: normalizeClickUpId(firstDefined(remoteTask?.list?.id, mapping.clickupListId)),
+      statusAfter: statusValue(remoteTask?.status),
+      statusTypeAfter: statusTypeValue(remoteTask?.status),
+      dueAfter: parseClickUpDate(remoteTask?.due_date)?.toISOString() || null,
+      priorityAfter: extractPriorityAfter({ task: remoteTask }),
+      assigneeIds: extractAssigneeIdsFromValue(remoteTask?.assignees),
+    };
+    const fakeEvent = {
+      id: `reconcile:${mapping.mappingId || mapping.id}`,
+      providerEventType: "taskUpdated",
+      providerEventKey: `reconcile:${mapping.clickupTaskId}:${Date.now()}`,
+      eventOccurredAt: toMysqlDateTime(parseClickUpDate(remoteTask?.date_updated) || new Date()),
+    };
+    const lifecycleMapping = {
+      id: mapping.mappingId || mapping.id,
+      clinicId: mapping.clinicId,
+      clientAccountProfileId: mapping.clientAccountProfileId,
+      internalTaskId: mapping.internalTaskId,
+      connectionId: mapping.connectionId,
+      workspaceId: mapping.workspaceId,
+      clickupTaskId: mapping.clickupTaskId,
+      clickupListId: mapping.clickupListId,
+    };
+    await this.applyMappedLifecycleChanges(lifecycleMapping, fakeEvent, summary);
+    await this.upsertTaskStateCache(lifecycleMapping, fakeEvent, summary);
+    return true;
+  }
+
   private async recoverTaskMappingAfterCreation(
     clinicId: string,
     internalTaskId: string,
@@ -1627,6 +2929,8 @@ export class ClickUpService {
               workspace_id as workspaceId,
               workspace_name as workspaceName,
               encrypted_access_token as encryptedAccessToken,
+              encrypted_refresh_token as encryptedRefreshToken,
+              token_expires_at as tokenExpiresAt,
               scopes
        FROM clickup_connection
        WHERE clinic_id = ?
@@ -1638,16 +2942,82 @@ export class ClickUpService {
     );
     const row = rows[0];
     if (!row) throw ApiError.badRequest("ClickUp is not connected for this workspace. Connect it in Integrations first.");
-    const accessToken = decryptProviderCredential(row.encryptedAccessToken);
-    if (!accessToken) throw ApiError.serviceUnavailable("ClickUp credentials could not be read. Reconnect ClickUp before creating tasks.");
     const scopes = parseJsonArray(row.scopes);
+    const authMode = scopes.includes("personal_api_token") ? "personal_token" as const : "oauth" as const;
+    let accessToken = decryptProviderCredential(row.encryptedAccessToken);
+    if (!accessToken) throw ApiError.serviceUnavailable("ClickUp credentials could not be read. Reconnect ClickUp before creating tasks.");
+    const tokenExpiresAt = row.tokenExpiresAt ? new Date(row.tokenExpiresAt) : null;
+    if (authMode === "oauth" && tokenExpiresAt && tokenExpiresAt.getTime() <= Date.now() + 60 * 1000) {
+      accessToken = await this.refreshOAuthAccessToken({
+        connectionId: row.id,
+        encryptedRefreshToken: row.encryptedRefreshToken,
+      });
+    }
     return {
       id: row.id as string,
       workspaceId: row.workspaceId as string,
       workspaceName: row.workspaceName as string | null,
       accessToken,
-      authMode: scopes.includes("personal_api_token") ? "personal_token" as const : "oauth" as const,
+      authMode,
     };
+  }
+
+  private async refreshOAuthAccessToken(data: { connectionId: string; encryptedRefreshToken?: string | null }) {
+    const refreshToken = decryptProviderCredential(data.encryptedRefreshToken || "");
+    if (!refreshToken || !config.clickup.clientId || !config.clickup.clientSecret) {
+      await pool.execute(
+        `UPDATE clickup_connection
+         SET status = 'error',
+             last_error = 'ClickUp OAuth token expired and refresh configuration is unavailable.',
+             last_checked_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [data.connectionId],
+      );
+      throw ApiError.serviceUnavailable("ClickUp OAuth token expired. Reconnect ClickUp.");
+    }
+
+    const response = await fetch(`${config.clickup.apiBaseUrl.replace(/\/+$/, "")}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: config.clickup.clientId,
+        client_secret: config.clickup.clientSecret,
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    });
+    const payload: any = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.access_token) {
+      await pool.execute(
+        `UPDATE clickup_connection
+         SET status = 'error',
+             last_error = ?,
+             last_checked_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [String(payload.err || payload.error || "ClickUp OAuth token refresh failed.").slice(0, 1000), data.connectionId],
+      );
+      throw ApiError.serviceUnavailable("ClickUp OAuth token refresh failed. Reconnect ClickUp.");
+    }
+
+    const expiresInSeconds = Number(payload.expires_in || 0);
+    const nextRefreshToken = cleanString(payload.refresh_token) || refreshToken;
+    await pool.execute(
+      `UPDATE clickup_connection
+       SET encrypted_access_token = ?,
+           encrypted_refresh_token = ?,
+           token_expires_at = ?,
+           last_checked_at = CURRENT_TIMESTAMP,
+           last_error = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [
+        encryptProviderCredential(String(payload.access_token)),
+        encryptProviderCredential(nextRefreshToken),
+        expiresInSeconds > 0 ? toMysqlDateTime(new Date(Date.now() + expiresInSeconds * 1000)) : null,
+        data.connectionId,
+      ],
+    );
+    return String(payload.access_token);
   }
 
   private async clickUpRequest(
@@ -1660,14 +3030,41 @@ export class ClickUpService {
     if (init.body && !headers.has("Content-Type") && !(init.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
-    const response = await fetch(`${config.clickup.apiBaseUrl.replace(/\/+$/, "")}${path}`, {
-      ...init,
-      headers,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${config.clickup.apiBaseUrl.replace(/\/+$/, "")}${path}`, {
+        ...init,
+        headers,
+      });
+    } catch {
+      const apiError = ApiError.serviceUnavailable("ClickUp API request failed because the provider could not be reached.", {
+        provider: "clickup",
+        providerStatus: 0,
+        retryable: true,
+        retryAfterMs: 0,
+      }) as ApiError & { providerStatus?: number; retryAfterMs?: number; retryable?: boolean };
+      apiError.providerStatus = 0;
+      apiError.retryAfterMs = 0;
+      apiError.retryable = true;
+      throw apiError;
+    }
     const payload: any = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = payload.err || payload.error || payload.message || `ClickUp API request failed with status ${response.status}.`;
-      throw ApiError.serviceUnavailable(String(message));
+      const retryAfterHeader = response.headers.get("retry-after");
+      const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : 0;
+      const retryAfterMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : 0;
+      const retryable = response.status === 429 || response.status >= 500;
+      const apiError = ApiError.serviceUnavailable(String(message), {
+        provider: "clickup",
+        providerStatus: response.status,
+        retryable,
+        retryAfterMs,
+      }) as ApiError & { providerStatus?: number; retryAfterMs?: number; retryable?: boolean };
+      apiError.providerStatus = response.status;
+      apiError.retryAfterMs = retryAfterMs;
+      apiError.retryable = retryable;
+      throw apiError;
     }
     return payload;
   }

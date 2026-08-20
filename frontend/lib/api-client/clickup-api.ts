@@ -8,6 +8,8 @@ import type {
   ClickUpOAuthStartRecord,
   ClickUpOperationsDashboardRecord,
   ClickUpPriorityMappingRecord,
+  ClickUpReconciliationResponse,
+  ClickUpReconciliationRunResult,
   ClickUpSpaceRecord,
   ClickUpTaskCreatePayload,
   ClickUpTaskMappingRecord,
@@ -136,6 +138,24 @@ export function createClickUpApi(apiRequest: ApiRequest) {
       },
       async dismissFailedTaskMapping(token: string, mappingId: string) {
         const response = await apiRequest<{ success: boolean }>(`/api/clickup/reconciliation/failed-tasks/${encodeURIComponent(mappingId)}/dismiss`, {
+          method: "POST",
+          token,
+        });
+        return response.data!;
+      },
+      async getReconciliationStatus(token: string) {
+        const response = await apiRequest<ClickUpReconciliationResponse>("/api/clickup/reconciliation/status", { token });
+        return response.data!;
+      },
+      async runReconciliation(token: string) {
+        const response = await apiRequest<ClickUpReconciliationRunResult>("/api/clickup/reconciliation/run", {
+          method: "POST",
+          token,
+        });
+        return response.data!;
+      },
+      async replayDeadLetterEvent(token: string, eventId: string) {
+        const response = await apiRequest<ClickUpReconciliationResponse["deadLetterEvents"][number]>(`/api/clickup/reconciliation/dead-letter/${encodeURIComponent(eventId)}/replay`, {
           method: "POST",
           token,
         });

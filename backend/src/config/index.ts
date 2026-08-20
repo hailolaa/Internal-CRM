@@ -137,6 +137,9 @@ export const config = {
         teamId: process.env.CLICKUP_TEAM_ID || "",
         apiBaseUrl: process.env.CLICKUP_API_BASE_URL || "https://api.clickup.com/api/v2",
         appAuthUrl: process.env.CLICKUP_APP_AUTH_URL || "https://app.clickup.com/api",
+        webhookSecret: process.env.CLICKUP_WEBHOOK_SECRET || "",
+        webhookMaxEventAgeSeconds: parseInt(process.env.CLICKUP_WEBHOOK_MAX_EVENT_AGE_SECONDS || String(7 * 24 * 60 * 60), 10),
+        webhookFutureToleranceSeconds: parseInt(process.env.CLICKUP_WEBHOOK_FUTURE_TOLERANCE_SECONDS || "300", 10),
     },
 
     quickbooks: {
@@ -368,6 +371,10 @@ export function getProductionConfigIssues() {
 
     if (config.clickup.apiToken && !config.credentials.encryptionKey) {
         issues.push("CREDENTIAL_ENCRYPTION_KEY must be set before ClickUp API token credentials can be stored.");
+    }
+
+    if ((config.clickup.clientId || config.clickup.apiToken) && !config.clickup.webhookSecret) {
+        warnings.push("CLICKUP_WEBHOOK_SECRET is not configured; ClickUp lifecycle webhooks will be rejected.");
     }
 
     if (config.quickbooks.oauthEnabled && (!config.quickbooks.clientId || !config.quickbooks.clientSecret)) {
