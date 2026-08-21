@@ -43,6 +43,42 @@ cd backend
 npm run validate:scoro-import
 ```
 
+Then run the Scoro dry-run importer against the completed template folder:
+
+```powershell
+cd backend
+npm run scoro:dry-run -- ..\docs\import-templates\scoro
+```
+
+If owner emails are present, provide the rehearsal owner map through `SCORO_IMPORT_OWNER_MAP_JSON` so the dry run can identify unsupported owner mappings before any apply step.
+
+The dry-run command prints quarantine and owner-mapping counts without writing to the database. Use `--fail-on-quarantine` only when an automated gate should fail on any quarantine item.
+
+## Import Identity And Quarantine
+
+The import foundation uses `source_system = scoro` and treats `scoro_record_id` as the primary identity for every supported entity. Names are never primary identity.
+
+Strong secondary matching is limited to:
+
+- Normalized email
+- Normalized phone
+- Normalized website/domain
+
+Name and account-name matches are warning-only review signals. They must not silently merge records.
+
+Rows are quarantined when they have:
+
+- Missing Scoro source ID
+- Invalid required fields
+- Duplicate Scoro ID in the same entity
+- Ambiguous strong match
+- Cross-tenant relationship
+- Invalid enum, date, money or boolean value
+- Unresolved related Scoro ID
+- Unsupported owner mapping
+
+The current foundation supports dry-run validation, deterministic apply planning, reconciliation reporting and batch cleanup planning. A real apply should not be run until the actual Scoro export, owner mapping and cutover window are approved.
+
 ## Staging Rehearsal
 
 1. Take a staging database backup with `npm run db:backup`.

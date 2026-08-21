@@ -23,6 +23,7 @@
     "db:restore": "node scripts/db-restore.mjs",
     "db:restore:rehearse": "node scripts/rehearse-restore.mjs",
     "validate:scoro-import": "node scripts/validate-scoro-import.mjs",
+    "scoro:dry-run": "npm run build && node scripts/scoro-import-dry-run.mjs",
     "qa:mvp": "node scripts/mission-control-mvp-qa.mjs",
     "setup:brevo-inbound": "node scripts/setup-brevo-inbound-webhook.mjs",
     "seed:staging-demo": "node scripts/seed-staging-demo.mjs",
@@ -44,6 +45,7 @@
     "test:landing-page-leads": "npm run build && node --test --test-force-exit --test-concurrency=1 dist/test/test-landing-page-lead-intake.js",
     "test:data-state": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-data-state-safety.js",
     "test:security": "npm run build && node --test --experimental-test-isolation=none dist/test/test-secret-config.js && npm run security:scan",
+    "test:scoro-import": "npm run build && node --test dist/test/test-scoro-import-templates.js dist/test/test-scoro-import-foundation.js",
     "qa:phase1": "node scripts/phase1-browser-qa.mjs"
   },
   "dependencies": {
