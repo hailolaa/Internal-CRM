@@ -237,6 +237,29 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
        ('perm-proposal-templates-write', 'proposal_templates:write', 'Create and update proposal template drafts'),
        ('perm-proposal-templates-approve', 'proposal_templates:approve', 'Approve, publish and roll back proposal template versions')`,
   );
+  const [adminTemplatePermissionRows]: any = await pool.execute(
+    `SELECT
+       SUM(CASE WHEN p.key_name = 'proposal_templates:write' THEN 1 ELSE 0 END) as canWrite,
+       SUM(CASE WHEN p.key_name = 'proposal_templates:approve' THEN 1 ELSE 0 END) as canApprove
+     FROM role r
+     JOIN role_permission rp ON rp.role_id = r.id
+     JOIN permission p ON p.id = rp.permission_id
+     WHERE r.name = 'ADMIN'
+       AND r.clinic_id IS NULL
+       AND p.key_name IN ('proposal_templates:write', 'proposal_templates:approve')`,
+  );
+  assert.equal(Number(adminTemplatePermissionRows[0].canWrite), 1, "Admin role must have proposal template write permission");
+  assert.equal(Number(adminTemplatePermissionRows[0].canApprove), 1, "Admin role must have proposal template approval permission");
+  const [salesTemplateApprovalRows]: any = await pool.execute(
+    `SELECT COUNT(*) as total
+     FROM role r
+     JOIN role_permission rp ON rp.role_id = r.id
+     JOIN permission p ON p.id = rp.permission_id
+     WHERE r.name = 'SALES'
+       AND r.clinic_id IS NULL
+       AND p.key_name = 'proposal_templates:approve'`,
+  );
+  assert.equal(Number(salesTemplateApprovalRows[0].total), 0, "Sales/proposal-editor role must not have template approval permission");
   const primaryClinicId = uuidv4();
   const otherClinicId = uuidv4();
   const contactId = uuidv4();

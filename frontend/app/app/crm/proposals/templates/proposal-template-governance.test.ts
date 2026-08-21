@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { getPermissionsForRole } from "@/lib/roles";
 
 const templatePageSource = readFileSync(new URL("./page.tsx", import.meta.url), "utf8");
 const proposalEditorSource = readFileSync(new URL("../edit/page.tsx", import.meta.url), "utf8");
@@ -33,5 +34,12 @@ describe("proposal template governance UI", () => {
     expect(proposalEditorSource).toContain("templateVersionIsStale");
     expect(proposalEditorSource).toContain("This proposal references an older template version. Create a fresh proposal version before sending.");
     expect(proposalEditorSource).toContain("Published template version");
+  });
+
+  it("limits proposal template approval to the elevated admin permission set", () => {
+    expect(getPermissionsForRole("ADMIN")).toContain("proposal_templates:approve");
+    expect(getPermissionsForRole("ADMIN")).toContain("proposal_templates:write");
+    expect(getPermissionsForRole("SALES")).toContain("proposals:write");
+    expect(getPermissionsForRole("SALES")).not.toContain("proposal_templates:approve");
   });
 });

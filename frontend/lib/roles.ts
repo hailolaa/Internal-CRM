@@ -27,6 +27,8 @@ const ADMIN_PERMISSIONS = [
   "client_accounts:write",
   "proposals:read",
   "proposals:write",
+  "proposal_templates:write",
+  "proposal_templates:approve",
   "marketing:read",
   "marketing:write",
   "audit:read",
