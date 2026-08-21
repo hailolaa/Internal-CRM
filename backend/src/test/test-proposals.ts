@@ -233,7 +233,9 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
   await pool.execute(
     `INSERT IGNORE INTO permission (id, key_name, description) VALUES
        ('perm-proposals-read', 'proposals:read', 'Read internal proposals'),
-       ('perm-proposals-write', 'proposals:write', 'Create and update internal proposals')`,
+       ('perm-proposals-write', 'proposals:write', 'Create and update internal proposals'),
+       ('perm-proposal-templates-write', 'proposal_templates:write', 'Create and update proposal template drafts'),
+       ('perm-proposal-templates-approve', 'proposal_templates:approve', 'Approve, publish and roll back proposal template versions')`,
   );
   const primaryClinicId = uuidv4();
   const otherClinicId = uuidv4();
@@ -251,6 +253,8 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
   const rollbackDealId = uuidv4();
   const localAccountProfileId = uuidv4();
   const recommendedPackageId = uuidv4();
+  const proposalTemplateId = uuidv4();
+  const proposalTemplateVersionId = uuidv4();
   const proofAssetIds = [uuidv4(), uuidv4(), uuidv4(), uuidv4()];
   const users: TestUser[] = [];
   let convertedClientClinicId: string | null = null;
@@ -263,9 +267,63 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
   );
 
   const writer = await createUser(primaryClinicId, `PROPOSAL_WRITER_${Date.now()}`, ["proposals:read", "proposals:write"]);
+  const templateApprover = await createUser(primaryClinicId, `PROPOSAL_TEMPLATE_APPROVER_${Date.now()}`, ["proposals:read", "proposal_templates:approve"]);
   const contactsOnly = await createUser(primaryClinicId, `CONTACT_WRITER_${Date.now()}`, ["contacts:read", "contacts:write"]);
   const otherWriter = await createUser(otherClinicId, `OTHER_PROPOSAL_WRITER_${Date.now()}`, ["proposals:read", "proposals:write"]);
-  users.push(writer, contactsOnly, otherWriter);
+  users.push(writer, templateApprover, contactsOnly, otherWriter);
+
+  const proposalTemplateContent = {
+    name: "ClinicGrower V19 Proposal",
+    description: "Published V19 proposal template for tests.",
+    packageName: "Clinic Growth Engine",
+    defaultSections: {
+      personalIntroduction: "Template introduction for existing V19 proposal builder tests.",
+      diagnosis: "Template diagnosis for existing V19 proposal builder tests.",
+      recommendedPlan: "Template recommendation for existing V19 proposal builder tests.",
+      nextSteps: "Template next step for existing V19 proposal builder tests.",
+      investmentNotes: "Template investment note for existing V19 proposal builder tests.",
+    },
+    defaultRoadmap: ["Baseline", "Implement", "Review"],
+    defaultTerms: "Package terms remain sourced from the approved catalogue.",
+    defaultSuccessMetrics: ["Qualified enquiries", "Booked consultations"],
+    editablePolicyVersion: "proposal-template-fields-2026-08-21",
+    lockedFields: ["packageName", "defaultTerms", "defaultScopeItems", "packageCatalogue", "proofAssets", "crmClientData"],
+  };
+  await pool.execute(
+    `INSERT INTO proposal_template
+      (id, clinic_id, template_key, name, description, package_name, default_sections,
+       default_roadmap, default_terms, default_success_metrics, sort_order, is_active)
+     VALUES (?, ?, 'clinicgrower_v5', ?, ?, ?, ?, ?, ?, ?, 10, 1)`,
+    [
+      proposalTemplateId,
+      primaryClinicId,
+      proposalTemplateContent.name,
+      proposalTemplateContent.description,
+      proposalTemplateContent.packageName,
+      JSON.stringify(proposalTemplateContent.defaultSections),
+      JSON.stringify(proposalTemplateContent.defaultRoadmap),
+      proposalTemplateContent.defaultTerms,
+      JSON.stringify(proposalTemplateContent.defaultSuccessMetrics),
+    ],
+  );
+  await pool.execute(
+    `INSERT INTO proposal_template_version
+      (id, clinic_id, template_id, template_key, version_number, content, content_hash, status,
+       created_by, submitted_by, approved_by, published_by, submitted_at, approved_at, published_at, change_summary)
+     VALUES (?, ?, ?, 'clinicgrower_v5', 1, ?, ?, 'published',
+       ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'Initial published test template version.')`,
+    [
+      proposalTemplateVersionId,
+      primaryClinicId,
+      proposalTemplateId,
+      JSON.stringify(proposalTemplateContent),
+      "a".repeat(64),
+      writer.id,
+      writer.id,
+      templateApprover.id,
+      templateApprover.id,
+    ],
+  );
 
   await pool.execute(
     `INSERT INTO growth_package
@@ -480,6 +538,242 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       /complete the clinic\/account name/i.test(missingClinicNameText),
       "ready V5 proposals must require a clinic/account name before freezing or rendering",
     );
+
+    const templateList = await request(baseUrl, "/api/proposals/templates?includeInactive=true", writer.token);
+    assert.equal(templateList.response.status, 200);
+    const v5Template = templateList.body.data.find((template: any) => template.templateKey === "clinicgrower_v5");
+    assert.ok(v5Template, "clinicgrower_v5 template should be available for proposal creation");
+    assert.equal(v5Template.activeVersion.status, "published");
+    assert.equal(v5Template.activeVersion.versionNumber, 1);
+
+    const draftTemplateVersion = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({ changeSummary: "Create a template governance draft." }),
+      },
+    );
+    assert.equal(draftTemplateVersion.response.status, 201);
+    assert.equal(draftTemplateVersion.body.data.status, "draft");
+    assert.equal(draftTemplateVersion.body.data.sourceVersionId, proposalTemplateVersionId);
+
+    const editedTemplateVersion = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${draftTemplateVersion.body.data.id}`,
+      writer.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedContentHash: draftTemplateVersion.body.data.contentHash,
+          changeSummary: "Update editable diagnosis copy.",
+          content: {
+            defaultSections: {
+              diagnosis: "Approved governance edit to the reusable diagnosis section.",
+            },
+          },
+        }),
+      },
+    );
+    assert.equal(editedTemplateVersion.response.status, 200);
+    assert.notEqual(editedTemplateVersion.body.data.contentHash, draftTemplateVersion.body.data.contentHash);
+    assert.equal(
+      editedTemplateVersion.body.data.content.defaultSections.diagnosis,
+      "Approved governance edit to the reusable diagnosis section.",
+    );
+    assert.equal(editedTemplateVersion.body.data.content.packageName, "Clinic Growth Engine");
+
+    const submittedTemplateVersion = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${editedTemplateVersion.body.data.id}/submit`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(submittedTemplateVersion.response.status, 200);
+    assert.equal(submittedTemplateVersion.body.data.status, "in_review");
+
+    const unauthorizedTemplateApproval = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${editedTemplateVersion.body.data.id}/approve`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(unauthorizedTemplateApproval.response.status, 403);
+
+    const approvedTemplateVersion = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${editedTemplateVersion.body.data.id}/approve`,
+      templateApprover.token,
+      { method: "POST" },
+    );
+    assert.equal(approvedTemplateVersion.response.status, 200);
+    assert.equal(approvedTemplateVersion.body.data.status, "approved");
+
+    const rejectedImmutableEdit = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${editedTemplateVersion.body.data.id}`,
+      writer.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedContentHash: approvedTemplateVersion.body.data.contentHash,
+          content: { defaultSections: { diagnosis: "This should not be saved." } },
+        }),
+      },
+    );
+    assert.equal(rejectedImmutableEdit.response.status, 409);
+
+    const publishedTemplateVersion = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${editedTemplateVersion.body.data.id}/publish`,
+      templateApprover.token,
+      { method: "POST" },
+    );
+    assert.equal(publishedTemplateVersion.response.status, 200);
+    assert.equal(publishedTemplateVersion.body.data.status, "published");
+
+    const versionsAfterPublish = await request(baseUrl, `/api/proposals/templates/${v5Template.id}/versions`, writer.token);
+    assert.equal(versionsAfterPublish.response.status, 200);
+    assert.equal(versionsAfterPublish.body.data.filter((version: any) => version.status === "published").length, 1);
+    assert.equal(
+      versionsAfterPublish.body.data.find((version: any) => version.id === proposalTemplateVersionId)?.status,
+      "superseded",
+    );
+
+    const rejectionDraft = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({ changeSummary: "Draft intended for rejection." }),
+      },
+    );
+    assert.equal(rejectionDraft.response.status, 201);
+    const rejectionSubmitted = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${rejectionDraft.body.data.id}/submit`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(rejectionSubmitted.response.status, 200);
+    const rejectedTemplateVersion = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${rejectionDraft.body.data.id}/reject`,
+      templateApprover.token,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: "Rejected during governance test." }),
+      },
+    );
+    assert.equal(rejectedTemplateVersion.response.status, 200);
+    assert.equal(rejectedTemplateVersion.body.data.status, "rejected");
+    assert.equal(rejectedTemplateVersion.body.data.rejectionReason, "Rejected during governance test.");
+
+    const rejectedTemplateProposal = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        contactId,
+        proposalName: "Rejected template version proposal",
+        templateKey: "clinicgrower_v5",
+        templateVersionId: rejectedTemplateVersion.body.data.id,
+      }),
+    });
+    assert.equal(rejectedTemplateProposal.response.status, 409);
+
+    const rollbackTemplateVersion = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/rollback`,
+      templateApprover.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          sourceVersionId: proposalTemplateVersionId,
+          reason: "Rollback to the original published wording.",
+        }),
+      },
+    );
+    assert.equal(rollbackTemplateVersion.response.status, 201);
+    assert.equal(rollbackTemplateVersion.body.data.status, "published");
+    assert.equal(rollbackTemplateVersion.body.data.sourceVersionId, proposalTemplateVersionId);
+
+    const comparison = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/compare?fromVersionId=${publishedTemplateVersion.body.data.id}&toVersionId=${rollbackTemplateVersion.body.data.id}`,
+      writer.token,
+    );
+    assert.equal(comparison.response.status, 200);
+    assert.ok(comparison.body.data.diffs.some((diff: any) => diff.path === "defaultSections.diagnosis"));
+
+    const staleTemplateProposal = await request(baseUrl, "/api/proposals", writer.token, {
+      method: "POST",
+      body: JSON.stringify(makeReadyProposalPayload(recommendedPackageId, proofAssetIds, {
+        contactId,
+        dealId,
+        proposalName: "Stale template version proposal",
+        status: "ready",
+        templateKey: "clinicgrower_v5",
+        templateVersionId: rollbackTemplateVersion.body.data.id,
+      })),
+    });
+    assert.equal(staleTemplateProposal.response.status, 201);
+    assert.equal(staleTemplateProposal.body.data.templateVersionId, rollbackTemplateVersion.body.data.id);
+    assert.equal(staleTemplateProposal.body.data.templateContentHash, rollbackTemplateVersion.body.data.contentHash);
+
+    const supersedingDraft = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          changeSummary: "Supersede the version bound to a draft proposal.",
+          content: {
+            defaultSections: {
+              diagnosis: "New published diagnosis after a stale proposal was drafted.",
+            },
+          },
+        }),
+      },
+    );
+    assert.equal(supersedingDraft.response.status, 201);
+    await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${supersedingDraft.body.data.id}/submit`,
+      writer.token,
+      { method: "POST" },
+    );
+    await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${supersedingDraft.body.data.id}/approve`,
+      templateApprover.token,
+      { method: "POST" },
+    );
+    const supersedingPublished = await request(
+      baseUrl,
+      `/api/proposals/templates/${v5Template.id}/versions/${supersedingDraft.body.data.id}/publish`,
+      templateApprover.token,
+      { method: "POST" },
+    );
+    assert.equal(supersedingPublished.response.status, 200);
+    assert.equal(supersedingPublished.body.data.status, "published");
+
+    const staleTemplateSend = await request(
+      baseUrl,
+      `/api/proposals/${staleTemplateProposal.body.data.id}/send`,
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipientEmail: "stale-template@example.com",
+          recipientName: "Stale Template",
+          sendMethod: "manual_email",
+        }),
+      },
+    );
+    assert.equal(staleTemplateSend.response.status, 409);
+    assert.match(staleTemplateSend.body.message, /template version/i);
 
     const created = await request(baseUrl, "/api/proposals", writer.token, {
       method: "POST",
@@ -2991,6 +3285,8 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       await pool.execute("DELETE FROM proposal_discovery_session WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal_acceptance_record WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+      await pool.execute("DELETE FROM proposal_template_version WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+      await pool.execute("DELETE FROM proposal_template WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM contact_document_link WHERE clinic_id = ? AND contact_id = ?", [primaryClinicId, contactId]);
       await pool.execute(
         "DELETE FROM client_account_contact WHERE clinic_id = ? AND contact_id IN (?, ?)",

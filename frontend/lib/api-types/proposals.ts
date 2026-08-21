@@ -24,12 +24,21 @@ export type ProposalProofAssetType =
 
 export type ProposalDataState = "known" | "working_diagnosis" | "provisional" | "to_confirm";
 export type ProposalDiscoveryStatus = "in_progress" | "paused" | "completed" | "draft_created" | "archived";
+export type ProposalTemplateVersionStatus = "draft" | "in_review" | "approved" | "published" | "rejected" | "superseded";
 
 // Internal frozen V5 snapshots are full integrity records and may include hash/source metadata.
 export type ProposalV5PersistedSnapshot = Record<string, unknown> & {
   schemaVersion: "proposal_v5";
   proposal: {
     reference: string;
+  };
+  template?: {
+    templateId: string | null;
+    templateKey: string;
+    versionId: string | null;
+    versionNumber: number | null;
+    contentHash: string | null;
+    status: ProposalTemplateVersionStatus | null;
   };
   generatedAt?: string;
   pageCount?: 15;
@@ -43,6 +52,7 @@ export type ProposalV5PublicSnapshot = Record<string, unknown> & {
   proposal: {
     reference: string;
   };
+  template?: never;
   snapshotHash?: never;
   sourceProposalVersion?: never;
 };
@@ -53,7 +63,11 @@ export interface ProposalRecord {
   dealId: string | null;
   clientAccountProfileId: string | null;
   proposalName: string;
+  templateId?: string | null;
   templateKey: string;
+  templateVersionId?: string | null;
+  templateVersionNumber?: number | null;
+  templateContentHash?: string | null;
   packageName: string | null;
   recommendedPackageId: string | null;
   ownerId: string | null;
@@ -576,6 +590,73 @@ export interface ProposalTemplateRecord {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  activeVersion: ProposalTemplateVersionSummary | null;
+}
+
+export interface ProposalTemplateContent {
+  name?: string | null;
+  description?: string | null;
+  packageName?: string | null;
+  defaultSections?: ProposalSectionContent | null;
+  defaultRoadmap?: string[] | null;
+  defaultTerms?: string | null;
+  defaultSuccessMetrics?: string[] | null;
+  editablePolicyVersion?: string | null;
+  lockedFields?: string[] | null;
+}
+
+export interface ProposalTemplateVersionSummary {
+  id: string;
+  templateId: string;
+  templateKey: string;
+  versionNumber: number;
+  status: ProposalTemplateVersionStatus;
+  contentHash: string;
+  sourceVersionId: string | null;
+  createdBy: string | null;
+  createdByName: string | null;
+  submittedBy: string | null;
+  approvedBy: string | null;
+  rejectedBy: string | null;
+  publishedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  rejectedAt: string | null;
+  publishedAt: string | null;
+  supersededAt: string | null;
+  rejectionReason: string | null;
+  changeSummary: string | null;
+}
+
+export interface ProposalTemplateVersionRecord extends ProposalTemplateVersionSummary {
+  content: ProposalTemplateContent;
+}
+
+export interface ProposalTemplatePayload {
+  templateKey?: string | null;
+  name?: string | null;
+  description?: string | null;
+  content?: ProposalTemplateContent | null;
+  changeSummary?: string | null;
+}
+
+export interface ProposalTemplateVersionPayload {
+  content?: ProposalTemplateContent | null;
+  expectedContentHash?: string | null;
+  changeSummary?: string | null;
+}
+
+export interface ProposalTemplateVersionCompareRecord {
+  fromVersion: ProposalTemplateVersionSummary;
+  toVersion: ProposalTemplateVersionSummary;
+  diffs: Array<{
+    path: string;
+    before: unknown;
+    after: unknown;
+    changed: boolean;
+  }>;
 }
 
 export interface ProposalProofAssetRecord {
@@ -714,6 +795,7 @@ export interface ProposalPayload {
   clientAccountProfileId?: string | null;
   proposalName?: string | null;
   templateKey?: string | null;
+  templateVersionId?: string | null;
   packageName?: string | null;
   recommendedPackageId?: string | null;
   ownerId?: string | null;

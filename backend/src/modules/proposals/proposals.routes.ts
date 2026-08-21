@@ -11,17 +11,25 @@ import {
 import { proposalsController } from "./proposals.controller.js";
 import {
   createProofAssetValidator,
+  compareProposalTemplateVersionValidator,
+  createProposalTemplateValidator,
+  createProposalTemplateVersionValidator,
   createProposalValidator,
   createProposalSignatureRequestValidator,
   exportProposalsValidator,
   listProposalsValidator,
+  proposalTemplateIdParamValidator,
+  proposalTemplateVersionIdParamValidator,
   proposalIdParamValidator,
   proposalPublicAcceptanceValidator,
   proposalPublicEventValidator,
   proposalPublicTokenParamValidator,
+  rejectProposalTemplateVersionValidator,
+  rollbackProposalTemplateValidator,
   proposalStatusUpdateValidator,
   proposalSourceDataValidator,
   sendProposalValidator,
+  updateProposalTemplateVersionValidator,
   updateProposalValidator,
 } from "./proposals.validators.js";
 
@@ -86,6 +94,86 @@ router.get(
   "/templates",
   authorizePermission("proposals:read"),
   proposalsController.listProposalTemplates,
+);
+
+router.post(
+  "/templates",
+  authorizeAnyPermission("proposal_templates:write", "proposals:write"),
+  createProposalTemplateValidator,
+  validate,
+  proposalsController.createProposalTemplate,
+);
+
+router.get(
+  "/templates/:templateId/versions",
+  authorizePermission("proposals:read"),
+  proposalTemplateIdParamValidator,
+  validate,
+  proposalsController.listProposalTemplateVersions,
+);
+
+router.post(
+  "/templates/:templateId/versions",
+  authorizeAnyPermission("proposal_templates:write", "proposals:write"),
+  createProposalTemplateVersionValidator,
+  validate,
+  proposalsController.createProposalTemplateVersion,
+);
+
+router.get(
+  "/templates/:templateId/versions/compare",
+  authorizePermission("proposals:read"),
+  compareProposalTemplateVersionValidator,
+  validate,
+  proposalsController.compareProposalTemplateVersions,
+);
+
+router.patch(
+  "/templates/:templateId/versions/:versionId",
+  authorizeAnyPermission("proposal_templates:write", "proposals:write"),
+  updateProposalTemplateVersionValidator,
+  validate,
+  proposalsController.updateProposalTemplateVersion,
+);
+
+router.post(
+  "/templates/:templateId/versions/:versionId/submit",
+  authorizeAnyPermission("proposal_templates:write", "proposals:write"),
+  proposalTemplateVersionIdParamValidator,
+  validate,
+  proposalsController.submitProposalTemplateVersion,
+);
+
+router.post(
+  "/templates/:templateId/versions/:versionId/approve",
+  authorizePermission("proposal_templates:approve"),
+  proposalTemplateVersionIdParamValidator,
+  validate,
+  proposalsController.approveProposalTemplateVersion,
+);
+
+router.post(
+  "/templates/:templateId/versions/:versionId/reject",
+  authorizePermission("proposal_templates:approve"),
+  rejectProposalTemplateVersionValidator,
+  validate,
+  proposalsController.rejectProposalTemplateVersion,
+);
+
+router.post(
+  "/templates/:templateId/versions/:versionId/publish",
+  authorizePermission("proposal_templates:approve"),
+  proposalTemplateVersionIdParamValidator,
+  validate,
+  proposalsController.publishProposalTemplateVersion,
+);
+
+router.post(
+  "/templates/:templateId/rollback",
+  authorizePermission("proposal_templates:approve"),
+  rollbackProposalTemplateValidator,
+  validate,
+  proposalsController.rollbackProposalTemplate,
 );
 
 router.get(

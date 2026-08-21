@@ -156,6 +156,7 @@ const fallbackProposalTemplates: ProposalTemplateRecord[] = [
     isActive: true,
     createdAt: "",
     updatedAt: "",
+    activeVersion: null,
   },
   {
     id: "fallback-bespoke-growth-plan",
@@ -172,6 +173,7 @@ const fallbackProposalTemplates: ProposalTemplateRecord[] = [
     isActive: true,
     createdAt: "",
     updatedAt: "",
+    activeVersion: null,
   },
 ];
 
@@ -226,6 +228,7 @@ type ProposalForm = {
   clientAccountProfileId: string;
   proposalName: string;
   templateKey: string;
+  templateVersionId: string;
   recommendedPackageId: string;
   packageName: string;
   value: string;
@@ -709,6 +712,7 @@ function formFromProposal(proposal: ProposalRecord): ProposalForm {
     clientAccountProfileId: proposal.clientAccountProfileId || "",
     proposalName: proposal.proposalName || "",
     templateKey: proposal.templateKey || "clinicgrower_v5",
+    templateVersionId: proposal.templateVersionId || "",
     recommendedPackageId: proposal.recommendedPackageId || "",
     packageName: proposal.packageName || "",
     value: moneyFromCents(proposal.valueCents),
@@ -821,6 +825,7 @@ function createInitialForm(searchParams: URLSearchParams): ProposalForm {
     clientAccountProfileId: searchParams.get("clientAccountProfileId") || "",
     proposalName: searchParams.get("proposalName") || `${accountName} proposal`,
     templateKey: searchParams.get("templateKey") || "clinicgrower_v5",
+    templateVersionId: searchParams.get("templateVersionId") || "",
     recommendedPackageId: searchParams.get("recommendedPackageId") || "",
     packageName,
     value: "",
@@ -1051,6 +1056,7 @@ function formWithTemplateDefaults(current: ProposalForm, template: ProposalTempl
   return {
     ...current,
     templateKey: template.templateKey,
+    templateVersionId: template.activeVersion?.id || "",
     packageName: mergeIfBlank(current.packageName, template.packageName),
     proposalReference: mergeIfBlank(current.proposalReference, sections.proposalReference),
     proposalDate: mergeIfBlank(current.proposalDate, sections.proposalDate),
@@ -1384,6 +1390,12 @@ export default function ProposalEditPage() {
     () => packages.find((item) => item.id === form.recommendedPackageId) || null,
     [form.recommendedPackageId, packages],
   );
+  const selectedTemplate = useMemo(
+    () => proposalTemplates.find((item) => item.templateKey === form.templateKey) || null,
+    [form.templateKey, proposalTemplates],
+  );
+  const selectedTemplateVersion = selectedTemplate?.activeVersion || null;
+  const templateVersionIsStale = Boolean(form.templateVersionId && selectedTemplateVersion?.id && form.templateVersionId !== selectedTemplateVersion.id);
 
   const selectedProofAssets = useMemo(
     () => form.proofAssetIds
@@ -1974,6 +1986,7 @@ export default function ProposalEditPage() {
     clientAccountProfileId: form.clientAccountProfileId.trim() || null,
     proposalName: form.proposalName.trim(),
     templateKey: form.templateKey,
+    templateVersionId: form.templateVersionId || null,
     recommendedPackageId: form.recommendedPackageId || null,
     packageName: form.packageName.trim() || selectedPackage?.name || null,
     status: statusOverride || form.status || "draft",
@@ -2438,6 +2451,13 @@ export default function ProposalEditPage() {
                               </option>
                             ))}
                           </select>
+                          <span className={`mt-1 block text-xs font-normal leading-5 ${templateVersionIsStale ? "text-[#9a4d11]" : "text-[#6b817a]"}`}>
+                            {templateVersionIsStale
+                              ? "This proposal references an older template version. Create a fresh proposal version before sending."
+                              : selectedTemplateVersion
+                                ? `Published template version ${selectedTemplateVersion.versionNumber} is selected.`
+                                : "No published template version is attached yet. Sending will be blocked until one is available."}
+                          </span>
                         </label>
                       </div>
 

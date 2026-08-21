@@ -90,6 +90,117 @@ export class ProposalsController {
     }
   };
 
+  createProposalTemplate = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const template = await proposalsService.createProposalTemplate(clinicId, userId, req.body);
+      res.status(201).json({ status: "success", data: template });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listProposalTemplateVersions = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const versions = await proposalsService.listTemplateVersions(clinicId, String(req.params.templateId));
+      res.status(200).json({ status: "success", data: versions });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createProposalTemplateVersion = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const version = await proposalsService.createTemplateDraftVersion(clinicId, userId, String(req.params.templateId), req.body);
+      res.status(201).json({ status: "success", data: version });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateProposalTemplateVersion = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const version = await proposalsService.updateTemplateDraftVersion(
+        clinicId,
+        userId,
+        String(req.params.templateId),
+        String(req.params.versionId),
+        req.body,
+      );
+      res.status(200).json({ status: "success", data: version });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  submitProposalTemplateVersion = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const version = await proposalsService.submitTemplateVersion(clinicId, userId, String(req.params.templateId), String(req.params.versionId));
+      res.status(200).json({ status: "success", data: version });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  approveProposalTemplateVersion = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const version = await proposalsService.approveTemplateVersion(clinicId, userId, String(req.params.templateId), String(req.params.versionId));
+      res.status(200).json({ status: "success", data: version });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  rejectProposalTemplateVersion = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const version = await proposalsService.rejectTemplateVersion(clinicId, userId, String(req.params.templateId), String(req.params.versionId), req.body);
+      res.status(200).json({ status: "success", data: version });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  publishProposalTemplateVersion = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const version = await proposalsService.publishTemplateVersion(clinicId, userId, String(req.params.templateId), String(req.params.versionId));
+      res.status(200).json({ status: "success", data: version });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  rollbackProposalTemplate = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const version = await proposalsService.rollbackTemplateVersion(clinicId, userId, String(req.params.templateId), req.body);
+      res.status(201).json({ status: "success", data: version });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  compareProposalTemplateVersions = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const comparison = await proposalsService.compareTemplateVersions(
+        clinicId,
+        String(req.params.templateId),
+        String(req.query.fromVersionId),
+        String(req.query.toVersionId),
+      );
+      res.status(200).json({ status: "success", data: comparison });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   exportProposalsCsv = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId } = (req as any).user;

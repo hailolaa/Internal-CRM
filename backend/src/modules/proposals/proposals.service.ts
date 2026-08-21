@@ -57,7 +57,17 @@ import type {
   ProposalSourceDataResponse,
   ProposalStatus,
   ProposalStatusUpdateDTO,
+  ProposalTemplateContent,
+  ProposalTemplateMutationDTO,
+  ProposalTemplateRejectDTO,
+  ProposalTemplateRollbackDTO,
   ProposalTemplateResponse,
+  ProposalTemplateVersionCompareResponse,
+  ProposalTemplateVersionDiff,
+  ProposalTemplateVersionMutationDTO,
+  ProposalTemplateVersionResponse,
+  ProposalTemplateVersionStatus,
+  ProposalTemplateVersionSummary,
   ProposalRenderResponse,
   ProposalV5Snapshot,
 } from "./proposals.types.js";
@@ -753,7 +763,11 @@ function mapProposal(row: any): ProposalResponse {
     dealId: row.dealId || null,
     clientAccountProfileId: row.clientAccountProfileId || null,
     proposalName: row.proposalName,
+    templateId: row.templateId || null,
     templateKey: row.templateKey || "clinicgrower_v5",
+    templateVersionId: row.templateVersionId || null,
+    templateVersionNumber: numberOrNull(row.templateVersionNumber),
+    templateContentHash: row.templateContentHash || null,
     packageName: row.packageName || null,
     recommendedPackageId: row.recommendedPackageId || null,
     ownerId: row.ownerId || null,
@@ -853,7 +867,200 @@ function mapProposalTemplate(row: any): ProposalTemplateResponse {
     isActive: Boolean(row.isActive),
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
+    activeVersion: row.activeVersionId ? mapProposalTemplateVersionSummary(row, "activeVersion") : null,
   };
+}
+
+const proposalTemplateEditablePolicyVersion = "proposal-template-fields-2026-08-21";
+const proposalTemplateEditableTopLevelFields = new Set([
+  "name",
+  "description",
+  "defaultSections",
+  "defaultRoadmap",
+  "defaultSuccessMetrics",
+]);
+const proposalTemplateEditableSectionFields = new Set([
+  "executiveSummary",
+  "personalIntroduction",
+  "diagnosis",
+  "primaryGoal",
+  "currentPosition",
+  "desiredOutcome",
+  "biggestRisk",
+  "biggestOpportunity",
+  "firstRecommendedFix",
+  "recommendedPlan",
+  "strategyPoints",
+  "includedFeatures",
+  "successMetrics",
+  "clinicGrowerResponsibilities",
+  "clientResponsibilities",
+  "timeline",
+  "investmentNotes",
+  "nextSteps",
+  "introVideoTitle",
+  "introVideoUrl",
+  "introVideoThumbnailUrl",
+  "fallbackVideoUrl",
+]);
+const proposalTemplateLockedFields = [
+  "packageName",
+  "defaultTerms",
+  "defaultScopeItems",
+  "packageCatalogue",
+  "proofAssets",
+  "crmClientData",
+  "legalCommercialControls",
+  "v19ReferenceStructure",
+];
+
+function orderedValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(orderedValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.keys(value as Record<string, unknown>)
+    .sort()
+    .reduce((accumulator: Record<string, unknown>, key) => {
+      accumulator[key] = orderedValue((value as Record<string, unknown>)[key]);
+      return accumulator;
+    }, {});
+}
+
+function stableJson(value: unknown) {
+  return JSON.stringify(orderedValue(value));
+}
+
+function hashTemplateContent(content: ProposalTemplateContent) {
+  return createHash("sha256").update(stableJson(content)).digest("hex");
+}
+
+function parseTemplateContent(value: unknown): ProposalTemplateContent {
+  const parsed = parseJsonObject(value) as ProposalTemplateContent | null;
+  return parsed || {};
+}
+
+function cleanStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => cleanString(item)).filter(Boolean) as string[];
+}
+
+function cleanTemplateSectionContent(value: unknown): ProposalSectionContent | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const cleaned: Record<string, unknown> = {};
+  for (const key of proposalTemplateEditableSectionFields) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const candidate = source[key];
+    if (Array.isArray(candidate)) {
+      cleaned[key] = cleanStringArray(candidate);
+    } else if (candidate === null || candidate === undefined) {
+      cleaned[key] = null;
+    } else if (typeof candidate === "number" || typeof candidate === "boolean") {
+      cleaned[key] = candidate;
+    } else {
+      cleaned[key] = cleanString(candidate);
+    }
+  }
+  return Object.keys(cleaned).length ? cleaned as ProposalSectionContent : null;
+}
+
+function normalizeTemplateContent(
+  input: ProposalTemplateContent | null | undefined,
+  base: ProposalTemplateContent | null | undefined = {},
+): ProposalTemplateContent {
+  const source = input || {};
+  const baseContent = base || {};
+  const next: ProposalTemplateContent = {
+    name: cleanString(baseContent.name),
+    description: cleanString(baseContent.description),
+    packageName: cleanString(baseContent.packageName),
+    defaultSections: baseContent.defaultSections || null,
+    defaultRoadmap: cleanStringArray(baseContent.defaultRoadmap),
+    defaultTerms: cleanString(baseContent.defaultTerms),
+    defaultSuccessMetrics: cleanStringArray(baseContent.defaultSuccessMetrics),
+    editablePolicyVersion: proposalTemplateEditablePolicyVersion,
+    lockedFields: [...proposalTemplateLockedFields],
+  };
+
+  for (const key of proposalTemplateEditableTopLevelFields) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    if (key === "defaultSections") {
+      next.defaultSections = cleanTemplateSectionContent(source.defaultSections) || next.defaultSections || null;
+    } else if (key === "defaultRoadmap") {
+      next.defaultRoadmap = cleanStringArray(source.defaultRoadmap);
+    } else if (key === "defaultSuccessMetrics") {
+      next.defaultSuccessMetrics = cleanStringArray(source.defaultSuccessMetrics);
+    } else if (key === "name") {
+      next.name = cleanString(source.name);
+    } else if (key === "description") {
+      next.description = cleanString(source.description);
+    }
+  }
+
+  if (!next.name) throw ApiError.badRequest("Template name is required");
+  return next;
+}
+
+function templateContentFromTemplateRow(row: ProposalTemplateResponse): ProposalTemplateContent {
+  return normalizeTemplateContent({
+    name: row.name,
+    description: row.description,
+    packageName: row.packageName,
+    defaultSections: row.defaultSections,
+    defaultRoadmap: row.defaultRoadmap,
+    defaultTerms: row.defaultTerms,
+    defaultSuccessMetrics: row.defaultSuccessMetrics,
+  }, {
+    packageName: row.packageName,
+    defaultTerms: row.defaultTerms,
+  });
+}
+
+function mapProposalTemplateVersionSummary(row: any, prefix = ""): ProposalTemplateVersionSummary {
+  const key = (name: string) => prefix ? `${prefix}${name.charAt(0).toUpperCase()}${name.slice(1)}` : name;
+  const createdByName = [row[key("createdByFirstName")], row[key("createdByLastName")]].filter(Boolean).join(" ").trim();
+  return {
+    id: row[key("id")],
+    templateId: row[key("templateId")],
+    templateKey: row[key("templateKey")],
+    versionNumber: Number(row[key("versionNumber")] || 0),
+    status: row[key("status")] as ProposalTemplateVersionStatus,
+    contentHash: row[key("contentHash")],
+    sourceVersionId: row[key("sourceVersionId")] || null,
+    createdBy: row[key("createdBy")] || null,
+    createdByName: createdByName || row[key("createdByEmail")] || null,
+    submittedBy: row[key("submittedBy")] || null,
+    approvedBy: row[key("approvedBy")] || null,
+    rejectedBy: row[key("rejectedBy")] || null,
+    publishedBy: row[key("publishedBy")] || null,
+    createdAt: new Date(row[key("createdAt")]).toISOString(),
+    updatedAt: new Date(row[key("updatedAt")]).toISOString(),
+    submittedAt: toIso(row[key("submittedAt")]),
+    approvedAt: toIso(row[key("approvedAt")]),
+    rejectedAt: toIso(row[key("rejectedAt")]),
+    publishedAt: toIso(row[key("publishedAt")]),
+    supersededAt: toIso(row[key("supersededAt")]),
+    rejectionReason: row[key("rejectionReason")] || null,
+    changeSummary: row[key("changeSummary")] || null,
+  };
+}
+
+function mapProposalTemplateVersion(row: any): ProposalTemplateVersionResponse {
+  return {
+    ...mapProposalTemplateVersionSummary(row),
+    content: parseTemplateContent(row.content),
+  };
+}
+
+function diffTemplateContent(before: unknown, after: unknown, prefix = ""): ProposalTemplateVersionDiff[] {
+  const beforeObject = before && typeof before === "object" && !Array.isArray(before) ? before as Record<string, unknown> : null;
+  const afterObject = after && typeof after === "object" && !Array.isArray(after) ? after as Record<string, unknown> : null;
+  if (beforeObject || afterObject) {
+    const keys = new Set([...Object.keys(beforeObject || {}), ...Object.keys(afterObject || {})]);
+    return [...keys].sort().flatMap((key) => diffTemplateContent(beforeObject?.[key], afterObject?.[key], prefix ? `${prefix}.${key}` : key));
+  }
+  const beforeJson = stableJson(before);
+  const afterJson = stableJson(after);
+  return beforeJson === afterJson ? [] : [{ path: prefix || "$", before: before ?? null, after: after ?? null, changed: true }];
 }
 
 function mapProposalScopeItem(row: any): ProposalScopeItem {
@@ -987,7 +1194,11 @@ function proposalSelectSql() {
                  p.deal_id as dealId,
                  p.client_account_profile_id as clientAccountProfileId,
                  p.proposal_name as proposalName,
+                 p.template_id as templateId,
                  p.template_key as templateKey,
+                 p.template_version_id as templateVersionId,
+                 p.template_version_number as templateVersionNumber,
+                 p.template_content_hash as templateContentHash,
                  p.package_name as packageName,
                  p.recommended_package_id as recommendedPackageId,
                  p.owner_id as ownerId,
@@ -1191,25 +1402,56 @@ export class ProposalsService {
   }
 
   async listProposalTemplates(clinicId: string, includeInactive = false): Promise<ProposalTemplateResponse[]> {
-    const filters = includeInactive ? "" : "AND is_active = 1";
+    const templateFilters = includeInactive ? "" : "AND proposal_template.is_active = 1";
+    const scopeFilters = includeInactive ? "" : "AND is_active = 1";
     const [rows]: any = await pool.execute(
-      `SELECT id,
-              template_key as templateKey,
-              name,
-              description,
-              package_name as packageName,
-              default_sections as defaultSections,
-              default_roadmap as defaultRoadmap,
-              default_terms as defaultTerms,
-              default_success_metrics as defaultSuccessMetrics,
-              sort_order as sortOrder,
-              is_active as isActive,
-              created_at as createdAt,
-              updated_at as updatedAt
+      `SELECT proposal_template.id,
+              proposal_template.template_key as templateKey,
+              proposal_template.name,
+              proposal_template.description,
+              proposal_template.package_name as packageName,
+              proposal_template.default_sections as defaultSections,
+              proposal_template.default_roadmap as defaultRoadmap,
+              proposal_template.default_terms as defaultTerms,
+              proposal_template.default_success_metrics as defaultSuccessMetrics,
+              proposal_template.sort_order as sortOrder,
+              proposal_template.is_active as isActive,
+              proposal_template.created_at as createdAt,
+              proposal_template.updated_at as updatedAt,
+              active_version.id as activeVersionId,
+              active_version.template_id as activeVersionTemplateId,
+              active_version.template_key as activeVersionTemplateKey,
+              active_version.version_number as activeVersionVersionNumber,
+              active_version.status as activeVersionStatus,
+              active_version.content_hash as activeVersionContentHash,
+              active_version.source_version_id as activeVersionSourceVersionId,
+              active_version.created_by as activeVersionCreatedBy,
+              active_creator.first_name as activeVersionCreatedByFirstName,
+              active_creator.last_name as activeVersionCreatedByLastName,
+              active_creator.email as activeVersionCreatedByEmail,
+              active_version.submitted_by as activeVersionSubmittedBy,
+              active_version.approved_by as activeVersionApprovedBy,
+              active_version.rejected_by as activeVersionRejectedBy,
+              active_version.published_by as activeVersionPublishedBy,
+              active_version.created_at as activeVersionCreatedAt,
+              active_version.updated_at as activeVersionUpdatedAt,
+              active_version.submitted_at as activeVersionSubmittedAt,
+              active_version.approved_at as activeVersionApprovedAt,
+              active_version.rejected_at as activeVersionRejectedAt,
+              active_version.published_at as activeVersionPublishedAt,
+              active_version.superseded_at as activeVersionSupersededAt,
+              active_version.rejection_reason as activeVersionRejectionReason,
+              active_version.change_summary as activeVersionChangeSummary
        FROM proposal_template
-       WHERE clinic_id = ?
-         ${filters}
-       ORDER BY sort_order ASC, name ASC`,
+       LEFT JOIN proposal_template_version active_version
+         ON active_version.template_id = proposal_template.id
+        AND active_version.clinic_id = proposal_template.clinic_id
+        AND active_version.status = 'published'
+       LEFT JOIN user active_creator
+         ON active_creator.id = active_version.created_by
+       WHERE proposal_template.clinic_id = ?
+         ${templateFilters}
+       ORDER BY proposal_template.sort_order ASC, proposal_template.name ASC`,
       [clinicId],
     );
 
@@ -1229,7 +1471,7 @@ export class ProposalsService {
               sort_order as sortOrder
        FROM proposal_scope_item
        WHERE clinic_id = ?
-         ${filters}
+         ${scopeFilters}
        ORDER BY template_key ASC, sort_order ASC, title ASC`,
       [clinicId],
     );
@@ -1245,6 +1487,285 @@ export class ProposalsService {
       ...template,
       defaultScopeItems: scopeByTemplate.get(template.templateKey) || [],
     }));
+  }
+
+  async createProposalTemplate(
+    clinicId: string,
+    userId: string,
+    data: ProposalTemplateMutationDTO,
+  ): Promise<ProposalTemplateResponse> {
+    const templateKey = cleanString(data.templateKey)?.replace(/[^a-zA-Z0-9_:-]/g, "_").slice(0, 100);
+    const content = normalizeTemplateContent(data.content || {
+      name: cleanString(data.name),
+      description: cleanString(data.description),
+    });
+    const id = uuidv4();
+    const key = templateKey || `custom_template_${id.slice(0, 8)}`;
+    const templateName = cleanString(content.name);
+    if (!templateName) throw ApiError.badRequest("Template name is required");
+    const templateInsertValues: any[] = [
+      id,
+      clinicId,
+      key,
+      templateName,
+      content.description || null,
+      content.packageName ?? null,
+      JSON.stringify(content.defaultSections || {}),
+      JSON.stringify(content.defaultRoadmap || []),
+      content.defaultTerms ?? null,
+      JSON.stringify(content.defaultSuccessMetrics || []),
+    ];
+    await this.withTransaction(async (connection) => {
+      await connection.execute(
+        `INSERT INTO proposal_template
+          (id, clinic_id, template_key, name, description, package_name, default_sections,
+           default_roadmap, default_terms, default_success_metrics, sort_order, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 100, 1)`,
+        templateInsertValues,
+      );
+      await this.insertTemplateVersion(connection, {
+        clinicId,
+        templateId: id,
+        templateKey: key,
+        versionNumber: 1,
+        content,
+        status: "draft",
+        userId,
+        sourceVersionId: null,
+        changeSummary: cleanString(data.changeSummary) || "Initial draft template version.",
+      });
+    });
+    await this.logTemplateAudit(clinicId, userId, "PROPOSAL_TEMPLATE_CREATED", id, { templateKey: key });
+    return this.getProposalTemplate(clinicId, id);
+  }
+
+  async listTemplateVersions(clinicId: string, templateId: string): Promise<ProposalTemplateVersionResponse[]> {
+    const [rows]: any = await pool.execute(
+      `${this.templateVersionSelectSql()}
+       WHERE v.clinic_id = ?
+         AND v.template_id = ?
+       ORDER BY v.version_number DESC`,
+      [clinicId, templateId],
+    );
+    return rows.map(mapProposalTemplateVersion);
+  }
+
+  async createTemplateDraftVersion(
+    clinicId: string,
+    userId: string,
+    templateId: string,
+    data: ProposalTemplateVersionMutationDTO = {},
+  ): Promise<ProposalTemplateVersionResponse> {
+    const template = await this.getProposalTemplate(clinicId, templateId);
+    const source = await this.getLatestTemplateSourceVersion(clinicId, templateId);
+    const baseContent = source?.content || templateContentFromTemplateRow(template);
+    const content = normalizeTemplateContent(data.content || {}, baseContent);
+    const nextVersionNumber = await this.nextTemplateVersionNumber(clinicId, template.templateKey);
+    const version = await this.withTransaction(async (connection) => {
+      const versionId = await this.insertTemplateVersion(connection, {
+        clinicId,
+        templateId,
+        templateKey: template.templateKey,
+        versionNumber: nextVersionNumber,
+        content,
+        status: "draft",
+        userId,
+        sourceVersionId: source?.id || null,
+        changeSummary: cleanString(data.changeSummary) || "Draft created from the current template version.",
+      });
+      return this.getTemplateVersionById(clinicId, versionId, connection);
+    });
+    await this.logTemplateAudit(clinicId, userId, "PROPOSAL_TEMPLATE_VERSION_CREATED", version.id, {
+      templateId,
+      templateKey: template.templateKey,
+      versionNumber: version.versionNumber,
+      sourceVersionId: source?.id || null,
+    });
+    return version;
+  }
+
+  async updateTemplateDraftVersion(
+    clinicId: string,
+    userId: string,
+    templateId: string,
+    versionId: string,
+    data: ProposalTemplateVersionMutationDTO,
+  ): Promise<ProposalTemplateVersionResponse> {
+    const existing = await this.getTemplateVersionById(clinicId, versionId);
+    if (existing.templateId !== templateId) throw ApiError.notFound("Template version not found");
+    if (existing.status !== "draft") {
+      throw ApiError.conflict("Only draft template versions can be edited. Create a new draft version for approved or published content.");
+    }
+    if (data.expectedContentHash && data.expectedContentHash !== existing.contentHash) {
+      throw ApiError.conflict("Template version changed while you were editing. Refresh before saving.");
+    }
+    const content = normalizeTemplateContent(data.content || {}, existing.content);
+    const contentHash = hashTemplateContent(content);
+    await pool.execute(
+      `UPDATE proposal_template_version
+       SET content = ?,
+           content_hash = ?,
+           change_summary = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?
+         AND template_id = ?
+         AND status = 'draft'`,
+      [
+        JSON.stringify(content),
+        contentHash,
+        cleanString(data.changeSummary) || existing.changeSummary,
+        versionId,
+        clinicId,
+        templateId,
+      ],
+    );
+    await this.logTemplateAudit(clinicId, userId, "PROPOSAL_TEMPLATE_VERSION_UPDATED", versionId, {
+      templateId,
+      versionNumber: existing.versionNumber,
+      contentHash,
+    });
+    return this.getTemplateVersionById(clinicId, versionId);
+  }
+
+  async submitTemplateVersion(clinicId: string, userId: string, templateId: string, versionId: string) {
+    return this.transitionTemplateVersion(clinicId, userId, templateId, versionId, "submit");
+  }
+
+  async approveTemplateVersion(clinicId: string, userId: string, templateId: string, versionId: string) {
+    return this.transitionTemplateVersion(clinicId, userId, templateId, versionId, "approve");
+  }
+
+  async rejectTemplateVersion(
+    clinicId: string,
+    userId: string,
+    templateId: string,
+    versionId: string,
+    data: ProposalTemplateRejectDTO,
+  ) {
+    const reason = cleanString(data.reason);
+    if (!reason) throw ApiError.badRequest("Rejection reason is required");
+    return this.transitionTemplateVersion(clinicId, userId, templateId, versionId, "reject", reason);
+  }
+
+  async publishTemplateVersion(clinicId: string, userId: string, templateId: string, versionId: string) {
+    const version = await this.getTemplateVersionById(clinicId, versionId);
+    if (version.templateId !== templateId) throw ApiError.notFound("Template version not found");
+    if (version.status !== "approved") throw ApiError.conflict("Only approved template versions can be published");
+    await this.withTransaction(async (connection) => {
+      await connection.execute(
+        `UPDATE proposal_template_version
+         SET status = 'superseded',
+             superseded_at = CURRENT_TIMESTAMP,
+             superseded_by_version_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE clinic_id = ?
+           AND template_key = ?
+           AND status = 'published'
+           AND id <> ?`,
+        [versionId, clinicId, version.templateKey, versionId],
+      );
+      const [result]: any = await connection.execute(
+        `UPDATE proposal_template_version
+         SET status = 'published',
+             published_by = ?,
+             published_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND clinic_id = ?
+           AND template_id = ?
+           AND status = 'approved'`,
+        [userId, versionId, clinicId, templateId],
+      );
+      if (Number(result.affectedRows || 0) !== 1) throw ApiError.conflict("Template version could not be published");
+      await this.syncTemplateLibraryFromVersion(connection, versionId, clinicId);
+    });
+    await this.logTemplateAudit(clinicId, userId, "PROPOSAL_TEMPLATE_VERSION_PUBLISHED", versionId, {
+      templateId,
+      templateKey: version.templateKey,
+      versionNumber: version.versionNumber,
+    });
+    return this.getTemplateVersionById(clinicId, versionId);
+  }
+
+  async rollbackTemplateVersion(
+    clinicId: string,
+    userId: string,
+    templateId: string,
+    data: ProposalTemplateRollbackDTO,
+  ): Promise<ProposalTemplateVersionResponse> {
+    const sourceVersionId = cleanString(data.sourceVersionId);
+    if (!sourceVersionId) throw ApiError.badRequest("Rollback source version is required");
+    const source = await this.getTemplateVersionById(clinicId, sourceVersionId);
+    if (source.templateId !== templateId) throw ApiError.notFound("Rollback source version not found");
+    if (!["approved", "published", "superseded"].includes(source.status)) {
+      throw ApiError.conflict("Rollback source must be an approved or previously published version");
+    }
+    const template = await this.getProposalTemplate(clinicId, templateId);
+    const nextVersionNumber = await this.nextTemplateVersionNumber(clinicId, template.templateKey);
+    let created: ProposalTemplateVersionResponse;
+    await this.withTransaction(async (connection) => {
+      const versionId = await this.insertTemplateVersion(connection, {
+        clinicId,
+        templateId,
+        templateKey: template.templateKey,
+        versionNumber: nextVersionNumber,
+        content: source.content,
+        status: "published",
+        userId,
+        sourceVersionId: source.id,
+        changeSummary: cleanString(data.reason) || `Rollback to version ${source.versionNumber}.`,
+      });
+      await connection.execute(
+        `UPDATE proposal_template_version
+         SET status = 'superseded',
+             superseded_at = CURRENT_TIMESTAMP,
+             superseded_by_version_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE clinic_id = ?
+           AND template_key = ?
+           AND status = 'published'
+           AND id <> ?`,
+        [versionId, clinicId, template.templateKey, versionId],
+      );
+      await connection.execute(
+        `UPDATE proposal_template_version
+         SET submitted_by = ?, submitted_at = CURRENT_TIMESTAMP,
+             approved_by = ?, approved_at = CURRENT_TIMESTAMP,
+             published_by = ?, published_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ?`,
+        [userId, userId, userId, versionId, clinicId],
+      );
+      await this.syncTemplateLibraryFromVersion(connection, versionId, clinicId);
+      created = await this.getTemplateVersionById(clinicId, versionId, connection);
+    });
+    await this.logTemplateAudit(clinicId, userId, "PROPOSAL_TEMPLATE_VERSION_ROLLED_BACK", created!.id, {
+      templateId,
+      templateKey: template.templateKey,
+      versionNumber: created!.versionNumber,
+      sourceVersionId: source.id,
+      sourceVersionNumber: source.versionNumber,
+    });
+    return created!;
+  }
+
+  async compareTemplateVersions(
+    clinicId: string,
+    templateId: string,
+    fromVersionId: string,
+    toVersionId: string,
+  ): Promise<ProposalTemplateVersionCompareResponse> {
+    const fromVersion = await this.getTemplateVersionById(clinicId, fromVersionId);
+    const toVersion = await this.getTemplateVersionById(clinicId, toVersionId);
+    if (fromVersion.templateId !== templateId || toVersion.templateId !== templateId) {
+      throw ApiError.notFound("Template versions not found");
+    }
+    return {
+      fromVersion,
+      toVersion,
+      diffs: diffTemplateContent(fromVersion.content, toVersion.content),
+    };
   }
 
   async listProposals(clinicId: string, query: ProposalListQuery = {}): Promise<ProposalResponse[]> {
@@ -1347,6 +1868,15 @@ export class ProposalsService {
       approvedPackage = await this.resolveRecommendedPackage(clinicId, proposal.recommendedPackageId);
     } catch (error) {
       if (error instanceof ApiError && error.statusCode === 400) {
+        issues.push(error.message);
+      } else {
+        throw error;
+      }
+    }
+    try {
+      await this.assertProposalTemplateVersionSendable(clinicId, proposal);
+    } catch (error) {
+      if (error instanceof ApiError && [400, 409].includes(error.statusCode)) {
         issues.push(error.message);
       } else {
         throw error;
@@ -1580,6 +2110,7 @@ export class ProposalsService {
     if (isProposalV5Proposal(proposal) && v5FreezeRecordExists) {
       throw ApiError.conflict("This V5 proposal version has already been frozen. Open the frozen preview or create a new proposal version before resending.");
     }
+    const templateBinding = await this.assertProposalTemplateVersionSendable(clinicId, proposal);
     const approvedPackage = await this.resolveRecommendedPackage(clinicId, proposal.recommendedPackageId);
     this.assertClientReadyProposal({
       ...proposal,
@@ -1603,6 +2134,10 @@ export class ProposalsService {
       const proposalUrl = proposal.proposalUrl || buildProposalPublicUrl(config.frontendUrl, rawToken as string);
       const v5ProposalForSnapshot: ProposalResponse = {
         ...proposal,
+        templateId: templateBinding.templateId,
+        templateVersionId: templateBinding.versionId,
+        templateVersionNumber: templateBinding.versionNumber,
+        templateContentHash: templateBinding.contentHash,
         status: "sent",
         sentAt: nowIso,
         sentToEmail: recipientEmail,
@@ -1641,6 +2176,10 @@ export class ProposalsService {
                send_method = ?,
                send_note = ?,
                sent_by = ?,
+               template_id = ?,
+               template_version_id = ?,
+               template_version_number = ?,
+               template_content_hash = ?,
                public_token_hash = COALESCE(public_token_hash, ?),
                proposal_url = COALESCE(proposal_url, ?),
                public_link_created_at = COALESCE(public_link_created_at, CURRENT_TIMESTAMP),
@@ -1662,6 +2201,10 @@ export class ProposalsService {
             sendMethod,
             sendNote,
             userId,
+            templateBinding.templateId,
+            templateBinding.versionId,
+            templateBinding.versionNumber,
+            templateBinding.contentHash,
             tokenHash,
             proposalUrl,
             serializedV5Snapshot,
@@ -2304,6 +2847,8 @@ export class ProposalsService {
     if (status === "lost" && (!cleanString(data.lostReason) || !cleanString(data.objectionType))) {
       throw ApiError.badRequest("Lost reason and objection type are required when marking a proposal lost");
     }
+    const templateKey = cleanString(data.templateKey) || "clinicgrower_v5";
+    const templateBinding = await this.resolveTemplateVersionForProposal(clinicId, templateKey, data.templateVersionId);
     const recommendedPackage = await this.resolveRecommendedPackage(clinicId, data.recommendedPackageId);
     const packageName = cleanString(data.packageName) || recommendedPackage?.name || null;
     const valueCents = data.valueCents ?? recommendedPackage?.priceCents ?? null;
@@ -2351,7 +2896,11 @@ export class ProposalsService {
       links.dealId,
       links.clientAccountProfileId,
       proposalName,
-      cleanString(data.templateKey) || "clinicgrower_v5",
+      templateBinding.templateId,
+      templateKey,
+      templateBinding.versionId,
+      templateBinding.versionNumber,
+      templateBinding.contentHash,
       packageName,
       recommendedPackage?.id || null,
       cleanString(data.ownerId) || userId,
@@ -2390,12 +2939,13 @@ export class ProposalsService {
 
     const insertSql = `INSERT INTO proposal
         (id, clinic_id, contact_id, deal_id, client_account_profile_id, proposal_name,
-         template_key, package_name, recommended_package_id, owner_id, status, value,
+         template_id, template_key, template_version_id, template_version_number, template_content_hash,
+         package_name, recommended_package_id, owner_id, status, value,
          monthly_fee_cents, setup_fee_cents, currency, ad_spend_note, vat_status,
          minimum_term_months, notice_period_days, start_date, follow_up_at, ready_at,
          sent_at, viewed_at, accepted_at, accepted_reason, won_at, won_reason, lost_at, lost_reason, objection_type, expires_at, proposal_url,
          notes, add_ons, discounts, internal_margin_note, section_content, draft_saved_at, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
     const mutate = async (executor: QueryExecutor) => {
       await executor.execute(insertSql, values);
     };
@@ -2413,7 +2963,11 @@ export class ProposalsService {
           contactId: links.contactId,
           dealId: links.dealId,
           clientAccountProfileId: links.clientAccountProfileId,
-          templateKey: cleanString(data.templateKey) || "clinicgrower_v5",
+          templateId: templateBinding.templateId,
+          templateKey,
+          templateVersionId: templateBinding.versionId,
+          templateVersionNumber: templateBinding.versionNumber,
+          templateContentHash: templateBinding.contentHash,
           packageName,
           recommendedPackageId: recommendedPackage?.id || null,
           monthlyFeeCents,
@@ -2509,6 +3063,17 @@ export class ProposalsService {
     const candidateTemplateKey = Object.prototype.hasOwnProperty.call(data, "templateKey")
       ? cleanString(data.templateKey) || "clinicgrower_v5"
       : existing.templateKey;
+    const templateBinding = (Object.prototype.hasOwnProperty.call(data, "templateKey")
+      || Object.prototype.hasOwnProperty.call(data, "templateVersionId")
+      || !existing.templateVersionId)
+      ? await this.resolveTemplateVersionForProposal(clinicId, candidateTemplateKey, data.templateVersionId || null)
+      : {
+          templateId: existing.templateId || "",
+          versionId: existing.templateVersionId,
+          versionNumber: existing.templateVersionNumber || 0,
+          contentHash: existing.templateContentHash || "",
+          status: "published" as ProposalTemplateVersionStatus,
+        };
     this.assertV5TerminalProposalHasFrozenSnapshot(candidateTemplateKey, status, existing);
     const followUpAt = data.followUpAt === undefined ? existing.followUpAt : data.followUpAt;
     this.validateStatusRequirements(status, followUpAt);
@@ -2603,7 +3168,17 @@ export class ProposalsService {
     add("deal_id", links.dealId);
     add("client_account_profile_id", links.clientAccountProfileId);
     if (Object.prototype.hasOwnProperty.call(data, "proposalName")) add("proposal_name", cleanString(data.proposalName));
-    if (Object.prototype.hasOwnProperty.call(data, "templateKey")) add("template_key", cleanString(data.templateKey) || "clinicgrower_v5");
+    if (
+      Object.prototype.hasOwnProperty.call(data, "templateKey")
+      || Object.prototype.hasOwnProperty.call(data, "templateVersionId")
+      || !existing.templateVersionId
+    ) {
+      add("template_id", templateBinding.templateId);
+      add("template_key", candidateTemplateKey);
+      add("template_version_id", templateBinding.versionId);
+      add("template_version_number", templateBinding.versionNumber);
+      add("template_content_hash", templateBinding.contentHash);
+    }
     if (Object.prototype.hasOwnProperty.call(data, "recommendedPackageId")) add("recommended_package_id", recommendedPackage?.id || null);
     if (Object.prototype.hasOwnProperty.call(data, "packageName")) {
       add("package_name", cleanString(data.packageName) || recommendedPackage?.name || null);
@@ -2830,6 +3405,334 @@ export class ProposalsService {
     } finally {
       connection.release();
     }
+  }
+
+  private templateVersionSelectSql() {
+    return `SELECT v.id,
+                   v.clinic_id as clinicId,
+                   v.template_id as templateId,
+                   v.template_key as templateKey,
+                   v.version_number as versionNumber,
+                   v.content,
+                   v.content_hash as contentHash,
+                   v.status,
+                   v.source_version_id as sourceVersionId,
+                   v.created_by as createdBy,
+                   creator.first_name as createdByFirstName,
+                   creator.last_name as createdByLastName,
+                   creator.email as createdByEmail,
+                   v.submitted_by as submittedBy,
+                   v.approved_by as approvedBy,
+                   v.rejected_by as rejectedBy,
+                   v.published_by as publishedBy,
+                   v.created_at as createdAt,
+                   v.updated_at as updatedAt,
+                   v.submitted_at as submittedAt,
+                   v.approved_at as approvedAt,
+                   v.rejected_at as rejectedAt,
+                   v.published_at as publishedAt,
+                   v.superseded_at as supersededAt,
+                   v.rejection_reason as rejectionReason,
+                   v.change_summary as changeSummary
+            FROM proposal_template_version v
+            LEFT JOIN user creator
+              ON creator.id = v.created_by`;
+  }
+
+  private async getProposalTemplate(
+    clinicId: string,
+    templateId: string,
+    executor: QueryExecutor = pool,
+  ): Promise<ProposalTemplateResponse> {
+    const [rows]: any = await executor.execute(
+      `SELECT id,
+              template_key as templateKey,
+              name,
+              description,
+              package_name as packageName,
+              default_sections as defaultSections,
+              default_roadmap as defaultRoadmap,
+              default_terms as defaultTerms,
+              default_success_metrics as defaultSuccessMetrics,
+              sort_order as sortOrder,
+              is_active as isActive,
+              created_at as createdAt,
+              updated_at as updatedAt
+       FROM proposal_template
+       WHERE id = ?
+         AND clinic_id = ?
+       LIMIT 1`,
+      [templateId, clinicId],
+    );
+    if (rows.length === 0) throw ApiError.notFound("Proposal template not found");
+    return { ...mapProposalTemplate(rows[0]), activeVersion: await this.getActiveTemplateVersion(clinicId, templateId, executor) };
+  }
+
+  private async getActiveTemplateVersion(
+    clinicId: string,
+    templateId: string,
+    executor: QueryExecutor = pool,
+  ): Promise<ProposalTemplateVersionSummary | null> {
+    const [rows]: any = await executor.execute(
+      `${this.templateVersionSelectSql()}
+       WHERE v.clinic_id = ?
+         AND v.template_id = ?
+         AND v.status = 'published'
+       ORDER BY v.published_at DESC, v.version_number DESC
+       LIMIT 1`,
+      [clinicId, templateId],
+    );
+    return rows[0] ? mapProposalTemplateVersionSummary(rows[0]) : null;
+  }
+
+  private async getTemplateVersionById(
+    clinicId: string,
+    versionId: string,
+    executor: QueryExecutor = pool,
+  ): Promise<ProposalTemplateVersionResponse> {
+    const [rows]: any = await executor.execute(
+      `${this.templateVersionSelectSql()}
+       WHERE v.id = ?
+         AND v.clinic_id = ?
+       LIMIT 1`,
+      [versionId, clinicId],
+    );
+    if (rows.length === 0) throw ApiError.notFound("Template version not found");
+    return mapProposalTemplateVersion(rows[0]);
+  }
+
+  private async getLatestTemplateSourceVersion(
+    clinicId: string,
+    templateId: string,
+  ): Promise<ProposalTemplateVersionResponse | null> {
+    const [rows]: any = await pool.execute(
+      `${this.templateVersionSelectSql()}
+       WHERE v.clinic_id = ?
+         AND v.template_id = ?
+         AND v.status IN ('published', 'approved', 'rejected', 'draft')
+       ORDER BY CASE v.status WHEN 'published' THEN 0 WHEN 'approved' THEN 1 WHEN 'rejected' THEN 2 ELSE 3 END,
+                v.version_number DESC
+       LIMIT 1`,
+      [clinicId, templateId],
+    );
+    return rows[0] ? mapProposalTemplateVersion(rows[0]) : null;
+  }
+
+  private async nextTemplateVersionNumber(clinicId: string, templateKey: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT COALESCE(MAX(version_number), 0) + 1 as nextVersion
+       FROM proposal_template_version
+       WHERE clinic_id = ?
+         AND template_key = ?`,
+      [clinicId, templateKey],
+    );
+    return Number(rows[0]?.nextVersion || 1);
+  }
+
+  private async insertTemplateVersion(
+    executor: QueryExecutor,
+    input: {
+      clinicId: string;
+      templateId: string;
+      templateKey: string;
+      versionNumber: number;
+      content: ProposalTemplateContent;
+      status: ProposalTemplateVersionStatus;
+      userId: string | null;
+      sourceVersionId: string | null;
+      changeSummary: string | null;
+    },
+  ) {
+    const id = uuidv4();
+    const contentHash = hashTemplateContent(input.content);
+    const lifecycleColumns = input.status === "published"
+      ? ", submitted_by, approved_by, published_by, submitted_at, approved_at, published_at"
+      : "";
+    const lifecyclePlaceholders = input.status === "published"
+      ? ", ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP"
+      : "";
+    const lifecycleValues = input.status === "published"
+      ? [input.userId, input.userId, input.userId]
+      : [];
+    await executor.execute(
+      `INSERT INTO proposal_template_version
+        (id, clinic_id, template_id, template_key, version_number, content, content_hash,
+         status, source_version_id, created_by, change_summary${lifecycleColumns})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${lifecyclePlaceholders})`,
+      [
+        id,
+        input.clinicId,
+        input.templateId,
+        input.templateKey,
+        input.versionNumber,
+        JSON.stringify(input.content),
+        contentHash,
+        input.status,
+        input.sourceVersionId,
+        input.userId,
+        input.changeSummary,
+        ...lifecycleValues,
+      ],
+    );
+    return id;
+  }
+
+  private async transitionTemplateVersion(
+    clinicId: string,
+    userId: string,
+    templateId: string,
+    versionId: string,
+    action: "submit" | "approve" | "reject",
+    rejectionReason: string | null = null,
+  ) {
+    const existing = await this.getTemplateVersionById(clinicId, versionId);
+    if (existing.templateId !== templateId) throw ApiError.notFound("Template version not found");
+    const transitions: Record<typeof action, { from: ProposalTemplateVersionStatus[]; to: ProposalTemplateVersionStatus; sql: string; audit: string }> = {
+      submit: {
+        from: ["draft"],
+        to: "in_review",
+        sql: "status = 'in_review', submitted_by = ?, submitted_at = CURRENT_TIMESTAMP",
+        audit: "PROPOSAL_TEMPLATE_VERSION_SUBMITTED",
+      },
+      approve: {
+        from: ["in_review"],
+        to: "approved",
+        sql: "status = 'approved', approved_by = ?, approved_at = CURRENT_TIMESTAMP",
+        audit: "PROPOSAL_TEMPLATE_VERSION_APPROVED",
+      },
+      reject: {
+        from: ["in_review"],
+        to: "rejected",
+        sql: "status = 'rejected', rejected_by = ?, rejected_at = CURRENT_TIMESTAMP, rejection_reason = ?",
+        audit: "PROPOSAL_TEMPLATE_VERSION_REJECTED",
+      },
+    };
+    const transition = transitions[action];
+    if (!transition.from.includes(existing.status)) {
+      throw ApiError.conflict(`Template version cannot move from ${existing.status} using ${action}`);
+    }
+    const values = action === "reject"
+      ? [userId, rejectionReason, versionId, clinicId, templateId, existing.status]
+      : [userId, versionId, clinicId, templateId, existing.status];
+    const [result]: any = await pool.execute(
+      `UPDATE proposal_template_version
+       SET ${transition.sql},
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?
+         AND template_id = ?
+         AND status = ?`,
+      values,
+    );
+    if (Number(result.affectedRows || 0) !== 1) throw ApiError.conflict("Template version changed while updating status");
+    await this.logTemplateAudit(clinicId, userId, transition.audit, versionId, {
+      templateId,
+      versionNumber: existing.versionNumber,
+      previousStatus: existing.status,
+      status: transition.to,
+      rejectionReason,
+    });
+    return this.getTemplateVersionById(clinicId, versionId);
+  }
+
+  private async syncTemplateLibraryFromVersion(
+    executor: QueryExecutor,
+    versionId: string,
+    clinicId: string,
+  ) {
+    const version = await this.getTemplateVersionById(clinicId, versionId, executor);
+    const content = version.content;
+    await executor.execute(
+      `UPDATE proposal_template
+       SET name = ?,
+           description = ?,
+           default_sections = ?,
+           default_roadmap = ?,
+           default_success_metrics = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [
+        cleanString(content.name),
+        cleanString(content.description),
+        JSON.stringify(content.defaultSections || {}),
+        JSON.stringify(content.defaultRoadmap || []),
+        JSON.stringify(content.defaultSuccessMetrics || []),
+        version.templateId,
+        clinicId,
+      ],
+    );
+  }
+
+  private async logTemplateAudit(
+    clinicId: string,
+    userId: string,
+    action: string,
+    entityId: string,
+    changes: Record<string, unknown>,
+  ) {
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action,
+      entityType: "proposal_template_version",
+      entityId,
+      changes,
+    });
+  }
+
+  private async resolveTemplateVersionForProposal(
+    clinicId: string,
+    templateKey: string,
+    requestedVersionId?: string | null,
+  ): Promise<{ templateId: string; versionId: string; versionNumber: number; contentHash: string; status: ProposalTemplateVersionStatus }> {
+    const cleanTemplateKey = cleanString(templateKey) || "clinicgrower_v5";
+    const query = requestedVersionId
+      ? `${this.templateVersionSelectSql()}
+         WHERE v.clinic_id = ?
+           AND v.id = ?
+           AND v.template_key = ?
+         LIMIT 1`
+      : `${this.templateVersionSelectSql()}
+         WHERE v.clinic_id = ?
+           AND v.template_key = ?
+           AND v.status = 'published'
+         ORDER BY v.published_at DESC, v.version_number DESC
+         LIMIT 1`;
+    const params = requestedVersionId
+      ? [clinicId, requestedVersionId, cleanTemplateKey]
+      : [clinicId, cleanTemplateKey];
+    const [rows]: any = await pool.execute(query, params);
+    if (rows.length === 0) {
+      throw ApiError.badRequest("Select an approved published proposal template version before using this template.");
+    }
+    const version = mapProposalTemplateVersion(rows[0]);
+    if (version.status !== "published") {
+      throw ApiError.conflict("Proposal template version is not published and cannot be used for a client proposal.");
+    }
+    return {
+      templateId: version.templateId,
+      versionId: version.id,
+      versionNumber: version.versionNumber,
+      contentHash: version.contentHash,
+      status: version.status,
+    };
+  }
+
+  private async assertProposalTemplateVersionSendable(
+    clinicId: string,
+    proposal: ProposalResponse,
+  ): Promise<{ templateId: string; versionId: string; versionNumber: number; contentHash: string; status: ProposalTemplateVersionStatus }> {
+    const binding = proposal.templateVersionId
+      ? await this.resolveTemplateVersionForProposal(clinicId, proposal.templateKey, proposal.templateVersionId)
+      : await this.resolveTemplateVersionForProposal(clinicId, proposal.templateKey, null);
+    if (proposal.templateVersionId && proposal.templateContentHash && binding.contentHash !== proposal.templateContentHash) {
+      throw ApiError.conflict("Proposal template version hash has changed. Create a fresh proposal version before sending.");
+    }
+    if (proposal.templateVersionId && proposal.templateVersionNumber !== null && binding.versionNumber !== proposal.templateVersionNumber) {
+      throw ApiError.conflict("Proposal template version number does not match the saved proposal version.");
+    }
+    return binding;
   }
 
   private async refreshProposalCoreData(

@@ -550,6 +550,8 @@ export const createProposalValidator = [
   idValidator("clientAccountProfileId"),
   body("proposalName").trim().notEmpty().withMessage("Proposal name is required").isLength({ max: 255 }),
   body("templateKey").optional({ nullable: true }).trim().isLength({ min: 1, max: 100 }),
+  idValidator("templateId"),
+  idValidator("templateVersionId"),
   body("packageName").optional({ nullable: true }).trim().isLength({ max: 150 }),
   idValidator("recommendedPackageId"),
   idValidator("ownerId"),
@@ -593,6 +595,8 @@ export const updateProposalValidator = [
   idValidator("clientAccountProfileId"),
   body("proposalName").optional().trim().notEmpty().isLength({ max: 255 }),
   body("templateKey").optional({ nullable: true }).trim().isLength({ min: 1, max: 100 }),
+  idValidator("templateId"),
+  idValidator("templateVersionId"),
   body("packageName").optional({ nullable: true }).trim().isLength({ max: 150 }),
   idValidator("recommendedPackageId"),
   idValidator("ownerId"),
@@ -662,6 +666,90 @@ export const createProofAssetValidator = [
     }),
   body("sortOrder").optional({ nullable: true }).isInt({ min: 0, max: 100000 }).toInt(),
   body("isActive").optional({ nullable: true }).isBoolean(),
+];
+
+export const proposalTemplateIdParamValidator = [
+  param("templateId").trim().isLength({ min: 1, max: 36 }),
+];
+
+export const proposalTemplateVersionIdParamValidator = [
+  ...proposalTemplateIdParamValidator,
+  param("versionId").trim().isLength({ min: 1, max: 36 }),
+];
+
+const templateContentValidator = body("content")
+  .optional({ nullable: true })
+  .isObject()
+  .withMessage("content must be an object")
+  .custom((content) => {
+    if (!content) return true;
+    const allowedTopLevel = new Set([
+      "name",
+      "description",
+      "packageName",
+      "defaultSections",
+      "defaultRoadmap",
+      "defaultTerms",
+      "defaultSuccessMetrics",
+      "editablePolicyVersion",
+      "lockedFields",
+    ]);
+    for (const key of Object.keys(content)) {
+      if (!allowedTopLevel.has(key)) throw new Error(`Unsupported template content field: ${key}`);
+    }
+    if (content.name !== undefined && content.name !== null && String(content.name).trim().length > 150) {
+      throw new Error("Template name can be up to 150 characters");
+    }
+    if (content.description !== undefined && content.description !== null && String(content.description).trim().length > 2000) {
+      throw new Error("Template description can be up to 2000 characters");
+    }
+    for (const listKey of ["defaultRoadmap", "defaultSuccessMetrics", "lockedFields"]) {
+      if (content[listKey] !== undefined && content[listKey] !== null) {
+        if (!Array.isArray(content[listKey]) || content[listKey].length > 80) {
+          throw new Error(`${listKey} must be a list of up to 80 items`);
+        }
+      }
+    }
+    return true;
+  });
+
+export const createProposalTemplateValidator = [
+  body("templateKey").optional({ nullable: true }).trim().isLength({ min: 1, max: 100 }),
+  body("name").optional({ nullable: true }).trim().isLength({ min: 1, max: 150 }),
+  body("description").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("changeSummary").optional({ nullable: true }).trim().isLength({ max: 1000 }),
+  templateContentValidator,
+];
+
+export const createProposalTemplateVersionValidator = [
+  ...proposalTemplateIdParamValidator,
+  body("expectedContentHash").optional({ nullable: true }).trim().isLength({ min: 64, max: 64 }),
+  body("changeSummary").optional({ nullable: true }).trim().isLength({ max: 1000 }),
+  templateContentValidator,
+];
+
+export const updateProposalTemplateVersionValidator = [
+  ...proposalTemplateVersionIdParamValidator,
+  body("expectedContentHash").optional({ nullable: true }).trim().isLength({ min: 64, max: 64 }),
+  body("changeSummary").optional({ nullable: true }).trim().isLength({ max: 1000 }),
+  templateContentValidator,
+];
+
+export const rejectProposalTemplateVersionValidator = [
+  ...proposalTemplateVersionIdParamValidator,
+  body("reason").trim().notEmpty().withMessage("Rejection reason is required").isLength({ max: 2000 }),
+];
+
+export const rollbackProposalTemplateValidator = [
+  ...proposalTemplateIdParamValidator,
+  body("sourceVersionId").trim().isLength({ min: 1, max: 36 }),
+  body("reason").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+];
+
+export const compareProposalTemplateVersionValidator = [
+  ...proposalTemplateIdParamValidator,
+  query("fromVersionId").trim().isLength({ min: 1, max: 36 }),
+  query("toVersionId").trim().isLength({ min: 1, max: 36 }),
 ];
 
 export const sendProposalValidator = [

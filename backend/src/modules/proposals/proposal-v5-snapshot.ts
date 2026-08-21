@@ -825,6 +825,14 @@ export function buildProposalV5Snapshot(input: BuildProposalV5SnapshotInput): Pr
     snapshotHash: "",
     pageCount: 15,
     pages: [...proposalV5PageOrder],
+    template: {
+      templateId: proposal.templateId || null,
+      templateKey: proposal.templateKey || "clinicgrower_v5",
+      versionId: proposal.templateVersionId || null,
+      versionNumber: proposal.templateVersionNumber ?? null,
+      contentHash: proposal.templateContentHash || null,
+      status: proposal.templateVersionId ? "published" : null,
+    },
     proposal: {
       reference: proposalReference,
     },
@@ -1053,6 +1061,7 @@ export function sanitizeProposalV5SnapshotForPublic(snapshot: ProposalV5Snapshot
 
   delete publicSnapshot.snapshotHash;
   delete publicSnapshot.sourceProposalVersion;
+  delete publicSnapshot.template;
   stripInternalStatedMetadata(publicSnapshot);
   if (publicSnapshot.selectedPackage) {
     delete publicSnapshot.selectedPackage.id;

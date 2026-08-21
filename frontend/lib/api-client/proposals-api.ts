@@ -19,7 +19,11 @@ import type {
   ProposalSourceDataParams,
   ProposalSourceDataRecord,
   ProposalStatusUpdatePayload,
+  ProposalTemplatePayload,
   ProposalTemplateRecord,
+  ProposalTemplateVersionCompareRecord,
+  ProposalTemplateVersionPayload,
+  ProposalTemplateVersionRecord,
 } from "@/lib/api-types";
 import { downloadCsv, type ApiRequest } from "./core";
 
@@ -92,6 +96,94 @@ export function createProposalsApi(apiRequest: ApiRequest) {
         const query = toQuery(params);
         const response = await apiRequest<ProposalTemplateRecord[]>(
           `/api/proposals/templates${query ? `?${query}` : ""}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async createTemplate(token: string, payload: ProposalTemplatePayload) {
+        const response = await apiRequest<ProposalTemplateRecord>("/api/proposals/templates", {
+          method: "POST",
+          token,
+          body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async templateVersions(token: string, templateId: string) {
+        const response = await apiRequest<ProposalTemplateVersionRecord[]>(
+          `/api/proposals/templates/${encodeURIComponent(templateId)}/versions`,
+          { token },
+        );
+        return response.data!;
+      },
+      async createTemplateVersion(token: string, templateId: string, payload: ProposalTemplateVersionPayload = {}) {
+        const response = await apiRequest<ProposalTemplateVersionRecord>(
+          `/api/proposals/templates/${encodeURIComponent(templateId)}/versions`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async updateTemplateVersion(token: string, templateId: string, versionId: string, payload: ProposalTemplateVersionPayload) {
+        const response = await apiRequest<ProposalTemplateVersionRecord>(
+          `/api/proposals/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}`,
+          {
+            method: "PATCH",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async submitTemplateVersion(token: string, templateId: string, versionId: string) {
+        const response = await apiRequest<ProposalTemplateVersionRecord>(
+          `/api/proposals/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}/submit`,
+          { method: "POST", token },
+        );
+        return response.data!;
+      },
+      async approveTemplateVersion(token: string, templateId: string, versionId: string) {
+        const response = await apiRequest<ProposalTemplateVersionRecord>(
+          `/api/proposals/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}/approve`,
+          { method: "POST", token },
+        );
+        return response.data!;
+      },
+      async rejectTemplateVersion(token: string, templateId: string, versionId: string, reason: string) {
+        const response = await apiRequest<ProposalTemplateVersionRecord>(
+          `/api/proposals/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}/reject`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify({ reason }),
+          },
+        );
+        return response.data!;
+      },
+      async publishTemplateVersion(token: string, templateId: string, versionId: string) {
+        const response = await apiRequest<ProposalTemplateVersionRecord>(
+          `/api/proposals/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}/publish`,
+          { method: "POST", token },
+        );
+        return response.data!;
+      },
+      async rollbackTemplate(token: string, templateId: string, sourceVersionId: string, reason?: string | null) {
+        const response = await apiRequest<ProposalTemplateVersionRecord>(
+          `/api/proposals/templates/${encodeURIComponent(templateId)}/rollback`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify({ sourceVersionId, reason }),
+          },
+        );
+        return response.data!;
+      },
+      async compareTemplateVersions(token: string, templateId: string, fromVersionId: string, toVersionId: string) {
+        const query = toQuery({ fromVersionId, toVersionId });
+        const response = await apiRequest<ProposalTemplateVersionCompareRecord>(
+          `/api/proposals/templates/${encodeURIComponent(templateId)}/versions/compare?${query}`,
           { token },
         );
         return response.data!;
