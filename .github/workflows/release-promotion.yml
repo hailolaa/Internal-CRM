@@ -25,6 +25,27 @@ on:
       database_backup:
         description: Database backup reference used for rollback.
         required: false
+      database_backup_checksum:
+        description: SHA-256 checksum for the rollback backup artifact.
+        required: false
+      database_backup_timestamp:
+        description: ISO timestamp when the rollback backup was created.
+        required: false
+      restore_readiness:
+        description: Restore readiness state for the referenced backup.
+        type: choice
+        required: false
+        default: PLANNED
+        options:
+          - PLANNED
+          - REHEARSABLE
+          - REHEARSED
+          - VERIFIED
+      require_database_backup:
+        description: Require backup evidence before creating the release manifest.
+        type: boolean
+        required: true
+        default: false
       promote:
         description: Call the configured deployment webhook after verification.
         type: boolean
@@ -145,6 +166,10 @@ jobs:
             --clinic-os-frontend-revision "${{ inputs.clinic_os_frontend_revision }}" \
             --clinic-os-backend-revision "${{ inputs.clinic_os_backend_revision }}" \
             --database-backup "${{ inputs.database_backup }}" \
+            --database-backup-checksum "${{ inputs.database_backup_checksum }}" \
+            --database-backup-timestamp "${{ inputs.database_backup_timestamp }}" \
+            --restore-readiness "${{ inputs.restore_readiness }}" \
+            --require-database-backup "${{ inputs.require_database_backup }}" \
             --require-signature
 
       - name: Verify signed release manifest

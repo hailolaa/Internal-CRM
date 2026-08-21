@@ -43,6 +43,59 @@ test("create-release-manifest records pending deployment verification in the sig
   assert.equal(JSON.stringify(manifest).includes(key), false);
 });
 
+test("create-release-manifest can optionally require backup evidence", async () => {
+  const workspace = await tempWorkspace();
+  const key = "release-test-key";
+  const outputPath = path.join(workspace, "release/current-release.json");
+
+  const blocked = await runFail(createManifestScript, [
+    "--environment",
+    "production",
+    "--mission-control-revision",
+    "abc123abc123",
+    "--previous-mission-control-revision",
+    "previous123",
+    "--output",
+    outputPath,
+    "--require-signature",
+    "--require-database-backup",
+    "true",
+  ], { RELEASE_MANIFEST_SIGNING_KEY: key });
+  assert.match(blocked.stderr, /Database backup reference is required/i);
+
+  await runOk(createManifestScript, [
+    "--environment",
+    "production",
+    "--mission-control-revision",
+    "abc123abc123",
+    "--previous-mission-control-revision",
+    "previous123",
+    "--database-backup",
+    "backup-20260821",
+    "--database-backup-checksum",
+    "a".repeat(64),
+    "--database-backup-timestamp",
+    "2026-08-21T01:00:00.000Z",
+    "--restore-readiness",
+    "REHEARSABLE",
+    "--output",
+    outputPath,
+    "--require-signature",
+    "--require-database-backup",
+    "true",
+  ], { RELEASE_MANIFEST_SIGNING_KEY: key });
+
+  const manifest = JSON.parse(await fs.readFile(outputPath, "utf8"));
+  assert.equal(manifest.rollback.databaseBackup, "backup-20260821");
+  assert.deepEqual(manifest.rollback.backupEvidence, {
+    reference: "backup-20260821",
+    checksumSha256: "a".repeat(64),
+    createdAt: "2026-08-21T01:00:00.000Z",
+    restoreReadiness: "REHEARSABLE",
+    required: true,
+  });
+});
+
 test("verify-deployment passes when deployed version matches the signed manifest", async () => {
   const workspace = await tempWorkspace();
   const key = "release-test-key";

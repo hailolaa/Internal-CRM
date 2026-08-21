@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import mysql from "mysql2/promise";
@@ -7,6 +7,19 @@ import {
   mysqlConnectionOptions,
   readBackupDbConfig,
 } from "./backup-db-options.mjs";
+import {
+  assertFileChecksum,
+  buildAlertPayload,
+  buildRestoreRehearsalReport,
+  collectBackupEvidence,
+  compareMigrationEvidence,
+  readBackupManifest,
+  resolveBackupArtifact,
+  restoreStates,
+  runOptionalCommandCheck,
+  runOptionalHttpCheck,
+  writeReportIfConfigured,
+} from "./backup-evidence.mjs";
 
 const serviceName = process.env.BACKUP_SERVICE_NAME || "mission-control-backend";
 const backupDir = process.env.BACKUP_DIR || "backups";
@@ -18,6 +31,12 @@ const keepDatabase = process.env.RESTORE_REHEARSAL_KEEP_DB === "true";
 const backupArg = process.argv[2] || process.env.RESTORE_REHEARSAL_BACKUP_PATH || "";
 const restoreDbName = process.env.RESTORE_REHEARSAL_DB_NAME ||
   `${process.env.DB_NAME || "growth_group_internal_crm"}_restore_${Date.now()}`;
+const reportPath = process.env.RESTORE_REHEARSAL_REPORT_PATH || "";
+const checkTimeoutMs = Number(process.env.RESTORE_REHEARSAL_CHECK_TIMEOUT_MS || 15000);
+const startupCommand = process.env.RESTORE_REHEARSAL_STARTUP_COMMAND || "";
+const smokeCommand = process.env.RESTORE_REHEARSAL_SMOKE_COMMAND || "";
+const healthUrl = process.env.RESTORE_REHEARSAL_HEALTH_URL || "";
+const versionUrl = process.env.RESTORE_REHEARSAL_VERSION_URL || "";
 const db = readBackupDbConfig({
   ...process.env,
   DB_USER: process.env.RESTORE_REHEARSAL_DB_USER || process.env.DB_USER,
@@ -25,46 +44,87 @@ const db = readBackupDbConfig({
 });
 
 const manifestPath = backupArg || latestManifest(backupDir);
-if (!manifestPath || !existsSync(manifestPath)) {
-  throw new Error("Restore rehearsal requires a backup manifest path or an existing manifest in BACKUP_DIR.");
-}
-
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-const backupPath = firstExisting(manifest.offsitePath, manifest.artifactPath);
-if (!backupPath) throw new Error("Backup artifact referenced by the manifest is not available.");
-
-const started = Date.now();
+const startedAt = new Date();
+let manifest = null;
+let backupPath = "";
 let tableCount = 0;
+let report = null;
+let restoreStarted = false;
 
 try {
+  manifest = readBackupManifest(manifestPath);
+  backupPath = resolveBackupArtifact(manifest);
+  const checksumResult = await assertFileChecksum(backupPath, manifest.checksumSha256);
+
+  restoreStarted = true;
   await runRestore(backupPath, restoreDbName);
   tableCount = await countTables(restoreDbName);
   if (tableCount <= 0) throw new Error("Restore rehearsal completed but no tables were found.");
 
-  const durationMs = Date.now() - started;
-  const backupAgeMinutes = Math.round((Date.now() - Date.parse(manifest.createdAt || manifest.completedAt)) / 60000);
-  const evidence = {
+  const currentEvidence = await collectBackupEvidence();
+  const migrationCompatibility = compareMigrationEvidence(manifest.migrations, currentEvidence.migrations);
+  const applicationStartup = await runOptionalCommandCheck({
+    name: "application startup",
+    command: startupCommand,
+    timeoutMs: Number(process.env.RESTORE_REHEARSAL_STARTUP_TIMEOUT_MS || 120000),
+    env: { ...process.env, DB_NAME: restoreDbName },
+  });
+  const health = await runOptionalHttpCheck({ name: "health", url: healthUrl, timeoutMs: checkTimeoutMs });
+  const version = await runOptionalHttpCheck({ name: "version", url: versionUrl, timeoutMs: checkTimeoutMs });
+  const smoke = await runOptionalCommandCheck({
+    name: "smoke",
+    command: smokeCommand,
+    timeoutMs: Number(process.env.RESTORE_REHEARSAL_SMOKE_TIMEOUT_MS || 120000),
+    env: { ...process.env, DB_NAME: restoreDbName },
+  });
+
+  const completedAt = new Date();
+  report = buildRestoreRehearsalReport({
     status: "completed",
-    service: serviceName,
-    restoreDatabase: restoreDbName,
-    backupId: manifest.id || null,
-    backupPath,
+    serviceName,
+    manifest,
     manifestPath,
-    tableCount,
-    durationMs,
+    backupPath,
+    restoreDatabase: restoreDbName,
+    startedAt,
+    completedAt,
+    durationMs: completedAt.getTime() - startedAt.getTime(),
     rtoMinutes,
     rpoMinutes,
-    rtoMet: durationMs <= rtoMinutes * 60 * 1000,
-    rpoMet: backupAgeMinutes <= rpoMinutes,
-    backupAgeMinutes,
-    completedAt: new Date().toISOString(),
-  };
-  console.log(JSON.stringify(evidence, null, 2));
+    tableCount,
+    checksumResult,
+    migrationCompatibility,
+    applicationStartup,
+    health,
+    version,
+    smoke,
+  });
 } catch (error) {
+  const completedAt = new Date();
+  report = buildRestoreRehearsalReport({
+    status: "failed",
+    serviceName,
+    manifest,
+    manifestPath,
+    backupPath,
+    restoreDatabase: restoreDbName,
+    startedAt,
+    completedAt,
+    durationMs: completedAt.getTime() - startedAt.getTime(),
+    rtoMinutes,
+    rpoMinutes,
+    tableCount,
+    failureReason: error instanceof Error ? error.message : String(error),
+  });
   await sendAlert("restore_rehearsal_failure", error, { restoreDbName, manifestPath, backupPath });
   throw error;
 } finally {
-  if (!keepDatabase) await dropDatabase(restoreDbName).catch(() => undefined);
+  const cleanup = await cleanupDatabase(restoreDbName, restoreStarted);
+  if (report) {
+    report.cleanup = cleanup;
+    await writeReportIfConfigured(report, reportPath);
+    console.log(JSON.stringify(report, null, 2));
+  }
 }
 
 function latestManifest(directory) {
@@ -74,10 +134,6 @@ function latestManifest(directory) {
     .map((entry) => join(directory, entry))
     .sort()
     .pop() || "";
-}
-
-function firstExisting(...paths) {
-  return paths.find((path) => typeof path === "string" && path && existsSync(path)) || "";
 }
 
 async function runRestore(backupPath, databaseName) {
@@ -99,6 +155,27 @@ async function countTables(databaseName) {
     return Number(rows[0]?.count || 0);
   } finally {
     await connection.end();
+  }
+}
+
+async function cleanupDatabase(databaseName, shouldCleanup) {
+  if (!shouldCleanup) {
+    return { state: restoreStates.planned, attempted: false, kept: null, target: databaseName };
+  }
+  if (keepDatabase) {
+    return { state: restoreStates.planned, attempted: false, kept: true, target: databaseName };
+  }
+  try {
+    await dropDatabase(databaseName);
+    return { state: restoreStates.verified, attempted: true, kept: false, target: databaseName };
+  } catch (error) {
+    return {
+      state: restoreStates.rehearsed,
+      attempted: true,
+      kept: null,
+      target: databaseName,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -127,16 +204,13 @@ function run(command, args, env) {
 }
 
 async function sendAlert(type, error, context) {
-  const payload = {
-    service: serviceName,
-    environment: process.env.NODE_ENV || "development",
-    alertType: type,
-    severity: "critical",
+  const payload = buildAlertPayload({
+    serviceName,
+    type,
     title: `${serviceName} restore rehearsal failed`,
-    message: error instanceof Error ? error.message : String(error),
+    error,
     context,
-    timestamp: new Date().toISOString(),
-  };
+  });
   console.error(JSON.stringify(payload, null, 2));
   if (!alertWebhookUrl) return;
 

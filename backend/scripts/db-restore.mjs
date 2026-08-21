@@ -1,6 +1,5 @@
 import "dotenv/config";
-import { createDecipheriv, createHash } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createReadStream, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { spawn } from "node:child_process";
@@ -8,6 +7,7 @@ import {
   mysqlCliSslArgs,
   readBackupDbConfig,
 } from "./backup-db-options.mjs";
+import { decryptFile } from "./backup-evidence.mjs";
 
 const sourcePath = process.argv[2];
 
@@ -35,7 +35,7 @@ try {
     }
     tempDir = mkdtempSync(join(tmpdir(), "mission-control-restore-"));
     restorePath = join(tempDir, basename(sourcePath).replace(/\.enc$/, ""));
-    await decryptBackup(sourcePath, restorePath);
+    await decryptFile(sourcePath, restorePath, backupEncryptionKey);
   }
 
   await run(mysqlBin, [
@@ -58,48 +58,6 @@ try {
   console.log(`Restore completed into database: ${db.name}`);
 } finally {
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
-}
-
-async function decryptBackup(inputPath, outputPath) {
-  const tagPath = `${inputPath}.tag`;
-  if (!existsSync(tagPath)) throw new Error(`Encrypted backup tag file not found: ${tagPath}`);
-
-  const header = await readHeader(inputPath);
-  const [prefix, ivValue] = header.split(":");
-  if (prefix !== "MCB1" || !ivValue) throw new Error("Encrypted backup header is invalid.");
-
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    createHash("sha256").update(backupEncryptionKey).digest(),
-    Buffer.from(ivValue, "base64url"),
-  );
-  decipher.setAuthTag(Buffer.from(readFileSync(tagPath, "utf8").trim(), "base64url"));
-
-  await new Promise((resolve, reject) => {
-    const input = createReadStream(inputPath, { start: Buffer.byteLength(header) + 1 });
-    const output = createWriteStream(outputPath);
-    input.pipe(decipher).pipe(output);
-    input.on("error", reject);
-    decipher.on("error", reject);
-    output.on("error", reject);
-    output.on("finish", resolve);
-  });
-}
-
-async function readHeader(path) {
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of createReadStream(path, { start: 0, end: 200 })) {
-    chunks.push(chunk);
-    total += chunk.length;
-    const text = Buffer.concat(chunks, total).toString("utf8");
-    const separator = text.indexOf(":");
-    const secondSeparator = text.indexOf(":", separator + 1);
-    if (separator > 0 && secondSeparator > separator) {
-      return text.slice(0, secondSeparator);
-    }
-  }
-  throw new Error("Encrypted backup header is missing.");
 }
 
 function run(command, args, stdinFile) {

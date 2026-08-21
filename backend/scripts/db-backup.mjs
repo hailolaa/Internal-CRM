@@ -1,13 +1,9 @@
 import "dotenv/config";
-import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   copyFileSync,
-  createReadStream,
-  createWriteStream,
   existsSync,
   mkdirSync,
-  readdirSync,
-  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -20,6 +16,17 @@ import {
   mysqlConnectionOptions,
   readBackupDbConfig,
 } from "./backup-db-options.mjs";
+import {
+  assertCopiedChecksum,
+  buildAlertPayload,
+  buildBackupManifest,
+  collectBackupEvidence,
+  copyToOffsite,
+  encryptFile,
+  parseCsv,
+  pruneOldArtifacts,
+  sha256,
+} from "./backup-evidence.mjs";
 
 const serviceName = process.env.BACKUP_SERVICE_NAME || "mission-control-backend";
 const backupDir = process.env.BACKUP_DIR || "backups";
@@ -27,6 +34,8 @@ const offsiteDir = process.env.BACKUP_OFFSITE_DIR || "";
 const retentionDays = Number(process.env.BACKUP_RETENTION_DAYS || 14);
 const keepPlaintext = process.env.BACKUP_KEEP_PLAINTEXT === "true";
 const encryptionKey = process.env.BACKUP_ENCRYPTION_KEY || "";
+const encryptionKeyId = process.env.BACKUP_ENCRYPTION_KEY_ID || "";
+const offsiteProvider = process.env.BACKUP_OFFSITE_PROVIDER || "";
 const mysqldumpBin = process.env.MYSQLDUMP_BIN || "mysqldump";
 const tarBin = process.env.TAR_BIN || "tar";
 const fileDirs = parseCsv(process.env.BACKUP_FILE_DIRS || "");
@@ -40,7 +49,7 @@ const stamp = startedAt.toISOString().replace(/[:.]/g, "-");
 const sqlPath = join(backupDir, `${db.name}-${stamp}.sql`);
 const encryptedPath = `${sqlPath}.enc`;
 const manifestPath = `${encryptedPath}.manifest.json`;
-const storageProvider = offsiteDir ? "encrypted-offsite-filesystem" : encryptionKey ? "encrypted-local" : "local";
+const storageProvider = offsiteDir ? offsiteProvider || "encrypted-offsite-filesystem" : encryptionKey ? "encrypted-local" : "local";
 
 let connection;
 
@@ -60,19 +69,20 @@ try {
   await runDump(sqlPath);
 
   const plaintextChecksum = await sha256(sqlPath);
-  const outputPath = encryptionKey ? await encryptFile(sqlPath, encryptedPath) : sqlPath;
+  const outputPath = encryptionKey ? await encryptFile(sqlPath, encryptedPath, encryptionKey) : sqlPath;
   const outputChecksum = await sha256(outputPath);
   const sizeBytes = statSync(outputPath).size;
   const tagPath = encryptionKey ? `${outputPath}.tag` : null;
   const offsiteCopies = offsiteDir ? copyToOffsite([outputPath, ...(tagPath ? [tagPath] : [])], offsiteDir) : [];
   const offsite = offsiteCopies[0] || null;
   const offsiteTag = offsiteCopies[1] || null;
-  const manifest = {
+  const evidence = await collectBackupEvidence();
+  const manifest = buildBackupManifest({
     id,
-    service: serviceName,
-    database: db.name,
-    createdAt: startedAt.toISOString(),
-    completedAt: new Date().toISOString(),
+    serviceName,
+    databaseName: db.name,
+    startedAt,
+    completedAt: new Date(),
     storageProvider,
     artifactPath: outputPath,
     offsitePath: offsite,
@@ -81,10 +91,11 @@ try {
     sizeBytes,
     checksumSha256: outputChecksum,
     plaintextChecksumSha256: plaintextChecksum,
-    encrypted: Boolean(encryptionKey),
-    encryption: encryptionKey ? { algorithm: "aes-256-gcm", keySource: "BACKUP_ENCRYPTION_KEY" } : null,
+    encryptionKey,
+    encryptionKeyId,
     retentionDays,
-  };
+    evidence,
+  });
 
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   const offsiteManifest = offsiteDir ? copyToOffsite([manifestPath], offsiteDir)[0] : null;
@@ -98,7 +109,7 @@ try {
     const archivePath = join(backupDir, `${db.name}-files-${basename(dir)}-${stamp}.tar`);
     await runArchive(archivePath, dir);
     const archiveChecksum = await sha256(archivePath);
-    const archiveOutputPath = encryptionKey ? await encryptFile(archivePath, `${archivePath}.enc`) : archivePath;
+    const archiveOutputPath = encryptionKey ? await encryptFile(archivePath, `${archivePath}.enc`, encryptionKey) : archivePath;
     const archiveOutputChecksum = await sha256(archiveOutputPath);
     const archiveTagPath = encryptionKey ? `${archiveOutputPath}.tag` : null;
     const archiveOffsiteCopies = offsiteDir
@@ -120,9 +131,16 @@ try {
     });
   }
 
-  const finalManifest = { ...manifest, fileArtifacts };
+  const finalManifest = {
+    ...manifest,
+    fileArtifacts,
+    offsite: { ...manifest.offsite, manifestPath: offsiteManifest || null },
+  };
   writeFileSync(manifestPath, `${JSON.stringify(finalManifest, null, 2)}\n`);
-  if (offsiteManifest) copyFileSync(manifestPath, offsiteManifest);
+  if (offsiteManifest) {
+    copyFileSync(manifestPath, offsiteManifest);
+    await assertCopiedChecksum(manifestPath, offsiteManifest);
+  }
 
   await connection.execute(
     `UPDATE backup_run
@@ -201,79 +219,14 @@ function runArchive(filePath, sourceDir) {
   });
 }
 
-async function encryptFile(inputPath, outputPath) {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", createHash("sha256").update(encryptionKey).digest(), iv);
-
-  await new Promise((resolve, reject) => {
-    const input = createReadStream(inputPath);
-    const output = createWriteStream(outputPath);
-    output.write(Buffer.from(`MCB1:${iv.toString("base64url")}:`));
-    input.pipe(cipher).pipe(output);
-    input.on("error", reject);
-    cipher.on("error", reject);
-    output.on("error", reject);
-    output.on("finish", resolve);
-  });
-
-  const tag = cipher.getAuthTag().toString("base64url");
-  writeFileSync(`${outputPath}.tag`, `${tag}\n`);
-  return outputPath;
-}
-
-function copyToOffsite(paths, destination) {
-  mkdirSync(destination, { recursive: true });
-  return paths.map((path) => {
-    const target = join(destination, basename(path));
-    copyFileSync(path, target);
-    return target;
-  });
-}
-
-async function assertCopiedChecksum(source, target) {
-  const [left, right] = await Promise.all([sha256(source), sha256(target)]);
-  if (left !== right) throw new Error(`Off-site copy checksum mismatch for ${basename(source)}`);
-}
-
-function pruneOldArtifacts(directory, days) {
-  if (!Number.isFinite(days) || days <= 0) return;
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  for (const entry of readdirSync(directory)) {
-    if (!/\.(sql|enc|json|tag)$/.test(entry)) continue;
-    const path = join(directory, entry);
-    if (statSync(path).mtimeMs < cutoff) rmSync(path, { force: true });
-  }
-}
-
-async function sha256(path) {
-  const hash = createHash("sha256");
-  await new Promise((resolve, reject) => {
-    createReadStream(path)
-      .on("data", (chunk) => hash.update(chunk))
-      .on("error", reject)
-      .on("end", resolve);
-  });
-  return hash.digest("hex");
-}
-
-function parseCsv(value) {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 async function sendAlert(type, error, context) {
-  const payload = {
-    service: serviceName,
-    environment: process.env.NODE_ENV || "development",
-    alertType: type,
-    severity: "critical",
+  const payload = buildAlertPayload({
+    serviceName,
+    type,
     title: `${serviceName} backup failed`,
-    message: error instanceof Error ? error.message : String(error),
+    error,
     context,
-    timestamp: new Date().toISOString(),
-  };
+  });
   console.error(JSON.stringify(payload, null, 2));
   if (!alertWebhookUrl) return;
 

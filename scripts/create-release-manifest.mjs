@@ -10,6 +10,8 @@ const environment = requiredArg("environment");
 const outputPath = path.resolve(rootDir, args.output || "release/current-release.json");
 const signingKey = process.env[args.signingKeyEnv || "RELEASE_MANIFEST_SIGNING_KEY"] || "";
 const requireSignature = args.requireSignature === true || environment === "production";
+const requireDatabaseBackup =
+  flagEnabled(args.requireDatabaseBackup) || process.env.RELEASE_REQUIRE_DATABASE_BACKUP === "true";
 
 if (!["staging", "production"].includes(environment)) {
   fail("environment must be staging or production");
@@ -18,6 +20,14 @@ if (!["staging", "production"].includes(environment)) {
 if (requireSignature && !signingKey) {
   fail("RELEASE_MANIFEST_SIGNING_KEY is required for a signed release manifest");
 }
+
+const databaseBackup = args.databaseBackup || null;
+if (requireDatabaseBackup && !databaseBackup) {
+  fail("Database backup reference is required when the release backup gate is enabled.");
+}
+const databaseBackupChecksumSha256 = readOptionalSha256("database-backup-checksum", args.databaseBackupChecksum);
+const databaseBackupTimestamp = readOptionalIsoDate("database-backup-timestamp", args.databaseBackupTimestamp);
+const restoreReadiness = readOptionalRestoreReadiness(args.restoreReadiness);
 
 const gitRevision = args.missionControlRevision || process.env.GITHUB_SHA || git(["rev-parse", "HEAD"]);
 if (!gitRevision) {
@@ -71,7 +81,14 @@ const manifestBody = {
   rollback: {
     previousReleaseId: args.previousReleaseId || null,
     previousMissionControlRevision: args.previousMissionControlRevision || null,
-    databaseBackup: args.databaseBackup || null,
+    databaseBackup,
+    backupEvidence: {
+      reference: databaseBackup,
+      checksumSha256: databaseBackupChecksumSha256,
+      createdAt: databaseBackupTimestamp,
+      restoreReadiness,
+      required: requireDatabaseBackup,
+    },
     rehearseBeforeProduction: true,
   },
 };
@@ -117,10 +134,38 @@ function parseArgs(items) {
   return parsed;
 }
 
+function flagEnabled(value) {
+  return value === true || value === "true" || value === "1";
+}
+
 function requiredArg(name) {
   const value = args[name];
   if (!value || value === true) fail(`--${name.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)} is required`);
   return String(value);
+}
+
+function readOptionalSha256(name, value) {
+  if (!value || value === true) return null;
+  const text = String(value).trim();
+  if (!/^[a-f0-9]{64}$/i.test(text)) fail(`${name} must be a SHA-256 checksum`);
+  return text.toLowerCase();
+}
+
+function readOptionalIsoDate(name, value) {
+  if (!value || value === true) return null;
+  const text = String(value).trim();
+  const parsed = Date.parse(text);
+  if (!Number.isFinite(parsed)) fail(`${name} must be an ISO timestamp`);
+  return new Date(parsed).toISOString();
+}
+
+function readOptionalRestoreReadiness(value) {
+  if (!value || value === true) return null;
+  const text = String(value).trim().toUpperCase();
+  if (!["PLANNED", "REHEARSABLE", "REHEARSED", "VERIFIED"].includes(text)) {
+    fail("--restore-readiness must be PLANNED, REHEARSABLE, REHEARSED or VERIFIED");
+  }
+  return text;
 }
 
 function git(gitArgs) {
