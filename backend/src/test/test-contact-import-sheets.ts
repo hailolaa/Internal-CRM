@@ -3,26 +3,10 @@ import test from "node:test";
 import type { AddressInfo } from "node:net";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
-}
-
-async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    token: result.tokens.token,
-  };
 }
 
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
@@ -43,9 +27,11 @@ test("contact import previews and imports published Google Sheets CSV", async ()
   await testConnection();
 
   const originalFetch = globalThis.fetch;
+  const phoneSuffix = String(Date.now()).slice(-8);
+  const sheetPhone = `07700${phoneSuffix}`;
   const sheetCsv = [
-    "firstName,lastName,email,phone,tags,source,status,notes",
-    `Sheet,Patient,${uniqueEmail("sheet_patient")},07700 900321,"sheets; phase1",Google Sheet,lead,Imported from sheet`,
+    "firstName,lastName,email,phone,tags,source,status,leadStatus,notes",
+    `Sheet,Patient,${uniqueEmail("sheet_patient")},${sheetPhone},"sheets; phase1",Google Sheet,lead,new,Imported from sheet`,
   ].join("\n");
 
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -59,7 +45,7 @@ test("contact import previews and imports published Google Sheets CSV", async ()
     return originalFetch(input, init);
   }) as typeof fetch;
 
-  const primary = await createClinicAndAdmin("ContactImportSheets");
+  const primary = await createTestClinicAndAdmin("ContactImportSheets");
   const server = app.listen(0);
   const address = server.address();
   if (!address || typeof address === "string") {
@@ -87,7 +73,7 @@ test("contact import previews and imports published Google Sheets CSV", async ()
       }),
     });
     assert.equal(imported.response.status, 201);
-    assert.equal(imported.body.data.insertedRows, 1);
+    assert.equal(imported.body.data.insertedRows, 1, JSON.stringify(imported.body));
     assert.equal(imported.body.data.totalRows, 1);
 
     const [rows]: any = await pool.execute(

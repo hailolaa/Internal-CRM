@@ -2,28 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { v4 as uuidv4 } from "uuid";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
 import { callsService } from "../modules/calls/calls.service.js";
-
-function uniqueEmail(prefix: string) {
-  return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
-}
-
-async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-  };
-}
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 async function addTrackingNumber(clinicId: string, phoneNumber: string) {
   const trackingNumberId = uuidv4();
@@ -42,8 +22,8 @@ async function addTrackingNumber(clinicId: string, phoneNumber: string) {
 test("Twilio call webhooks stay idempotent and clinic-scoped", async () => {
   await testConnection();
 
-  const primary = await createClinicAndAdmin("TwilioCallsPrimary");
-  const secondary = await createClinicAndAdmin("TwilioCallsSecondary");
+  const primary = await createTestClinicAndAdmin("TwilioCallsPrimary");
+  const secondary = await createTestClinicAndAdmin("TwilioCallsSecondary");
   const trackingNumber = "+1 (555) 900-0001";
   await addTrackingNumber(primary.clinicId, trackingNumber);
   const answeredCallSid = `CA${uuidv4().replace(/-/g, "").slice(0, 32)}`;

@@ -19,6 +19,19 @@ async function postLead(baseUrl: string, apiKey: string, payload: Record<string,
   return { response, body };
 }
 
+async function postWebsiteLead(baseUrl: string, apiKey: string, payload: Record<string, unknown>) {
+  const response = await fetch(`${baseUrl}/api/public/website-leads`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  const body: any = await response.json().catch(() => ({}));
+  return { response, body };
+}
+
 test("landing-page lead intake is source-scoped, idempotent and workspace-safe", async () => {
   await testConnection();
 
@@ -186,6 +199,124 @@ test("landing-page lead intake is source-scoped, idempotent and workspace-safe",
       [primary.clinicId, payload.email],
     );
     assert.equal(Number(contactCountRows[0].count), 1);
+
+    const chatbotKey = await apiKeysService.createApiKey(primary.clinicId, primary.userId, {
+      name: "Website chatbot lead capture",
+      purpose: "general",
+    });
+    assert.ok(chatbotKey.key, "chatbot API key should be returned once");
+
+    const chatbotPayload = {
+      accountName: "Bath Skin Studio",
+      fullName: "Priya Patel",
+      email: `priya.${Date.now()}@example.com`,
+      phone: "+447700900456",
+      source: "website",
+      chatbotConversationId: `chatbot-${Date.now()}`,
+      conversationTranscript: "Visitor asked whether Growth Engine can help with paid search and booking follow-up.",
+      packageInterest: "Growth Engine",
+      landingPage: "https://clinicgrower.co.uk/chatbot",
+      utmSource: "chatbot",
+      utmMedium: "website_widget",
+      utmCampaign: "chatbot-intake-test",
+      consent: {
+        email: true,
+        phone: true,
+        permissionSource: "Chatbot consent step",
+      },
+    };
+
+    const chatbotResult = await postWebsiteLead(baseUrl, chatbotKey.key!, chatbotPayload);
+    assert.equal(chatbotResult.response.status, 201);
+    assert.equal(chatbotResult.body.status, "success");
+    assert.equal(chatbotResult.body.data.duplicateEvent, false);
+    assert.ok(chatbotResult.body.data.contactId);
+    assert.ok(chatbotResult.body.data.dealId);
+    assert.ok(chatbotResult.body.data.nextActionTaskId);
+    assert.equal(chatbotResult.body.data.chatbotActivityId, chatbotResult.body.data.rawPayloadId);
+
+    const [chatbotContactRows]: any = await pool.execute(
+      `SELECT id,
+              source,
+              latest_source as latestSource,
+              landing_page as landingPage,
+              utm_source as utmSource,
+              package_interest as packageInterest,
+              notes
+       FROM contact
+       WHERE id = ? AND clinic_id = ?
+       LIMIT 1`,
+      [chatbotResult.body.data.contactId, primary.clinicId],
+    );
+    assert.equal(chatbotContactRows.length, 1);
+    assert.equal(chatbotContactRows[0].source, "website_chatbot");
+    assert.equal(chatbotContactRows[0].latestSource, "website_chatbot");
+    assert.equal(chatbotContactRows[0].landingPage, chatbotPayload.landingPage);
+    assert.equal(chatbotContactRows[0].utmSource, "chatbot");
+    assert.equal(chatbotContactRows[0].packageInterest, "Growth Engine");
+    assert.match(chatbotContactRows[0].notes, /Chatbot conversation ID:/);
+    assert.match(chatbotContactRows[0].notes, /Chatbot transcript:/);
+
+    const [chatbotDealRows]: any = await pool.execute(
+      `SELECT id, stage, source, treatment
+       FROM deal
+       WHERE id = ? AND clinic_id = ?
+       LIMIT 1`,
+      [chatbotResult.body.data.dealId, primary.clinicId],
+    );
+    assert.equal(chatbotDealRows.length, 1);
+    assert.equal(chatbotDealRows[0].stage, "New Lead");
+    assert.equal(chatbotDealRows[0].source, "website_chatbot");
+    assert.equal(chatbotDealRows[0].treatment, "Growth Engine");
+
+    const [chatbotTaskRows]: any = await pool.execute(
+      `SELECT id, title, priority, status, due_label as dueLabel
+       FROM task
+       WHERE id = ? AND clinic_id = ?
+       LIMIT 1`,
+      [chatbotResult.body.data.nextActionTaskId, primary.clinicId],
+    );
+    assert.equal(chatbotTaskRows.length, 1);
+    assert.equal(chatbotTaskRows[0].title, "Review chatbot conversation and follow up");
+    assert.equal(chatbotTaskRows[0].priority, "high");
+    assert.equal(chatbotTaskRows[0].status, "pending");
+    assert.equal(chatbotTaskRows[0].dueLabel, "Review today");
+
+    const [chatbotRawRows]: any = await pool.execute(
+      `SELECT id, source, source_event_id as sourceEventId, status, linked_entity_id as linkedEntityId
+       FROM integration_raw_payload
+       WHERE clinic_id = ? AND source_event_id = ?
+       ORDER BY created_at DESC`,
+      [primary.clinicId, chatbotPayload.chatbotConversationId],
+    );
+    assert.equal(chatbotRawRows.length, 1);
+    assert.equal(chatbotRawRows[0].source, "website_lead_capture");
+    assert.equal(chatbotRawRows[0].linkedEntityId, chatbotResult.body.data.contactId);
+    assert.equal(chatbotRawRows[0].status, "processed");
+
+    const chatbotRetryResult = await postWebsiteLead(baseUrl, chatbotKey.key!, chatbotPayload);
+    assert.equal(chatbotRetryResult.response.status, 200);
+    assert.equal(chatbotRetryResult.body.data.duplicateEvent, true);
+    assert.equal(chatbotRetryResult.body.data.contactId, chatbotResult.body.data.contactId);
+
+    const [chatbotRetryCounts]: any = await pool.execute(
+      `SELECT
+         (SELECT COUNT(*) FROM contact WHERE clinic_id = ? AND email = ? AND deleted_at IS NULL) as contactCount,
+         (SELECT COUNT(*) FROM integration_raw_payload WHERE clinic_id = ? AND source_event_id = ?) as rawCount,
+         (SELECT COUNT(*) FROM task WHERE clinic_id = ? AND contact_id = ? AND title = 'Review chatbot conversation and follow up' AND deleted_at IS NULL) as taskCount
+       `,
+      [
+        primary.clinicId,
+        chatbotPayload.email,
+        primary.clinicId,
+        chatbotPayload.chatbotConversationId,
+        primary.clinicId,
+        chatbotResult.body.data.contactId,
+      ],
+    );
+    assert.equal(Number(chatbotRetryCounts[0].contactCount), 1);
+    assert.equal(Number(chatbotRetryCounts[0].rawCount), 1);
+    assert.equal(Number(chatbotRetryCounts[0].taskCount), 1);
 
     await apiKeysService.revokeApiKey(primary.clinicId, primary.userId, createdKey.id);
     const revokedResult = await postLead(baseUrl, createdKey.key!, {

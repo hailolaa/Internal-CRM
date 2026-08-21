@@ -4,27 +4,10 @@ import type { AddressInfo } from "node:net";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
 import { apiKeysService } from "../modules/api-keys/api-keys.service.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
-}
-
-async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
 }
 
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
@@ -65,8 +48,8 @@ test("Phase 1 integration inputs ingest leads, store manual metrics, expose setu
   await testConnection();
   console.log("[integration-inputs] database connection OK");
 
-  const primary = await createClinicAndAdmin("IntegrationInputsPrimary");
-  const secondary = await createClinicAndAdmin("IntegrationInputsSecondary");
+  const primary = await createTestClinicAndAdmin("IntegrationInputsPrimary");
+  const secondary = await createTestClinicAndAdmin("IntegrationInputsSecondary");
   const apiKey = await apiKeysService.createApiKey(primary.clinicId, primary.userId, {
     name: "Integration inputs test",
   });
