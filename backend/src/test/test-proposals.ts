@@ -569,6 +569,82 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(v5Template.activeVersion.status, "published");
     assert.equal(v5Template.activeVersion.versionNumber, 1);
 
+    const proofLibraryForbidden = await request(baseUrl, "/api/proposals/proof-assets", contactsOnly.token);
+    assert.equal(proofLibraryForbidden.response.status, 403, "proof library reads require proposal access");
+
+    const createdProofAsset = await request(baseUrl, "/api/proposals/proof-assets", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        type: "testimonial",
+        title: "Permissioned owner testimonial for proof library",
+        copy: "Permission approved testimonial used to prove searchable proposal proof library management.",
+        mediaUrl: "/brand/proof/tanja-phillips.webp",
+        sectorTags: ["testimonial", "permission approved", "dental"],
+        sortOrder: 55,
+      }),
+    });
+    assert.equal(createdProofAsset.response.status, 201);
+    assert.equal(createdProofAsset.body.data.status, "active");
+    assert.equal(createdProofAsset.body.data.version, 1);
+
+    const searchedProofLibrary = await request(
+      baseUrl,
+      "/api/proposals/proof-assets?search=permissioned&type=testimonial&tag=dental&limit=5",
+      writer.token,
+    );
+    assert.equal(searchedProofLibrary.response.status, 200);
+    assert.equal(searchedProofLibrary.body.data.pagination.limit, 5);
+    assert.ok(searchedProofLibrary.body.data.items.some((item: any) => item.id === createdProofAsset.body.data.id));
+
+    const crossTenantProofLibrary = await request(baseUrl, "/api/proposals/proof-assets?status=all", otherWriter.token);
+    assert.equal(crossTenantProofLibrary.response.status, 200);
+    assert.equal(
+      crossTenantProofLibrary.body.data.items.some((item: any) => item.id === createdProofAsset.body.data.id),
+      false,
+      "proof library rows must stay scoped to the user's clinic",
+    );
+
+    const updatedProofAsset = await request(
+      baseUrl,
+      `/api/proposals/proof-assets/${createdProofAsset.body.data.id}`,
+      writer.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: "Permissioned owner testimonial for proof library updated",
+          sectorTags: ["testimonial", "permission approved", "dental", "library search"],
+        }),
+      },
+    );
+    assert.equal(updatedProofAsset.response.status, 200);
+    assert.equal(updatedProofAsset.body.data.version, 2);
+    assert.equal(updatedProofAsset.body.data.title, "Permissioned owner testimonial for proof library updated");
+
+    const archivedProofAsset = await request(
+      baseUrl,
+      `/api/proposals/proof-assets/${createdProofAsset.body.data.id}/archive`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(archivedProofAsset.response.status, 200);
+    assert.equal(archivedProofAsset.body.data.status, "archived");
+
+    const activeProofLibraryAfterArchive = await request(baseUrl, "/api/proposals/proof-assets", writer.token);
+    assert.equal(
+      activeProofLibraryAfterArchive.body.data.items.some((item: any) => item.id === createdProofAsset.body.data.id),
+      false,
+      "archived proof assets should not appear in the default active list",
+    );
+
+    const restoredProofAsset = await request(
+      baseUrl,
+      `/api/proposals/proof-assets/${createdProofAsset.body.data.id}/restore`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(restoredProofAsset.response.status, 200);
+    assert.equal(restoredProofAsset.body.data.status, "active");
+
     const scopeLibraryForbidden = await request(baseUrl, "/api/proposals/scope-library", contactsOnly.token);
     assert.equal(scopeLibraryForbidden.response.status, 403, "scope library reads require proposal access");
 

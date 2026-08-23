@@ -716,9 +716,24 @@ export interface ProposalProofAssetRecord {
   mediaUrl: string | null;
   sectorTags: string[];
   sortOrder: number;
+  status?: "active" | "archived";
   isActive: boolean;
+  version?: number;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProposalProofAssetListRecord {
+  items: ProposalProofAssetRecord[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export interface ProposalProofAssetPayload {

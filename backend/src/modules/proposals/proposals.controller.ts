@@ -61,8 +61,7 @@ export class ProposalsController {
   listProofAssets = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId } = (req as any).user;
-      const includeInactive = req.query.includeInactive === "true";
-      const assets = await proposalsService.listProofAssets(clinicId, includeInactive);
+      const assets = await proposalsService.listProofAssets(clinicId, req.query as any);
       res.status(200).json({ status: "success", data: assets });
     } catch (error) {
       next(error);
@@ -74,6 +73,36 @@ export class ProposalsController {
       const { clinicId, userId } = (req as any).user;
       const asset = await proposalsService.createProofAsset(clinicId, userId, req.body);
       res.status(201).json({ status: "success", data: asset });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateProofAsset = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const asset = await proposalsService.updateProofAsset(clinicId, userId, String(req.params.proofAssetId), req.body);
+      res.status(200).json({ status: "success", data: asset });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  archiveProofAsset = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const asset = await proposalsService.setProofAssetArchived(clinicId, userId, String(req.params.proofAssetId), true);
+      res.status(200).json({ status: "success", data: asset });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  restoreProofAsset = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const asset = await proposalsService.setProofAssetArchived(clinicId, userId, String(req.params.proofAssetId), false);
+      res.status(200).json({ status: "success", data: asset });
     } catch (error) {
       next(error);
     }

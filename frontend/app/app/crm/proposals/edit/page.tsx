@@ -1353,6 +1353,7 @@ export default function ProposalEditPage() {
   const [proofAssets, setProofAssets] = useState<ProposalProofAssetRecord[]>([]);
   const [scopeLibraryItems, setScopeLibraryItems] = useState<ProposalScopeLibraryItemRecord[]>([]);
   const [scopeLibrarySearch, setScopeLibrarySearch] = useState("");
+  const [proofAssetSearch, setProofAssetSearch] = useState("");
   const [proofAssetDraft, setProofAssetDraft] = useState<ProofAssetDraft>(emptyProofAssetDraft);
   const [isCreatingProofAsset, setIsCreatingProofAsset] = useState(false);
   const [isLoading, setIsLoading] = useState(Boolean(proposalId));
@@ -1460,7 +1461,17 @@ export default function ProposalEditPage() {
       complete: selectedProofAssets.some((asset) => proofIsContextualPerformanceResult(asset)),
     },
   ]), [form, selectedClinicVariant, selectedProofAssets]);
-  const classifiedProofAssets = useMemo(() => proofAssets
+  const filteredProofAssets = useMemo(() => {
+    const term = proofAssetSearch.trim().toLowerCase();
+    return proofAssets.filter((asset) => !term || [
+      asset.title,
+      asset.copy,
+      asset.type,
+      asset.mediaUrl || "",
+      asset.sectorTags.join(" "),
+    ].join(" ").toLowerCase().includes(term));
+  }, [proofAssetSearch, proofAssets]);
+  const classifiedProofAssets = useMemo(() => filteredProofAssets
     .map((asset) => ({
       asset,
       classification: classifyProofAsset(asset, form, selectedClinicVariant),
@@ -1472,7 +1483,7 @@ export default function ProposalEditPage() {
         Number(b.recommended) - Number(a.recommended) ||
         a.asset.type.localeCompare(b.asset.type) ||
         a.asset.title.localeCompare(b.asset.title);
-    }), [form, proofAssets, recommendedProofAssetIds, selectedClinicVariant]);
+    }), [filteredProofAssets, form, recommendedProofAssetIds, selectedClinicVariant]);
   const hasRecordLink = Boolean(form.contactId || form.dealId || form.clientAccountProfileId);
   const linkedRecordLabel = sourceData?.contact.name ||
     sourceData?.clientAccount.name ||
@@ -3013,9 +3024,14 @@ export default function ProposalEditPage() {
                             The builder preselects matching proof where the asset already exists. Confirm the required set, then add only real proof where something is missing.
                           </p>
                         </div>
-                        <span className="rounded-full bg-[#edf5f1] px-3 py-1 text-xs font-semibold text-[#315f51]">
-                          {form.proofAssetIds.length} selected
-                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          <Link href="/app/crm/proposals/proof-library" className="inline-flex min-h-9 items-center rounded-[8px] border border-[#d8e4df] bg-white px-3 text-sm font-semibold text-[#315f51]">
+                            Manage proof library
+                          </Link>
+                          <span className="rounded-full bg-[#edf5f1] px-3 py-1 text-xs font-semibold text-[#315f51]">
+                            {form.proofAssetIds.length} selected
+                          </span>
+                        </div>
                       </div>
                       <div className={`rounded-[8px] border p-4 text-sm leading-6 ${proofReadinessIssues.length ? "border-[#f1d2a6] bg-[#fff9ed] text-[#6f4b00]" : "border-[#cfe4dc] bg-[#f2faf6] text-[#315f51]"}`}>
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3045,6 +3061,15 @@ export default function ProposalEditPage() {
                           </ul>
                         ) : null}
                       </div>
+                      <label className="flex min-h-10 items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3">
+                        <Search className="h-4 w-4 text-[#78918a]" />
+                        <input
+                          value={proofAssetSearch}
+                          onChange={(event) => setProofAssetSearch(event.target.value)}
+                          placeholder="Search proof, testimonial, image, tag or source"
+                          className="w-full bg-transparent text-sm outline-none"
+                        />
+                      </label>
                       <div className="grid gap-3 lg:grid-cols-3">
                         {classifiedProofAssets.length ? classifiedProofAssets.map(({ asset, classification, recommended }) => {
                           const selected = form.proofAssetIds.includes(asset.id);

@@ -6,6 +6,7 @@ import type {
   ProposalDiscoveryUpdatePayload,
   ProposalPayload,
   ProposalClientReadinessRecord,
+  ProposalProofAssetListRecord,
   ProposalProofAssetPayload,
   ProposalProofAssetRecord,
   ProposalPublicAcceptancePayload,
@@ -191,19 +192,51 @@ export function createProposalsApi(apiRequest: ApiRequest) {
         );
         return response.data!;
       },
-      async proofAssets(token: string, params: { includeInactive?: boolean } = {}) {
+      async proofAssets(token: string, params: { includeInactive?: boolean; search?: string; type?: string; status?: string; tag?: string; page?: number; limit?: number } = {}) {
         const query = toQuery(params);
-        const response = await apiRequest<ProposalProofAssetRecord[]>(
+        const response = await apiRequest<ProposalProofAssetRecord[] | ProposalProofAssetListRecord>(
           `/api/proposals/proof-assets${query ? `?${query}` : ""}`,
           { token },
         );
-        return response.data!;
+        const data = response.data!;
+        return Array.isArray(data) ? data : data.items;
+      },
+      async proofAssetLibrary(token: string, params: { includeInactive?: boolean; search?: string; type?: string; status?: string; tag?: string; page?: number; limit?: number } = {}) {
+        const query = toQuery(params);
+        const response = await apiRequest<ProposalProofAssetListRecord | ProposalProofAssetRecord[]>(
+          `/api/proposals/proof-assets${query ? `?${query}` : ""}`,
+          { token },
+        );
+        const data = response.data!;
+        return Array.isArray(data) ? { items: data, pagination: { page: 1, limit: data.length, total: data.length, totalPages: 1 } } : data;
       },
       async createProofAsset(token: string, payload: ProposalProofAssetPayload) {
         const response = await apiRequest<ProposalProofAssetRecord>("/api/proposals/proof-assets", {
           method: "POST",
           token,
           body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async updateProofAsset(token: string, proofAssetId: string, payload: Partial<ProposalProofAssetPayload>) {
+        const response = await apiRequest<ProposalProofAssetRecord>(`/api/proposals/proof-assets/${encodeURIComponent(proofAssetId)}`, {
+          method: "PATCH",
+          token,
+          body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async archiveProofAsset(token: string, proofAssetId: string) {
+        const response = await apiRequest<ProposalProofAssetRecord>(`/api/proposals/proof-assets/${encodeURIComponent(proofAssetId)}/archive`, {
+          method: "POST",
+          token,
+        });
+        return response.data!;
+      },
+      async restoreProofAsset(token: string, proofAssetId: string) {
+        const response = await apiRequest<ProposalProofAssetRecord>(`/api/proposals/proof-assets/${encodeURIComponent(proofAssetId)}/restore`, {
+          method: "POST",
+          token,
         });
         return response.data!;
       },

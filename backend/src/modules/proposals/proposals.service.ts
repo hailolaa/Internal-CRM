@@ -42,6 +42,8 @@ import type {
   ProposalPublicPreviewResponse,
   ProposalMutationDTO,
   ProposalPublicEventDTO,
+  ProposalProofAssetLibraryQuery,
+  ProposalProofAssetListResponse,
   ProposalProofAssetMutationDTO,
   ProposalProofAssetResponse,
   ProposalProofAssetType,
@@ -1120,7 +1122,12 @@ function mapProposalProofAsset(row: any): ProposalProofAssetResponse {
     mediaUrl: row.mediaUrl || null,
     sectorTags: parseJsonArray(row.sectorTags),
     sortOrder: Number(row.sortOrder || 0),
+    status: row.isActive === 0 ? "archived" : "active",
     isActive: Boolean(row.isActive),
+    version: Number(row.version || 1),
+    createdBy: row.createdBy || null,
+    updatedBy: row.updatedBy || null,
+    archivedAt: row.archivedAt ? new Date(row.archivedAt).toISOString() : null,
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
   };
@@ -1354,8 +1361,44 @@ function isTruthy(value: unknown) {
 }
 
 export class ProposalsService {
-  async listProofAssets(clinicId: string, includeInactive = false): Promise<ProposalProofAssetResponse[]> {
-    const filters = includeInactive ? "" : "AND is_active = 1";
+  async listProofAssets(
+    clinicId: string,
+    query: ProposalProofAssetLibraryQuery & { includeInactive?: boolean } = {},
+  ): Promise<ProposalProofAssetListResponse> {
+    const page = Math.max(1, Number(query.page || 1));
+    const limit = Math.min(100, Math.max(1, Number(query.limit || 100)));
+    const offset = (page - 1) * limit;
+    const filters = ["clinic_id = ?", "deleted_at IS NULL"];
+    const values: any[] = [clinicId];
+    const status = cleanString(query.status);
+    if (status === "archived") {
+      filters.push("is_active = 0");
+    } else if (status !== "all" && !query.includeInactive) {
+      filters.push("is_active = 1");
+    }
+    const type = cleanString(query.type);
+    if (type && type !== "all") {
+      filters.push("type = ?");
+      values.push(type);
+    }
+    const tag = cleanString(query.tag);
+    if (tag) {
+      filters.push("COALESCE(CAST(sector_tags AS CHAR), '') LIKE ?");
+      values.push(`%${tag}%`);
+    }
+    const search = cleanString(query.search);
+    if (search) {
+      filters.push("(title LIKE ? OR copy LIKE ? OR COALESCE(media_url, '') LIKE ? OR COALESCE(CAST(sector_tags AS CHAR), '') LIKE ?)");
+      values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    const whereSql = filters.join(" AND ");
+    const [countRows]: any = await pool.execute(
+      `SELECT COUNT(*) as total
+       FROM proposal_proof_asset
+       WHERE ${whereSql}`,
+      values,
+    );
+    const total = Number(countRows[0]?.total || 0);
     const [rows]: any = await pool.execute(
       `SELECT id,
               type,
@@ -1365,17 +1408,28 @@ export class ProposalsService {
               sector_tags as sectorTags,
               sort_order as sortOrder,
               is_active as isActive,
+              version,
+              created_by as createdBy,
+              updated_by as updatedBy,
+              archived_at as archivedAt,
               created_at as createdAt,
               updated_at as updatedAt
        FROM proposal_proof_asset
-       WHERE clinic_id = ?
-         AND deleted_at IS NULL
-         ${filters}
-       ORDER BY sort_order ASC, title ASC`,
-      [clinicId],
+       WHERE ${whereSql}
+       ORDER BY sort_order ASC, title ASC
+       LIMIT ${limit} OFFSET ${offset}`,
+      values,
     );
 
-    return rows.map(mapProposalProofAsset);
+    return {
+      items: rows.map(mapProposalProofAsset),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    };
   }
 
   async createProofAsset(
@@ -1405,6 +1459,14 @@ export class ProposalsService {
         userId,
       ],
     );
+    await logAuditEvent({
+      clinicId,
+      userId,
+      entityType: "proposal_proof_asset",
+      entityId: id,
+      action: "PROPOSAL_PROOF_ASSET_CREATED",
+      changes: { title: cleanString(data.title), type: data.type },
+    });
 
     const [rows]: any = await pool.execute(
       `SELECT id,
@@ -1415,6 +1477,10 @@ export class ProposalsService {
               sector_tags as sectorTags,
               sort_order as sortOrder,
               is_active as isActive,
+              version,
+              created_by as createdBy,
+              updated_by as updatedBy,
+              archived_at as archivedAt,
               created_at as createdAt,
               updated_at as updatedAt
        FROM proposal_proof_asset
@@ -1424,6 +1490,113 @@ export class ProposalsService {
        LIMIT 1`,
       [id, clinicId],
     );
+    return mapProposalProofAsset(rows[0]);
+  }
+
+  async updateProofAsset(
+    clinicId: string,
+    userId: string,
+    proofAssetId: string,
+    data: Partial<ProposalProofAssetMutationDTO>,
+  ): Promise<ProposalProofAssetResponse> {
+    const existing = await this.getProofAsset(clinicId, proofAssetId);
+    const sectorTags = Array.isArray(data.sectorTags)
+      ? data.sectorTags.map((tag) => cleanString(tag)).filter(Boolean)
+      : existing.sectorTags;
+    const isActive = typeof data.isActive === "boolean" ? data.isActive : existing.isActive;
+    await pool.execute(
+      `UPDATE proposal_proof_asset
+       SET type = ?,
+           title = ?,
+           copy = ?,
+           media_url = ?,
+           sector_tags = ?,
+           sort_order = ?,
+           is_active = ?,
+           version = version + 1,
+           updated_by = ?,
+           archived_at = CASE WHEN ? = 1 THEN NULL ELSE COALESCE(archived_at, CURRENT_TIMESTAMP) END
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL`,
+      [
+        data.type || existing.type,
+        cleanString(data.title) || existing.title,
+        cleanString(data.copy) || existing.copy,
+        data.mediaUrl === undefined ? existing.mediaUrl : cleanString(data.mediaUrl),
+        JSON.stringify(sectorTags),
+        data.sortOrder ?? existing.sortOrder,
+        isActive ? 1 : 0,
+        userId,
+        isActive ? 1 : 0,
+        proofAssetId,
+        clinicId,
+      ],
+    );
+    await logAuditEvent({
+      clinicId,
+      userId,
+      entityType: "proposal_proof_asset",
+      entityId: proofAssetId,
+      action: "PROPOSAL_PROOF_ASSET_UPDATED",
+      changes: { title: cleanString(data.title) || existing.title, previousVersion: existing.version },
+    });
+    return this.getProofAsset(clinicId, proofAssetId);
+  }
+
+  async setProofAssetArchived(
+    clinicId: string,
+    userId: string,
+    proofAssetId: string,
+    archived: boolean,
+  ): Promise<ProposalProofAssetResponse> {
+    const existing = await this.getProofAsset(clinicId, proofAssetId);
+    await pool.execute(
+      `UPDATE proposal_proof_asset
+       SET is_active = ?,
+           version = version + 1,
+           updated_by = ?,
+           archived_at = CASE WHEN ? = 1 THEN COALESCE(archived_at, CURRENT_TIMESTAMP) ELSE NULL END
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL`,
+      [archived ? 0 : 1, userId, archived ? 1 : 0, proofAssetId, clinicId],
+    );
+    await logAuditEvent({
+      clinicId,
+      userId,
+      entityType: "proposal_proof_asset",
+      entityId: proofAssetId,
+      action: archived ? "PROPOSAL_PROOF_ASSET_ARCHIVED" : "PROPOSAL_PROOF_ASSET_RESTORED",
+      changes: { title: existing.title, previousVersion: existing.version },
+    });
+    return this.getProofAsset(clinicId, proofAssetId);
+  }
+
+  private async getProofAsset(clinicId: string, proofAssetId: string): Promise<ProposalProofAssetResponse> {
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              type,
+              title,
+              copy,
+              media_url as mediaUrl,
+              sector_tags as sectorTags,
+              sort_order as sortOrder,
+              is_active as isActive,
+              version,
+              created_by as createdBy,
+              updated_by as updatedBy,
+              archived_at as archivedAt,
+              created_at as createdAt,
+              updated_at as updatedAt
+       FROM proposal_proof_asset
+       WHERE id = ?
+         AND clinic_id = ?
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [proofAssetId, clinicId],
+    );
+    if (!rows[0]) throw ApiError.notFound("Proof asset not found");
     return mapProposalProofAsset(rows[0]);
   }
 

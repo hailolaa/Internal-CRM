@@ -175,6 +175,15 @@ export default function ProposalsPage() {
                 Scope library
               </Link>
             ) : null}
+            {canReadProposals ? (
+              <Link
+                href="/app/crm/proposals/proof-library"
+                className="inline-flex items-center gap-2 rounded-[8px] border border-[rgba(21,31,33,0.08)] bg-[#FFFCF9] px-4 py-2.5 text-sm font-semibold text-[#315f62] transition hover:bg-[#eaedeb]"
+              >
+                <FileText className="h-4 w-4" />
+                Proof library
+              </Link>
+            ) : null}
             {canWriteProposals ? (
               <Link
                 href="/app/crm/proposals/edit"

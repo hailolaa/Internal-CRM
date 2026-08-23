@@ -18,9 +18,11 @@ import {
   createProposalValidator,
   createProposalSignatureRequestValidator,
   exportProposalsValidator,
+  listProofAssetsValidator,
   listProposalsValidator,
   proposalTemplateIdParamValidator,
   proposalTemplateVersionIdParamValidator,
+  proofAssetIdParamValidator,
   proposalIdParamValidator,
   proposalPublicAcceptanceValidator,
   proposalPublicEventValidator,
@@ -32,6 +34,7 @@ import {
   proposalStatusUpdateValidator,
   proposalSourceDataValidator,
   sendProposalValidator,
+  updateProofAssetValidator,
   updateProposalScopeLibraryItemValidator,
   updateProposalTemplateVersionValidator,
   updateProposalValidator,
@@ -183,6 +186,8 @@ router.post(
 router.get(
   "/proof-assets",
   authorizePermission("proposals:read"),
+  listProofAssetsValidator,
+  validate,
   proposalsController.listProofAssets,
 );
 
@@ -192,6 +197,30 @@ router.post(
   createProofAssetValidator,
   validate,
   proposalsController.createProofAsset,
+);
+
+router.patch(
+  "/proof-assets/:proofAssetId",
+  authorizePermission("proposals:write"),
+  updateProofAssetValidator,
+  validate,
+  proposalsController.updateProofAsset,
+);
+
+router.post(
+  "/proof-assets/:proofAssetId/archive",
+  authorizePermission("proposals:write"),
+  proofAssetIdParamValidator,
+  validate,
+  proposalsController.archiveProofAsset,
+);
+
+router.post(
+  "/proof-assets/:proofAssetId/restore",
+  authorizePermission("proposals:write"),
+  proofAssetIdParamValidator,
+  validate,
+  proposalsController.restoreProofAsset,
 );
 
 router.get(

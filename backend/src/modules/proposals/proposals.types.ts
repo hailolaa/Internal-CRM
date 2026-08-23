@@ -1010,6 +1010,17 @@ export interface ProposalProofAssetMutationDTO {
   isActive?: boolean;
 }
 
+export type ProposalProofAssetLibraryStatus = "active" | "archived" | "all";
+
+export interface ProposalProofAssetLibraryQuery {
+  search?: string;
+  type?: ProposalProofAssetType | "all";
+  status?: ProposalProofAssetLibraryStatus;
+  tag?: string;
+  page?: number;
+  limit?: number;
+}
+
 export interface ProposalProofAssetResponse {
   id: string;
   type: ProposalProofAssetType;
@@ -1018,9 +1029,24 @@ export interface ProposalProofAssetResponse {
   mediaUrl: string | null;
   sectorTags: string[];
   sortOrder: number;
+  status: Exclude<ProposalProofAssetLibraryStatus, "all">;
   isActive: boolean;
+  version: number;
+  createdBy: string | null;
+  updatedBy: string | null;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProposalProofAssetListResponse {
+  items: ProposalProofAssetResponse[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export interface ProposalShareResponse {

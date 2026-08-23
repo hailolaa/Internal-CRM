@@ -668,6 +668,56 @@ export const createProofAssetValidator = [
   body("isActive").optional({ nullable: true }).isBoolean(),
 ];
 
+export const listProofAssetsValidator = [
+  query("includeInactive").optional({ nullable: true }).isBoolean().toBoolean(),
+  query("search").optional({ nullable: true }).trim().isLength({ max: 200 }),
+  query("type").optional({ nullable: true }).isIn([...proposalProofAssetTypes, "all"]),
+  query("status").optional({ nullable: true }).isIn(["active", "archived", "all"]),
+  query("tag").optional({ nullable: true }).trim().isLength({ max: 120 }),
+  query("page").optional({ nullable: true }).isInt({ min: 1, max: 10000 }).toInt(),
+  query("limit").optional({ nullable: true }).isInt({ min: 1, max: 100 }).toInt(),
+];
+
+export const updateProofAssetValidator = [
+  param("proofAssetId").trim().isLength({ min: 1, max: 36 }),
+  body("type").optional({ nullable: true }).isIn(proposalProofAssetTypes).withMessage("Proof asset type is not supported"),
+  body("title").optional({ nullable: true }).trim().isLength({ min: 1, max: 180 }),
+  body("copy").optional({ nullable: true }).trim().isLength({ min: 1, max: 5000 }),
+  body("mediaUrl")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 1000 })
+    .custom((value) => {
+      if (!value) return true;
+      if (isApprovedInternalBrandAssetPath(value)) return true;
+      try {
+        const parsed = new URL(value);
+        if (!["https:", "http:"].includes(parsed.protocol)) throw new Error("invalid protocol");
+      } catch {
+        throw new Error("mediaUrl must be a valid URL");
+      }
+      return true;
+    }),
+  body("sectorTags")
+    .optional({ nullable: true })
+    .isArray({ max: 20 })
+    .withMessage("sectorTags must be a list of up to 20 tags")
+    .custom((tags) => {
+      for (const tag of tags || []) {
+        if (typeof tag !== "string" || !tag.trim() || tag.length > 80) {
+          throw new Error("sectorTags must contain non-empty tags up to 80 characters");
+        }
+      }
+      return true;
+    }),
+  body("sortOrder").optional({ nullable: true }).isInt({ min: 0, max: 100000 }).toInt(),
+  body("isActive").optional({ nullable: true }).isBoolean(),
+];
+
+export const proofAssetIdParamValidator = [
+  param("proofAssetId").trim().isLength({ min: 1, max: 36 }),
+];
+
 const scopeLibraryDeliverablesValidator = body("deliverables")
   .optional({ nullable: true })
   .isArray({ max: 30 })
