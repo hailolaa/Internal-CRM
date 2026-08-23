@@ -12,6 +12,8 @@ import type {
   RevenueByChannelRecord,
   RevenueLeakDetailsRecord,
   RevenueLeaksRecord,
+  RevenueRiskModelQueryParams,
+  RevenueRiskModelReportRecord,
   RevenueByTreatmentRecord,
   RoasMetricsRecord,
   SopListParams,
@@ -233,6 +235,13 @@ export function createReportsOpsApi(apiRequest: ApiRequest) {
       async revenueLeakDetails(token: string, params?: DashboardQueryParams) {
         const response = await apiRequest<RevenueLeakDetailsRecord>(
           `/api/reports/dashboard/revenue-leak-details${buildQuery(params)}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async revenueRiskPredictions(token: string, params?: RevenueRiskModelQueryParams) {
+        const response = await apiRequest<RevenueRiskModelReportRecord>(
+          `/api/reports/dashboard/revenue-risk-predictions${buildQuery(params || {})}`,
           { token },
         );
         return response.data!;

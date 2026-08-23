@@ -5,14 +5,20 @@ import pool, { testConnection } from "../config/database.js";
 import { financeAnalyticsService } from "../modules/finance-analytics/finance-analytics.service.js";
 import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
-async function createClientAccount(clinicId: string) {
+async function createClientAccount(
+  clinicId: string,
+  overrides: { healthStatus?: string; churnRisk?: string; contractStatus?: string } = {},
+) {
   const id = uuidv4();
   await pool.execute(
     `INSERT INTO client_account_profile
       (id, clinic_id, client_status, contract_status, onboarding_status, health_status)
-     VALUES (?, ?, 'active', 'active', 'completed', 'healthy')`,
-    [id, clinicId],
+     VALUES (?, ?, 'active', ?, 'completed', ?)`,
+    [id, clinicId, overrides.contractStatus || "active", overrides.healthStatus || "healthy"],
   );
+  if (overrides.churnRisk) {
+    await pool.execute(`UPDATE client_account_profile SET churn_risk = ? WHERE id = ?`, [overrides.churnRisk, id]);
+  }
   return id;
 }
 
@@ -115,4 +121,35 @@ test("finance analytics prorates recognized revenue for partial months", async (
   const period = view.periods.find((item) => item.clientAccountProfileId === client);
   assert.equal(period?.mrrCents, 310000);
   assert.equal(period?.recognizedRevenueCents, 160000);
+});
+
+test("finance analytics predicts revenue risk with explanations and validates against historical churn", async () => {
+  const clinic = await createTestClinicAndAdmin("finance-risk");
+  const riskyClient = await createClientAccount(clinic.clinicId, { healthStatus: "critical", churnRisk: "high" });
+
+  await createService({
+    clinicId: clinic.clinicId,
+    clientAccountProfileId: riskyClient,
+    name: "Risky client",
+    recurringValue: 1000,
+    startDate: "2026-08-01",
+    endDate: "2026-08-31",
+  });
+
+  const report = await financeAnalyticsService.getRevenueRiskModel({
+    clinicId: clinic.clinicId,
+    fromMonth: "2026-08-01",
+    toMonth: "2026-09-01",
+  });
+
+  assert.equal(report.model.name, "revenue_risk_v1");
+  assert.equal(report.model.explainability, "per_prediction_weighted_reasons");
+  assert.equal(report.backtest.status, "validated");
+  assert.equal(report.backtest.validationRows, 1);
+  assert.equal(report.backtest.accuracy, 1);
+  assert.equal(report.backtest.meetsThreshold, true);
+
+  const riskyPrediction = report.predictions.find((prediction) => prediction.clientAccountProfileId === riskyClient);
+  assert.equal(riskyPrediction?.riskLevel, "high");
+  assert.ok((riskyPrediction?.explanations.length || 0) >= 2);
 });

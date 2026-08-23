@@ -228,6 +228,50 @@ export interface RevenueByChannelRecord {
   emptyState: boolean;
 }
 
+export interface RevenueRiskPredictionRecord {
+  clientAccountProfileId: string;
+  periodMonth: string;
+  currency: string;
+  riskScore: number;
+  riskLevel: "low" | "medium" | "high";
+  predictedRevenueAtRiskCents: number;
+  currentMrrCents: number;
+  marginPercent: number | null;
+  explanations: string[];
+  recommendedActions: string[];
+}
+
+export interface RevenueRiskModelReportRecord {
+  model: {
+    name: "revenue_risk_v1";
+    type: "deterministic_weighted_rules";
+    version: number;
+    trainedFrom: string;
+    explainability: string;
+  };
+  fromMonth: string;
+  toMonth: string;
+  predictions: RevenueRiskPredictionRecord[];
+  backtest: {
+    fromMonth: string;
+    toMonth: string;
+    validationRows: number;
+    truePositive: number;
+    trueNegative: number;
+    falsePositive: number;
+    falseNegative: number;
+    accuracy: number | null;
+    threshold: number;
+    meetsThreshold: boolean;
+    status: "validated" | "insufficient_history";
+  };
+}
+
+export interface RevenueRiskModelQueryParams {
+  fromMonth?: string;
+  toMonth?: string;
+}
+
 export interface RevenueByTreatmentRecord {
   range: DashboardRange;
   totals: {

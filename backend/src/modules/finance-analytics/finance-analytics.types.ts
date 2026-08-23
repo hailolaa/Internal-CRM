@@ -50,3 +50,44 @@ export interface FinanceRevenueView {
     marginPercent: number | null;
   };
 }
+
+export interface RevenueRiskPrediction {
+  clientAccountProfileId: string;
+  periodMonth: string;
+  currency: string;
+  riskScore: number;
+  riskLevel: "low" | "medium" | "high";
+  predictedRevenueAtRiskCents: number;
+  currentMrrCents: number;
+  marginPercent: number | null;
+  explanations: string[];
+  recommendedActions: string[];
+}
+
+export interface RevenueRiskBacktest {
+  fromMonth: string;
+  toMonth: string;
+  validationRows: number;
+  truePositive: number;
+  trueNegative: number;
+  falsePositive: number;
+  falseNegative: number;
+  accuracy: number | null;
+  threshold: number;
+  meetsThreshold: boolean;
+  status: "validated" | "insufficient_history";
+}
+
+export interface RevenueRiskModelReport {
+  model: {
+    name: "revenue_risk_v1";
+    type: "deterministic_weighted_rules";
+    version: 1;
+    trainedFrom: "client_revenue_periods_and_account_risk_signals";
+    explainability: "per_prediction_weighted_reasons";
+  };
+  fromMonth: string;
+  toMonth: string;
+  predictions: RevenueRiskPrediction[];
+  backtest: RevenueRiskBacktest;
+}

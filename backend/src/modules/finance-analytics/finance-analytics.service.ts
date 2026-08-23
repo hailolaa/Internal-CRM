@@ -8,6 +8,8 @@ import type {
   FinancePeriodRange,
   FinanceRevenueView,
   MrrMovementCategory,
+  RevenueRiskModelReport,
+  RevenueRiskPrediction,
 } from "./finance-analytics.types.js";
 
 interface ServiceRow {
@@ -126,6 +128,26 @@ function marginPercent(revenueCents: number, marginCents: number) {
 
 function rowMonth(value: unknown) {
   return dateFromDb(value)?.slice(0, 7).concat("-01") || null;
+}
+
+function riskLevel(score: number): RevenueRiskPrediction["riskLevel"] {
+  if (score >= 65) return "high";
+  if (score >= 35) return "medium";
+  return "low";
+}
+
+function predictionIsAtRisk(score: number) {
+  return riskLevel(score) !== "low";
+}
+
+function revenueRiskActions(level: RevenueRiskPrediction["riskLevel"]) {
+  if (level === "high") return ["Review account owner plan", "Confirm renewal or recovery path", "Escalate margin/revenue risk this week"];
+  if (level === "medium") return ["Review next best action", "Check account health signals", "Confirm delivery blockers"];
+  return ["Keep standard account rhythm"];
+}
+
+function roundAccuracy(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 export class FinanceAnalyticsService {
@@ -291,6 +313,193 @@ export class FinanceAnalyticsService {
         marginPercent: marginPercent(recognizedRevenueCents, marginCents),
       },
     };
+  }
+
+  async getRevenueRiskModel(input: FinancePeriodRange): Promise<RevenueRiskModelReport> {
+    const view = await this.getRevenueView(input);
+    const months = monthsBetween(monthStart(input.fromMonth, "fromMonth"), monthStart(input.toMonth, "toMonth"));
+    const toMonth = months[months.length - 1]!;
+    const clientIds = Array.from(new Set(view.periods.map((period) => period.clientAccountProfileId))).sort();
+    const profiles = await this.getClientRiskProfiles(input.clinicId, clientIds);
+    const issueCounts = await this.getOpenIssueCounts(input.clinicId, clientIds);
+
+    const predictions = view.periods
+      .filter((period) => period.periodMonth === toMonth)
+      .map((period) => {
+        const movement = view.movements.find(
+          (item) => item.clientAccountProfileId === period.clientAccountProfileId && item.periodMonth === period.periodMonth,
+        );
+        return this.scoreRevenueRisk(period, movement, profiles.get(period.clientAccountProfileId), issueCounts.get(period.clientAccountProfileId) || 0);
+      })
+      .sort((a, b) => b.riskScore - a.riskScore || b.predictedRevenueAtRiskCents - a.predictedRevenueAtRiskCents);
+
+    return {
+      model: {
+        name: "revenue_risk_v1",
+        type: "deterministic_weighted_rules",
+        version: 1,
+        trainedFrom: "client_revenue_periods_and_account_risk_signals",
+        explainability: "per_prediction_weighted_reasons",
+      },
+      fromMonth: months[0]!,
+      toMonth,
+      predictions,
+      backtest: this.backtestRevenueRisk(view, profiles, issueCounts, months),
+    };
+  }
+
+  private scoreRevenueRisk(
+    period: ClientRevenuePeriod,
+    movement: ClientMrrMovement | undefined,
+    profile: any,
+    openIssueCount: number,
+  ): RevenueRiskPrediction {
+    let score = 0;
+    const explanations: string[] = [];
+    const healthStatus = profile?.healthStatus || "healthy";
+    const churnRisk = profile?.churnRisk || "low";
+    const contractStatus = profile?.contractStatus || "active";
+
+    if (healthStatus === "critical") {
+      score += 25;
+      explanations.push("Client health is marked critical.");
+    } else if (healthStatus === "at_risk") {
+      score += 15;
+      explanations.push("Client health is marked at risk.");
+    }
+
+    if (churnRisk === "critical") {
+      score += 25;
+      explanations.push("Churn risk is marked critical.");
+    } else if (churnRisk === "high") {
+      score += 15;
+      explanations.push("Churn risk is marked high.");
+    } else if (churnRisk === "medium") {
+      score += 8;
+      explanations.push("Churn risk is marked medium.");
+    }
+
+    if (["paused", "cancelled", "expired"].includes(contractStatus)) {
+      score += 20;
+      explanations.push(`Contract status is ${contractStatus}.`);
+    }
+
+    if (movement?.category === "churn") {
+      score += 35;
+      explanations.push("MRR movement shows churn in this period.");
+    } else if (movement?.category === "contraction") {
+      score += 20;
+      explanations.push("MRR movement shows contraction in this period.");
+    }
+
+    if (period.marginPercent !== null && period.marginPercent < 25) {
+      score += 15;
+      explanations.push("Margin is below 25%.");
+    } else if (period.marginPercent !== null && period.marginPercent < 40) {
+      score += 8;
+      explanations.push("Margin is below 40%.");
+    }
+
+    if (openIssueCount > 0) {
+      score += Math.min(20, openIssueCount * 8);
+      explanations.push(`${openIssueCount} open support issue${openIssueCount === 1 ? "" : "s"} may affect retention.`);
+    }
+
+    const cappedScore = Math.min(100, score);
+    const level = riskLevel(cappedScore);
+    const atRiskMultiplier = level === "high" ? 3 : level === "medium" ? 1 : 0;
+    return {
+      clientAccountProfileId: period.clientAccountProfileId,
+      periodMonth: period.periodMonth,
+      currency: period.currency,
+      riskScore: cappedScore,
+      riskLevel: level,
+      predictedRevenueAtRiskCents: period.mrrCents * atRiskMultiplier,
+      currentMrrCents: period.mrrCents,
+      marginPercent: period.marginPercent,
+      explanations: explanations.length ? explanations : ["No major revenue-risk signal in the current model inputs."],
+      recommendedActions: revenueRiskActions(level),
+    };
+  }
+
+  private backtestRevenueRisk(
+    view: FinanceRevenueView,
+    profiles: Map<string, any>,
+    issueCounts: Map<string, number>,
+    months: string[],
+  ): RevenueRiskModelReport["backtest"] {
+    let truePositive = 0;
+    let trueNegative = 0;
+    let falsePositive = 0;
+    let falseNegative = 0;
+
+    for (let index = 0; index < months.length - 1; index += 1) {
+      const month = months[index]!;
+      const nextMonth = months[index + 1]!;
+      for (const period of view.periods.filter((item) => item.periodMonth === month)) {
+        const movement = view.movements.find((item) => item.clientAccountProfileId === period.clientAccountProfileId && item.periodMonth === month);
+        const prediction = this.scoreRevenueRisk(period, movement, profiles.get(period.clientAccountProfileId), issueCounts.get(period.clientAccountProfileId) || 0);
+        const nextMovement = view.movements.find((item) => item.clientAccountProfileId === period.clientAccountProfileId && item.periodMonth === nextMonth);
+        const observedRisk = nextMovement?.category === "contraction" || nextMovement?.category === "churn";
+        const predictedRisk = predictionIsAtRisk(prediction.riskScore);
+        if (predictedRisk && observedRisk) truePositive += 1;
+        else if (!predictedRisk && !observedRisk) trueNegative += 1;
+        else if (predictedRisk && !observedRisk) falsePositive += 1;
+        else falseNegative += 1;
+      }
+    }
+
+    const validationRows = truePositive + trueNegative + falsePositive + falseNegative;
+    const accuracy = validationRows > 0 ? roundAccuracy((truePositive + trueNegative) / validationRows) : null;
+    const threshold = 0.6;
+    return {
+      fromMonth: months[0]!,
+      toMonth: months[months.length - 1]!,
+      validationRows,
+      truePositive,
+      trueNegative,
+      falsePositive,
+      falseNegative,
+      accuracy,
+      threshold,
+      meetsThreshold: accuracy !== null && accuracy >= threshold,
+      status: validationRows > 0 ? "validated" : "insufficient_history",
+    };
+  }
+
+  private async getClientRiskProfiles(clinicId: string, clientIds: string[]) {
+    const profiles = new Map<string, any>();
+    if (clientIds.length === 0) return profiles;
+    const [rows]: any = await pool.execute(
+      `SELECT id,
+              health_status as healthStatus,
+              churn_risk as churnRisk,
+              contract_status as contractStatus,
+              client_status as clientStatus
+       FROM client_account_profile
+       WHERE clinic_id = ?
+         AND id IN (${clientIds.map(() => "?").join(", ")})`,
+      [clinicId, ...clientIds],
+    );
+    for (const row of rows) profiles.set(row.id, row);
+    return profiles;
+  }
+
+  private async getOpenIssueCounts(clinicId: string, clientIds: string[]) {
+    const counts = new Map<string, number>();
+    if (clientIds.length === 0) return counts;
+    const [rows]: any = await pool.execute(
+      `SELECT client_account_profile_id as clientAccountProfileId,
+              COUNT(*) as issueCount
+       FROM client_account_issue
+       WHERE clinic_id = ?
+         AND client_account_profile_id IN (${clientIds.map(() => "?").join(", ")})
+         AND status NOT IN ('resolved', 'closed')
+       GROUP BY client_account_profile_id`,
+      [clinicId, ...clientIds],
+    );
+    for (const row of rows) counts.set(row.clientAccountProfileId, Number(row.issueCount || 0));
+    return counts;
   }
 }
 

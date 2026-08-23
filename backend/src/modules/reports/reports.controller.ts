@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { userHasPermission } from "../../middleware/authorize.js";
 import { ApiError } from "../../utils/ApiError.js";
+import { financeAnalyticsService } from "../finance-analytics/finance-analytics.service.js";
 import { reportsService } from "./reports.service.js";
 
 function pickDashboardQuery(query: Record<string, unknown>) {
@@ -8,6 +9,17 @@ function pickDashboardQuery(query: Record<string, unknown>) {
   if (query.startDate) result.startDate = String(query.startDate);
   if (query.endDate) result.endDate = String(query.endDate);
   return result;
+}
+
+function pickMonthRange(query: Record<string, unknown>) {
+  const now = new Date();
+  const toMonth = query.toMonth ? String(query.toMonth) : now.toISOString().slice(0, 7).concat("-01");
+  const from = new Date(`${toMonth.slice(0, 7)}-01T00:00:00.000Z`);
+  from.setUTCMonth(from.getUTCMonth() - 2);
+  return {
+    fromMonth: query.fromMonth ? String(query.fromMonth) : from.toISOString().slice(0, 10),
+    toMonth,
+  };
 }
 
 export class ReportsController {
@@ -243,6 +255,18 @@ export class ReportsController {
     try {
       const { clinicId } = (req as any).user;
       const metrics = await reportsService.getRiskOpportunitySections(clinicId, pickDashboardQuery(req.query as Record<string, unknown>));
+      res.status(200).json({ status: "success", data: metrics });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // GET /api/reports/dashboard/revenue-risk-predictions
+  getRevenueRiskPredictions = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const range = pickMonthRange(req.query as Record<string, unknown>);
+      const metrics = await financeAnalyticsService.getRevenueRiskModel({ clinicId, ...range });
       res.status(200).json({ status: "success", data: metrics });
     } catch (error) {
       next(error);
