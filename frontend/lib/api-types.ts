@@ -11,6 +11,7 @@ export * from "@/lib/api-types/command-palette";
 export * from "@/lib/api-types/core";
 export * from "@/lib/api-types/crm";
 export * from "@/lib/api-types/growth-scores";
+export * from "@/lib/api-types/fleet-ingestion";
 export * from "@/lib/api-types/insights";
 export * from "@/lib/api-types/integration-inputs";
 export * from "@/lib/api-types/marketing";

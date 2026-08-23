@@ -18,6 +18,10 @@ import type {
   FleetQueueProcessResult,
   FleetQueuedEvent,
   FleetRecordStatus,
+  FleetSyncAdministrationResponse,
+  FleetSyncException,
+  FleetSyncHealthRow,
+  FleetSyncSlaStatus,
   FleetTenantRegistry,
   IngestFleetEventInput,
   RegisterFleetTenantInput,
@@ -177,6 +181,83 @@ function toCheckpoint(row: any): FleetIngestionCheckpoint {
     lastError: row.lastError || null,
     retryingCount: Number(row.retryingCount || 0),
     deadLetterCount: Number(row.deadLetterCount || 0),
+  };
+}
+
+function toSyncStatus(row: any): FleetCheckpointStatus {
+  if (row.sourceStatus !== "active") return "paused";
+  if (Number(row.deadLetterCount || 0) > 0) return "dead_letter";
+  if (Number(row.retryingCount || 0) > 0) return "retrying";
+  if (Number(row.openReconciliationIssues || 0) > 0) return "reconciliation_needed";
+  if (Number(row.openFreshnessAlerts || 0) > 0) return "delayed";
+  return row.syncStatus || "healthy";
+}
+
+function toSlaStatus(row: any, syncStatus: FleetCheckpointStatus): FleetSyncSlaStatus {
+  if (row.sourceDataState === "roadmap" || row.sourceStatus !== "active") return "not_applicable";
+  if (syncStatus === "dead_letter" || syncStatus === "delayed" || Number(row.openFreshnessAlerts || 0) > 0) return "breached";
+  if (syncStatus === "retrying" || syncStatus === "reconciliation_needed" || Number(row.openReconciliationIssues || 0) > 0) return "at_risk";
+  return "met";
+}
+
+function toSyncHealthRow(row: any): FleetSyncHealthRow {
+  const syncStatus = toSyncStatus(row);
+  const slaStatus = toSlaStatus(row, syncStatus);
+  const threshold = row.slaTargetMinutes === null || row.slaTargetMinutes === undefined
+    ? null
+    : Number(row.slaTargetMinutes);
+  const observedLag = row.observedLagMinutes === null || row.observedLagMinutes === undefined
+    ? null
+    : Number(row.observedLagMinutes);
+
+  return {
+    clinicId: row.clinicId,
+    clinicName: row.clinicName,
+    tenantId: row.tenantId,
+    tenantKey: row.tenantKey,
+    tenantName: row.tenantName,
+    tenantDataState: row.tenantDataState,
+    tenantStatus: row.tenantStatus,
+    sourceId: row.sourceId,
+    sourceSystem: row.sourceSystem,
+    sourceKey: row.sourceKey,
+    sourceLabel: row.sourceLabel,
+    sourceDataState: row.sourceDataState,
+    sourceStatus: row.sourceStatus,
+    endpointKind: row.endpointKind,
+    syncStatus,
+    checkpoint: row.checkpoint || null,
+    lastIngestedAt: iso(row.lastIngestedAt),
+    lastEventAt: iso(row.lastEventAt),
+    lastProcessedEventAt: iso(row.lastProcessedEventAt),
+    lastError: row.lastError || null,
+    retryingCount: Number(row.retryingCount || 0),
+    deadLetterCount: Number(row.deadLetterCount || 0),
+    openFreshnessAlerts: Number(row.openFreshnessAlerts || 0),
+    openReconciliationIssues: Number(row.openReconciliationIssues || 0),
+    slaStatus,
+    slaTargetMinutes: threshold,
+    observedLagMinutes: observedLag,
+  };
+}
+
+function toSyncException(row: any): FleetSyncException {
+  return {
+    id: row.id,
+    clinicId: row.clinicId,
+    clinicName: row.clinicName,
+    sourceId: row.sourceId || null,
+    sourceSystem: row.sourceSystem || null,
+    sourceKey: row.sourceKey || null,
+    sourceLabel: row.sourceLabel || null,
+    dataState: row.dataState || null,
+    type: row.type,
+    severity: row.severity,
+    status: row.status,
+    title: row.title,
+    detail: row.detail,
+    detectedAt: iso(row.detectedAt),
+    action: row.action,
   };
 }
 
@@ -576,6 +657,238 @@ export class FleetIngestionService {
     );
     if (!rows[0]) throw ApiError.notFound("Fleet ingestion checkpoint was not found.");
     return toCheckpoint(rows[0]);
+  }
+
+  async getSyncAdministration(scopeClinicId: string, includeAllClients = false): Promise<FleetSyncAdministrationResponse> {
+    const params = includeAllClients ? [] : [scopeClinicId];
+    const where = includeAllClients ? "" : "WHERE t.clinic_id = ?";
+    const [healthRows]: any = await pool.execute(
+      `SELECT
+         t.clinic_id as clinicId,
+         COALESCE(c.name, t.display_name) as clinicName,
+         t.id as tenantId,
+         t.tenant_key as tenantKey,
+         t.display_name as tenantName,
+         t.data_state as tenantDataState,
+         t.status as tenantStatus,
+         s.id as sourceId,
+         s.source_system as sourceSystem,
+         s.source_key as sourceKey,
+         s.source_label as sourceLabel,
+         s.data_state as sourceDataState,
+         s.status as sourceStatus,
+         s.endpoint_kind as endpointKind,
+         cp.sync_status as syncStatus,
+         COALESCE(cp.checkpoint, s.checkpoint) as checkpoint,
+         s.last_ingested_at as lastIngestedAt,
+         cp.last_event_at as lastEventAt,
+         cp.last_processed_event_at as lastProcessedEventAt,
+         cp.last_error as lastError,
+         COALESCE(cp.retrying_count, retrying.retrying_count, 0) as retryingCount,
+         COALESCE(cp.dead_letter_count, dead.dead_letter_count, 0) as deadLetterCount,
+         COALESCE(fresh.open_freshness_alerts, 0) as openFreshnessAlerts,
+         COALESCE(recon.open_reconciliation_issues, 0) as openReconciliationIssues,
+         fresh.sla_target_minutes as slaTargetMinutes,
+         fresh.observed_lag_minutes as observedLagMinutes
+       FROM fleet_tenant_registry t
+       INNER JOIN clinic c ON c.id = t.clinic_id AND c.deleted_at IS NULL
+       INNER JOIN fleet_ingestion_source s ON s.tenant_registry_id = t.id
+       LEFT JOIN fleet_ingestion_checkpoint cp ON cp.clinic_id = s.clinic_id AND cp.source_id = s.id
+       LEFT JOIN (
+         SELECT clinic_id, source_id, COUNT(*) as retrying_count
+         FROM fleet_ingestion_event
+         WHERE processing_status IN ('queued','processing','retrying')
+         GROUP BY clinic_id, source_id
+       ) retrying ON retrying.clinic_id = s.clinic_id AND retrying.source_id = s.id
+       LEFT JOIN (
+         SELECT clinic_id, source_id, COUNT(*) as dead_letter_count
+         FROM fleet_ingestion_event
+         WHERE processing_status = 'dead_letter'
+         GROUP BY clinic_id, source_id
+       ) dead ON dead.clinic_id = s.clinic_id AND dead.source_id = s.id
+       LEFT JOIN (
+         SELECT clinic_id, source_id, COUNT(*) as open_freshness_alerts,
+                MIN(threshold_minutes) as sla_target_minutes,
+                MAX(observed_lag_minutes) as observed_lag_minutes
+         FROM analytics_freshness_alert
+         WHERE status = 'open'
+         GROUP BY clinic_id, source_id
+       ) fresh ON fresh.clinic_id = s.clinic_id AND fresh.source_id = s.id
+       LEFT JOIN (
+         SELECT clinic_id, source_id, COUNT(*) as open_reconciliation_issues
+         FROM analytics_reconciliation_issue
+         WHERE status = 'open'
+         GROUP BY clinic_id, source_id
+       ) recon ON recon.clinic_id = s.clinic_id AND recon.source_id = s.id
+       ${where}
+       ORDER BY c.name, s.source_system, s.source_label`,
+      params,
+    );
+    const health: FleetSyncHealthRow[] = healthRows.map(toSyncHealthRow);
+    const exceptions = await this.listSyncExceptions(scopeClinicId, includeAllClients);
+    const clientIds = new Set(health.map((row) => row.clinicId));
+    const summary = {
+      clients: clientIds.size,
+      sources: health.length,
+      healthy: health.filter((row) => row.syncStatus === "healthy" && row.slaStatus === "met").length,
+      atRisk: health.filter((row) => row.slaStatus === "at_risk").length,
+      breached: health.filter((row) => row.slaStatus === "breached").length,
+      exceptions: exceptions.length,
+    };
+
+    return {
+      generatedAt: new Date().toISOString(),
+      scope: includeAllClients ? "all_clients" : "current_clinic",
+      health,
+      exceptions,
+      summary,
+    };
+  }
+
+  async listSyncExceptions(scopeClinicId: string, includeAllClients = false): Promise<FleetSyncException[]> {
+    const params = includeAllClients ? [] : [scopeClinicId];
+    const clinicFilter = includeAllClients ? "" : "AND e.clinic_id = ?";
+    const [deadLetterRows]: any = await pool.execute(
+      `SELECT
+         e.id,
+         e.clinic_id as clinicId,
+         COALESCE(c.name, e.clinic_id) as clinicName,
+         e.source_id as sourceId,
+         e.source_system as sourceSystem,
+         e.source_key as sourceKey,
+         COALESCE(s.source_label, e.source_key) as sourceLabel,
+         s.data_state as dataState,
+         'dead_letter' as type,
+         'critical' as severity,
+         e.processing_status as status,
+         'Dead-letter ingestion event' as title,
+         COALESCE(e.error_message, 'Retries are exhausted and this event needs controlled replay.') as detail,
+         e.updated_at as detectedAt,
+         'replay' as action
+       FROM fleet_ingestion_event e
+       INNER JOIN clinic c ON c.id = e.clinic_id AND c.deleted_at IS NULL
+       LEFT JOIN fleet_ingestion_source s ON s.id = e.source_id AND s.clinic_id = e.clinic_id
+       WHERE e.processing_status = 'dead_letter' ${clinicFilter}
+       ORDER BY e.updated_at DESC
+       LIMIT 200`,
+      params,
+    );
+
+    const freshnessFilter = includeAllClients ? "" : "AND f.clinic_id = ?";
+    const [freshnessRows]: any = await pool.execute(
+      `SELECT
+         f.id,
+         f.clinic_id as clinicId,
+         COALESCE(c.name, f.clinic_id) as clinicName,
+         f.source_id as sourceId,
+         s.source_system as sourceSystem,
+         s.source_key as sourceKey,
+         s.source_label as sourceLabel,
+         s.data_state as dataState,
+         'freshness' as type,
+         'warning' as severity,
+         f.status,
+         'Freshness SLA breached' as title,
+         f.message as detail,
+         f.opened_at as detectedAt,
+         'resolve' as action
+       FROM analytics_freshness_alert f
+       INNER JOIN clinic c ON c.id = f.clinic_id AND c.deleted_at IS NULL
+       LEFT JOIN fleet_ingestion_source s ON s.id = f.source_id AND s.clinic_id = f.clinic_id
+       WHERE f.status = 'open' ${freshnessFilter}
+       ORDER BY f.updated_at DESC
+       LIMIT 200`,
+      params,
+    );
+
+    const reconciliationFilter = includeAllClients ? "" : "AND r.clinic_id = ?";
+    const [reconciliationRows]: any = await pool.execute(
+      `SELECT
+         r.id,
+         r.clinic_id as clinicId,
+         COALESCE(c.name, r.clinic_id) as clinicName,
+         r.source_id as sourceId,
+         s.source_system as sourceSystem,
+         s.source_key as sourceKey,
+         s.source_label as sourceLabel,
+         s.data_state as dataState,
+         'reconciliation' as type,
+         r.severity,
+         r.status,
+         CONCAT('Reconciliation: ', REPLACE(r.issue_type, '_', ' ')) as title,
+         r.entity_key as detail,
+         r.detected_at as detectedAt,
+         'resolve' as action
+       FROM analytics_reconciliation_issue r
+       INNER JOIN clinic c ON c.id = r.clinic_id AND c.deleted_at IS NULL
+       LEFT JOIN fleet_ingestion_source s ON s.id = r.source_id AND s.clinic_id = r.clinic_id
+       WHERE r.status = 'open' ${reconciliationFilter}
+       ORDER BY r.detected_at DESC
+       LIMIT 200`,
+      params,
+    );
+
+    return [...deadLetterRows, ...freshnessRows, ...reconciliationRows].map(toSyncException);
+  }
+
+  async resolveSyncException(clinicId: string, exceptionType: string, exceptionId: string): Promise<{ id: string; type: string; status: "resolved" }> {
+    if (exceptionType === "freshness") {
+      const [result]: any = await pool.execute(
+        `UPDATE analytics_freshness_alert
+         SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ? AND status = 'open'`,
+        [exceptionId, clinicId],
+      );
+      if (Number(result.affectedRows || 0) !== 1) throw ApiError.notFound("Freshness exception was not found.");
+      return { id: exceptionId, type: exceptionType, status: "resolved" };
+    }
+
+    if (exceptionType === "reconciliation") {
+      const [result]: any = await pool.execute(
+        `UPDATE analytics_reconciliation_issue
+         SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ? AND status = 'open'`,
+        [exceptionId, clinicId],
+      );
+      if (Number(result.affectedRows || 0) !== 1) throw ApiError.notFound("Reconciliation exception was not found.");
+      return { id: exceptionId, type: exceptionType, status: "resolved" };
+    }
+
+    throw ApiError.badRequest("Only freshness and reconciliation exceptions can be resolved.");
+  }
+
+  async replayDeadLetterEventForScope(scopeClinicId: string, eventId: string, includeAllClients = false): Promise<FleetQueuedEvent> {
+    const [rows]: any = await pool.execute(
+      `SELECT clinic_id as clinicId FROM fleet_ingestion_event WHERE id = ? AND processing_status = 'dead_letter' LIMIT 1`,
+      [eventId],
+    );
+    const eventClinicId = rows[0]?.clinicId;
+    if (!eventClinicId) throw ApiError.notFound("Dead-letter fleet ingestion event was not found.");
+    if (!includeAllClients && eventClinicId !== scopeClinicId) throw ApiError.notFound("Dead-letter fleet ingestion event was not found.");
+    return this.replayDeadLetterEvent(eventClinicId, eventId);
+  }
+
+  async resolveSyncExceptionForScope(
+    scopeClinicId: string,
+    exceptionType: string,
+    exceptionId: string,
+    includeAllClients = false,
+  ): Promise<{ id: string; type: string; status: "resolved" }> {
+    const table = exceptionType === "freshness"
+      ? "analytics_freshness_alert"
+      : exceptionType === "reconciliation"
+        ? "analytics_reconciliation_issue"
+        : null;
+    if (!table) throw ApiError.badRequest("Only freshness and reconciliation exceptions can be resolved.");
+
+    const [rows]: any = await pool.execute(
+      `SELECT clinic_id as clinicId FROM ${table} WHERE id = ? AND status = 'open' LIMIT 1`,
+      [exceptionId],
+    );
+    const exceptionClinicId = rows[0]?.clinicId;
+    if (!exceptionClinicId) throw ApiError.notFound("Sync exception was not found.");
+    if (!includeAllClients && exceptionClinicId !== scopeClinicId) throw ApiError.notFound("Sync exception was not found.");
+    return this.resolveSyncException(exceptionClinicId, exceptionType, exceptionId);
   }
 
   private async ensureClinicExists(clinicId: string) {

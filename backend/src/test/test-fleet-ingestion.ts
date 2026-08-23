@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import pool, { testConnection } from "../config/database.js";
 import { fleetIngestionService } from "../modules/fleet-ingestion/fleet-ingestion.service.js";
@@ -275,4 +276,99 @@ test("fleet queue retries with limits, dead-letters failures and supports replay
   assert.equal(replayed.retryCount, 0);
   assert.equal(replayCheckpoint.deadLetterCount, 0);
   assert.equal(replayCheckpoint.retryingCount, 1);
+});
+
+test("fleet sync administration shows per-client health, categorized exceptions and scoped actions", async () => {
+  const clinic = await createTestClinicAndAdmin("fleet-sync-admin");
+  const otherClinic = await createTestClinicAndAdmin("fleet-sync-admin-other");
+
+  await fleetIngestionService.configureSource({
+    clinicId: clinic.clinicId,
+    tenantKey: `clinic-os-sync-${clinic.clinicId}`,
+    displayName: "Sync Admin Clinic",
+    sourceSystem: "clinic_os",
+    sourceKey: "lead_feed",
+    sourceLabel: "Clinic OS lead feed",
+    dataState: "partial",
+  });
+  const source = (await fleetIngestionService.listSources(clinic.clinicId))[0]!;
+  const receipt = await fleetIngestionService.ingestEvent({
+    clinicId: clinic.clinicId,
+    sourceSystem: "clinic_os",
+    sourceKey: "lead_feed",
+    sourceEntity: "lead",
+    sourceRecordId: "lead-sync-001",
+    providerEventId: "lead-sync-event-001",
+    payload: { leadId: "lead-sync-001" },
+  });
+  await fleetIngestionService.markEventFailed(clinic.clinicId, receipt.id, {
+    retryable: false,
+    errorClass: "mapping_error",
+    errorMessage: "Could not map lead owner.",
+  });
+
+  const freshnessId = randomUUID();
+  await pool.execute(
+    `INSERT INTO analytics_freshness_alert
+       (id, clinic_id, source_id, alert_key, status, threshold_minutes, observed_lag_minutes, message)
+     VALUES (?, ?, ?, ?, 'open', 60, 180, 'Clinic OS lead feed freshness breached 60 minute threshold.')`,
+    [freshnessId, clinic.clinicId, source.id, `freshness-test:${source.id}`],
+  );
+  const reconciliationId = randomUUID();
+  await pool.execute(
+    `INSERT INTO analytics_reconciliation_issue
+       (id, clinic_id, source_id, issue_type, severity, status, entity_key, details)
+     VALUES (?, ?, ?, 'missing_fact', 'critical', 'open', 'lead-sync-001', ?)`,
+    [reconciliationId, clinic.clinicId, source.id, JSON.stringify({ metricKey: "lead_count" })],
+  );
+
+  await fleetIngestionService.configureSource({
+    clinicId: otherClinic.clinicId,
+    tenantKey: `clinic-os-sync-${otherClinic.clinicId}`,
+    sourceSystem: "clinic_os",
+    sourceKey: "lead_feed",
+    sourceLabel: "Other clinic lead feed",
+    dataState: "live",
+  });
+  const otherReceipt = await fleetIngestionService.ingestEvent({
+    clinicId: otherClinic.clinicId,
+    sourceSystem: "clinic_os",
+    sourceKey: "lead_feed",
+    sourceEntity: "lead",
+    sourceRecordId: "other-lead-sync-001",
+    providerEventId: "other-lead-sync-event-001",
+    payload: { leadId: "other-lead-sync-001" },
+  });
+  await fleetIngestionService.markEventFailed(otherClinic.clinicId, otherReceipt.id, { retryable: false });
+
+  const currentClinic = await fleetIngestionService.getSyncAdministration(clinic.clinicId, false);
+  const allClients = await fleetIngestionService.getSyncAdministration(clinic.clinicId, true);
+
+  assert.equal(currentClinic.scope, "current_clinic");
+  assert.equal(currentClinic.summary.clients, 1);
+  assert.equal(currentClinic.summary.sources, 1);
+  assert.equal(currentClinic.summary.exceptions, 3);
+  assert.equal(currentClinic.health[0]?.sourceDataState, "partial");
+  assert.equal(currentClinic.health[0]?.syncStatus, "dead_letter");
+  assert.equal(currentClinic.health[0]?.slaStatus, "breached");
+  assert.equal(currentClinic.exceptions.map((item) => item.type).sort().join(","), "dead_letter,freshness,reconciliation");
+  assert.equal(allClients.scope, "all_clients");
+  assert.ok(allClients.summary.clients >= 2);
+
+  await assert.rejects(
+    () => fleetIngestionService.replayDeadLetterEventForScope(clinic.clinicId, otherReceipt.id, false),
+    /not found/i,
+  );
+
+  const replayed = await fleetIngestionService.replayDeadLetterEventForScope(clinic.clinicId, receipt.id, false);
+  assert.equal(replayed.processingStatus, "queued");
+
+  const freshnessResolved = await fleetIngestionService.resolveSyncExceptionForScope(clinic.clinicId, "freshness", freshnessId, false);
+  const reconciliationResolved = await fleetIngestionService.resolveSyncExceptionForScope(clinic.clinicId, "reconciliation", reconciliationId, false);
+  assert.equal(freshnessResolved.status, "resolved");
+  assert.equal(reconciliationResolved.status, "resolved");
+
+  const afterResolution = await fleetIngestionService.getSyncAdministration(clinic.clinicId, false);
+  assert.equal(afterResolution.summary.exceptions, 0);
+  assert.equal(afterResolution.health[0]?.slaStatus, "at_risk");
 });

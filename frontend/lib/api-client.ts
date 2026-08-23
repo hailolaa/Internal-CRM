@@ -25,6 +25,7 @@ import { createComplianceApi } from "@/lib/api-client/compliance-api";
 import { createContactsApi } from "@/lib/api-client/contacts-api";
 import { createDeveloperSettingsApi } from "@/lib/api-client/developer-settings-api";
 import { createFormsApi } from "@/lib/api-client/forms-api";
+import { createFleetIngestionApi } from "@/lib/api-client/fleet-ingestion-api";
 import { createGrowthScoresApi } from "@/lib/api-client/growth-scores-api";
 import { createIntegrationInputsApi } from "@/lib/api-client/integration-inputs-api";
 import { createLocationsIntegrationsApi } from "@/lib/api-client/locations-integrations-api";
@@ -123,6 +124,9 @@ export type {
   ConnectorStatusRecord,
   ConnectorSyncPayload,
   ConnectorSyncStatus,
+  FleetSyncAdministrationResponse,
+  FleetSyncException,
+  FleetSyncHealthRow,
   CommandPaletteAction,
   CommandPaletteClinic,
   CommandPaletteQueryParams,
@@ -260,6 +264,7 @@ export const api = {
   ...createQuickBooksApi(apiRequest),
   ...createLocationsIntegrationsApi(apiRequest),
   ...createFormsApi(apiRequest),
+  ...createFleetIngestionApi(apiRequest),
   ...createGrowthScoresApi(apiRequest),
   ...createMarketingApi(apiRequest),
   ...createReportsOpsApi(apiRequest),
