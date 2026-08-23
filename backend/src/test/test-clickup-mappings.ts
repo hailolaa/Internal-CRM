@@ -11,6 +11,7 @@ import pool from "../config/database.js";
 import { config } from "../config/index.js";
 import app from "../app.js";
 import { clickUpService } from "../modules/clickup/clickup.service.js";
+import { tasksService } from "../modules/tasks/tasks.service.js";
 import { generateToken, hashPassword } from "../utils/helpers.js";
 import { encryptProviderCredential } from "../utils/provider-credentials.js";
 
@@ -1256,6 +1257,96 @@ test("ClickUp webhook updates due date, assignee and provider-created tasks with
   } finally {
     mutableConfig.clickup.webhookSecret = originalSecret;
     await closeServer(server);
+  }
+});
+
+test("Mission Control internal task edits sync governed fields back to ClickUp", async () => {
+  const fixture = await createClickUpLifecycleFixture("clickup-outbound-sync");
+  const originalFetch = globalThis.fetch;
+  const providerRequests: Array<{ url: string; init: RequestInit | undefined; body: any }> = [];
+
+  globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+    providerRequests.push({
+      url: String(input),
+      init,
+      body: init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    return new Response(JSON.stringify({ id: fixture.clickupTaskId }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    await tasksService.updateInternalTask(
+      fixture.clinicId,
+      fixture.userId,
+      fixture.taskId,
+      {
+        status: "completed",
+        dueDate: "2026-08-30",
+        assignedTo: "ClickUp assignee 105, ClickUp assignee 106",
+      },
+      { canManageAllClientAccounts: true },
+    );
+
+    const providerRequest = providerRequests[0];
+    assert.ok(providerRequest, "expected outbound ClickUp request");
+    assert.match(providerRequest.url, new RegExp(`/task/${fixture.clickupTaskId}$`));
+    assert.equal(providerRequest.init?.method, "PUT");
+    assert.equal(providerRequest.body.status, "complete");
+    assert.equal(new Date(providerRequest.body.due_date).toISOString().slice(0, 10), "2026-08-30");
+    assert.deepEqual(providerRequest.body.assignees, { add: [105, 106] });
+
+    const [auditRows]: any = await pool.execute(
+      `SELECT action, changes
+       FROM audit_log
+       WHERE clinic_id = ?
+         AND entity_id = ?
+         AND action = 'CLICKUP_OUTBOUND_TASK_SYNCED'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [fixture.clinicId, fixture.taskId],
+    );
+    assert.equal(auditRows[0].action, "CLICKUP_OUTBOUND_TASK_SYNCED");
+    assert.match(JSON.stringify(auditRows[0].changes), /syncLagSeconds/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Mission Control outbound sync holds unmapped assignees for review", async () => {
+  const fixture = await createClickUpLifecycleFixture("clickup-outbound-review");
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+
+  globalThis.fetch = (async () => {
+    providerCalls += 1;
+    return new Response(JSON.stringify({ id: fixture.clickupTaskId }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    await tasksService.updateInternalTask(
+      fixture.clinicId,
+      fixture.userId,
+      fixture.taskId,
+      { assignedTo: "Haile Michael" },
+      { canManageAllClientAccounts: true },
+    );
+
+    assert.equal(providerCalls, 0);
+    const [mappingRows]: any = await pool.execute(
+      `SELECT mapping_status as mappingStatus
+       FROM clickup_task_mapping
+       WHERE id = ?`,
+      [fixture.mappingId],
+    );
+    assert.equal(mappingRows[0].mappingStatus, "needs_review");
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

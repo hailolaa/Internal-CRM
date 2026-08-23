@@ -1621,6 +1621,145 @@ export class ClickUpService {
     return { mapping: updatedMapping, attachmentErrors };
   }
 
+  async syncInternalTaskUpdateToClickUp(
+    clinicId: string,
+    userId: string,
+    internalTaskId: string,
+    changedFields: Record<string, unknown>,
+    auditContext: ClickUpAuditContext = {},
+  ): Promise<{ synced: boolean; needsReview: boolean; reason?: string }> {
+    const outboundKeys = ["title", "description", "status", "dueDate", "assignedTo"];
+    if (!outboundKeys.some((key) => Object.prototype.hasOwnProperty.call(changedFields, key))) {
+      return { synced: false, needsReview: false, reason: "No governed ClickUp fields changed." };
+    }
+
+    const [mappingRows]: any = await pool.execute(
+      `SELECT m.id,
+              m.client_account_profile_id as clientAccountProfileId,
+              m.connection_id as connectionId,
+              m.workspace_id as workspaceId,
+              m.clickup_task_id as clickupTaskId,
+              m.clickup_list_id as clickupListId,
+              m.mapping_status as mappingStatus,
+              t.title,
+              t.description,
+              t.status,
+              DATE_FORMAT(t.due_date, '%Y-%m-%d') as dueDate,
+              t.assigned_to as assignedTo
+       FROM clickup_task_mapping m
+       INNER JOIN task t
+          ON t.id = m.internal_task_id
+         AND t.clinic_id = m.clinic_id
+       WHERE m.clinic_id = ?
+         AND m.internal_task_id = ?
+         AND m.mapping_status = 'active'
+         AND t.is_internal = 1
+         AND t.deleted_at IS NULL
+       LIMIT 1`,
+      [clinicId, internalTaskId],
+    );
+    const mapping = mappingRows[0];
+    if (!mapping) return { synced: false, needsReview: false, reason: "No active ClickUp mapping." };
+
+    const payload: Record<string, unknown> = {};
+    const syncedFields: Record<string, unknown> = {};
+    if (Object.prototype.hasOwnProperty.call(changedFields, "title")) {
+      payload.name = mapping.title;
+      syncedFields.title = mapping.title;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, "description")) {
+      payload.description = mapping.description || "";
+      syncedFields.description = Boolean(mapping.description);
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, "status")) {
+      payload.status = mapping.status === "completed" ? "complete" : "to do";
+      syncedFields.status = mapping.status;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, "dueDate")) {
+      payload.due_date = mapping.dueDate ? new Date(`${mapping.dueDate}T12:00:00.000Z`).getTime() : null;
+      syncedFields.dueDate = mapping.dueDate || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(changedFields, "assignedTo")) {
+      const assigneeIds = this.parseClickUpAssigneeIds(mapping.assignedTo);
+      if (mapping.assignedTo && assigneeIds.length === 0) {
+        await this.markTaskMappingNeedsReview(mapping.id, "Mission Control assignee could not be mapped to ClickUp assignee IDs.");
+        await insertAuditEvent(pool, {
+          clinicId,
+          userId,
+          action: "CLICKUP_OUTBOUND_SYNC_NEEDS_REVIEW",
+          entityType: "task",
+          entityId: internalTaskId,
+          changes: {
+            clickupTaskId: mapping.clickupTaskId,
+            reason: "assigned_to_unmapped",
+            assignedTo: mapping.assignedTo,
+          },
+          ipAddress: auditContext.ipAddress || null,
+          userAgent: auditContext.userAgent || null,
+        });
+        return { synced: false, needsReview: true, reason: "Mission Control assignee is not mapped to ClickUp IDs." };
+      }
+      if (assigneeIds.length > 0) {
+        payload.assignees = { add: assigneeIds.map((id) => Number.isFinite(Number(id)) ? Number(id) : id) };
+        syncedFields.assigneeIds = assigneeIds;
+      }
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return { synced: false, needsReview: false, reason: "No provider payload was required." };
+    }
+
+    try {
+      const connection = await this.getActiveConnection(clinicId, mapping.workspaceId);
+      await this.clickUpRequest(connection, `/task/${encodeURIComponent(mapping.clickupTaskId)}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      await insertAuditEvent(pool, {
+        clinicId,
+        userId,
+        action: "CLICKUP_OUTBOUND_TASK_SYNCED",
+        entityType: "task",
+        entityId: internalTaskId,
+        changes: {
+          clickupTaskId: mapping.clickupTaskId,
+          syncedFields,
+          syncLagSeconds: 0,
+        },
+        ipAddress: auditContext.ipAddress || null,
+        userAgent: auditContext.userAgent || null,
+      });
+      return { synced: true, needsReview: false };
+    } catch (error) {
+      const classified = classifyClickUpProviderFailure(error);
+      await this.markTaskMappingNeedsReview(mapping.id, this.safeErrorMessage(error));
+      await this.upsertSyncCheckpoint({
+        clinicId,
+        connectionId: mapping.connectionId,
+        clientAccountProfileId: mapping.clientAccountProfileId,
+        workspaceId: mapping.workspaceId,
+        clickupListId: mapping.clickupListId,
+        syncStatus: classified.retryable ? "retrying" : "reconciliation_needed",
+        lastError: this.safeErrorMessage(error),
+      });
+      await insertAuditEvent(pool, {
+        clinicId,
+        userId,
+        action: "CLICKUP_OUTBOUND_TASK_SYNC_FAILED",
+        entityType: "task",
+        entityId: internalTaskId,
+        changes: {
+          clickupTaskId: mapping.clickupTaskId,
+          errorClass: classified.errorClass,
+          retryable: classified.retryable,
+        },
+        ipAddress: auditContext.ipAddress || null,
+        userAgent: auditContext.userAgent || null,
+      });
+      return { synced: false, needsReview: true, reason: this.safeErrorMessage(error) };
+    }
+  }
+
   async receiveWebhook(
     headers: Record<string, string | string[] | undefined>,
     body: unknown,
@@ -2753,6 +2892,25 @@ export class ClickUpService {
   private safeErrorMessage(error: any) {
     const message = String(error?.message || "ClickUp sync failed.");
     return message.replace(/Bearer\s+[A-Za-z0-9._~+/-]+/g, "Bearer [redacted]").slice(0, 1000);
+  }
+
+  private parseClickUpAssigneeIds(value: unknown) {
+    const text = cleanString(value);
+    if (!text) return [];
+    const matches = Array.from(text.matchAll(/(?:ClickUp assignee\s*)?([A-Za-z0-9_-]{2,})/gi))
+      .map((match) => match[1] || "")
+      .filter((item): item is string => Boolean(item) && /^\d+$/.test(item));
+    return uniqueStrings(matches);
+  }
+
+  private async markTaskMappingNeedsReview(mappingId: string, reason: string) {
+    await pool.execute(
+      `UPDATE clickup_task_mapping
+       SET mapping_status = 'needs_review',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [mappingId],
+    );
   }
 
   private async listBelongsToClient(clinicId: string, clientAccountProfileId: string, workspaceId: string, listId: string) {

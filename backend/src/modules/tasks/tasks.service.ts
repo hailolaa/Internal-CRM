@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { csvRows } from "../../utils/csv.js";
+import { clickUpService } from "../clickup/clickup.service.js";
 import {
   CreateInternalTaskDTO,
   CreateTaskDTO,
@@ -513,6 +514,8 @@ export class TasksService {
 
     if (result.affectedRows === 0) throw ApiError.notFound("Internal task not found");
     await logAuditEvent({ clinicId, userId, action: "INTERNAL_TASK_UPDATED", entityType: "task", entityId: taskId, changes: { ...data } });
+
+    await clickUpService.syncInternalTaskUpdateToClickUp(clinicId, userId, taskId, data).catch(() => undefined);
 
     if (data.status === "completed") {
       try {
