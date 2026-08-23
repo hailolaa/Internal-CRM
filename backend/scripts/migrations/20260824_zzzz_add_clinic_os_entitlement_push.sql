@@ -1,0 +1,42 @@
+CREATE TABLE IF NOT EXISTS `clinic_os_entitlement_version` (
+  `id` CHAR(36) NOT NULL,
+  `clinic_id` CHAR(36) NOT NULL,
+  `tenant_key` VARCHAR(160) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `version` INT UNSIGNED NOT NULL,
+  `status` ENUM('draft','published','superseded','rolled_back') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'published',
+  `access_tier` ENUM('free_audit','paid_diagnostic','clinic_os') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `growth_score_enabled` TINYINT(1) NOT NULL DEFAULT 0,
+  `paid_diagnostic_confirmed` TINYINT(1) NOT NULL DEFAULT 0,
+  `sufficient_data_confirmed` TINYINT(1) NOT NULL DEFAULT 0,
+  `settings` JSON NOT NULL,
+  `payload_hash` CHAR(64) NOT NULL,
+  `changed_by` VARCHAR(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `rollback_of_version_id` CHAR(36) NULL,
+  `published_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_clinic_os_entitlement_version` (`clinic_id`, `tenant_key`, `version`),
+  KEY `idx_clinic_os_entitlement_active` (`clinic_id`, `tenant_key`, `status`, `published_at`),
+  KEY `fk_clinic_os_entitlement_rollback` (`rollback_of_version_id`),
+  CONSTRAINT `fk_clinic_os_entitlement_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_clinic_os_entitlement_rollback` FOREIGN KEY (`rollback_of_version_id`) REFERENCES `clinic_os_entitlement_version` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `clinic_os_settings_push_outbox` (
+  `id` CHAR(36) NOT NULL,
+  `clinic_id` CHAR(36) NOT NULL,
+  `entitlement_version_id` CHAR(36) NOT NULL,
+  `tenant_key` VARCHAR(160) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` ENUM('pending','sent','acknowledged','failed','superseded') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `payload_hash` CHAR(64) NOT NULL,
+  `sla_due_at` DATETIME NOT NULL,
+  `attempt_count` INT UNSIGNED NOT NULL DEFAULT 0,
+  `last_error` VARCHAR(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_clinic_os_settings_push_version` (`entitlement_version_id`),
+  KEY `idx_clinic_os_settings_push_pending` (`status`, `sla_due_at`, `created_at`),
+  KEY `idx_clinic_os_settings_push_clinic` (`clinic_id`, `tenant_key`, `status`),
+  CONSTRAINT `fk_clinic_os_settings_push_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_clinic_os_settings_push_version` FOREIGN KEY (`entitlement_version_id`) REFERENCES `clinic_os_entitlement_version` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
