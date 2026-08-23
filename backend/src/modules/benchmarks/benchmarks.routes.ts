@@ -8,5 +8,6 @@ const router = Router();
 router.use(authenticate);
 
 router.get("/summary", authorizePermission("reports:read"), benchmarksController.getSummary);
+router.get("/advanced", authorizePermission("reports:read"), benchmarksController.getAdvancedReport);
 
 export default router;

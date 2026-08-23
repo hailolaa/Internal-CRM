@@ -158,8 +158,24 @@ export interface BenchmarkSummaryRecord {
     minimumThreshold: number;
     currentCount: number;
     wording: string;
-    benchmarkSource: "estimated";
+    benchmarkSource: "estimated" | "anonymized_cohort";
+    cohort?: {
+      available: boolean;
+      clinicCount: number;
+      anonymizationThreshold: number;
+      average: number | null;
+      topQuartile: number | null;
+      suppressedReason: string | null;
+    };
+    insight?: string;
   }>;
+  governance?: {
+    accessControl: string;
+    anonymizationThreshold: number;
+    cohortLookbackDays: number;
+    clinicIdentitiesExposed: boolean;
+    notes: string;
+  };
 }
 
 export interface RevenueByChannelRecord {

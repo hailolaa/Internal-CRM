@@ -43,6 +43,7 @@
     "test:quickbooks": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-quickbooks-oauth.js",
     "test:release": "node --test --experimental-test-isolation=none ../scripts/release-verification.test.mjs",
     "test:landing-page-leads": "npm run build && node --test --test-force-exit --test-concurrency=1 dist/test/test-landing-page-lead-intake.js",
+    "test:benchmarks": "npm run build && node --test --test-force-exit --test-concurrency=1 dist/test/test-benchmarks.js",
     "test:data-state": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-data-state-safety.js",
     "test:security": "npm run build && node --test --experimental-test-isolation=none dist/test/test-secret-config.js && npm run security:scan",
     "test:scoro-import": "npm run build && node --test dist/test/test-scoro-import-templates.js dist/test/test-scoro-import-foundation.js",

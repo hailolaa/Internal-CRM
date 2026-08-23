@@ -257,6 +257,13 @@ export function createReportsOpsApi(apiRequest: ApiRequest) {
         );
         return response.data!;
       },
+      async benchmarkAdvanced(token: string) {
+        const response = await apiRequest<BenchmarkSummaryRecord>(
+          "/api/benchmarks/advanced",
+          { token },
+        );
+        return response.data!;
+      },
       async campaignMetrics(token: string) {
         const response = await apiRequest<CampaignMetricRecord[]>(
           "/api/metrics/campaigns",
