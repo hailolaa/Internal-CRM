@@ -1,0 +1,62 @@
+CREATE TABLE IF NOT EXISTS `analytics_dimension` (
+  `id` CHAR(36) NOT NULL,
+  `clinic_id` CHAR(36) NOT NULL,
+  `dimension_type` VARCHAR(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `dimension_key` VARCHAR(160) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `data_state` ENUM('live','demo','preview','partial','provider_dependent','roadmap') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'provider_dependent',
+  `status` ENUM('active','archived') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `metadata` JSON NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_analytics_dimension_identity` (`clinic_id`, `dimension_type`, `dimension_key`),
+  KEY `idx_analytics_dimension_type` (`clinic_id`, `dimension_type`, `status`),
+  CONSTRAINT `fk_analytics_dimension_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `analytics_metric_fact` (
+  `id` CHAR(36) NOT NULL,
+  `clinic_id` CHAR(36) NOT NULL,
+  `metric_key` VARCHAR(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `grain` ENUM('event','daily','weekly','monthly','quarterly','annual') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `grain_date` DATE NOT NULL,
+  `metric_value` DECIMAL(18,4) NOT NULL,
+  `unit` VARCHAR(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'count',
+  `dimension_hash` CHAR(64) NOT NULL,
+  `dimensions` JSON NOT NULL,
+  `provenance` ENUM('exact','manual','connector','estimated','unknown') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'unknown',
+  `source_id` CHAR(36) NULL,
+  `source_event_id` CHAR(36) NULL,
+  `lineage_hash` CHAR(64) NOT NULL,
+  `recorded_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `metadata` JSON NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_analytics_metric_fact_grain` (`clinic_id`, `metric_key`, `grain`, `grain_date`, `dimension_hash`),
+  KEY `idx_analytics_metric_fact_query` (`clinic_id`, `metric_key`, `grain_date`),
+  KEY `idx_analytics_metric_fact_source` (`clinic_id`, `source_id`, `source_event_id`),
+  CONSTRAINT `fk_analytics_metric_fact_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_analytics_metric_fact_source` FOREIGN KEY (`source_id`) REFERENCES `fleet_ingestion_source` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_analytics_metric_fact_event` FOREIGN KEY (`source_event_id`) REFERENCES `fleet_ingestion_event` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `analytics_snapshot` (
+  `id` CHAR(36) NOT NULL,
+  `clinic_id` CHAR(36) NOT NULL,
+  `snapshot_key` VARCHAR(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `as_of_date` DATE NOT NULL,
+  `metric_set` JSON NOT NULL,
+  `source_watermark` JSON NULL,
+  `lineage_hash` CHAR(64) NOT NULL,
+  `created_by_source_id` CHAR(36) NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_analytics_snapshot_identity` (`clinic_id`, `snapshot_key`, `as_of_date`),
+  KEY `idx_analytics_snapshot_query` (`clinic_id`, `snapshot_key`, `as_of_date`),
+  KEY `fk_analytics_snapshot_source` (`created_by_source_id`),
+  CONSTRAINT `fk_analytics_snapshot_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_analytics_snapshot_source` FOREIGN KEY (`created_by_source_id`) REFERENCES `fleet_ingestion_source` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
