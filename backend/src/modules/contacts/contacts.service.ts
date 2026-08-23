@@ -670,10 +670,13 @@ export class ContactsService {
     }
   }
 
-  // List active clinic contacts with the search and facets used by the lead inbox
-  async listContacts(clinicId: string, query: ContactListQuery): Promise<ContactListResponse> {
+  private async listContactsWithLimit(
+    clinicId: string,
+    query: ContactListQuery,
+    maximumLimit: number,
+  ): Promise<ContactListResponse> {
     const page = Math.max(1, Number(query.page) || 1);
-    const limit = Math.min(250, Math.max(1, Number(query.limit || query.pageSize) || 25));
+    const limit = Math.min(maximumLimit, Math.max(1, Number(query.limit || query.pageSize) || 25));
     const offset = (page - 1) * limit;
     const filters = buildListFilters(clinicId, query);
     const sort = getListSort(query.sortBy, query.sortOrder || query.sortDir);
@@ -707,22 +710,27 @@ export class ContactsService {
     };
   }
 
+  // List active clinic contacts with the search and facets used by the lead inbox
+  async listContacts(clinicId: string, query: ContactListQuery): Promise<ContactListResponse> {
+    return this.listContactsWithLimit(clinicId, query, 250);
+  }
+
   async exportContactsCsv(clinicId: string, query: ContactListQuery): Promise<string> {
-    const result = await this.listContacts(clinicId, {
+    const result = await this.listContactsWithLimit(clinicId, {
       ...query,
       page: 1,
       limit: Math.min(5000, Math.max(1, Number(query.limit || query.pageSize) || 5000)),
-    });
+    }, 5000);
 
     return toContactsCsv(result.contacts);
   }
 
   async exportLeadsCsv(clinicId: string, query: ContactListQuery): Promise<string> {
-    const result = await this.listContacts(clinicId, {
+    const result = await this.listContactsWithLimit(clinicId, {
       ...query,
       page: 1,
       limit: Math.min(5000, Math.max(1, Number(query.limit || query.pageSize) || 5000)),
-    });
+    }, 5000);
 
     return toContactsCsv(result.contacts.filter(isLeadExportRecord));
   }

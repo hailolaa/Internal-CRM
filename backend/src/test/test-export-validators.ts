@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { validationResult } from "express-validator";
 import {
   exportContactsValidator,
@@ -29,4 +30,11 @@ test("normal list validators retain the 250-row limit", async () => {
 test("CSV export validators reject limits above the export ceiling", async () => {
   assert.notDeepEqual(await validationErrors(exportContactsValidator, { pageSize: "5001" }), []);
   assert.notDeepEqual(await validationErrors(exportProposalsValidator, { limit: "5001" }), []);
+});
+
+test("contact CSV export uses the export ceiling instead of the normal list page cap", () => {
+  const serviceSource = readFileSync("src/modules/contacts/contacts.service.ts", "utf8");
+  assert.match(serviceSource, /async listContacts\([^)]*\)[\s\S]*listContactsWithLimit\(clinicId, query, 250\)/);
+  assert.match(serviceSource, /async exportContactsCsv[\s\S]*listContactsWithLimit\(clinicId,[\s\S]*5000\)/);
+  assert.match(serviceSource, /async exportLeadsCsv[\s\S]*listContactsWithLimit\(clinicId,[\s\S]*5000\)/);
 });
