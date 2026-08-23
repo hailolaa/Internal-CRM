@@ -11,6 +11,7 @@ import {
 import { proposalsController } from "./proposals.controller.js";
 import {
   createProofAssetValidator,
+  createProposalScopeLibraryItemValidator,
   compareProposalTemplateVersionValidator,
   createProposalTemplateValidator,
   createProposalTemplateVersionValidator,
@@ -24,11 +25,14 @@ import {
   proposalPublicAcceptanceValidator,
   proposalPublicEventValidator,
   proposalPublicTokenParamValidator,
+  proposalScopeLibraryItemIdParamValidator,
   rejectProposalTemplateVersionValidator,
   rollbackProposalTemplateValidator,
+  listProposalScopeLibraryValidator,
   proposalStatusUpdateValidator,
   proposalSourceDataValidator,
   sendProposalValidator,
+  updateProposalScopeLibraryItemValidator,
   updateProposalTemplateVersionValidator,
   updateProposalValidator,
 } from "./proposals.validators.js";
@@ -188,6 +192,46 @@ router.post(
   createProofAssetValidator,
   validate,
   proposalsController.createProofAsset,
+);
+
+router.get(
+  "/scope-library",
+  authorizePermission("proposals:read"),
+  listProposalScopeLibraryValidator,
+  validate,
+  proposalsController.listScopeLibraryItems,
+);
+
+router.post(
+  "/scope-library",
+  authorizePermission("proposals:write"),
+  createProposalScopeLibraryItemValidator,
+  validate,
+  proposalsController.createScopeLibraryItem,
+);
+
+router.patch(
+  "/scope-library/:scopeItemId",
+  authorizePermission("proposals:write"),
+  updateProposalScopeLibraryItemValidator,
+  validate,
+  proposalsController.updateScopeLibraryItem,
+);
+
+router.post(
+  "/scope-library/:scopeItemId/archive",
+  authorizePermission("proposals:write"),
+  proposalScopeLibraryItemIdParamValidator,
+  validate,
+  proposalsController.archiveScopeLibraryItem,
+);
+
+router.post(
+  "/scope-library/:scopeItemId/restore",
+  authorizePermission("proposals:write"),
+  proposalScopeLibraryItemIdParamValidator,
+  validate,
+  proposalsController.restoreScopeLibraryItem,
 );
 
 router.post(

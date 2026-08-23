@@ -79,6 +79,56 @@ export class ProposalsController {
     }
   };
 
+  listScopeLibraryItems = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const result = await proposalsService.listScopeLibraryItems(clinicId, req.query as any);
+      res.status(200).json({ status: "success", data: result });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createScopeLibraryItem = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const item = await proposalsService.createScopeLibraryItem(clinicId, userId, req.body);
+      res.status(201).json({ status: "success", data: item });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateScopeLibraryItem = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const item = await proposalsService.updateScopeLibraryItem(clinicId, userId, String(req.params.scopeItemId), req.body);
+      res.status(200).json({ status: "success", data: item });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  archiveScopeLibraryItem = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const item = await proposalsService.setScopeLibraryItemArchived(clinicId, userId, String(req.params.scopeItemId), true);
+      res.status(200).json({ status: "success", data: item });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  restoreScopeLibraryItem = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const item = await proposalsService.setScopeLibraryItemArchived(clinicId, userId, String(req.params.scopeItemId), false);
+      res.status(200).json({ status: "success", data: item });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listProposalTemplates = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId } = (req as any).user;

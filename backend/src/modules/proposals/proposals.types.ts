@@ -822,6 +822,8 @@ export interface ProposalSectorImage {
 }
 
 export interface ProposalScopeItem {
+  libraryItemId?: string | null;
+  libraryVersion?: number | null;
   category: string;
   title: string;
   clientDescription: string;
@@ -839,6 +841,62 @@ export interface ProposalScopeItem {
   changeReason?: string | null;
   approvalStatus?: "not_required" | "pending" | "approved" | "rejected" | null;
   sortOrder: number;
+}
+
+export type ProposalScopeLibraryStatus = "active" | "archived";
+
+export interface ProposalScopeLibraryQuery {
+  search?: string | null;
+  category?: string | null;
+  status?: ProposalScopeLibraryStatus | "all" | null;
+  templateKey?: string | null;
+  page?: string | number | null;
+  limit?: string | number | null;
+}
+
+export interface ProposalScopeLibraryItemResponse extends ProposalScopeItem {
+  id: string;
+  templateKey: string;
+  name: string;
+  deliverables: string[];
+  status: ProposalScopeLibraryStatus;
+  isActive: boolean;
+  version: number;
+  createdBy: string | null;
+  updatedBy: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProposalScopeLibraryListResponse {
+  items: ProposalScopeLibraryItemResponse[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface ProposalScopeLibraryItemMutationDTO {
+  templateKey?: string | null;
+  name?: string | null;
+  category?: string | null;
+  description?: string | null;
+  clientDescription?: string | null;
+  deliverables?: string[] | null;
+  frequency?: string | null;
+  quantityLimit?: string | null;
+  treatmentsAndLocations?: string | null;
+  dependencies?: string | null;
+  clientResponsibilities?: string | null;
+  exclusions?: string | null;
+  thirdPartyCosts?: string | null;
+  inclusionStatus?: "included" | "excluded" | null;
+  deliveryType?: "recurring" | "one_off" | null;
+  isOptionalAddOn?: boolean | null;
+  sortOrder?: number | null;
 }
 
 export interface ProposalCommercialItem {

@@ -15,6 +15,9 @@ import type {
   ProposalRenderRecord,
   ProposalSendPayload,
   ProposalShareRecord,
+  ProposalScopeLibraryItemPayload,
+  ProposalScopeLibraryItemRecord,
+  ProposalScopeLibraryListRecord,
   ProposalSignatureRequestRecord,
   ProposalSourceDataParams,
   ProposalSourceDataRecord,
@@ -202,6 +205,47 @@ export function createProposalsApi(apiRequest: ApiRequest) {
           token,
           body: JSON.stringify(payload),
         });
+        return response.data!;
+      },
+      async scopeLibrary(token: string, params: { search?: string; category?: string; status?: string; templateKey?: string; page?: number; limit?: number } = {}) {
+        const query = toQuery(params);
+        const response = await apiRequest<ProposalScopeLibraryListRecord>(
+          `/api/proposals/scope-library${query ? `?${query}` : ""}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async createScopeLibraryItem(token: string, payload: ProposalScopeLibraryItemPayload) {
+        const response = await apiRequest<ProposalScopeLibraryItemRecord>("/api/proposals/scope-library", {
+          method: "POST",
+          token,
+          body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async updateScopeLibraryItem(token: string, itemId: string, payload: ProposalScopeLibraryItemPayload) {
+        const response = await apiRequest<ProposalScopeLibraryItemRecord>(
+          `/api/proposals/scope-library/${encodeURIComponent(itemId)}`,
+          {
+            method: "PATCH",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async archiveScopeLibraryItem(token: string, itemId: string) {
+        const response = await apiRequest<ProposalScopeLibraryItemRecord>(
+          `/api/proposals/scope-library/${encodeURIComponent(itemId)}/archive`,
+          { method: "POST", token },
+        );
+        return response.data!;
+      },
+      async restoreScopeLibraryItem(token: string, itemId: string) {
+        const response = await apiRequest<ProposalScopeLibraryItemRecord>(
+          `/api/proposals/scope-library/${encodeURIComponent(itemId)}/restore`,
+          { method: "POST", token },
+        );
         return response.data!;
       },
       async startDiscoverySession(token: string, payload: ProposalDiscoveryStartPayload) {

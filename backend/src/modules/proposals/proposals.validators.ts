@@ -668,6 +668,73 @@ export const createProofAssetValidator = [
   body("isActive").optional({ nullable: true }).isBoolean(),
 ];
 
+const scopeLibraryDeliverablesValidator = body("deliverables")
+  .optional({ nullable: true })
+  .isArray({ max: 30 })
+  .withMessage("deliverables must be a list of up to 30 rows")
+  .custom((rows) => {
+    for (const row of rows || []) {
+      if (typeof row !== "string" || !row.trim() || row.length > 300) {
+        throw new Error("deliverables must contain non-empty rows up to 300 characters");
+      }
+    }
+    return true;
+  });
+
+export const listProposalScopeLibraryValidator = [
+  query("search").optional({ nullable: true }).trim().isLength({ max: 200 }),
+  query("category").optional({ nullable: true }).trim().isLength({ max: 80 }),
+  query("status").optional({ nullable: true }).isIn(["active", "archived", "all"]),
+  query("templateKey").optional({ nullable: true }).trim().isLength({ max: 100 }),
+  query("page").optional({ nullable: true }).isInt({ min: 1, max: 10000 }).toInt(),
+  query("limit").optional({ nullable: true }).isInt({ min: 1, max: 100 }).toInt(),
+];
+
+export const createProposalScopeLibraryItemValidator = [
+  body("templateKey").optional({ nullable: true }).trim().isLength({ min: 1, max: 100 }),
+  body("name").trim().notEmpty().withMessage("Scope item name is required").isLength({ max: 180 }),
+  body("category").trim().notEmpty().withMessage("Scope item category is required").isLength({ max: 80 }),
+  body("description").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("clientDescription").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  scopeLibraryDeliverablesValidator,
+  body("frequency").optional({ nullable: true }).trim().isLength({ max: 120 }),
+  body("quantityLimit").optional({ nullable: true }).trim().isLength({ max: 120 }),
+  body("treatmentsAndLocations").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("dependencies").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("clientResponsibilities").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("exclusions").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("thirdPartyCosts").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("inclusionStatus").optional({ nullable: true }).isIn(["included", "excluded"]),
+  body("deliveryType").optional({ nullable: true }).isIn(["recurring", "one_off"]),
+  body("isOptionalAddOn").optional({ nullable: true }).isBoolean(),
+  body("sortOrder").optional({ nullable: true }).isInt({ min: 0, max: 100000 }).toInt(),
+];
+
+export const updateProposalScopeLibraryItemValidator = [
+  param("scopeItemId").trim().isLength({ min: 1, max: 36 }),
+  body("templateKey").optional({ nullable: true }).trim().isLength({ min: 1, max: 100 }),
+  body("name").optional({ nullable: true }).trim().isLength({ min: 1, max: 180 }),
+  body("category").optional({ nullable: true }).trim().isLength({ min: 1, max: 80 }),
+  body("description").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("clientDescription").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  scopeLibraryDeliverablesValidator,
+  body("frequency").optional({ nullable: true }).trim().isLength({ max: 120 }),
+  body("quantityLimit").optional({ nullable: true }).trim().isLength({ max: 120 }),
+  body("treatmentsAndLocations").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("dependencies").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("clientResponsibilities").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("exclusions").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("thirdPartyCosts").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("inclusionStatus").optional({ nullable: true }).isIn(["included", "excluded"]),
+  body("deliveryType").optional({ nullable: true }).isIn(["recurring", "one_off"]),
+  body("isOptionalAddOn").optional({ nullable: true }).isBoolean(),
+  body("sortOrder").optional({ nullable: true }).isInt({ min: 0, max: 100000 }).toInt(),
+];
+
+export const proposalScopeLibraryItemIdParamValidator = [
+  param("scopeItemId").trim().isLength({ min: 1, max: 36 }),
+];
+
 export const proposalTemplateIdParamValidator = [
   param("templateId").trim().isLength({ min: 1, max: 36 }),
 ];

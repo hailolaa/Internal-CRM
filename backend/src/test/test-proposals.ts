@@ -569,6 +569,99 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(v5Template.activeVersion.status, "published");
     assert.equal(v5Template.activeVersion.versionNumber, 1);
 
+    const scopeLibraryForbidden = await request(baseUrl, "/api/proposals/scope-library", contactsOnly.token);
+    assert.equal(scopeLibraryForbidden.response.status, 403, "scope library reads require proposal access");
+
+    const createdScopeLibraryItem = await request(baseUrl, "/api/proposals/scope-library", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        templateKey: "clinicgrower_v5",
+        name: "Consultation conversion review",
+        category: "Conversion",
+        clientDescription: "Review the booking route, enquiry response and consultation handover points before scale-up.",
+        deliverables: ["Booking route review", "Response ownership notes"],
+        frequency: "One-off",
+        quantityLimit: "One review",
+        inclusionStatus: "included",
+        deliveryType: "one_off",
+        sortOrder: 15,
+      }),
+    });
+    assert.equal(createdScopeLibraryItem.response.status, 201);
+    assert.equal(createdScopeLibraryItem.body.data.templateKey, "clinicgrower_v5");
+    assert.equal(createdScopeLibraryItem.body.data.status, "active");
+    assert.equal(createdScopeLibraryItem.body.data.version, 1);
+    assert.deepEqual(createdScopeLibraryItem.body.data.deliverables, ["Booking route review", "Response ownership notes"]);
+
+    const duplicateScopeLibraryItem = await request(baseUrl, "/api/proposals/scope-library", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        templateKey: "clinicgrower_v5",
+        name: "Consultation conversion review",
+        category: "Conversion",
+        clientDescription: "Duplicate active rows should not be created.",
+      }),
+    });
+    assert.equal(duplicateScopeLibraryItem.response.status, 409);
+
+    const searchedScopeLibrary = await request(
+      baseUrl,
+      "/api/proposals/scope-library?search=booking&category=Conversion&limit=5",
+      writer.token,
+    );
+    assert.equal(searchedScopeLibrary.response.status, 200);
+    assert.equal(searchedScopeLibrary.body.data.pagination.limit, 5);
+    assert.ok(searchedScopeLibrary.body.data.items.some((item: any) => item.id === createdScopeLibraryItem.body.data.id));
+
+    const crossTenantScopeLibrary = await request(baseUrl, "/api/proposals/scope-library?status=all", otherWriter.token);
+    assert.equal(crossTenantScopeLibrary.response.status, 200);
+    assert.equal(
+      crossTenantScopeLibrary.body.data.items.some((item: any) => item.id === createdScopeLibraryItem.body.data.id),
+      false,
+      "scope library rows must stay scoped to the user's clinic",
+    );
+
+    const updatedScopeLibraryItem = await request(
+      baseUrl,
+      `/api/proposals/scope-library/${createdScopeLibraryItem.body.data.id}`,
+      writer.token,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: "Consultation conversion review updated",
+          deliverables: ["Booking route review", "Response ownership notes", "Consultation follow-up check"],
+        }),
+      },
+    );
+    assert.equal(updatedScopeLibraryItem.response.status, 200);
+    assert.equal(updatedScopeLibraryItem.body.data.version, 2);
+    assert.equal(updatedScopeLibraryItem.body.data.name, "Consultation conversion review updated");
+
+    const archivedScopeLibraryItem = await request(
+      baseUrl,
+      `/api/proposals/scope-library/${createdScopeLibraryItem.body.data.id}/archive`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(archivedScopeLibraryItem.response.status, 200);
+    assert.equal(archivedScopeLibraryItem.body.data.status, "archived");
+
+    const activeScopeLibraryAfterArchive = await request(baseUrl, "/api/proposals/scope-library", writer.token);
+    assert.equal(
+      activeScopeLibraryAfterArchive.body.data.items.some((item: any) => item.id === createdScopeLibraryItem.body.data.id),
+      false,
+      "archived scope library rows should not appear in the default active list",
+    );
+
+    const restoredScopeLibraryItem = await request(
+      baseUrl,
+      `/api/proposals/scope-library/${createdScopeLibraryItem.body.data.id}/restore`,
+      writer.token,
+      { method: "POST" },
+    );
+    assert.equal(restoredScopeLibraryItem.response.status, 200);
+    assert.equal(restoredScopeLibraryItem.body.data.status, "active");
+
     const draftTemplateVersion = await request(
       baseUrl,
       `/api/proposals/templates/${v5Template.id}/versions`,
@@ -3308,6 +3401,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       await pool.execute("DELETE FROM proposal_discovery_session WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal_acceptance_record WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+      await pool.execute("DELETE FROM proposal_scope_item WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal_template_version WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal_template WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM contact_document_link WHERE clinic_id = ? AND contact_id = ?", [primaryClinicId, contactId]);

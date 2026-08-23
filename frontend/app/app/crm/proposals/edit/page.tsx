@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, CheckCircle2, Eye, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Eye, Loader2, Plus, RefreshCw, Save, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +24,7 @@ import { getV5Page14MissingFields } from "@/components/proposals/v5/pages/V5Page
 import { getV5Page15MissingFields } from "@/components/proposals/v5/pages/V5Page15Decision";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { GrowthPackageRecord, ProposalCommercialItem, ProposalDataState, ProposalPayload, ProposalProofAssetRecord, ProposalProofAssetType, ProposalPublicRecord, ProposalRecord, ProposalScopeItem, ProposalSectionContent, ProposalSectorImage, ProposalSourceDataRecord, ProposalTemplateRecord } from "@/lib/api-types";
+import type { GrowthPackageRecord, ProposalCommercialItem, ProposalDataState, ProposalPayload, ProposalProofAssetRecord, ProposalProofAssetType, ProposalPublicRecord, ProposalRecord, ProposalScopeItem, ProposalScopeLibraryItemRecord, ProposalSectionContent, ProposalSectorImage, ProposalSourceDataRecord, ProposalTemplateRecord } from "@/lib/api-types";
 import {
   PROPOSAL_CLINIC_TYPE_VARIANT_VERSION,
   getProposalClinicTypeAssetPack,
@@ -1351,6 +1351,8 @@ export default function ProposalEditPage() {
   const [packages, setPackages] = useState<GrowthPackageRecord[]>([]);
   const [proposalTemplates, setProposalTemplates] = useState<ProposalTemplateRecord[]>(fallbackProposalTemplates);
   const [proofAssets, setProofAssets] = useState<ProposalProofAssetRecord[]>([]);
+  const [scopeLibraryItems, setScopeLibraryItems] = useState<ProposalScopeLibraryItemRecord[]>([]);
+  const [scopeLibrarySearch, setScopeLibrarySearch] = useState("");
   const [proofAssetDraft, setProofAssetDraft] = useState<ProofAssetDraft>(emptyProofAssetDraft);
   const [isCreatingProofAsset, setIsCreatingProofAsset] = useState(false);
   const [isLoading, setIsLoading] = useState(Boolean(proposalId));
@@ -1417,6 +1419,18 @@ export default function ProposalEditPage() {
       .map((item) => item.replace(/^Proof:\s*/, "")),
     [proposalClientUseMissingItems],
   );
+  const filteredScopeLibraryItems = useMemo(() => {
+    const term = scopeLibrarySearch.trim().toLowerCase();
+    return scopeLibraryItems
+      .filter((item) => item.status === "active")
+      .filter((item) => !term || [
+        item.name,
+        item.category,
+        item.clientDescription,
+        item.deliverables.join(" "),
+      ].join(" ").toLowerCase().includes(term))
+      .slice(0, 8);
+  }, [scopeLibraryItems, scopeLibrarySearch]);
   const recommendedProofAssetIds = useMemo(
     () => getRecommendedProofAssetIds(proofAssets, form, selectedClinicVariant),
     [form, proofAssets, selectedClinicVariant],
@@ -1767,12 +1781,13 @@ export default function ProposalEditPage() {
 
       setIsLoading(true);
       try {
-        const [packageRecords, templateRecords, proofAssetRecords, proposalRecord] = await Promise.all([
+        const [packageRecords, templateRecords, proofAssetRecords, scopeLibraryResult, proposalRecord] = await Promise.all([
           loadOptionalProposalPackages(
             () => api.packages.list(token, { includeInactive: true }),
           ),
           api.proposals.templates(token).catch(() => fallbackProposalTemplates),
           api.proposals.proofAssets(token).catch(() => []),
+          api.proposals.scopeLibrary(token, { status: "active", limit: 100 }).catch(() => ({ items: [] })),
           proposalId ? api.proposals.get(token, proposalId) : Promise.resolve(null),
         ]);
         if (!active) return;
@@ -1781,6 +1796,7 @@ export default function ProposalEditPage() {
         setPackages(packageRecords);
         setProposalTemplates(activeTemplates);
         setProofAssets(proofAssetRecords);
+        setScopeLibraryItems(scopeLibraryResult.items);
         if (proposalRecord) {
           setForm(formFromProposal(proposalRecord));
           setSavedProposalId(proposalRecord.id);
@@ -1875,6 +1891,37 @@ export default function ProposalEditPage() {
           isCustom: true,
           changeReason: "",
           approvalStatus: "pending",
+          sortOrder: current.scopeItems.length ? Math.max(...current.scopeItems.map((item) => item.sortOrder || 0)) + 10 : 10,
+        },
+      ],
+    }));
+  };
+
+  const addScopeItemFromLibrary = (libraryItem: ProposalScopeLibraryItemRecord) => {
+    if (!canEditCurrentProposal) return;
+    setForm((current) => ({
+      ...current,
+      scopeItems: [
+        ...current.scopeItems,
+        {
+          libraryItemId: libraryItem.id,
+          libraryVersion: libraryItem.version,
+          category: libraryItem.category,
+          title: libraryItem.name,
+          clientDescription: libraryItem.clientDescription,
+          frequency: libraryItem.frequency,
+          quantityLimit: libraryItem.quantityLimit,
+          treatmentsAndLocations: libraryItem.deliverables.join("\n"),
+          dependencies: libraryItem.dependencies,
+          clientResponsibilities: libraryItem.clientResponsibilities,
+          exclusions: libraryItem.exclusions,
+          thirdPartyCosts: libraryItem.thirdPartyCosts,
+          inclusionStatus: libraryItem.inclusionStatus,
+          deliveryType: libraryItem.deliveryType,
+          isOptionalAddOn: libraryItem.isOptionalAddOn,
+          isCustom: false,
+          changeReason: `Copied from scope library item ${libraryItem.name} v${libraryItem.version}.`,
+          approvalStatus: "not_required",
           sortOrder: current.scopeItems.length ? Math.max(...current.scopeItems.map((item) => item.sortOrder || 0)) + 10 : 10,
         },
       ],
@@ -3124,6 +3171,39 @@ export default function ProposalEditPage() {
                             <Plus className="h-4 w-4" />
                             Add custom item
                           </button>
+                        </div>
+                      </div>
+                      <div className="rounded-[8px] border border-[#d8e4df] bg-white p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#6b817a]">Reusable library</p>
+                            <h3 className="mt-1 text-base font-semibold text-[#14231f]">Add approved scope language</h3>
+                            <p className="mt-1 text-sm text-[#5b7069]">Copied rows become proposal-specific and can be tailored without changing the master library item.</p>
+                          </div>
+                          <Link href="/app/crm/proposals/scope-library" className="inline-flex min-h-10 items-center rounded-[8px] border border-[#d8e4df] bg-white px-3 text-sm font-semibold text-[#315f51]">
+                            Manage library
+                          </Link>
+                        </div>
+                        <label className="mt-4 flex min-h-10 items-center gap-2 rounded-[8px] border border-[#d8e4df] bg-[#fbfdfc] px-3">
+                          <Search className="h-4 w-4 text-[#78918a]" />
+                          <input value={scopeLibrarySearch} onChange={(event) => setScopeLibrarySearch(event.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="Search scope, deliverables or wording" />
+                        </label>
+                        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                          {filteredScopeLibraryItems.length ? filteredScopeLibraryItems.map((libraryItem) => (
+                            <button
+                              key={libraryItem.id}
+                              type="button"
+                              onClick={() => addScopeItemFromLibrary(libraryItem)}
+                              disabled={!canEditCurrentProposal}
+                              className="min-h-[88px] rounded-[8px] border border-[#d8e4df] bg-[#fbfdfc] p-3 text-left text-sm hover:border-[#315f51] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <span className="font-semibold text-[#14231f]">{libraryItem.name}</span>
+                              <span className="mt-1 block text-xs text-[#5b7069]">{libraryItem.category} · v{libraryItem.version}</span>
+                              <span className="mt-2 block line-clamp-2 text-xs leading-5 text-[#5b7069]">{libraryItem.clientDescription}</span>
+                            </button>
+                          )) : (
+                            <p className="rounded-[8px] border border-dashed border-[#d8e4df] p-3 text-sm text-[#5b7069]">No active library items match this search.</p>
+                          )}
                         </div>
                       </div>
                       <div className="space-y-3">

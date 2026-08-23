@@ -45,6 +45,10 @@ import type {
   ProposalProofAssetMutationDTO,
   ProposalProofAssetResponse,
   ProposalProofAssetType,
+  ProposalScopeLibraryItemMutationDTO,
+  ProposalScopeLibraryItemResponse,
+  ProposalScopeLibraryListResponse,
+  ProposalScopeLibraryQuery,
   ProposalPublicAcceptanceDTO,
   ProposalPublicAcceptanceSummary,
   ProposalResponse,
@@ -1065,6 +1069,8 @@ function diffTemplateContent(before: unknown, after: unknown, prefix = ""): Prop
 
 function mapProposalScopeItem(row: any): ProposalScopeItem {
   return {
+    libraryItemId: row.libraryItemId || null,
+    libraryVersion: row.libraryVersion ? Number(row.libraryVersion) : null,
     category: row.category,
     title: row.title,
     clientDescription: row.clientDescription,
@@ -1082,6 +1088,26 @@ function mapProposalScopeItem(row: any): ProposalScopeItem {
     changeReason: row.changeReason || null,
     approvalStatus: row.approvalStatus || "not_required",
     sortOrder: Number(row.sortOrder || 0),
+  };
+}
+
+function mapProposalScopeLibraryItem(row: any): ProposalScopeLibraryItemResponse {
+  return {
+    ...mapProposalScopeItem(row),
+    id: row.id,
+    libraryItemId: row.id,
+    libraryVersion: Number(row.version || 1),
+    templateKey: row.templateKey,
+    name: row.name || row.title,
+    deliverables: parseJsonArray(row.deliverables),
+    status: row.status === "archived" || row.isActive === 0 ? "archived" : "active",
+    isActive: Boolean(row.isActive),
+    version: Number(row.version || 1),
+    createdBy: row.createdBy || null,
+    updatedBy: row.updatedBy || null,
+    archivedAt: row.archivedAt ? new Date(row.archivedAt).toISOString() : null,
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.updatedAt).toISOString(),
   };
 }
 
@@ -1399,6 +1425,307 @@ export class ProposalsService {
       [id, clinicId],
     );
     return mapProposalProofAsset(rows[0]);
+  }
+
+  private async resolveScopeLibraryTemplateKey(clinicId: string, requestedTemplateKey?: string | null) {
+    const requested = cleanString(requestedTemplateKey);
+    if (requested) {
+      const [rows]: any = await pool.execute(
+        `SELECT template_key as templateKey
+         FROM proposal_template
+         WHERE clinic_id = ?
+           AND template_key = ?
+         LIMIT 1`,
+        [clinicId, requested],
+      );
+      if (rows[0]) return String(rows[0].templateKey);
+      throw ApiError.badRequest("Scope library template key is not available for this workspace");
+    }
+
+    const [rows]: any = await pool.execute(
+      `SELECT template_key as templateKey
+       FROM proposal_template
+       WHERE clinic_id = ?
+       ORDER BY is_active DESC, sort_order ASC, name ASC
+       LIMIT 1`,
+      [clinicId],
+    );
+    if (!rows[0]) throw ApiError.badRequest("Create a proposal template before adding scope library items");
+    return String(rows[0].templateKey);
+  }
+
+  private scopeLibrarySelectSql() {
+    return `SELECT id,
+                   template_key as templateKey,
+                   title as name,
+                   category,
+                   title,
+                   client_description as clientDescription,
+                   deliverables,
+                   frequency,
+                   quantity_limit as quantityLimit,
+                   inclusion_status as inclusionStatus,
+                   delivery_type as deliveryType,
+                   is_optional_add_on as isOptionalAddOn,
+                   internal_notes as internalNotes,
+                   sort_order as sortOrder,
+                   is_active as isActive,
+                   status,
+                   version,
+                   created_by as createdBy,
+                   updated_by as updatedBy,
+                   archived_at as archivedAt,
+                   created_at as createdAt,
+                   updated_at as updatedAt
+            FROM proposal_scope_item`;
+  }
+
+  async listScopeLibraryItems(
+    clinicId: string,
+    query: ProposalScopeLibraryQuery = {},
+  ): Promise<ProposalScopeLibraryListResponse> {
+    const filters: string[] = ["clinic_id = ?"];
+    const values: unknown[] = [clinicId];
+    const status = cleanString(query.status) || "active";
+    if (status !== "all") {
+      filters.push("status = ?");
+      values.push(status === "archived" ? "archived" : "active");
+    }
+    const category = cleanString(query.category);
+    if (category) {
+      filters.push("category = ?");
+      values.push(category);
+    }
+    const templateKey = cleanString(query.templateKey);
+    if (templateKey) {
+      filters.push("template_key = ?");
+      values.push(templateKey);
+    }
+    const search = cleanString(query.search);
+    if (search) {
+      filters.push("(title LIKE ? OR client_description LIKE ? OR COALESCE(CAST(deliverables AS CHAR), '') LIKE ?)");
+      values.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    const page = Math.max(1, Number(query.page || 1));
+    const limit = Math.min(100, Math.max(1, Number(query.limit || 25)));
+    const offset = (page - 1) * limit;
+
+    const where = filters.join(" AND ");
+    const [countRows]: any = await pool.execute(
+      `SELECT COUNT(*) as total FROM proposal_scope_item WHERE ${where}`,
+      values as any[],
+    );
+    const total = Number(countRows[0]?.total || 0);
+    const [rows]: any = await pool.execute(
+      `${this.scopeLibrarySelectSql()}
+       WHERE ${where}
+       ORDER BY sort_order ASC, category ASC, title ASC
+       LIMIT ${limit} OFFSET ${offset}`,
+      values as any[],
+    );
+
+    return {
+      items: rows.map(mapProposalScopeLibraryItem),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    };
+  }
+
+  async createScopeLibraryItem(
+    clinicId: string,
+    userId: string,
+    data: ProposalScopeLibraryItemMutationDTO,
+  ): Promise<ProposalScopeLibraryItemResponse> {
+    const templateKey = await this.resolveScopeLibraryTemplateKey(clinicId, data.templateKey);
+    const name = cleanString(data.name);
+    const category = cleanString(data.category);
+    const description = cleanString(data.clientDescription || data.description);
+    if (!name || !category || !description) {
+      throw ApiError.badRequest("Scope library name, category and description are required");
+    }
+    const [duplicates]: any = await pool.execute(
+      `SELECT id FROM proposal_scope_item
+       WHERE clinic_id = ?
+         AND template_key = ?
+         AND LOWER(category) = LOWER(?)
+         AND LOWER(title) = LOWER(?)
+         AND status = 'active'
+       LIMIT 1`,
+      [clinicId, templateKey, category, name],
+    );
+    if (duplicates[0]) throw ApiError.conflict("An active scope library item with this name already exists");
+
+    const id = uuidv4();
+    const deliverables = Array.isArray(data.deliverables)
+      ? data.deliverables.map((item) => cleanString(item)).filter(Boolean)
+      : [];
+    await pool.execute(
+      `INSERT INTO proposal_scope_item
+        (id, clinic_id, template_key, category, title, client_description, deliverables, frequency, quantity_limit,
+         inclusion_status, delivery_type, is_optional_add_on, internal_notes, sort_order, is_active, status,
+         version, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', 1, ?, ?)`,
+      [
+        id,
+        clinicId,
+        templateKey,
+        category,
+        name,
+        description,
+        JSON.stringify(deliverables),
+        cleanString(data.frequency),
+        cleanString(data.quantityLimit),
+        data.inclusionStatus === "excluded" ? "excluded" : "included",
+        data.deliveryType === "one_off" ? "one_off" : "recurring",
+        data.isOptionalAddOn ? 1 : 0,
+        cleanString([
+          data.treatmentsAndLocations ? `Treatments/locations: ${data.treatmentsAndLocations}` : "",
+          data.dependencies ? `Dependencies: ${data.dependencies}` : "",
+          data.clientResponsibilities ? `Client responsibilities: ${data.clientResponsibilities}` : "",
+          data.exclusions ? `Exclusions: ${data.exclusions}` : "",
+          data.thirdPartyCosts ? `Third-party costs: ${data.thirdPartyCosts}` : "",
+        ].filter(Boolean).join("\n")),
+        data.sortOrder ?? 0,
+        userId,
+        userId,
+      ],
+    );
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "PROPOSAL_SCOPE_LIBRARY_ITEM_CREATED",
+      entityType: "proposal_scope_item",
+      entityId: id,
+      changes: { name, category, templateKey },
+    });
+    return this.getScopeLibraryItem(clinicId, id);
+  }
+
+  async updateScopeLibraryItem(
+    clinicId: string,
+    userId: string,
+    itemId: string,
+    data: ProposalScopeLibraryItemMutationDTO,
+  ): Promise<ProposalScopeLibraryItemResponse> {
+    const existing = await this.getScopeLibraryItem(clinicId, itemId);
+    const templateKey = data.templateKey !== undefined
+      ? await this.resolveScopeLibraryTemplateKey(clinicId, data.templateKey)
+      : existing.templateKey;
+    const name = cleanString(data.name) || existing.name;
+    const category = cleanString(data.category) || existing.category;
+    const description = cleanString(data.clientDescription || data.description) || existing.clientDescription;
+    const deliverables = data.deliverables !== undefined
+      ? (data.deliverables || []).map((item) => cleanString(item)).filter(Boolean)
+      : existing.deliverables;
+    const [duplicates]: any = await pool.execute(
+      `SELECT id FROM proposal_scope_item
+       WHERE clinic_id = ?
+         AND id <> ?
+         AND template_key = ?
+         AND LOWER(category) = LOWER(?)
+         AND LOWER(title) = LOWER(?)
+         AND status = 'active'
+       LIMIT 1`,
+      [clinicId, itemId, templateKey, category, name],
+    );
+    if (duplicates[0]) throw ApiError.conflict("An active scope library item with this name already exists");
+
+    await pool.execute(
+      `UPDATE proposal_scope_item
+       SET template_key = ?,
+           category = ?,
+           title = ?,
+           client_description = ?,
+           deliverables = ?,
+           frequency = ?,
+           quantity_limit = ?,
+           inclusion_status = ?,
+           delivery_type = ?,
+           is_optional_add_on = ?,
+           internal_notes = ?,
+           sort_order = ?,
+           updated_by = ?,
+           version = version + 1
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [
+        templateKey,
+        category,
+        name,
+        description,
+        JSON.stringify(deliverables),
+        data.frequency !== undefined ? cleanString(data.frequency) : existing.frequency,
+        data.quantityLimit !== undefined ? cleanString(data.quantityLimit) : existing.quantityLimit,
+        data.inclusionStatus === "excluded" ? "excluded" : existing.inclusionStatus,
+        data.deliveryType === "one_off" ? "one_off" : existing.deliveryType,
+        data.isOptionalAddOn !== undefined ? (data.isOptionalAddOn ? 1 : 0) : existing.isOptionalAddOn ? 1 : 0,
+        cleanString([
+          data.treatmentsAndLocations ? `Treatments/locations: ${data.treatmentsAndLocations}` : "",
+          data.dependencies ? `Dependencies: ${data.dependencies}` : "",
+          data.clientResponsibilities ? `Client responsibilities: ${data.clientResponsibilities}` : "",
+          data.exclusions ? `Exclusions: ${data.exclusions}` : "",
+          data.thirdPartyCosts ? `Third-party costs: ${data.thirdPartyCosts}` : "",
+        ].filter(Boolean).join("\n")),
+        data.sortOrder ?? existing.sortOrder,
+        userId,
+        itemId,
+        clinicId,
+      ] as any[],
+    );
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "PROPOSAL_SCOPE_LIBRARY_ITEM_UPDATED",
+      entityType: "proposal_scope_item",
+      entityId: itemId,
+      changes: { name, category, templateKey, previousVersion: existing.version },
+    });
+    return this.getScopeLibraryItem(clinicId, itemId);
+  }
+
+  async setScopeLibraryItemArchived(
+    clinicId: string,
+    userId: string,
+    itemId: string,
+    archived: boolean,
+  ): Promise<ProposalScopeLibraryItemResponse> {
+    const existing = await this.getScopeLibraryItem(clinicId, itemId);
+    await pool.execute(
+      `UPDATE proposal_scope_item
+       SET status = ?,
+           is_active = ?,
+           archived_at = ?,
+           updated_by = ?,
+           version = version + 1
+       WHERE id = ?
+         AND clinic_id = ?`,
+      [archived ? "archived" : "active", archived ? 0 : 1, archived ? new Date() : null, userId, itemId, clinicId],
+    );
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: archived ? "PROPOSAL_SCOPE_LIBRARY_ITEM_ARCHIVED" : "PROPOSAL_SCOPE_LIBRARY_ITEM_RESTORED",
+      entityType: "proposal_scope_item",
+      entityId: itemId,
+      changes: { previousStatus: existing.status, status: archived ? "archived" : "active" },
+    });
+    return this.getScopeLibraryItem(clinicId, itemId);
+  }
+
+  private async getScopeLibraryItem(clinicId: string, itemId: string): Promise<ProposalScopeLibraryItemResponse> {
+    const [rows]: any = await pool.execute(
+      `${this.scopeLibrarySelectSql()}
+       WHERE id = ?
+         AND clinic_id = ?
+       LIMIT 1`,
+      [itemId, clinicId],
+    );
+    if (!rows[0]) throw ApiError.notFound("Scope library item not found");
+    return mapProposalScopeLibraryItem(rows[0]);
   }
 
   async listProposalTemplates(clinicId: string, includeInactive = false): Promise<ProposalTemplateResponse[]> {

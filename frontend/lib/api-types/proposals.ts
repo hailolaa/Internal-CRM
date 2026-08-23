@@ -550,6 +550,8 @@ export interface ProposalDiscoveryDraftResult {
 }
 
 export interface ProposalScopeItem {
+  libraryItemId?: string | null;
+  libraryVersion?: number | null;
   category: string;
   title: string;
   clientDescription: string;
@@ -567,6 +569,53 @@ export interface ProposalScopeItem {
   changeReason?: string | null;
   approvalStatus?: "not_required" | "pending" | "approved" | "rejected" | null;
   sortOrder: number;
+}
+
+export type ProposalScopeLibraryStatus = "active" | "archived";
+
+export interface ProposalScopeLibraryItemRecord extends ProposalScopeItem {
+  id: string;
+  templateKey: string;
+  name: string;
+  deliverables: string[];
+  status: ProposalScopeLibraryStatus;
+  isActive: boolean;
+  version: number;
+  createdBy: string | null;
+  updatedBy: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProposalScopeLibraryListRecord {
+  items: ProposalScopeLibraryItemRecord[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface ProposalScopeLibraryItemPayload {
+  templateKey?: string | null;
+  name?: string | null;
+  category?: string | null;
+  description?: string | null;
+  clientDescription?: string | null;
+  deliverables?: string[] | null;
+  frequency?: string | null;
+  quantityLimit?: string | null;
+  treatmentsAndLocations?: string | null;
+  dependencies?: string | null;
+  clientResponsibilities?: string | null;
+  exclusions?: string | null;
+  thirdPartyCosts?: string | null;
+  inclusionStatus?: "included" | "excluded" | null;
+  deliveryType?: "recurring" | "one_off" | null;
+  isOptionalAddOn?: boolean | null;
+  sortOrder?: number | null;
 }
 
 export interface ProposalCommercialItem {
