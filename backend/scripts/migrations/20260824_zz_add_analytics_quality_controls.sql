@@ -1,0 +1,62 @@
+CREATE TABLE IF NOT EXISTS `analytics_backfill_run` (
+  `id` CHAR(36) NOT NULL,
+  `clinic_id` CHAR(36) NOT NULL,
+  `source_id` CHAR(36) NULL,
+  `backfill_key` VARCHAR(160) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` ENUM('queued','running','paused','completed','failed') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'queued',
+  `cursor` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `records_seen` INT UNSIGNED NOT NULL DEFAULT 0,
+  `records_written` INT UNSIGNED NOT NULL DEFAULT 0,
+  `records_quarantined` INT UNSIGNED NOT NULL DEFAULT 0,
+  `last_error` VARCHAR(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `started_at` DATETIME NULL,
+  `completed_at` DATETIME NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_analytics_backfill_run_key` (`clinic_id`, `backfill_key`),
+  KEY `idx_analytics_backfill_run_status` (`clinic_id`, `status`, `updated_at`),
+  KEY `fk_analytics_backfill_run_source` (`source_id`),
+  CONSTRAINT `fk_analytics_backfill_run_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_analytics_backfill_run_source` FOREIGN KEY (`source_id`) REFERENCES `fleet_ingestion_source` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `analytics_reconciliation_issue` (
+  `id` CHAR(36) NOT NULL,
+  `clinic_id` CHAR(36) NOT NULL,
+  `source_id` CHAR(36) NULL,
+  `issue_type` ENUM('missing_fact','duplicate_source_event','stale_source','lineage_gap') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `severity` ENUM('info','warning','critical') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'warning',
+  `status` ENUM('open','resolved') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'open',
+  `entity_key` VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `details` JSON NULL,
+  `detected_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `resolved_at` DATETIME NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_analytics_reconciliation_open` (`clinic_id`, `status`, `issue_type`, `detected_at`),
+  KEY `idx_analytics_reconciliation_source` (`clinic_id`, `source_id`, `status`),
+  CONSTRAINT `fk_analytics_reconciliation_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_analytics_reconciliation_source` FOREIGN KEY (`source_id`) REFERENCES `fleet_ingestion_source` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `analytics_freshness_alert` (
+  `id` CHAR(36) NOT NULL,
+  `clinic_id` CHAR(36) NOT NULL,
+  `source_id` CHAR(36) NOT NULL,
+  `alert_key` VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` ENUM('open','resolved') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'open',
+  `threshold_minutes` INT UNSIGNED NOT NULL,
+  `observed_lag_minutes` INT UNSIGNED NULL,
+  `message` VARCHAR(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `opened_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `resolved_at` DATETIME NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_analytics_freshness_alert_key` (`clinic_id`, `alert_key`),
+  KEY `idx_analytics_freshness_alert_status` (`clinic_id`, `status`, `updated_at`),
+  CONSTRAINT `fk_analytics_freshness_alert_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_analytics_freshness_alert_source` FOREIGN KEY (`source_id`) REFERENCES `fleet_ingestion_source` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
