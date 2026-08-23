@@ -211,6 +211,8 @@ export interface FailedTaskMapping {
   clientAccountProfileId: string;
   clientClinicId: string;
   clientName: string;
+  clientDataState: string;
+  clientDataStateLabel: string | null;
   clickupListId: string | null;
   updatedAt: string;
 }
@@ -240,6 +242,8 @@ export interface ClickUpSyncHealthRecord {
   clientAccountProfileId: string;
   clientClinicId: string | null;
   clientName: string;
+  clientDataState: string;
+  clientDataStateLabel: string | null;
   workspaceId: string;
   clickupListId: string | null;
   syncStatus: ClickUpSyncHealthStatus;
@@ -259,6 +263,8 @@ export interface ClickUpWebhookEventRecord {
   clickupTaskId: string | null;
   clientAccountProfileId: string | null;
   clientName: string | null;
+  clientDataState: string | null;
+  clientDataStateLabel: string | null;
   processingStatus: ClickUpWebhookProcessingStatus;
   retryCount: number;
   nextRetryAt: string | null;

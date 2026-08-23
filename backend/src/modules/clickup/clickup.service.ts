@@ -402,6 +402,8 @@ function mapSyncHealth(row: any): ClickUpSyncHealthRecord {
     clientAccountProfileId: row.clientAccountProfileId,
     clientClinicId: row.clientClinicId || null,
     clientName: row.clientName || "Mapped client",
+    clientDataState: row.clientDataState || "live",
+    clientDataStateLabel: row.clientDataStateLabel || null,
     workspaceId: row.workspaceId,
     clickupListId: row.clickupListId || null,
     syncStatus: row.syncStatus,
@@ -423,6 +425,8 @@ function mapWebhookEvent(row: any): ClickUpWebhookEventRecord {
     clickupTaskId: row.clickupTaskId || null,
     clientAccountProfileId: row.clientAccountProfileId || null,
     clientName: row.clientName || null,
+    clientDataState: row.clientDataState || null,
+    clientDataStateLabel: row.clientDataStateLabel || null,
     processingStatus: row.processingStatus,
     retryCount: Number(row.retryCount || 0),
     nextRetryAt: toIsoString(row.nextRetryAt),
@@ -1843,6 +1847,8 @@ export class ClickUpService {
               m.client_account_profile_id as clientAccountProfileId,
               cap.clinic_id as clientClinicId,
               c.name as clientName,
+              c.data_state as clientDataState,
+              c.data_state_label as clientDataStateLabel,
               m.workspace_id as workspaceId,
               m.list_id as clickupListId,
               CASE
@@ -1911,7 +1917,9 @@ export class ClickUpService {
               m.clickup_list_id, m.updated_at,
               t.title as internal_task_title,
               p.clinic_id as client_clinic_id,
-              c.name as client_name
+              c.name as client_name,
+              c.data_state as client_data_state,
+              c.data_state_label as client_data_state_label
        FROM clickup_task_mapping m
        LEFT JOIN task t ON m.internal_task_id = t.id
        LEFT JOIN client_account_profile p ON m.client_account_profile_id = p.id
@@ -1928,6 +1936,8 @@ export class ClickUpService {
       clientAccountProfileId: row.client_account_profile_id,
       clientClinicId: row.client_clinic_id || clinicId,
       clientName: row.client_name || "Unknown Client",
+      clientDataState: row.client_data_state || "live",
+      clientDataStateLabel: row.client_data_state_label || null,
       clickupListId: row.clickup_list_id,
       updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
     }));
@@ -2272,7 +2282,9 @@ export class ClickUpService {
             e.error_message as errorMessage,
             e.received_at as receivedAt,
             e.processed_at as processedAt,
-            c.name as clientName`;
+            c.name as clientName,
+            c.data_state as clientDataState,
+            c.data_state_label as clientDataStateLabel`;
   }
 
   private async processWebhookEvent(eventId: string): Promise<ClickUpWebhookProcessingStatus> {

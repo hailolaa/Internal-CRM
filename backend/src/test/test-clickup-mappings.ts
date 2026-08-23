@@ -124,15 +124,15 @@ async function closeServer(server: Server) {
   });
 }
 
-async function createClientAccount(prefix: string) {
+async function createClientAccount(prefix: string, dataState = "live", dataStateLabel: string | null = null) {
   const clientClinicId = uuidv4();
   const profileId = uuidv4();
 
   await pool.execute(
     `INSERT INTO clinic
       (id, name, email, phone, address, city, state, postal_code, country, timezone,
-       subscription_plan, subscription_status, max_users)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'professional', 'active', 20)`,
+       subscription_plan, subscription_status, data_state, data_state_label, is_demo, max_users)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'professional', 'active', ?, ?, ?, 20)`,
     [
       clientClinicId,
       `${prefix} Client`,
@@ -144,6 +144,9 @@ async function createClientAccount(prefix: string) {
       "W1G 9QH",
       "UK",
       "Europe/London",
+      dataState,
+      dataStateLabel,
+      dataState === "demo" ? 1 : 0,
     ],
   );
 
@@ -156,9 +159,9 @@ async function createClientAccount(prefix: string) {
   return { clientClinicId, profileId };
 }
 
-async function createClickUpLifecycleFixture(prefix: string) {
+async function createClickUpLifecycleFixture(prefix: string, dataState = "live", dataStateLabel: string | null = null) {
   const workspace = await createWorkspace(prefix);
-  const client = await createClientAccount(`${prefix}-client`);
+  const client = await createClientAccount(`${prefix}-client`, dataState, dataStateLabel);
   const connectionId = uuidv4();
   const taskId = uuidv4();
   const mappingId = uuidv4();
@@ -1347,6 +1350,55 @@ test("ClickUp reconciliation classifies 429, 5xx and permanent 4xx provider fail
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("ClickUp reconciliation exposes client data-state labels on health and exception rows", async () => {
+  const providerFixture = await createClickUpLifecycleFixture(
+    "clickup-reconcile-provider-state",
+    "provider-dependent",
+    "Provider connection required before this feed is complete",
+  );
+
+  await pool.execute(
+    `UPDATE clickup_task_mapping
+     SET mapping_status = 'needs_review'
+     WHERE id = ?`,
+    [providerFixture.mappingId],
+  );
+
+  const webhookId = unique("wh-provider-state");
+  await pool.execute(
+    `INSERT INTO clickup_webhook_event
+      (id, clinic_id, connection_id, client_account_profile_id, task_mapping_id,
+       workspace_id, webhook_id, provider_event_key, provider_event_type,
+       clickup_task_id, payload_hash, payload_summary, processing_status, retry_count, error_class, error_message)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'taskUpdated', ?, ?, ?, 'dead_letter', 5, 'provider_retry_exhausted', 'Retries exhausted')`,
+    [
+      uuidv4(),
+      providerFixture.clinicId,
+      providerFixture.connectionId,
+      providerFixture.client.profileId,
+      providerFixture.mappingId,
+      providerFixture.clickupWorkspaceId,
+      webhookId,
+      `${webhookId}:history`,
+      providerFixture.clickupTaskId,
+      "0".repeat(64),
+      JSON.stringify({ taskId: providerFixture.clickupTaskId, event: "taskUpdated" }),
+    ],
+  );
+
+  const response = await clickUpService.getReconciliationStatus(providerFixture.clinicId);
+  const providerHealth = response.syncHealth.find((row) => row.clientAccountProfileId === providerFixture.client.profileId);
+  const providerMapping = response.failedTaskMappings.find((row) => row.clientAccountProfileId === providerFixture.client.profileId);
+  const providerEvent = response.deadLetterEvents.find((row) => row.clientAccountProfileId === providerFixture.client.profileId);
+
+  assert.equal(providerHealth?.clientDataState, "provider-dependent");
+  assert.equal(providerHealth?.clientDataStateLabel, "Provider connection required before this feed is complete");
+  assert.equal(providerMapping?.clientDataState, "provider-dependent");
+  assert.equal(providerMapping?.clientDataStateLabel, "Provider connection required before this feed is complete");
+  assert.equal(providerEvent?.clientDataState, "provider-dependent");
+  assert.equal(providerEvent?.clientDataStateLabel, "Provider connection required before this feed is complete");
 });
 
 test("ClickUp dead-letter replay reprocesses the original event with idempotency intact", async () => {

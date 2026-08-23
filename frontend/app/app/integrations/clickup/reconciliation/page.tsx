@@ -25,6 +25,7 @@ import {
   clickUpSyncStatusMeta,
   summarizeClickUpReconciliation,
 } from "@/lib/clickup-reconciliation";
+import { getDataStatePresentation } from "@/lib/data-state";
 import { useAuth } from "@/lib/auth-context";
 import { AlertBanner, SkeletonLine } from "@/components/ui";
 
@@ -46,6 +47,26 @@ function StatusPill({ label, tone }: { label: string; tone: ClickUpStatusTone })
   return (
     <span className={`inline-flex h-7 items-center rounded-full border px-2.5 text-[11px] font-bold uppercase tracking-[0.08em] ${toneClass(tone)}`}>
       {label}
+    </span>
+  );
+}
+
+function DataStatePill({ value, label }: { value?: string | null; label?: string | null }) {
+  const presentation = getDataStatePresentation(value || "live", label);
+  const tone =
+    presentation.tone === "live"
+      ? "border-[#B9E2D1] bg-[#F1FAF5] text-[#23674F]"
+      : presentation.tone === "demo"
+        ? "border-[#C9C7FF] bg-[#F1F0FF] text-[#5751B5]"
+        : presentation.tone === "info"
+          ? "border-[#C9DDF8] bg-[#F1F7FF] text-[#315F85]"
+          : presentation.tone === "warning"
+            ? "border-[#EBD3A3] bg-[#FFF8EC] text-[#8A6428]"
+            : "border-black/[0.08] bg-[#F7F4F0] text-[#625F5A]";
+
+  return (
+    <span className={`inline-flex min-h-7 max-w-full items-center rounded-full border px-2.5 text-[11px] font-bold uppercase tracking-[0.08em] ${tone}`}>
+      <span className="truncate">{presentation.label}</span>
     </span>
   );
 }
@@ -289,6 +310,7 @@ export default function ReconciliationPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="truncate text-base font-semibold text-[#1E1C1A]">{row.clientName}</h3>
+                        <DataStatePill value={row.clientDataState} label={row.clientDataStateLabel} />
                         <StatusPill label={meta.label} tone={meta.tone} />
                       </div>
                       <p className="mt-1 text-sm leading-5 text-[#6C6761]">{meta.description}</p>
@@ -376,7 +398,10 @@ function ReviewMappings({
             return (
               <article key={task.id} className="rounded-2xl border border-black/[0.06] bg-white p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#817B75]">{task.clientName}</p>
-                <h3 className="mt-1 text-base font-semibold text-[#302D2A]">{task.internalTaskTitle || "Task mapping"}</h3>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <h3 className="text-base font-semibold text-[#302D2A]">{task.internalTaskTitle || "Task mapping"}</h3>
+                  <DataStatePill value={task.clientDataState} label={task.clientDataStateLabel} />
+                </div>
                 <p className="mt-2 text-xs text-[#817B75]">Updated {formatDateTime(task.updatedAt)}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
@@ -433,7 +458,10 @@ function DeadLetterEvents({
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#817B75]">{event.clientName || "Mapped client"}</p>
-                    <h3 className="mt-1 text-base font-semibold text-[#302D2A]">{event.providerEventType}</h3>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-semibold text-[#302D2A]">{event.providerEventType}</h3>
+                      <DataStatePill value={event.clientDataState} label={event.clientDataStateLabel} />
+                    </div>
                   </div>
                   <StatusPill label={meta.label} tone={meta.tone} />
                 </div>

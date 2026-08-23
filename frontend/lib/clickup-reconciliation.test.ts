@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   clickUpEventStatusMeta,
   clickUpSyncStatusMeta,
@@ -43,6 +44,8 @@ describe("clickUp reconciliation helpers", () => {
             clientAccountProfileId: "client-1",
             clientClinicId: "clinic-1",
             clientName: "Client One",
+            clientDataState: "live",
+            clientDataStateLabel: null,
             workspaceId: "workspace-1",
             clickupListId: "list-1",
             syncStatus: "healthy",
@@ -68,6 +71,8 @@ describe("clickUp reconciliation helpers", () => {
           clientAccountProfileId: "client-1",
           clientClinicId: "clinic-1",
           clientName: "Client One",
+          clientDataState: "partial",
+          clientDataStateLabel: "Some provider data is incomplete",
           workspaceId: "workspace-1",
           clickupListId: "list-1",
           syncStatus: "retrying",
@@ -84,6 +89,8 @@ describe("clickUp reconciliation helpers", () => {
           clientAccountProfileId: "client-2",
           clientClinicId: "clinic-2",
           clientName: "Client Two",
+          clientDataState: "provider-dependent",
+          clientDataStateLabel: "Provider connection required",
           workspaceId: "workspace-1",
           clickupListId: "list-2",
           syncStatus: "dead_letter",
@@ -104,6 +111,8 @@ describe("clickUp reconciliation helpers", () => {
           clientAccountProfileId: "client-2",
           clientClinicId: "clinic-2",
           clientName: "Client Two",
+          clientDataState: "preview",
+          clientDataStateLabel: "Preview feed awaiting verification",
           clickupListId: "list-2",
           updatedAt: "2026-08-20T10:04:00.000Z",
         },
@@ -116,6 +125,8 @@ describe("clickUp reconciliation helpers", () => {
           clickupTaskId: null,
           clientAccountProfileId: "client-2",
           clientName: "Client Two",
+          clientDataState: "roadmap",
+          clientDataStateLabel: "Roadmap capability",
           processingStatus: "dead_letter",
           retryCount: 5,
           nextRetryAt: null,
@@ -133,5 +144,14 @@ describe("clickUp reconciliation helpers", () => {
       reviewNeeded: 1,
       deadLetter: 3,
     });
+  });
+
+  it("renders data-state labels on sync health and exception views", () => {
+    const source = readFileSync("app/app/integrations/clickup/reconciliation/page.tsx", "utf8");
+    expect(source).toContain("DataStatePill");
+    expect(source).toContain("row.clientDataState");
+    expect(source).toContain("task.clientDataState");
+    expect(source).toContain("event.clientDataState");
+    expect(source).toContain("getDataStatePresentation");
   });
 });
