@@ -159,12 +159,71 @@ jobs:
             frontend/.next
           retention-days: 14
 
+  browser-smoke:
+    name: Playwright browser smoke suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - frontend
+    defaults:
+      run:
+        shell: bash
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      PLAYWRIGHT_BASE_URL: ${{ vars.PLAYWRIGHT_BASE_URL }}
+      PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+      PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: List smoke coverage
+        run: npm run test:e2e:smoke:list
+
+      - name: Run desktop and mobile browser smoke
+        if: env.PLAYWRIGHT_BASE_URL != '' && env.PLAYWRIGHT_USER_EMAIL != '' && env.PLAYWRIGHT_USER_PASSWORD != ''
+        run: npm run test:e2e:smoke
+
+      - name: Note missing target credentials
+        if: env.PLAYWRIGHT_BASE_URL == '' || env.PLAYWRIGHT_USER_EMAIL == '' || env.PLAYWRIGHT_USER_PASSWORD == ''
+        run: |
+          {
+            echo "Playwright smoke suite was listed, but authenticated execution is waiting on PLAYWRIGHT_BASE_URL and smoke-test credentials."
+            echo "This preserves the CI hook without inventing staging credentials."
+          } | tee ../playwright-smoke-gated.log
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke-artifacts
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+            playwright-smoke-gated.log
+          retention-days: 14
+
   release-review:
     name: Release review summary
     runs-on: ubuntu-latest
     needs:
       - backend
       - frontend
+      - browser-smoke
     if: always()
     steps:
       - name: Write CI summary
@@ -176,11 +235,12 @@ jobs:
             echo "| --- | --- |"
             echo "| Backend build, migrations and database tests | ${{ needs.backend.result }} |"
             echo "| Frontend typecheck, lint, tests and production build | ${{ needs.frontend.result }} |"
+            echo "| Playwright browser smoke suite | ${{ needs.browser-smoke.result }} |"
             echo ""
             echo "Artifacts are retained for 14 days for release review."
             echo "Branch protection should require both backend and frontend jobs before merge."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fail if required jobs failed
-        if: needs.backend.result != 'success' || needs.frontend.result != 'success'
+        if: needs.backend.result != 'success' || needs.frontend.result != 'success' || needs.browser-smoke.result != 'success'
         run: exit 1

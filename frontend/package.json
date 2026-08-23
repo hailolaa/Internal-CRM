@@ -12,6 +12,8 @@
     "security:public-env": "node scripts/scan-public-env.mjs --include-build-output",
     "test:security": "npm run security:public-env && npm run security:scan",
     "test": "vitest run",
+    "test:e2e:smoke": "playwright test -c playwright.config.ts",
+    "test:e2e:smoke:list": "playwright test -c playwright.config.ts --list",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -26,6 +28,7 @@
     "sonner": "^2.0.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.51.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
