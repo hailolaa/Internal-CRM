@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
+import pool from "../config/database.js";
 import { analyticsStoreService } from "../modules/analytics-store/analytics-store.service.js";
 import { fleetIngestionService } from "../modules/fleet-ingestion/fleet-ingestion.service.js";
 import { createTestClinicAndAdmin } from "./test-fixtures.js";
@@ -127,4 +129,44 @@ test("analytics snapshots preserve point-in-time metric sets", async () => {
   assert.equal(updated.metricSet.bookedConsults, 16);
   assert.deepEqual(updated.sourceWatermark, { clinic_os: "cursor-2026-08-31-rerun" });
   assert.notEqual(updated.lineageHash, snapshot.lineageHash);
+});
+
+test("analytics metric queries use indexed grain/date access within the reporting SLA", async () => {
+  const clinic = await createTestClinicAndAdmin("analytics-query-sla");
+
+  for (let day = 1; day <= 40; day += 1) {
+    await analyticsStoreService.recordFact({
+      clinicId: clinic.clinicId,
+      metricKey: "booked_consults",
+      grain: "daily",
+      grainDate: `2026-08-${String(Math.min(day, 28)).padStart(2, "0")}`,
+      metricValue: day,
+      unit: "count",
+      dimensions: { service_line: `service_${day}`, channel: day % 2 === 0 ? "google_ads" : "meta_ads" },
+      provenance: "connector",
+    });
+  }
+
+  const [explainRows]: any = await pool.execute(
+    `EXPLAIN SELECT id
+     FROM analytics_metric_fact
+     WHERE clinic_id = ?
+       AND metric_key = ?
+       AND grain_date >= ?
+       AND grain_date <= ?
+     ORDER BY grain_date DESC, metric_key ASC
+     LIMIT 500`,
+    [clinic.clinicId, "booked_consults", "2026-08-01", "2026-08-31"],
+  );
+  const startedAt = performance.now();
+  const facts = await analyticsStoreService.listFacts(clinic.clinicId, {
+    metricKey: "booked_consults",
+    startDate: "2026-08-01",
+    endDate: "2026-08-31",
+  });
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.equal(explainRows[0]?.key, "idx_analytics_metric_fact_query");
+  assert.equal(facts.length, 40);
+  assert.ok(elapsedMs < 1000, `analytics query took ${elapsedMs}ms`);
 });
