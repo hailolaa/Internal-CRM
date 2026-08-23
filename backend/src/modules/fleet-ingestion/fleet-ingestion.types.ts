@@ -4,7 +4,17 @@ export type FleetOnboardingStatus = "pending" | "configured" | "active" | "block
 export type FleetEndpointKind = "webhook" | "api_pull" | "manual_import" | "system";
 export type FleetIdentityConfidence = "known" | "provisional" | "needs_review";
 export type FleetIdentityStatus = "active" | "needs_review" | "archived";
-export type FleetIngestionStatus = "queued" | "processed" | "duplicate" | "quarantined" | "failed" | "ignored";
+export type FleetIngestionStatus =
+  | "queued"
+  | "processing"
+  | "processed"
+  | "duplicate"
+  | "quarantined"
+  | "retrying"
+  | "dead_letter"
+  | "failed"
+  | "ignored";
+export type FleetCheckpointStatus = "healthy" | "delayed" | "retrying" | "dead_letter" | "paused" | "reconciliation_needed";
 
 export interface FleetTenantRegistry {
   id: string;
@@ -103,4 +113,38 @@ export interface FleetIngestionReceipt {
   payloadHash: string;
   processingStatus: FleetIngestionStatus;
   duplicateOf: string | null;
+}
+
+export interface FleetQueuedEvent extends FleetIngestionReceipt {
+  retryCount: number;
+  payloadSummary: Record<string, unknown> | null;
+}
+
+export interface FleetQueueProcessResult {
+  attempted: number;
+  processed: number;
+  retrying: number;
+  deadLetter: number;
+}
+
+export interface FleetEventFailureInput {
+  retryable?: boolean;
+  errorClass?: string | null;
+  errorMessage?: string | null;
+  retryAfterMs?: number | null;
+}
+
+export interface FleetIngestionCheckpoint {
+  id: string;
+  clinicId: string;
+  sourceId: string;
+  sourceSystem: string;
+  sourceKey: string;
+  syncStatus: FleetCheckpointStatus;
+  checkpoint: string | null;
+  lastEventAt: string | null;
+  lastProcessedEventAt: string | null;
+  lastError: string | null;
+  retryingCount: number;
+  deadLetterCount: number;
 }

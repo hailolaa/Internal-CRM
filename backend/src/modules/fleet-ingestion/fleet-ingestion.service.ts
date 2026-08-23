@@ -4,20 +4,29 @@ import pool from "../../config/database.js";
 import { ApiError } from "../../utils/ApiError.js";
 import type {
   ConfigureFleetSourceInput,
+  FleetCheckpointStatus,
   FleetDataState,
   FleetEndpointKind,
+  FleetEventFailureInput,
   FleetIdentityConfidence,
   FleetIdentityMapping,
   FleetIdentityStatus,
+  FleetIngestionCheckpoint,
   FleetIngestionReceipt,
   FleetIngestionSource,
   FleetOnboardingStatus,
+  FleetQueueProcessResult,
+  FleetQueuedEvent,
   FleetRecordStatus,
   FleetTenantRegistry,
   IngestFleetEventInput,
   RegisterFleetTenantInput,
   ResolveFleetIdentityInput,
 } from "./fleet-ingestion.types.js";
+
+const FLEET_EVENT_MAX_RETRIES = 5;
+const FLEET_EVENT_BASE_BACKOFF_MS = 60_000;
+const FLEET_EVENT_MAX_BACKOFF_MS = 15 * 60_000;
 
 const DATA_STATES: FleetDataState[] = ["live", "demo", "preview", "partial", "provider_dependent", "roadmap"];
 const RECORD_STATUSES: FleetRecordStatus[] = ["active", "paused", "inactive"];
@@ -121,6 +130,53 @@ function toIdentity(row: any): FleetIdentityMapping {
     payloadHash: row.payloadHash || null,
     firstSeenAt: iso(row.firstSeenAt)!,
     lastSeenAt: iso(row.lastSeenAt)!,
+  };
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> | null {
+  if (!value) return null;
+  if (typeof value === "object") return value as Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function toQueuedEvent(row: any): FleetQueuedEvent {
+  return {
+    id: row.id,
+    clinicId: row.clinicId,
+    sourceId: row.sourceId,
+    sourceSystem: row.sourceSystem,
+    sourceKey: row.sourceKey,
+    sourceEntity: row.sourceEntity,
+    sourceRecordId: row.sourceRecordId || null,
+    providerEventId: row.providerEventId || null,
+    idempotencyKey: row.idempotencyKey,
+    payloadHash: row.payloadHash,
+    processingStatus: row.processingStatus,
+    duplicateOf: null,
+    retryCount: Number(row.retryCount || 0),
+    payloadSummary: parseJsonObject(row.payloadSummary),
+  };
+}
+
+function toCheckpoint(row: any): FleetIngestionCheckpoint {
+  return {
+    id: row.id,
+    clinicId: row.clinicId,
+    sourceId: row.sourceId,
+    sourceSystem: row.sourceSystem,
+    sourceKey: row.sourceKey,
+    syncStatus: row.syncStatus,
+    checkpoint: row.checkpoint || null,
+    lastEventAt: iso(row.lastEventAt),
+    lastProcessedEventAt: iso(row.lastProcessedEventAt),
+    lastError: row.lastError || null,
+    retryingCount: Number(row.retryingCount || 0),
+    deadLetterCount: Number(row.deadLetterCount || 0),
   };
 }
 
@@ -339,6 +395,7 @@ export class FleetIngestionService {
        WHERE id = ?`,
       [source.id],
     );
+    await this.refreshCheckpoint(input.clinicId, source.id, { lastEvent: true });
 
     return {
       id,
@@ -354,6 +411,171 @@ export class FleetIngestionService {
       processingStatus: "queued",
       duplicateOf: null,
     };
+  }
+
+  async processQueuedEvents(
+    options: { clinicId?: string | null; limit?: number } = {},
+    handler: (event: FleetQueuedEvent) => Promise<{ checkpoint?: string | null; status?: "processed" | "ignored" | "quarantined" } | void>,
+  ): Promise<FleetQueueProcessResult> {
+    const limit = Math.max(1, Math.min(Number(options.limit || 50), 200));
+    const values: any[] = [];
+    let where = "processing_status IN ('queued','retrying') AND (next_retry_at IS NULL OR next_retry_at <= CURRENT_TIMESTAMP)";
+    if (options.clinicId) {
+      where += " AND clinic_id = ?";
+      values.push(options.clinicId);
+    }
+    const [rows]: any = await pool.query(
+      `SELECT id, clinic_id as clinicId, source_id as sourceId,
+              source_system as sourceSystem, source_key as sourceKey, source_entity as sourceEntity,
+              source_record_id as sourceRecordId, provider_event_id as providerEventId,
+              idempotency_key as idempotencyKey, payload_hash as payloadHash,
+              payload_summary as payloadSummary, processing_status as processingStatus,
+              retry_count as retryCount
+       FROM fleet_ingestion_event
+       WHERE ${where}
+       ORDER BY received_at ASC
+       LIMIT ${limit}`,
+      values,
+    );
+
+    const result: FleetQueueProcessResult = { attempted: rows.length, processed: 0, retrying: 0, deadLetter: 0 };
+    for (const row of rows) {
+      const event = toQueuedEvent(row);
+      const claimed = await this.claimEvent(event.clinicId, event.id);
+      if (!claimed) continue;
+      try {
+        const handlerResult = await handler(event);
+        const processedOptions: { checkpoint?: string | null; status?: "processed" | "ignored" | "quarantined" } = {
+          status: handlerResult?.status || "processed",
+        };
+        if (handlerResult && "checkpoint" in handlerResult) processedOptions.checkpoint = handlerResult.checkpoint;
+        await this.markEventProcessed(event.clinicId, event.id, processedOptions);
+        result.processed += 1;
+      } catch (error) {
+        const failure = await this.markEventFailed(event.clinicId, event.id, {
+          retryable: true,
+          errorClass: error instanceof Error ? error.name : "processing_error",
+          errorMessage: error instanceof Error ? error.message : "Fleet ingestion event processing failed.",
+        });
+        if (failure === "retrying") result.retrying += 1;
+        if (failure === "dead_letter") result.deadLetter += 1;
+      }
+    }
+    return result;
+  }
+
+  async markEventProcessed(
+    clinicId: string,
+    eventId: string,
+    options: { checkpoint?: string | null; status?: "processed" | "ignored" | "quarantined" } = {},
+  ): Promise<FleetQueuedEvent> {
+    const event = await this.getEventForUpdate(clinicId, eventId);
+    const status = options.status || "processed";
+    await pool.execute(
+      `UPDATE fleet_ingestion_event
+       SET processing_status = ?,
+           processed_at = CURRENT_TIMESTAMP,
+           next_retry_at = NULL,
+           error_class = NULL,
+           error_message = NULL,
+           last_attempt_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ?`,
+      [status, eventId, clinicId],
+    );
+    if (options.checkpoint !== undefined) {
+      await pool.execute(
+        `UPDATE fleet_ingestion_source SET checkpoint = ? WHERE id = ? AND clinic_id = ?`,
+        [cleanString(options.checkpoint), event.sourceId, clinicId],
+      );
+    }
+    const checkpointOptions: { checkpoint?: string | null; lastProcessed: boolean } = { lastProcessed: true };
+    if ("checkpoint" in options) checkpointOptions.checkpoint = options.checkpoint;
+    await this.refreshCheckpoint(clinicId, event.sourceId, checkpointOptions);
+    return { ...event, processingStatus: status };
+  }
+
+  async markEventFailed(clinicId: string, eventId: string, failure: FleetEventFailureInput = {}) {
+    const event = await this.getEventForUpdate(clinicId, eventId);
+    const nextRetryCount = event.retryCount + 1;
+    const retryable = failure.retryable !== false && nextRetryCount <= FLEET_EVENT_MAX_RETRIES;
+    const retryAfterMs = Number(failure.retryAfterMs || 0);
+    const backoffMs = retryAfterMs > 0
+      ? Math.min(retryAfterMs, FLEET_EVENT_MAX_BACKOFF_MS)
+      : Math.min(FLEET_EVENT_BASE_BACKOFF_MS * (2 ** Math.max(nextRetryCount - 1, 0)), FLEET_EVENT_MAX_BACKOFF_MS);
+    const processingStatus = retryable ? "retrying" : "dead_letter";
+    const nextRetryAt = retryable ? new Date(Date.now() + backoffMs) : null;
+    const errorClass = cleanString(failure.errorClass) || (retryable ? "processing_retryable" : "processing_failed");
+    const errorMessage = cleanString(failure.errorMessage) || "Fleet ingestion event processing failed.";
+
+    await pool.execute(
+      `UPDATE fleet_ingestion_event
+       SET processing_status = ?,
+           retry_count = ?,
+           next_retry_at = ?,
+           error_class = ?,
+           error_message = ?,
+           last_attempt_at = CURRENT_TIMESTAMP,
+           processed_at = NULL
+       WHERE id = ? AND clinic_id = ?`,
+      [processingStatus, nextRetryCount, nextRetryAt, errorClass, errorMessage.slice(0, 1000), eventId, clinicId],
+    );
+    await this.refreshCheckpoint(clinicId, event.sourceId, {
+      status: processingStatus === "retrying" ? "retrying" : "dead_letter",
+      lastError: errorMessage,
+    });
+    return processingStatus;
+  }
+
+  async replayDeadLetterEvent(clinicId: string, eventId: string): Promise<FleetQueuedEvent> {
+    const event = await this.getEventForUpdate(clinicId, eventId);
+    if (event.processingStatus !== "dead_letter") {
+      throw ApiError.badRequest("Only dead-letter fleet ingestion events can be replayed.");
+    }
+    await pool.execute(
+      `UPDATE fleet_ingestion_event
+       SET processing_status = 'queued',
+           retry_count = 0,
+           next_retry_at = NULL,
+           error_class = NULL,
+           error_message = NULL,
+           processed_at = NULL
+       WHERE id = ? AND clinic_id = ?`,
+      [eventId, clinicId],
+    );
+    await this.refreshCheckpoint(clinicId, event.sourceId);
+    return { ...event, processingStatus: "queued", retryCount: 0 };
+  }
+
+  async listDeadLetterEvents(clinicId: string): Promise<FleetQueuedEvent[]> {
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId, source_id as sourceId,
+              source_system as sourceSystem, source_key as sourceKey, source_entity as sourceEntity,
+              source_record_id as sourceRecordId, provider_event_id as providerEventId,
+              idempotency_key as idempotencyKey, payload_hash as payloadHash,
+              payload_summary as payloadSummary, processing_status as processingStatus,
+              retry_count as retryCount
+       FROM fleet_ingestion_event
+       WHERE clinic_id = ? AND processing_status = 'dead_letter'
+       ORDER BY updated_at DESC`,
+      [clinicId],
+    );
+    return rows.map(toQueuedEvent);
+  }
+
+  async getCheckpoint(clinicId: string, sourceId: string): Promise<FleetIngestionCheckpoint> {
+    await this.refreshCheckpoint(clinicId, sourceId);
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId, source_id as sourceId, source_system as sourceSystem,
+              source_key as sourceKey, sync_status as syncStatus, checkpoint,
+              last_event_at as lastEventAt, last_processed_event_at as lastProcessedEventAt,
+              last_error as lastError, retrying_count as retryingCount, dead_letter_count as deadLetterCount
+       FROM fleet_ingestion_checkpoint
+       WHERE clinic_id = ? AND source_id = ?
+       LIMIT 1`,
+      [clinicId, sourceId],
+    );
+    if (!rows[0]) throw ApiError.notFound("Fleet ingestion checkpoint was not found.");
+    return toCheckpoint(rows[0]);
   }
 
   private async ensureClinicExists(clinicId: string) {
@@ -409,6 +631,103 @@ export class FleetIngestionService {
       [clinicId, sourceSystem, sourceKey],
     );
     if (!rows[0]) throw ApiError.badRequest(`Ingestion source ${sourceSystem}/${sourceKey} is not configured.`);
+    return toSource(rows[0]);
+  }
+
+  private async claimEvent(clinicId: string, eventId: string) {
+    const [result]: any = await pool.execute(
+      `UPDATE fleet_ingestion_event
+       SET processing_status = 'processing', last_attempt_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND clinic_id = ?
+         AND processing_status IN ('queued','retrying')
+         AND (next_retry_at IS NULL OR next_retry_at <= CURRENT_TIMESTAMP)`,
+      [eventId, clinicId],
+    );
+    return Number(result.affectedRows || 0) === 1;
+  }
+
+  private async getEventForUpdate(clinicId: string, eventId: string): Promise<FleetQueuedEvent> {
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId, source_id as sourceId,
+              source_system as sourceSystem, source_key as sourceKey, source_entity as sourceEntity,
+              source_record_id as sourceRecordId, provider_event_id as providerEventId,
+              idempotency_key as idempotencyKey, payload_hash as payloadHash,
+              payload_summary as payloadSummary, processing_status as processingStatus,
+              retry_count as retryCount
+       FROM fleet_ingestion_event
+       WHERE id = ? AND clinic_id = ?
+       LIMIT 1`,
+      [eventId, clinicId],
+    );
+    if (!rows[0]) throw ApiError.notFound("Fleet ingestion event was not found.");
+    return toQueuedEvent(rows[0]);
+  }
+
+  private async refreshCheckpoint(
+    clinicId: string,
+    sourceId: string,
+    options: { status?: FleetCheckpointStatus; checkpoint?: string | null; lastEvent?: boolean; lastProcessed?: boolean; lastError?: string | null } = {},
+  ) {
+    const source = await this.getSourceById(clinicId, sourceId);
+    const [countRows]: any = await pool.execute(
+      `SELECT
+          SUM(processing_status IN ('queued','processing','retrying')) as retryingCount,
+          SUM(processing_status = 'dead_letter') as deadLetterCount
+       FROM fleet_ingestion_event
+       WHERE clinic_id = ? AND source_id = ?`,
+      [clinicId, sourceId],
+    );
+    const retryingCount = Number(countRows[0]?.retryingCount || 0);
+    const deadLetterCount = Number(countRows[0]?.deadLetterCount || 0);
+    const syncStatus: FleetCheckpointStatus = options.status
+      || (source.status !== "active" ? "paused" : deadLetterCount > 0 ? "dead_letter" : retryingCount > 0 ? "retrying" : "healthy");
+    const checkpoint = options.checkpoint === undefined ? source.checkpoint : cleanString(options.checkpoint);
+    const id = uuidv4();
+
+    await pool.execute(
+      `INSERT INTO fleet_ingestion_checkpoint
+        (id, clinic_id, source_id, source_system, source_key, sync_status, checkpoint,
+         last_event_at, last_processed_event_at, last_error, retrying_count, dead_letter_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?,
+               ${options.lastEvent ? "CURRENT_TIMESTAMP" : "NULL"},
+               ${options.lastProcessed ? "CURRENT_TIMESTAMP" : "NULL"},
+               ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         sync_status = VALUES(sync_status),
+         checkpoint = COALESCE(VALUES(checkpoint), checkpoint),
+         last_event_at = COALESCE(VALUES(last_event_at), last_event_at),
+         last_processed_event_at = COALESCE(VALUES(last_processed_event_at), last_processed_event_at),
+         last_error = VALUES(last_error),
+         retrying_count = VALUES(retrying_count),
+         dead_letter_count = VALUES(dead_letter_count)`,
+      [
+        id,
+        clinicId,
+        sourceId,
+        source.sourceSystem,
+        source.sourceKey,
+        syncStatus,
+        checkpoint,
+        cleanString(options.lastError),
+        retryingCount,
+        deadLetterCount,
+      ],
+    );
+  }
+
+  private async getSourceById(clinicId: string, sourceId: string): Promise<FleetIngestionSource> {
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId, tenant_registry_id as tenantRegistryId,
+              source_system as sourceSystem, source_key as sourceKey, source_label as sourceLabel,
+              status, data_state as dataState, endpoint_kind as endpointKind,
+              checkpoint, last_ingested_at as lastIngestedAt
+       FROM fleet_ingestion_source
+       WHERE clinic_id = ? AND id = ?
+       LIMIT 1`,
+      [clinicId, sourceId],
+    );
+    if (!rows[0]) throw ApiError.notFound("Fleet ingestion source was not found.");
     return toSource(rows[0]);
   }
 

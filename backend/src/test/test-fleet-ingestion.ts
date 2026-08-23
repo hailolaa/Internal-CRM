@@ -181,3 +181,98 @@ test("fleet event ingestion blocks unconfigured, inactive and roadmap-only sourc
     /roadmap-only/,
   );
 });
+
+test("fleet queue processing marks events processed and advances checkpoints", async () => {
+  const clinic = await createTestClinicAndAdmin("fleet-queue");
+  await fleetIngestionService.configureSource({
+    clinicId: clinic.clinicId,
+    tenantKey: `clinic-os-queue-${clinic.clinicId}`,
+    sourceSystem: "clinic_os",
+    sourceKey: "account_summary",
+    sourceLabel: "Clinic OS account summary",
+    dataState: "live",
+  });
+  const source = (await fleetIngestionService.listSources(clinic.clinicId))[0]!;
+  const receipt = await fleetIngestionService.ingestEvent({
+    clinicId: clinic.clinicId,
+    sourceSystem: "clinic_os",
+    sourceKey: "account_summary",
+    sourceEntity: "account_summary",
+    sourceRecordId: "summary-001",
+    providerEventId: "summary-event-001",
+    payload: { sourceVersion: "v1", bookedConsults: 12 },
+    payloadSummary: { sourceVersion: "v1" },
+  });
+
+  const processed = await fleetIngestionService.processQueuedEvents(
+    { clinicId: clinic.clinicId, limit: 10 },
+    async (event) => {
+      assert.equal(event.id, receipt.id);
+      assert.equal(event.payloadSummary?.sourceVersion, "v1");
+      return { checkpoint: "cursor-001" };
+    },
+  );
+  const checkpoint = await fleetIngestionService.getCheckpoint(clinic.clinicId, source.id);
+  const [rows]: any = await pool.execute(
+    `SELECT processing_status as status FROM fleet_ingestion_event WHERE id = ?`,
+    [receipt.id],
+  );
+
+  assert.equal(processed.attempted, 1);
+  assert.equal(processed.processed, 1);
+  assert.equal(rows[0].status, "processed");
+  assert.equal(checkpoint.syncStatus, "healthy");
+  assert.equal(checkpoint.checkpoint, "cursor-001");
+});
+
+test("fleet queue retries with limits, dead-letters failures and supports replay", async () => {
+  const clinic = await createTestClinicAndAdmin("fleet-dlq");
+  await fleetIngestionService.configureSource({
+    clinicId: clinic.clinicId,
+    tenantKey: `clinic-os-dlq-${clinic.clinicId}`,
+    sourceSystem: "clinic_os",
+    sourceKey: "operations_feed",
+    sourceLabel: "Clinic OS operations feed",
+    dataState: "live",
+  });
+  const source = (await fleetIngestionService.listSources(clinic.clinicId))[0]!;
+  const receipt = await fleetIngestionService.ingestEvent({
+    clinicId: clinic.clinicId,
+    sourceSystem: "clinic_os",
+    sourceKey: "operations_feed",
+    sourceEntity: "task",
+    sourceRecordId: "task-001",
+    providerEventId: "ops-event-001",
+    payload: { taskId: "task-001" },
+  });
+
+  const firstFailure = await fleetIngestionService.markEventFailed(clinic.clinicId, receipt.id, {
+    retryable: true,
+    retryAfterMs: 1000,
+    errorClass: "provider_timeout",
+    errorMessage: "Provider timeout.",
+  });
+  assert.equal(firstFailure, "retrying");
+
+  for (let index = 0; index < 5; index += 1) {
+    await fleetIngestionService.markEventFailed(clinic.clinicId, receipt.id, {
+      retryable: true,
+      errorClass: "provider_timeout",
+      errorMessage: "Provider timeout.",
+    });
+  }
+
+  const deadLetters = await fleetIngestionService.listDeadLetterEvents(clinic.clinicId);
+  const deadLetterCheckpoint = await fleetIngestionService.getCheckpoint(clinic.clinicId, source.id);
+  const replayed = await fleetIngestionService.replayDeadLetterEvent(clinic.clinicId, receipt.id);
+  const replayCheckpoint = await fleetIngestionService.getCheckpoint(clinic.clinicId, source.id);
+
+  assert.equal(deadLetters.length, 1);
+  assert.equal(deadLetters[0]?.id, receipt.id);
+  assert.equal(deadLetterCheckpoint.syncStatus, "dead_letter");
+  assert.equal(deadLetterCheckpoint.deadLetterCount, 1);
+  assert.equal(replayed.processingStatus, "queued");
+  assert.equal(replayed.retryCount, 0);
+  assert.equal(replayCheckpoint.deadLetterCount, 0);
+  assert.equal(replayCheckpoint.retryingCount, 1);
+});
