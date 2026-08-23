@@ -303,6 +303,28 @@ function toDateString(value: unknown) {
   return String(value).slice(0, 10);
 }
 
+function isClosedIssueStatus(value: unknown) {
+  return value === "resolved" || value === "closed";
+}
+
+function issueSlaStatus(row: any): ClientIssueResponse["slaStatus"] {
+  if (isClosedIssueStatus(row.status) || row.resolvedAt) return "resolved";
+  const target = row.slaDueAt || row.dueDate;
+  if (!target) return "on_track";
+  const parsed = new Date(String(target));
+  if (Number.isNaN(parsed.getTime())) return "on_track";
+  const now = new Date();
+  if (parsed.getTime() < now.getTime()) return "overdue";
+  if (parsed.toISOString().slice(0, 10) === now.toISOString().slice(0, 10)) return "due_today";
+  return "on_track";
+}
+
+function shouldAutoEscalateIssue(status: unknown, slaDueAt: unknown) {
+  if (isClosedIssueStatus(status) || !slaDueAt) return false;
+  const parsed = new Date(String(slaDueAt));
+  return !Number.isNaN(parsed.getTime()) && parsed.getTime() < Date.now();
+}
+
 function calculateNoticeDate(value: unknown, months: unknown, noticeDays: unknown) {
   const start = toDateString(value);
   if (!start) return null;
@@ -2323,11 +2345,17 @@ export class ClientAccountsService {
     if (taskId) await this.ensureIssueTaskBelongsToProfile(sourceClinicId, profileId, taskId);
 
     const issueId = uuidv4();
+    const initialStatus = data.status || "open";
+    const slaDueAt = toDateTimeString(data.slaDueAt);
+    const escalatedAt = toDateTimeString(data.escalatedAt) || (
+      shouldAutoEscalateIssue(initialStatus, slaDueAt) ? toDateTimeString(new Date()) : null
+    );
     await pool.execute(
       `INSERT INTO client_account_issue
         (id, clinic_id, client_account_profile_id, task_id, title, priority, status,
-         owner_user_id, due_date, notes, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         source_channel, owner_user_id, due_date, sla_due_at, escalated_at, resolved_at,
+         notes, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         issueId,
         sourceClinicId,
@@ -2335,9 +2363,13 @@ export class ClientAccountsService {
         taskId,
         data.title.trim(),
         data.priority || "medium",
-        data.status || "open",
+        initialStatus,
+        data.sourceChannel || "manual",
         ownerUserId,
         toDateString(data.dueDate),
+        slaDueAt,
+        escalatedAt,
+        isClosedIssueStatus(initialStatus) ? toDateTimeString(new Date()) : null,
         data.notes?.trim() || null,
         userId,
         userId,
@@ -2372,7 +2404,10 @@ export class ClientAccountsService {
     if (!account.id) throw ApiError.notFound("Client account profile not found");
 
     const [existingRows]: any = await pool.execute(
-      `SELECT id
+      `SELECT id,
+              status,
+              sla_due_at as slaDueAt,
+              escalated_at as escalatedAt
        FROM client_account_issue
        WHERE id = ?
          AND clinic_id = ?
@@ -2381,6 +2416,7 @@ export class ClientAccountsService {
       [issueId, sourceClinicId, account.id],
     );
     if (existingRows.length === 0) throw ApiError.notFound("Client issue not found");
+    const existingIssue = existingRows[0];
 
     const fields: string[] = [];
     const values: any[] = [];
@@ -2393,13 +2429,33 @@ export class ClientAccountsService {
 
     if (ownKey(data, "title")) add("title", data.title?.trim(), "title");
     if (ownKey(data, "priority")) add("priority", data.priority, "priority");
-    if (ownKey(data, "status")) add("status", data.status, "status");
+    if (ownKey(data, "status")) {
+      add("status", data.status, "status");
+      if (isClosedIssueStatus(data.status)) {
+        fields.push("resolved_at = COALESCE(resolved_at, CURRENT_TIMESTAMP)");
+        changes.resolvedAt = "set_on_resolution";
+      } else {
+        fields.push("resolved_at = NULL");
+        changes.resolvedAt = null;
+      }
+    }
+    if (ownKey(data, "sourceChannel")) add("source_channel", data.sourceChannel || "manual", "sourceChannel");
     if (ownKey(data, "ownerUserId")) {
       this.ensureIssueOwnerAssignmentAllowed({ role: access.actorRole });
       if (data.ownerUserId) await this.ensureAccountManagerBelongsToClinic(sourceClinicId, data.ownerUserId);
       add("owner_user_id", data.ownerUserId || null, "ownerUserId");
     }
     if (ownKey(data, "dueDate")) add("due_date", toDateString(data.dueDate), "dueDate");
+    if (ownKey(data, "slaDueAt")) add("sla_due_at", toDateTimeString(data.slaDueAt), "slaDueAt");
+    if (ownKey(data, "escalatedAt")) add("escalated_at", toDateTimeString(data.escalatedAt), "escalatedAt");
+    if (!ownKey(data, "escalatedAt") && (ownKey(data, "status") || ownKey(data, "slaDueAt"))) {
+      const nextStatus = ownKey(data, "status") ? data.status : existingIssue.status;
+      const nextSlaDueAt = ownKey(data, "slaDueAt") ? toDateTimeString(data.slaDueAt) : existingIssue.slaDueAt;
+      if (!existingIssue.escalatedAt && shouldAutoEscalateIssue(nextStatus, nextSlaDueAt)) {
+        fields.push("escalated_at = COALESCE(escalated_at, CURRENT_TIMESTAMP)");
+        changes.escalatedAt = "set_on_sla_breach";
+      }
+    }
     if (ownKey(data, "notes")) add("notes", data.notes?.trim() || null, "notes");
     if (ownKey(data, "taskId")) {
       if (data.taskId) await this.ensureIssueTaskBelongsToProfile(sourceClinicId, account.id, data.taskId);
@@ -3100,10 +3156,20 @@ export class ClientAccountsService {
             issue.title,
             issue.priority,
             issue.status,
+            issue.source_channel as sourceChannel,
             issue.owner_user_id as ownerUserId,
             issue.due_date as dueDate,
+            issue.sla_due_at as slaDueAt,
+            issue.escalated_at as escalatedAt,
+            issue.resolved_at as resolvedAt,
             issue.notes,
-            (issue.status NOT IN ('resolved', 'closed') AND issue.due_date IS NOT NULL AND issue.due_date < CURDATE()) as isOverdue,
+            (
+              issue.status NOT IN ('resolved', 'closed')
+              AND (
+                (issue.sla_due_at IS NOT NULL AND issue.sla_due_at < CURRENT_TIMESTAMP)
+                OR (issue.sla_due_at IS NULL AND issue.due_date IS NOT NULL AND issue.due_date < CURDATE())
+              )
+            ) as isOverdue,
             issue.created_at as createdAt,
             issue.updated_at as updatedAt,
             owner.first_name as ownerFirstName,
@@ -3122,6 +3188,7 @@ export class ClientAccountsService {
       title: row.title,
       priority: row.priority,
       status: row.status,
+      sourceChannel: row.sourceChannel || "manual",
       owner: row.ownerUserId
         ? {
             id: row.ownerUserId,
@@ -3131,8 +3198,13 @@ export class ClientAccountsService {
           }
         : null,
       dueDate: toDateString(row.dueDate),
+      slaDueAt: toIsoString(row.slaDueAt),
+      escalatedAt: toIsoString(row.escalatedAt),
+      resolvedAt: toIsoString(row.resolvedAt),
       notes: row.notes || null,
       isOverdue: Boolean(row.isOverdue),
+      slaStatus: issueSlaStatus(row),
+      isEscalated: Boolean(row.escalatedAt),
       task: row.taskId
         ? {
             id: row.taskId,

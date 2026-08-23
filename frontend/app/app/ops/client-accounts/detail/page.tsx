@@ -39,6 +39,7 @@ import type {
   ClientAccountSummaryRecord,
   ClientIssuePriority,
   ClientIssueRecord,
+  ClientIssueSourceChannel,
   ClientIssueStatus,
   ContactRecord,
   GrowthScoreSnapshotList,
@@ -104,6 +105,19 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return "Not set";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not set";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function formatMoney(value: number | null | undefined, currency = "GBP") {
   if (value === null || value === undefined) return "Not set";
   return new Intl.NumberFormat("en-GB", {
@@ -141,13 +155,16 @@ const growthScoreCategoryLabels = [
 
 const ISSUE_PRIORITIES: ClientIssuePriority[] = ["low", "medium", "high", "critical"];
 const ISSUE_STATUSES: ClientIssueStatus[] = ["open", "in_progress", "waiting", "resolved", "closed"];
+const ISSUE_SOURCE_CHANNELS: ClientIssueSourceChannel[] = ["manual", "email", "phone", "whatsapp", "meeting", "client_portal", "other"];
 
 const emptyIssueForm = {
   title: "",
   priority: "medium" as ClientIssuePriority,
   status: "open" as ClientIssueStatus,
+  sourceChannel: "manual" as ClientIssueSourceChannel,
   ownerUserId: "",
   dueDate: "",
+  slaDueAt: "",
   notes: "",
   taskId: "",
 };
@@ -422,6 +439,14 @@ export default function ClientAccountDetailPage() {
     () => openIssues.filter((issue) => issue.isOverdue),
     [openIssues],
   );
+  const escalatedIssues = useMemo(
+    () => openIssues.filter((issue) => issue.isEscalated),
+    [openIssues],
+  );
+  const slaRiskIssues = useMemo(
+    () => openIssues.filter((issue) => issue.slaStatus === "overdue" || issue.slaStatus === "due_today"),
+    [openIssues],
+  );
   const availableContactSearchResults = useMemo(
     () => contactSearchResults.filter((contact) => !linkedContacts.some((linked) => linked.id === contact.id)),
     [contactSearchResults, linkedContacts],
@@ -547,8 +572,10 @@ export default function ClientAccountDetailPage() {
         title: issueForm.title.trim(),
         priority: issueForm.priority,
         status: issueForm.status,
+        sourceChannel: issueForm.sourceChannel,
         ownerUserId: issueForm.ownerUserId || null,
         dueDate: issueForm.dueDate || null,
+        slaDueAt: issueForm.slaDueAt || null,
         notes: issueForm.notes || null,
         taskId: issueForm.taskId || null,
       });
@@ -1243,6 +1270,8 @@ export default function ClientAccountDetailPage() {
               <div className="flex flex-wrap gap-2">
                 <Badge variant={overdueIssues.length > 0 ? "error" : "success"}>{overdueIssues.length} overdue</Badge>
                 <Badge variant={openIssues.length > 0 ? "warning" : "success"}>{openIssues.length} open</Badge>
+                <Badge variant={slaRiskIssues.length > 0 ? "warning" : "success"}>{slaRiskIssues.length} SLA watch</Badge>
+                <Badge variant={escalatedIssues.length > 0 ? "error" : "neutral"}>{escalatedIssues.length} escalated</Badge>
               </div>
             </div>
 
@@ -1283,6 +1312,12 @@ export default function ClientAccountDetailPage() {
                   </select>
                 </label>
                 <label className="space-y-1.5">
+                  <span className="text-sm font-semibold text-[#344446]">Source channel</span>
+                  <select name="issueSourceChannel" value={issueForm.sourceChannel} onChange={(event) => setIssueForm((current) => ({ ...current, sourceChannel: event.target.value as ClientIssueSourceChannel }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full">
+                    {ISSUE_SOURCE_CHANNELS.map((channel) => <option key={channel} value={channel}>{formatLabel(channel)}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-1.5">
                   <span className="text-sm font-semibold text-[#344446]">Owner</span>
                   <select
                     name="issueOwnerUserId"
@@ -1303,6 +1338,10 @@ export default function ClientAccountDetailPage() {
                 <label className="space-y-1.5">
                   <span className="text-sm font-semibold text-[#344446]">Due date</span>
                   <input name="issueDueDate" type="date" value={issueForm.dueDate} onChange={(event) => setIssueForm((current) => ({ ...current, dueDate: event.target.value }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full" />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-sm font-semibold text-[#344446]">SLA due</span>
+                  <input name="issueSlaDueAt" type="datetime-local" value={issueForm.slaDueAt} onChange={(event) => setIssueForm((current) => ({ ...current, slaDueAt: event.target.value }))} className="min-h-10 rounded-lg border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4] w-full" />
                 </label>
                 <label className="space-y-1.5 md:col-span-2">
                   <span className="text-sm font-semibold text-[#344446]">Linked task</span>
@@ -1337,8 +1376,11 @@ export default function ClientAccountDetailPage() {
                       <h3 className="font-semibold text-[#151f21]">{issue.title}</h3>
                       <p className="mt-1 text-sm text-[#7A746A]">{issue.notes || "No notes added."}</p>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs text-[#7A746A]">
+                        <span>Source: {formatLabel(issue.sourceChannel)}</span>
                         <span>Owner: {issue.owner ? [issue.owner.firstName, issue.owner.lastName].filter(Boolean).join(" ") || issue.owner.email : "Unassigned"}</span>
                         <span>Due: {formatDate(issue.dueDate)}</span>
+                        <span>SLA: {formatDateTime(issue.slaDueAt)}</span>
+                        {issue.resolvedAt ? <span>Resolved: {formatDateTime(issue.resolvedAt)}</span> : null}
                         {issue.task ? (
                           <Link href={`/app/crm/tasks/detail?id=${issue.task.id}&from=delivery`} className="font-semibold text-[#315f62] hover:underline">
                             Task: {issue.task.title}
@@ -1349,6 +1391,8 @@ export default function ClientAccountDetailPage() {
                     <div className="flex shrink-0 flex-wrap gap-2">
                       <Badge variant={issue.priority === "critical" || issue.priority === "high" ? "error" : issue.priority === "medium" ? "warning" : "neutral"}>{formatLabel(issue.priority)}</Badge>
                       <Badge variant={issue.status === "resolved" || issue.status === "closed" ? "success" : issue.isOverdue ? "error" : "warning"}>{formatLabel(issue.status)}</Badge>
+                      <Badge variant={issue.slaStatus === "resolved" ? "success" : issue.slaStatus === "overdue" ? "error" : issue.slaStatus === "due_today" ? "warning" : "neutral"}>{formatLabel(issue.slaStatus)}</Badge>
+                      {issue.isEscalated ? <Badge variant="error">Escalated</Badge> : null}
                     </div>
                   </div>
                   {canWriteClientAccounts ? (

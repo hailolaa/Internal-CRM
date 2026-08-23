@@ -108,6 +108,15 @@ export type ClientAccountActionPlanStatus =
 export type ClientAccountUpsellPromptSeverity = "medium" | "high";
 export type ClientIssuePriority = "low" | "medium" | "high" | "critical";
 export type ClientIssueStatus = "open" | "in_progress" | "waiting" | "resolved" | "closed";
+export type ClientIssueSourceChannel =
+  | "manual"
+  | "email"
+  | "phone"
+  | "whatsapp"
+  | "meeting"
+  | "client_portal"
+  | "other";
+export type ClientIssueSlaStatus = "on_track" | "due_today" | "overdue" | "resolved";
 
 export interface ClientAccountGrowthScoreCategories {
   websiteVisibility: number | null;
@@ -146,10 +155,16 @@ export interface ClientIssueRecord {
   title: string;
   priority: ClientIssuePriority;
   status: ClientIssueStatus;
+  sourceChannel: ClientIssueSourceChannel;
   owner: ClientAccountPerson | null;
   dueDate: string | null;
+  slaDueAt: string | null;
+  escalatedAt: string | null;
+  resolvedAt: string | null;
   notes: string | null;
   isOverdue: boolean;
+  slaStatus: ClientIssueSlaStatus;
+  isEscalated: boolean;
   task: {
     id: string;
     title: string;
@@ -164,8 +179,11 @@ export interface ClientIssuePayload {
   title?: string;
   priority?: ClientIssuePriority;
   status?: ClientIssueStatus;
+  sourceChannel?: ClientIssueSourceChannel;
   ownerUserId?: string | null;
   dueDate?: string | null;
+  slaDueAt?: string | null;
+  escalatedAt?: string | null;
   notes?: string | null;
   taskId?: string | null;
 }

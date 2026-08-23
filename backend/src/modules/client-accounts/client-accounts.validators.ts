@@ -11,6 +11,7 @@ const healthStatuses = ["healthy", "attention_needed", "at_risk", "critical"];
 const churnRisks = ["low", "medium", "high", "critical"];
 const issuePriorities = ["low", "medium", "high", "critical"];
 const issueStatuses = ["open", "in_progress", "waiting", "resolved", "closed"];
+const issueSourceChannels = ["manual", "email", "phone", "whatsapp", "meeting", "client_portal", "other"];
 const clientDocumentTypes = [
   "main_client_folder",
   "audit",
@@ -271,8 +272,11 @@ export const createClientAccountIssueValidator = [
   body("title").isString().trim().isLength({ min: 1, max: 255 }).withMessage("Issue title is required"),
   body("priority").optional().isIn(issuePriorities),
   body("status").optional().isIn(issueStatuses),
+  body("sourceChannel").optional().isIn(issueSourceChannels),
   body("ownerUserId").optional({ nullable: true }).isString().trim().matches(/^[A-Za-z0-9_-]{1,36}$/).withMessage("Owner must be a valid user ID"),
   body("dueDate").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Due date must be valid"),
+  body("slaDueAt").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("SLA due time must be valid"),
+  body("escalatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Escalation time must be valid"),
   body("notes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Issue notes must be 10000 characters or fewer"),
   body("taskId").optional({ nullable: true, checkFalsy: true }).isUUID().withMessage("Linked task ID must be valid"),
 ];
@@ -282,8 +286,11 @@ export const updateClientAccountIssueValidator = [
   body("title").optional().isString().trim().isLength({ min: 1, max: 255 }).withMessage("Issue title must be 1-255 characters"),
   body("priority").optional().isIn(issuePriorities),
   body("status").optional().isIn(issueStatuses),
+  body("sourceChannel").optional().isIn(issueSourceChannels),
   body("ownerUserId").optional({ nullable: true }).isString().trim().matches(/^[A-Za-z0-9_-]{1,36}$/).withMessage("Owner must be a valid user ID"),
   body("dueDate").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Due date must be valid"),
+  body("slaDueAt").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("SLA due time must be valid"),
+  body("escalatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage("Escalation time must be valid"),
   body("notes").optional({ nullable: true }).trim().isLength({ max: 10000 }).withMessage("Issue notes must be 10000 characters or fewer"),
   body("taskId").optional({ nullable: true, checkFalsy: true }).isUUID().withMessage("Linked task ID must be valid"),
 ];

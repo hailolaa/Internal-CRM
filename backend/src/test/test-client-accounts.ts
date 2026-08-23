@@ -2603,8 +2603,10 @@ test("client account profile API is permission protected, updateable, audited, a
       body: JSON.stringify({
         title: "Tracking outage reported by client",
         priority: "high",
+        sourceChannel: "email",
         ownerUserId: admin.userId,
         dueDate: "2020-01-01",
+        slaDueAt: "2020-01-01T09:00:00.000Z",
         notes: "Client reported missing conversion data after website changes.",
         taskId: linkedTaskId,
       }),
@@ -2616,9 +2618,15 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.ok(trackingIssue);
     assert.equal(trackingIssue.priority, "high");
     assert.equal(trackingIssue.status, "open");
+    assert.equal(trackingIssue.sourceChannel, "email");
     assert.equal(trackingIssue.owner.id, admin.userId);
     assert.equal(trackingIssue.task.id, linkedTaskId);
     assert.equal(trackingIssue.isOverdue, true);
+    assert.equal(trackingIssue.slaStatus, "overdue");
+    assert.equal(trackingIssue.isEscalated, true);
+    assert.ok(trackingIssue.slaDueAt);
+    assert.ok(trackingIssue.escalatedAt);
+    assert.equal(trackingIssue.resolvedAt, null);
     const issueId = trackingIssue.id;
 
     const listIssuesRes = await fetchJson(baseUrl, `/api/client-accounts/${admin.clinicId}/issues`, admin.token);
@@ -2635,7 +2643,10 @@ test("client account profile API is permission protected, updateable, audited, a
       body: JSON.stringify({ status: "resolved" }),
     });
     assert.equal(resolvedIssueRes.response.status, 200);
-    assert.equal(resolvedIssueRes.body.data.find((issue: any) => issue.id === issueId).status, "resolved");
+    const resolvedIssue = resolvedIssueRes.body.data.find((issue: any) => issue.id === issueId);
+    assert.equal(resolvedIssue.status, "resolved");
+    assert.equal(resolvedIssue.slaStatus, "resolved");
+    assert.ok(resolvedIssue.resolvedAt);
 
     const resolvedCountList = await fetchJson(baseUrl, "/api/client-accounts", admin.token);
     const resolvedAccount = resolvedCountList.body.data.find((account: any) => account.clinicId === admin.clinicId);

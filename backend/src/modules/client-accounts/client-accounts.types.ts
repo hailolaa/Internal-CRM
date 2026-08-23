@@ -11,6 +11,7 @@ export type MonthlyActionPlanStatus = "draft" | "active" | "completed" | "archiv
 export type ClientUpsellPromptSeverity = "medium" | "high";
 export type ClientIssuePriority = "low" | "medium" | "high" | "critical";
 export type ClientIssueStatus = "open" | "in_progress" | "waiting" | "resolved" | "closed";
+export type ClientIssueSourceChannel = "manual" | "email" | "phone" | "whatsapp" | "meeting" | "client_portal" | "other";
 export type ClientDocumentType =
   | "main_client_folder"
   | "audit"
@@ -71,8 +72,11 @@ export interface CreateClientIssueDTO {
   title: string;
   priority?: ClientIssuePriority;
   status?: ClientIssueStatus;
+  sourceChannel?: ClientIssueSourceChannel;
   ownerUserId?: string | null;
   dueDate?: string | null;
+  slaDueAt?: string | null;
+  escalatedAt?: string | null;
   notes?: string | null;
   taskId?: string | null;
 }
@@ -86,6 +90,7 @@ export interface ClientIssueResponse {
   title: string;
   priority: ClientIssuePriority;
   status: ClientIssueStatus;
+  sourceChannel: ClientIssueSourceChannel;
   owner: {
     id: string;
     firstName: string | null;
@@ -93,8 +98,13 @@ export interface ClientIssueResponse {
     email: string | null;
   } | null;
   dueDate: string | null;
+  slaDueAt: string | null;
+  escalatedAt: string | null;
+  resolvedAt: string | null;
   notes: string | null;
   isOverdue: boolean;
+  slaStatus: "on_track" | "due_today" | "overdue" | "resolved";
+  isEscalated: boolean;
   task: {
     id: string;
     title: string;
