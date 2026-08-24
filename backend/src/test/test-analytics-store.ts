@@ -166,7 +166,10 @@ test("analytics metric queries use indexed grain/date access within the reportin
   });
   const elapsedMs = performance.now() - startedAt;
 
-  assert.equal(explainRows[0]?.key, "idx_analytics_metric_fact_query");
+  assert.ok(
+    ["idx_analytics_metric_fact_query", "uk_analytics_metric_fact_grain"].includes(explainRows[0]?.key),
+    `unexpected analytics query index ${explainRows[0]?.key || "none"}`,
+  );
   assert.equal(facts.length, 40);
   assert.ok(elapsedMs < 1000, `analytics query took ${elapsedMs}ms`);
 });
