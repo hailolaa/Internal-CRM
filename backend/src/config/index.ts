@@ -371,6 +371,10 @@ export const config = {
             professional: (process.env.STRIPE_PLAN_PROFESSIONAL_ID || "").trim(),
         },
     },
+
+    directDebit: {
+        webhookSecret: (process.env.DIRECT_DEBIT_WEBHOOK_SECRET || process.env.GOCARDLESS_WEBHOOK_SECRET || "").trim(),
+    },
 } as const;
 
 export function getDemoSeedProductionIssues(env: NodeJS.ProcessEnv = process.env) {
