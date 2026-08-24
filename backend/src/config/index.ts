@@ -391,6 +391,53 @@ export function getDemoSeedProductionIssues(env: NodeJS.ProcessEnv = process.env
         : [];
 }
 
+const CLINIC_FACING_HOSTS = new Set([
+    "clinicgrower.ai",
+    "www.clinicgrower.ai",
+    "clinicgrower.co.uk",
+    "www.clinicgrower.co.uk",
+    "crm.clinicgrower.co.uk",
+]);
+
+function hostFromUrl(value: string) {
+    try {
+        return new URL(value).hostname.toLowerCase();
+    } catch {
+        return "";
+    }
+}
+
+export function getMissionControlDomainIssues(input: {
+    frontendUrl?: string;
+    apiPublicUrl?: string;
+    oauthCallbackBaseUrl?: string;
+    corsOrigins?: string[];
+}) {
+    const issues: string[] = [];
+    const urlChecks = [
+        ["FRONTEND_URL", input.frontendUrl],
+        ["API_PUBLIC_URL", input.apiPublicUrl],
+        ["OAUTH_CALLBACK_BASE_URL", input.oauthCallbackBaseUrl],
+    ] as const;
+
+    for (const [name, value] of urlChecks) {
+        const host = hostFromUrl(value || "");
+        if (host && CLINIC_FACING_HOSTS.has(host)) {
+            issues.push(`${name} must use the Mission Control domain, not the clinic-facing ClinicGrower domain.`);
+        }
+    }
+
+    for (const origin of input.corsOrigins || []) {
+        const host = hostFromUrl(origin);
+        if (host && CLINIC_FACING_HOSTS.has(host)) {
+            issues.push("CORS_ORIGINS must use Mission Control origins, not clinic-facing ClinicGrower origins.");
+            break;
+        }
+    }
+
+    return issues;
+}
+
 export function getProductionConfigIssues() {
     const issues: string[] = [];
     const warnings: string[] = [];
@@ -412,6 +459,13 @@ export function getProductionConfigIssues() {
     if (config.cors.allowedOrigins.length === 0) {
         issues.push("CORS_ORIGINS or FRONTEND_URL must be configured.");
     }
+
+    issues.push(...getMissionControlDomainIssues({
+        frontendUrl: config.frontendUrl,
+        apiPublicUrl: config.apiPublicUrl,
+        oauthCallbackBaseUrl: config.oauthCallbackBaseUrl,
+        corsOrigins: config.cors.allowedOrigins,
+    }));
 
     if (config.email.provider === "log") {
         warnings.push("EMAIL_PROVIDER is set to log; transactional email is not configured yet.");

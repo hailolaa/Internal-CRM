@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   getConfiguredJwtSecret,
+  getMissionControlDomainIssues,
   getSecretConfigurationIssues,
 } from "../config/index.js";
 
@@ -58,6 +59,31 @@ test("secret config accepts strong non-local configuration", () => {
     BACKUP_ENCRYPTION_KEY: `${strong}-backup`,
     CREDENTIAL_ENCRYPTION_KEY: `${strong}-credentials`,
     CLINICGROWER_EVENT_SIGNING_SECRET: `${strong}-event-signing`,
+  });
+
+  assert.deepEqual(issues, []);
+});
+
+test("mission control domain config rejects clinic-facing production hosts", () => {
+  const issues = getMissionControlDomainIssues({
+    frontendUrl: "https://clinicgrower.ai",
+    apiPublicUrl: "https://crm.clinicgrower.co.uk/api",
+    oauthCallbackBaseUrl: "https://clinicgrower.co.uk/api/auth",
+    corsOrigins: ["https://www.clinicgrower.ai"],
+  });
+
+  assert.ok(issues.some((issue) => issue.includes("FRONTEND_URL")));
+  assert.ok(issues.some((issue) => issue.includes("API_PUBLIC_URL")));
+  assert.ok(issues.some((issue) => issue.includes("OAUTH_CALLBACK_BASE_URL")));
+  assert.ok(issues.some((issue) => issue.includes("CORS_ORIGINS")));
+});
+
+test("mission control domain config accepts mission-control hosts", () => {
+  const issues = getMissionControlDomainIssues({
+    frontendUrl: "https://mission-control.thegrowthgroup.com",
+    apiPublicUrl: "https://api-mission-control.thegrowthgroup.com/api",
+    oauthCallbackBaseUrl: "https://api-mission-control.thegrowthgroup.com/api/auth",
+    corsOrigins: ["https://mission-control.thegrowthgroup.com"],
   });
 
   assert.deepEqual(issues, []);
