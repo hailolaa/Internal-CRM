@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import PublicOnboardingPage from "@/components/public-onboarding-page";
 
 export default function OnboardingPage() {
-  redirect("/app");
+  return <PublicOnboardingPage />;
 }
