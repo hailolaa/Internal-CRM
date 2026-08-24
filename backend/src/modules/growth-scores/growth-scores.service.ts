@@ -5,6 +5,11 @@ import { logAuditEvent } from "../../utils/audit.js";
 import { userCanManageAllClientAccounts } from "../../middleware/authorize.js";
 import type {
   GrowthScoreCategories,
+  GrowthScoreOutcomeFeedbackPayload,
+  GrowthScoreOutcomeFeedbackRecord,
+  GrowthScoreOutcomeType,
+  GrowthScorePortfolioResponse,
+  GrowthScorePortfolioRow,
   GrowthScoreSnapshotListQuery,
   GrowthScoreSnapshotListResponse,
   GrowthScoreSnapshotPayload,
@@ -24,6 +29,8 @@ const emptyCategories: GrowthScoreCategories = {
   revenueLeakage: null,
   growthOpportunity: null,
 };
+
+const OUTCOME_TYPES: GrowthScoreOutcomeType[] = ["improved", "stable", "declined", "won", "lost", "retained", "churn_risk", "other"];
 
 function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
@@ -77,6 +84,21 @@ function toIso(value: unknown) {
   return new Date(String(value)).toISOString();
 }
 
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function pickOutcome(value: unknown): GrowthScoreOutcomeType {
+  const cleaned = cleanString(value);
+  if (!cleaned) throw ApiError.badRequest("outcomeType is required");
+  if (!OUTCOME_TYPES.includes(cleaned as GrowthScoreOutcomeType)) {
+    throw ApiError.badRequest("Unsupported outcomeType");
+  }
+  return cleaned as GrowthScoreOutcomeType;
+}
+
 function parseCategories(value: unknown, row: any): GrowthScoreCategories {
   let parsed: Record<string, unknown> = {};
   if (value) {
@@ -120,6 +142,21 @@ function mapSnapshot(row: any): GrowthScoreSnapshotRecord {
     gapSummary: row.gapSummary || null,
     source: row.source || "manual",
     notes: row.notes || null,
+    createdBy: row.createdBy || null,
+    createdAt: new Date(row.createdAt).toISOString(),
+  };
+}
+
+function mapOutcomeFeedback(row: any): GrowthScoreOutcomeFeedbackRecord {
+  return {
+    id: row.id,
+    clinicId: row.clinicId,
+    clientAccountProfileId: row.clientAccountProfileId,
+    growthScoreSnapshotId: row.growthScoreSnapshotId || null,
+    feedbackDate: String(row.feedbackDate).slice(0, 10),
+    outcomeType: row.outcomeType,
+    scoreDelta: numberOrNull(row.scoreDelta),
+    note: row.note || null,
     createdBy: row.createdBy || null,
     createdAt: new Date(row.createdAt).toISOString(),
   };
@@ -283,6 +320,172 @@ export class GrowthScoresService {
     });
 
     return this.getSnapshotById(targetClinicId, id);
+  }
+
+  async createOutcomeFeedback(
+    authClinicId: string,
+    userId: string,
+    data: GrowthScoreOutcomeFeedbackPayload,
+  ): Promise<GrowthScoreOutcomeFeedbackRecord> {
+    const clientAccountProfileId = cleanString(data.clientAccountProfileId);
+    if (!clientAccountProfileId) throw ApiError.badRequest("clientAccountProfileId is required");
+    const targetClinicId = await this.resolveTargetClinicId(authClinicId, userId, { clientAccountProfileId });
+    const snapshotId = cleanString(data.growthScoreSnapshotId);
+    if (snapshotId) {
+      const [snapshotRows]: any = await pool.execute(
+        `SELECT id
+         FROM growth_score_snapshot
+         WHERE id = ? AND clinic_id = ? AND client_account_profile_id = ?
+         LIMIT 1`,
+        [snapshotId, targetClinicId, clientAccountProfileId],
+      );
+      if (!snapshotRows[0]) throw ApiError.badRequest("Growth Score snapshot is not linked to this client account");
+    }
+
+    const id = uuidv4();
+    const feedbackDate = toDateOnly(data.feedbackDate);
+    const outcomeType = pickOutcome(data.outcomeType);
+    const scoreDelta = numberOrNull(data.scoreDelta);
+    const note = cleanString(data.note);
+
+    await pool.execute(
+      `INSERT INTO growth_score_outcome_feedback
+        (id, clinic_id, client_account_profile_id, growth_score_snapshot_id, feedback_date,
+         outcome_type, score_delta, note, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, targetClinicId, clientAccountProfileId, snapshotId, feedbackDate, outcomeType, scoreDelta, note, userId],
+    );
+
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId, client_account_profile_id as clientAccountProfileId,
+              growth_score_snapshot_id as growthScoreSnapshotId, feedback_date as feedbackDate,
+              outcome_type as outcomeType, score_delta as scoreDelta, note,
+              created_by as createdBy, created_at as createdAt
+       FROM growth_score_outcome_feedback
+       WHERE id = ? AND clinic_id = ?
+       LIMIT 1`,
+      [id, targetClinicId],
+    );
+    return mapOutcomeFeedback(rows[0]);
+  }
+
+  async getPortfolio(authClinicId: string, userId: string): Promise<GrowthScorePortfolioResponse> {
+    const includeAllClients = await userCanManageAllClientAccounts(userId, authClinicId);
+    const profileParams = includeAllClients ? [] : [authClinicId];
+    const profileFilter = includeAllClients ? "" : "WHERE cap.clinic_id = ?";
+    const [profileRows]: any = await pool.execute(
+      `SELECT cap.id as clientAccountProfileId,
+              cap.clinic_id as clinicId,
+              c.name as clientName,
+              cap.client_status as clientStatus,
+              cap.health_status as healthStatus,
+              cap.current_package as currentPackage
+       FROM client_account_profile cap
+       INNER JOIN clinic c ON c.id = cap.clinic_id AND c.deleted_at IS NULL
+       ${profileFilter}
+       ORDER BY c.name ASC`,
+      profileParams,
+    );
+
+    if (!profileRows.length) {
+      return {
+        generatedAt: new Date().toISOString(),
+        scope: includeAllClients ? "all_clients" : "current_clinic",
+        aggregate: { clients: 0, clientsWithScores: 0, averageScore: null, improved: 0, declined: 0, stable: 0, feedbackItems: 0 },
+        trends: [],
+        clients: [],
+      };
+    }
+
+    const snapshotParams = includeAllClients ? [] : [authClinicId];
+    const snapshotFilter = includeAllClients ? "" : "AND clinic_id = ?";
+    const [snapshotRows]: any = await pool.execute(
+      `SELECT ${this.snapshotSelectFields()}
+       FROM growth_score_snapshot
+       WHERE client_account_profile_id IS NOT NULL ${snapshotFilter}
+       ORDER BY client_account_profile_id, snapshot_date DESC, scored_at DESC, created_at DESC`,
+      snapshotParams,
+    );
+    const snapshots = snapshotRows.map(mapSnapshot);
+
+    const feedbackParams = includeAllClients ? [] : [authClinicId];
+    const feedbackFilter = includeAllClients ? "" : "WHERE f.clinic_id = ?";
+    const [feedbackRows]: any = await pool.execute(
+      `SELECT f.id, f.clinic_id as clinicId, f.client_account_profile_id as clientAccountProfileId,
+              f.growth_score_snapshot_id as growthScoreSnapshotId, f.feedback_date as feedbackDate,
+              f.outcome_type as outcomeType, f.score_delta as scoreDelta, f.note,
+              f.created_by as createdBy, f.created_at as createdAt
+       FROM growth_score_outcome_feedback f
+       ${feedbackFilter}
+       ORDER BY f.feedback_date DESC, f.created_at DESC`,
+      feedbackParams,
+    );
+    const feedback = feedbackRows.map(mapOutcomeFeedback);
+
+    const snapshotsByProfile = new Map<string, GrowthScoreSnapshotRecord[]>();
+    for (const snapshot of snapshots) {
+      if (!snapshot.clientAccountProfileId) continue;
+      const list = snapshotsByProfile.get(snapshot.clientAccountProfileId) || [];
+      list.push(snapshot);
+      snapshotsByProfile.set(snapshot.clientAccountProfileId, list);
+    }
+
+    const feedbackByProfile = new Map<string, GrowthScoreOutcomeFeedbackRecord[]>();
+    for (const item of feedback) {
+      const list = feedbackByProfile.get(item.clientAccountProfileId) || [];
+      list.push(item);
+      feedbackByProfile.set(item.clientAccountProfileId, list);
+    }
+
+    const clients: GrowthScorePortfolioRow[] = profileRows.map((profile: any) => {
+      const profileSnapshots = snapshotsByProfile.get(profile.clientAccountProfileId) || [];
+      const current = profileSnapshots[0] || null;
+      const previous = profileSnapshots[1] || null;
+      const profileFeedback = feedbackByProfile.get(profile.clientAccountProfileId) || [];
+      const lastFeedback = profileFeedback[0] || null;
+      const currentScore = current?.overallScore ?? null;
+      const previousScore = previous?.overallScore ?? null;
+      const scoreDelta = currentScore !== null && previousScore !== null ? Number((currentScore - previousScore).toFixed(2)) : null;
+
+      return {
+        clinicId: profile.clinicId,
+        clientAccountProfileId: profile.clientAccountProfileId,
+        clientName: profile.clientName,
+        clientStatus: profile.clientStatus,
+        healthStatus: profile.healthStatus,
+        currentPackage: profile.currentPackage || null,
+        currentScore,
+        previousScore,
+        scoreDelta,
+        currentSnapshotDate: current?.snapshotDate || null,
+        recommendedPackage: current?.recommendedPackage || null,
+        feedbackCount: profileFeedback.length,
+        lastFeedbackAt: lastFeedback?.feedbackDate || null,
+        lastOutcomeType: lastFeedback?.outcomeType || null,
+      };
+    });
+
+    const scored = clients.filter((client) => client.currentScore !== null);
+    const averageScore = scored.length
+      ? Number((scored.reduce((sum, client) => sum + (client.currentScore || 0), 0) / scored.length).toFixed(2))
+      : null;
+    const trends = this.buildPortfolioTrends(snapshots);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      scope: includeAllClients ? "all_clients" : "current_clinic",
+      aggregate: {
+        clients: clients.length,
+        clientsWithScores: scored.length,
+        averageScore,
+        improved: clients.filter((client) => (client.scoreDelta || 0) > 0 || client.lastOutcomeType === "improved").length,
+        declined: clients.filter((client) => (client.scoreDelta || 0) < 0 || client.lastOutcomeType === "declined").length,
+        stable: clients.filter((client) => client.scoreDelta === 0 || client.lastOutcomeType === "stable").length,
+        feedbackItems: feedback.length,
+      },
+      trends,
+      clients,
+    };
   }
 
   private async resolveTargetClinicId(
@@ -467,6 +670,25 @@ export class GrowthScoresService {
             notes,
             created_by as createdBy,
             created_at as createdAt`;
+  }
+
+  private buildPortfolioTrends(snapshots: GrowthScoreSnapshotRecord[]) {
+    const byDate = new Map<string, number[]>();
+    for (const snapshot of snapshots) {
+      if (snapshot.overallScore === null) continue;
+      const list = byDate.get(snapshot.snapshotDate) || [];
+      list.push(snapshot.overallScore);
+      byDate.set(snapshot.snapshotDate, list);
+    }
+
+    return Array.from(byDate.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .slice(-12)
+      .map(([snapshotDate, scores]) => ({
+        snapshotDate,
+        averageScore: scores.length ? Number((scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(2)) : null,
+        scoredClients: scores.length,
+      }));
   }
 }
 

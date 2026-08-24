@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS `growth_score_outcome_feedback` (
+  `id` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `client_account_profile_id` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `growth_score_snapshot_id` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `feedback_date` DATE NOT NULL,
+  `outcome_type` ENUM('improved','stable','declined','won','lost','retained','churn_risk','other') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'other',
+  `score_delta` DECIMAL(6,2) NULL,
+  `note` TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `created_by` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_growth_score_feedback_client` (`clinic_id`, `client_account_profile_id`, `feedback_date`),
+  KEY `idx_growth_score_feedback_outcome` (`clinic_id`, `outcome_type`, `feedback_date`),
+  KEY `fk_growth_score_feedback_snapshot` (`growth_score_snapshot_id`),
+  CONSTRAINT `fk_growth_score_feedback_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_growth_score_feedback_profile` FOREIGN KEY (`client_account_profile_id`) REFERENCES `client_account_profile` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_growth_score_feedback_snapshot` FOREIGN KEY (`growth_score_snapshot_id`) REFERENCES `growth_score_snapshot` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_growth_score_feedback_user` FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

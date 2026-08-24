@@ -2,6 +2,16 @@ import { Request, Response, NextFunction } from "express";
 import { growthScoresService } from "./growth-scores.service.js";
 
 export class GrowthScoresController {
+  getPortfolio = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const result = await growthScoresService.getPortfolio(clinicId, userId);
+      res.status(200).json({ status: "success", data: result });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listSnapshots = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId, userId } = (req as any).user;
@@ -16,6 +26,16 @@ export class GrowthScoresController {
     try {
       const { clinicId, userId } = (req as any).user;
       const result = await growthScoresService.createSnapshot(clinicId, userId, req.body);
+      res.status(201).json({ status: "success", data: result });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createOutcomeFeedback = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const result = await growthScoresService.createOutcomeFeedback(clinicId, userId, req.body);
       res.status(201).json({ status: "success", data: result });
     } catch (error) {
       next(error);

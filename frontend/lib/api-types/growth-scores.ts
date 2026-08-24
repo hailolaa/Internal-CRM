@@ -49,3 +49,64 @@ export interface GrowthScoreSnapshotPayload {
   source?: string | null;
   notes?: string | null;
 }
+
+export type GrowthScoreOutcomeType = "improved" | "stable" | "declined" | "won" | "lost" | "retained" | "churn_risk" | "other";
+
+export interface GrowthScoreOutcomeFeedbackPayload {
+  clientAccountProfileId: string;
+  growthScoreSnapshotId?: string | null;
+  feedbackDate?: string | null;
+  outcomeType: GrowthScoreOutcomeType;
+  scoreDelta?: number | null;
+  note?: string | null;
+}
+
+export interface GrowthScoreOutcomeFeedbackRecord {
+  id: string;
+  clinicId: string;
+  clientAccountProfileId: string;
+  growthScoreSnapshotId: string | null;
+  feedbackDate: string;
+  outcomeType: GrowthScoreOutcomeType;
+  scoreDelta: number | null;
+  note: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface GrowthScorePortfolioRow {
+  clinicId: string;
+  clientAccountProfileId: string;
+  clientName: string;
+  clientStatus: string;
+  healthStatus: string;
+  currentPackage: string | null;
+  currentScore: number | null;
+  previousScore: number | null;
+  scoreDelta: number | null;
+  currentSnapshotDate: string | null;
+  recommendedPackage: string | null;
+  feedbackCount: number;
+  lastFeedbackAt: string | null;
+  lastOutcomeType: GrowthScoreOutcomeType | null;
+}
+
+export interface GrowthScorePortfolio {
+  generatedAt: string;
+  scope: "current_clinic" | "all_clients";
+  aggregate: {
+    clients: number;
+    clientsWithScores: number;
+    averageScore: number | null;
+    improved: number;
+    declined: number;
+    stable: number;
+    feedbackItems: number;
+  };
+  trends: Array<{
+    snapshotDate: string;
+    averageScore: number | null;
+    scoredClients: number;
+  }>;
+  clients: GrowthScorePortfolioRow[];
+}

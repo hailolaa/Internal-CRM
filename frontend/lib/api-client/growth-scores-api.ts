@@ -1,4 +1,7 @@
 import type {
+  GrowthScoreOutcomeFeedbackPayload,
+  GrowthScoreOutcomeFeedbackRecord,
+  GrowthScorePortfolio,
   GrowthScoreSnapshotList,
   GrowthScoreSnapshotPayload,
   GrowthScoreSnapshotRecord,
@@ -8,6 +11,10 @@ import type { ApiRequest } from "./core";
 export function createGrowthScoresApi(apiRequest: ApiRequest) {
   return {
     growthScores: {
+      async getPortfolio(token: string) {
+        const response = await apiRequest<GrowthScorePortfolio>("/api/growth-scores/portfolio", { token });
+        return response.data!;
+      },
       async listSnapshots(
         token: string,
         params: { contactId?: string; clientAccountProfileId?: string; auditId?: string; limit?: number },
@@ -25,6 +32,14 @@ export function createGrowthScoresApi(apiRequest: ApiRequest) {
       },
       async createSnapshot(token: string, payload: GrowthScoreSnapshotPayload) {
         const response = await apiRequest<GrowthScoreSnapshotRecord>("/api/growth-scores/snapshots", {
+          method: "POST",
+          token,
+          body: JSON.stringify(payload),
+        });
+        return response.data!;
+      },
+      async createOutcomeFeedback(token: string, payload: GrowthScoreOutcomeFeedbackPayload) {
+        const response = await apiRequest<GrowthScoreOutcomeFeedbackRecord>("/api/growth-scores/outcome-feedback", {
           method: "POST",
           token,
           body: JSON.stringify(payload),

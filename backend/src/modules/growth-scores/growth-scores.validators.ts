@@ -51,3 +51,12 @@ export const listGrowthScoreSnapshotsValidator = [
     throw new Error("Provide contactId, clientAccountProfileId, or auditId");
   }),
 ];
+
+export const createGrowthScoreOutcomeFeedbackValidator = [
+  body("clientAccountProfileId").isUUID(),
+  body("growthScoreSnapshotId").optional({ nullable: true, checkFalsy: true }).isUUID(),
+  body("feedbackDate").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("outcomeType").isIn(["improved", "stable", "declined", "won", "lost", "retained", "churn_risk", "other"]),
+  body("scoreDelta").optional({ nullable: true }).isFloat({ min: -100, max: 100 }).toFloat(),
+  body("note").optional({ nullable: true }).isString().trim().isLength({ max: 5000 }),
+];
