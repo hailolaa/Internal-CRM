@@ -272,6 +272,41 @@ export interface RevenueRiskModelQueryParams {
   toMonth?: string;
 }
 
+export type MrrMovementCategoryRecord = "new" | "expansion" | "contraction" | "churn" | "stable";
+
+export interface FinanceRevenuePeriodRecord {
+  clientAccountProfileId: string;
+  periodMonth: string;
+  currency: string;
+  mrrCents: number;
+  recognizedRevenueCents: number;
+  costCents: number;
+  marginCents: number;
+  marginPercent: number | null;
+}
+
+export interface FinanceMrrMovementRecord {
+  clientAccountProfileId: string;
+  periodMonth: string;
+  previousMrrCents: number;
+  currentMrrCents: number;
+  movementCents: number;
+  category: MrrMovementCategoryRecord;
+}
+
+export interface FinanceRevenueViewRecord {
+  periods: FinanceRevenuePeriodRecord[];
+  movements: FinanceMrrMovementRecord[];
+  totals: {
+    currency: string;
+    mrrCents: number;
+    recognizedRevenueCents: number;
+    costCents: number;
+    marginCents: number;
+    marginPercent: number | null;
+  };
+}
+
 export interface RevenueByTreatmentRecord {
   range: DashboardRange;
   totals: {

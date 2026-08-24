@@ -6,6 +6,7 @@ import type {
   DashboardFunnelRecord,
   DashboardRecord,
   DashboardSummaryRecord,
+  FinanceRevenueViewRecord,
   ReportRecord,
   ReportShareRecord,
   ReportWorkflowUpdatePayload,
@@ -235,6 +236,13 @@ export function createReportsOpsApi(apiRequest: ApiRequest) {
       async revenueLeakDetails(token: string, params?: DashboardQueryParams) {
         const response = await apiRequest<RevenueLeakDetailsRecord>(
           `/api/reports/dashboard/revenue-leak-details${buildQuery(params)}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async revenueMovement(token: string, params?: RevenueRiskModelQueryParams) {
+        const response = await apiRequest<FinanceRevenueViewRecord>(
+          `/api/reports/dashboard/revenue-movement${buildQuery(params || {})}`,
           { token },
         );
         return response.data!;

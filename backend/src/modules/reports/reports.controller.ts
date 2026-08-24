@@ -261,6 +261,18 @@ export class ReportsController {
     }
   };
 
+  // GET /api/reports/dashboard/revenue-movement
+  getRevenueMovement = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const range = pickMonthRange(req.query as Record<string, unknown>);
+      const metrics = await financeAnalyticsService.getRevenueView({ clinicId, ...range });
+      res.status(200).json({ status: "success", data: metrics });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   // GET /api/reports/dashboard/revenue-risk-predictions
   getRevenueRiskPredictions = async (req: Request, res: Response, next: NextFunction) => {
     try {

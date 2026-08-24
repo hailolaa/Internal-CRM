@@ -1,9 +1,28 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import { v4 as uuidv4 } from "uuid";
 import pool, { testConnection } from "../config/database.js";
 import { financeAnalyticsService } from "../modules/finance-analytics/finance-analytics.service.js";
 import { createTestClinicAndAdmin } from "./test-fixtures.js";
+
+const root = process.cwd();
+
+function read(path: string) {
+  return readFileSync(join(root, path), "utf8");
+}
+
+test("finance revenue movement report route is permissioned and wired to analytics", () => {
+  const routes = read("src/modules/reports/reports.routes.ts");
+  const controller = read("src/modules/reports/reports.controller.ts");
+
+  assert.match(routes, /\/dashboard\/revenue-movement/);
+  assert.match(routes, /authorizePermission\("reports:read"\)/);
+  assert.match(routes, /reportsController\.getRevenueMovement/);
+  assert.match(controller, /getRevenueMovement/);
+  assert.match(controller, /financeAnalyticsService\.getRevenueView/);
+});
 
 async function createClientAccount(
   clinicId: string,

@@ -95,6 +95,11 @@ router.get("/dashboard/monthly-trend", authorizePermission("reports:read"), repo
 // @access  Private
 router.get("/dashboard/risk-opportunity-sections", authorizePermission("reports:read"), reportsController.getRiskOpportunitySections);
 
+// @route   GET /api/reports/dashboard/revenue-movement
+// @desc    MRR movement, recognized revenue and client margin trends
+// @access  Private
+router.get("/dashboard/revenue-movement", authorizePermission("reports:read"), reportsController.getRevenueMovement);
+
 // @route   GET /api/reports/dashboard/revenue-risk-predictions
 // @desc    Predictive revenue-risk v1 with backtest and explanations
 // @access  Private
