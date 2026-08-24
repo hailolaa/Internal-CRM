@@ -10,6 +10,7 @@ import {
   ClipboardList,
   ExternalLink,
   Plus,
+  RefreshCw,
   Target,
   Users,
 } from "lucide-react";
@@ -360,8 +361,23 @@ export default function AppPage() {
   const [callIssues, setCallIssues] = useState<CallLogRecord[]>([]);
   const [clickUpOperations, setClickUpOperations] = useState<ClickUpOperationsDashboardRecord | null>(null);
   const [clickUpOperationsError, setClickUpOperationsError] = useState("");
+  const [isRefreshingClickUpOperations, setIsRefreshingClickUpOperations] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+
+  const refreshClickUpOperations = useCallback(async (options: { manual?: boolean } = {}) => {
+    if (!token || !canReadInternalTasks) return;
+    if (options.manual) setIsRefreshingClickUpOperations(true);
+    try {
+      const data = await api.clickup.getOperationsDashboard(token);
+      setClickUpOperations(data);
+      setClickUpOperationsError("");
+    } catch (refreshError) {
+      setClickUpOperationsError(clickUpErrorMessage(refreshError));
+    } finally {
+      if (options.manual) setIsRefreshingClickUpOperations(false);
+    }
+  }, [canReadInternalTasks, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -424,6 +440,14 @@ export default function AppPage() {
       isMounted = false;
     };
   }, [canReadInternalTasks, token]);
+
+  useEffect(() => {
+    if (!token || !canReadInternalTasks) return;
+    const interval = window.setInterval(() => {
+      void refreshClickUpOperations();
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [canReadInternalTasks, refreshClickUpOperations, token]);
 
   const clientNameByProfileId = useMemo(() => {
     return new Map(
@@ -1632,12 +1656,23 @@ export default function AppPage() {
                 </p>
               )}
             </div>
-            <Link
-              href="/app/integrations?from=dashboard"
-              className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
-            >
-              ClickUp Settings
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void refreshClickUpOperations({ manual: true })}
+                disabled={isRefreshingClickUpOperations}
+                className="inline-flex min-h-10 items-center gap-2 rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+              >
+                <RefreshCw className={`h-4 w-4 ${isRefreshingClickUpOperations ? "animate-spin" : ""}`} aria-hidden="true" />
+                {isRefreshingClickUpOperations ? "Refreshing" : "Refresh"}
+              </button>
+              <Link
+                href="/app/integrations?from=dashboard"
+                className="inline-flex min-h-10 items-center rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+              >
+                ClickUp Settings
+              </Link>
+            </div>
           </div>
 
           {clickUpOperationsError && !isLoading && (
