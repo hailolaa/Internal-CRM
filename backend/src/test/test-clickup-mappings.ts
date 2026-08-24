@@ -1092,6 +1092,130 @@ test("ClickUp task creation saves local mapping before attachment upload failure
   }
 });
 
+test("ClickUp failed mapping replay preserves the review record when prerequisites are missing", async () => {
+  const fixture = await createClickUpLifecycleFixture("clickup-replay-missing-category");
+
+  await pool.execute(
+    `UPDATE clickup_task_mapping
+     SET clickup_task_id = ?,
+         mapping_status = 'needs_review'
+     WHERE id = ?`,
+    [`pending:${fixture.taskId}`, fixture.mappingId],
+  );
+
+  await assert.rejects(
+    () => clickUpService.replayTaskMapping(
+      fixture.clinicId,
+      fixture.mappingId,
+      fixture.userId,
+      { canManageAllClientAccounts: true },
+    ),
+    /category mapping for this list no longer exists/,
+  );
+
+  const [mappingRows]: any = await pool.execute(
+    `SELECT mapping_status as mappingStatus, clickup_task_id as clickupTaskId
+     FROM clickup_task_mapping
+     WHERE id = ?`,
+    [fixture.mappingId],
+  );
+  assert.equal(mappingRows[0].mappingStatus, "needs_review");
+  assert.equal(mappingRows[0].clickupTaskId, `pending:${fixture.taskId}`);
+});
+
+test("ClickUp failed mapping replay searches paged provider results before recreating a task", async () => {
+  const fixture = await createClickUpLifecycleFixture("clickup-replay-paged-search");
+  const originalFetch = globalThis.fetch;
+  const requestedPages: string[] = [];
+  let createCalls = 0;
+
+  await clickUpService.saveCategoryMapping(
+    fixture.clinicId,
+    fixture.userId,
+    fixture.client.profileId,
+    {
+      connectionId: fixture.connectionId,
+      workspaceId: fixture.clickupWorkspaceId,
+      spaceId: "space-1",
+      folderId: "folder-1",
+      listId: fixture.clickupListId,
+      categoryKey: "development",
+      defaultAssigneeIds: ["105"],
+      mappingStatus: "active",
+      mappingSource: "api_lookup",
+    },
+    { canManageAllClientAccounts: true },
+  );
+
+  await pool.execute(
+    `UPDATE clickup_task_mapping
+     SET clickup_task_id = ?,
+         mapping_status = 'needs_review'
+     WHERE id = ?`,
+    [`pending:${fixture.taskId}`, fixture.mappingId],
+  );
+  const [preReplayRows]: any = await pool.execute(
+    "SELECT id FROM clickup_task_mapping WHERE id = ? AND clinic_id = ?",
+    [fixture.mappingId, fixture.clinicId],
+  );
+  assert.equal(preReplayRows.length, 1);
+
+  globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes(`/list/${fixture.clickupListId}/task`) && init?.method === "GET") {
+      requestedPages.push(url);
+      const parsed = new URL(url);
+      const page = parsed.searchParams.get("page");
+      if (page === "0") {
+        return new Response(JSON.stringify({
+          tasks: Array.from({ length: 100 }, (_, index) => ({
+            id: `page-0-task-${index}`,
+            description: `Other synced task ${index}`,
+          })),
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({
+        tasks: [{
+          id: "page-1-existing-task",
+          url: "https://app.clickup.com/t/page-1-existing-task",
+          description: `Recovered task\n\n[Mission Control Task ID: ${fixture.taskId}]`,
+        }],
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url.includes(`/list/${fixture.clickupListId}/task`) && init?.method === "POST") {
+      createCalls += 1;
+      return new Response(JSON.stringify({ id: "should-not-create" }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ err: `Unexpected ClickUp request ${url}` }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const replayed = await clickUpService.replayTaskMapping(
+      fixture.clinicId,
+      fixture.mappingId,
+      fixture.userId,
+      { canManageAllClientAccounts: true },
+    );
+
+    assert.equal(replayed.mapping.clickupTaskId, "page-1-existing-task");
+    assert.equal(replayed.mapping.mappingStatus, "active");
+    assert.equal(createCalls, 0);
+    assert.equal(requestedPages.some((url) => url.includes("page=0")), true);
+    assert.equal(requestedPages.some((url) => url.includes("page=1")), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("ClickUp webhook applies mapped lifecycle events exactly once and rejects stale updates", async () => {
   const fixture = await createClickUpLifecycleFixture("clickup-webhook-status");
   const secret = "clickup-webhook-secret-32-character-value";
