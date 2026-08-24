@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Plus_Jakarta_Sans } from "next/font/google";
+import { EnvironmentBanner } from "@/components/environment-banner";
 import { ClientObservability } from "@/components/observability/client-observability";
 import { GsapSiteEffects } from "@/components/motion/gsap-site-effects";
 import "./globals.css";
@@ -56,6 +57,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${plusJakarta.variable}`}>
       <body className={`${inter.className} antialiased`}>
         <ClientObservability />
+        <EnvironmentBanner />
         {children}
         <GsapSiteEffects />
       </body>

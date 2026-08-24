@@ -71,7 +71,7 @@ export function getReleaseInfo() {
     return {
       source: "manifest",
       releaseId: manifest.manifest.releaseId || null,
-      environment: manifest.manifest.environment || process.env.NODE_ENV || "development",
+      environment: manifest.manifest.environment || process.env.RELEASE_ENVIRONMENT || process.env.NODE_ENV || "development",
       createdAt: manifest.manifest.createdAt || null,
       manifestPath: manifest.path,
       manifestSha256: manifest.sha256,
@@ -110,7 +110,7 @@ export function getReleaseInfo() {
   return {
     source: "environment",
     releaseId: process.env.RELEASE_ID || process.env.RELEASE_VERSION || null,
-    environment: process.env.NODE_ENV || "development",
+    environment: process.env.RELEASE_ENVIRONMENT || process.env.NODE_ENV || "development",
     createdAt: process.env.RELEASE_CREATED_AT || null,
     manifestPath: process.env.RELEASE_MANIFEST_PATH || null,
     manifestSha256: process.env.RELEASE_MANIFEST_SHA256 || null,
