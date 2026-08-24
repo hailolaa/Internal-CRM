@@ -62,6 +62,7 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/comms/calls/analysis": "Legacy Communications Analysis",
   "/app/comms/calls/analytics": "Legacy Communications Analytics",
   "/app/comms/calls/compliance": "Legacy Communications Compliance",
+  "/app/comms/calls/recovery": "Missed Call Recovery",
   "/app/comms/calls": "Call Intelligence",
   "/app/comms/templates": "Templates",
   "/app/comms/sequences": "Follow-Up Sequences",
@@ -86,6 +87,7 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/ai": "Intelligence",
 
   // Reports
+  "/app/reports/growth-scores": "Growth Score Portfolio",
   "/app/reports/overview": "Legacy Reports",
   "/app/reports/leads": "Sales Pipeline Report",
   "/app/reports/ads": "Marketing Spend Report",
@@ -96,6 +98,8 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/financials": "Financials",
 
   // Integrations
+  "/app/integrations/clickup/reconciliation": "ClickUp Reconciliation",
+  "/app/integrations/sync-health": "Sync Health",
   "/app/integrations": "Integrations",
 
   // Settings
@@ -111,6 +115,8 @@ export const PAGE_TITLES: Record<string, string> = {
   "/app/settings": "Settings",
 
   // Admin
+  "/app/admin/tenant-scope": "Tenant Scope",
+  "/app/admin/smoke-tests": "Smoke Tests",
   "/app/admin": "Platform Admin",
 
   // Phase Three

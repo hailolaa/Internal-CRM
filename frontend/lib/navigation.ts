@@ -47,6 +47,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Inbox", href: "/app/comms/inbox", icon: Inbox },
       { label: "Call Intelligence", href: "/app/comms/calls", icon: PhoneCall },
+      { label: "Missed Call Recovery", href: "/app/comms/calls/recovery", icon: PhoneCall },
       { label: "Templates", href: "/app/comms/templates", icon: MessageSquareText },
       { label: "Sequences", href: "/app/comms/sequences", icon: Bot },
     ],
@@ -96,18 +97,32 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: "Reporting",
+    colorClass: "text-[#7A746A]/60",
+    items: [
+      { label: "Growth Scores", href: "/app/reports/growth-scores", icon: BarChart3, permission: "reports:read" },
+      { label: "Lead Reports", href: "/app/reports/leads", icon: Users, permission: "reports:read" },
+      { label: "Marketing Spend", href: "/app/reports/ads", icon: CircleDollarSign, permission: "reports:read" },
+      { label: "No-show Reports", href: "/app/reports/noshows", icon: PhoneCall, permission: "reports:read" },
+    ],
+  },
+  {
     title: "Admin",
     colorClass: "text-[#7A746A]/60",
     items: [
-      { label: "Admin Console", href: "/app/admin", icon: Shield },
-      { label: "Team Members", href: "/app/ops/team", icon: Users },
-      { label: "Integrations", href: "/app/integrations", icon: Plug },
-      { label: "Roles & Permissions", href: "/app/ops/roles", icon: Shield },
-      { label: "Packages", href: "/app/settings/packages", icon: Package },
+      { label: "Admin Console", href: "/app/admin", icon: Shield, permission: "settings:read" },
+      { label: "Tenant Scope", href: "/app/admin/tenant-scope", icon: Shield, permission: "settings:read" },
+      { label: "Smoke Tests", href: "/app/admin/smoke-tests", icon: ClipboardList, permission: "settings:read" },
+      { label: "Team Members", href: "/app/ops/team", icon: Users, permission: "team:read" },
+      { label: "Integrations", href: "/app/integrations", icon: Plug, permission: "webhooks:read" },
+      { label: "Sync Health", href: "/app/integrations/sync-health", icon: Plug, permission: "webhooks:read" },
+      { label: "ClickUp Reconciliation", href: "/app/integrations/clickup/reconciliation", icon: CheckSquare, permission: "webhooks:read" },
+      { label: "Roles & Permissions", href: "/app/ops/roles", icon: Shield, permission: "team:read" },
+      { label: "Packages", href: "/app/settings/packages", icon: Package, permission: "settings:read" },
     ],
   },
 ];
 
 export const BOTTOM_NAV: NavItem[] = [
-  { label: "Settings", href: "/app/settings", icon: Settings },
+  { label: "Settings", href: "/app/settings", icon: Settings, permission: "settings:read" },
 ];

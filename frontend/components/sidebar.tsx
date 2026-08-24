@@ -84,12 +84,19 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     (href: string) => pathname === href || pathname.startsWith(href + "/"),
     [pathname],
   );
+  const hasPermission = useCallback(
+    (permission: string | string[] | undefined) => {
+      if (!permission) return true;
+      const permissions = user?.permissions || [];
+      if (permissions.includes("*")) return true;
+      const required = Array.isArray(permission) ? permission : [permission];
+      return required.some((entry) => permissions.includes(entry));
+    },
+    [user?.permissions],
+  );
   const canAccessNavItem = useCallback(
-    (item: NavItem) =>
-      item.href !== "/app/integrations" ||
-      user?.role === "SUPER_ADMIN" ||
-      user?.role === "ADMIN",
-    [user?.role],
+    (item: NavItem) => hasPermission(item.permission),
+    [hasPermission],
   );
 
   useEffect(() => {

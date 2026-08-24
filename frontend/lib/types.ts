@@ -96,6 +96,7 @@ export interface NavItem {
   href: string;
   icon: LucideIcon;
   badge?: "coming-soon" | "premium";
+  permission?: string | string[];
 }
 
 export interface NavSection {
