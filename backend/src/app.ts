@@ -72,6 +72,7 @@ import calendarRoutes from "./modules/calendar/calendar.routes.js";
 import quickBooksRoutes from "./modules/quickbooks/quickbooks.routes.js";
 import missedCallRecoveryRoutes from "./modules/missed-call-recovery/missed-call-recovery.routes.js";
 import fleetIngestionRoutes from "./modules/fleet-ingestion/fleet-ingestion.routes.js";
+import commercialContractsRoutes from "./modules/commercial-contracts/commercial-contracts.routes.js";
 
 const app = express();
 
@@ -171,6 +172,7 @@ app.use("/api/calendar", calendarRoutes);
 app.use("/api/quickbooks", quickBooksRoutes);
 app.use("/api/missed-call-recovery", missedCallRecoveryRoutes);
 app.use("/api/fleet-ingestion", fleetIngestionRoutes);
+app.use("/api/commercial-contracts", commercialContractsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/health", healthRoutes);
 

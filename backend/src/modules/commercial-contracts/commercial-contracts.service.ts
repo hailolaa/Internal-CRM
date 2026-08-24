@@ -113,6 +113,61 @@ function toAlert(row: any): CommercialContractAlert {
 }
 
 export class CommercialContractsService {
+  async listContracts(clinicId: string, query: { status?: string; clientAccountProfileId?: string } = {}): Promise<CommercialContract[]> {
+    const where = ["clinic_id = ?"];
+    const params: any[] = [clinicId];
+    const status = cleanString(query.status);
+    const clientAccountProfileId = cleanString(query.clientAccountProfileId);
+
+    if (status) {
+      where.push("status = ?");
+      params.push(pickStatus(status));
+    }
+    if (clientAccountProfileId) {
+      where.push("client_account_profile_id = ?");
+      params.push(clientAccountProfileId);
+    }
+
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId, client_account_profile_id as clientAccountProfileId,
+              contract_key as contractKey, status, current_version as currentVersion,
+              start_date as startDate, end_date as endDate, renewal_date as renewalDate,
+              notice_period_days as noticePeriodDays, terms
+       FROM commercial_contract
+       WHERE ${where.join(" AND ")}
+       ORDER BY renewal_date IS NULL ASC, renewal_date ASC, updated_at DESC`,
+      params,
+    );
+    return rows.map(toContract);
+  }
+
+  async listAlerts(clinicId: string, query: { status?: "open" | "resolved"; contractId?: string } = {}): Promise<CommercialContractAlert[]> {
+    const where = ["clinic_id = ?"];
+    const params: any[] = [clinicId];
+    const status = cleanString(query.status);
+    const contractId = cleanString(query.contractId);
+
+    if (status) {
+      if (!["open", "resolved"].includes(status)) throw ApiError.badRequest("Unsupported contract alert status.");
+      where.push("status = ?");
+      params.push(status);
+    }
+    if (contractId) {
+      where.push("contract_id = ?");
+      params.push(contractId);
+    }
+
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId, contract_id as contractId, alert_type as alertType,
+              status, due_date as dueDate, message
+       FROM commercial_contract_alert
+       WHERE ${where.join(" AND ")}
+       ORDER BY due_date IS NULL ASC, due_date ASC, created_at DESC`,
+      params,
+    );
+    return rows.map(toAlert);
+  }
+
   async createContract(input: {
     clinicId: string;
     contractKey: string;
@@ -330,7 +385,7 @@ export class CommercialContractsService {
     return dateFromDb(rows[0].dueDate)!;
   }
 
-  private async getContract(clinicId: string, contractId: string): Promise<CommercialContract> {
+  async getContract(clinicId: string, contractId: string): Promise<CommercialContract> {
     const [rows]: any = await pool.execute(
       `SELECT id, clinic_id as clinicId, client_account_profile_id as clientAccountProfileId,
               contract_key as contractKey, status, current_version as currentVersion,

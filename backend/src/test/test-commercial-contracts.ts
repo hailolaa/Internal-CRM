@@ -1,8 +1,30 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import pool, { testConnection } from "../config/database.js";
 import { commercialContractsService } from "../modules/commercial-contracts/commercial-contracts.service.js";
 import { createTestClinicAndAdmin } from "./test-fixtures.js";
+
+const root = process.cwd();
+
+function read(path: string) {
+  return readFileSync(join(root, path), "utf8");
+}
+
+test("commercial contract routes expose the lifecycle behind client account permissions", () => {
+  const app = read("src/app.ts");
+  const routes = read("src/modules/commercial-contracts/commercial-contracts.routes.ts");
+
+  assert.match(app, /commercialContractsRoutes/);
+  assert.match(app, /\/api\/commercial-contracts/);
+  assert.match(routes, /authorizePermission\("client_accounts:read"\)/);
+  assert.match(routes, /authorizePermission\("client_accounts:write"\)/);
+  assert.match(routes, /\/:id\/status/);
+  assert.match(routes, /\/:id\/change-orders/);
+  assert.match(routes, /\/alerts\/notice/);
+  assert.match(routes, /\/renewals/);
+});
 
 test("commercial contracts enforce lifecycle transitions", async () => {
   await testConnection();
@@ -98,4 +120,40 @@ test("notice alerts and renewal versions are generated from renewal dates", asyn
   assert.equal(contractRows[0].status, "renewal_pending");
   assert.equal(Number(contractRows[0].currentVersion), 2);
   assert.deepEqual(alertRows.map((row: any) => row.alertType), ["notice_due", "renewal_due"]);
+});
+
+test("commercial contract lists remain tenant scoped", async () => {
+  const primary = await createTestClinicAndAdmin("contract-list-primary");
+  const other = await createTestClinicAndAdmin("contract-list-other");
+  const contract = await commercialContractsService.createContract({
+    clinicId: primary.clinicId,
+    contractKey: "tenant-list-primary",
+    startDate: "2026-08-01",
+    renewalDate: "2026-09-01",
+    noticePeriodDays: 14,
+    terms: { package: "Market Leader" },
+    createdBy: "Haile Michael",
+  });
+  await commercialContractsService.createContract({
+    clinicId: other.clinicId,
+    contractKey: "tenant-list-other",
+    startDate: "2026-08-01",
+    renewalDate: "2026-09-01",
+    noticePeriodDays: 14,
+    terms: { package: "Market Leader" },
+    createdBy: "Haile Michael",
+  });
+
+  const contracts = await commercialContractsService.listContracts(primary.clinicId);
+  const filtered = await commercialContractsService.listContracts(primary.clinicId, { status: "draft" });
+  await commercialContractsService.transitionContract(primary.clinicId, contract.id, "sent");
+  await commercialContractsService.transitionContract(primary.clinicId, contract.id, "active");
+  await commercialContractsService.createNoticeAlerts({ clinicId: primary.clinicId, untilDate: "2026-08-20" });
+  const alerts = await commercialContractsService.listAlerts(primary.clinicId, { status: "open" });
+
+  assert.ok(contracts.some((item) => item.contractKey === "tenant-list-primary"));
+  assert.equal(contracts.some((item) => item.contractKey === "tenant-list-other"), false);
+  assert.ok(filtered.every((item) => item.status === "draft"));
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0]!.contractId, contract.id);
 });
