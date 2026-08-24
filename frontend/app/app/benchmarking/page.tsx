@@ -118,7 +118,7 @@ export default function BenchmarkingPage() {
               <Card className="space-y-2" padding="p-5">
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#315f62]">Current sample</p>
                 <p className="text-sm text-[#625F5A]">
-                  {report.counts.leads} leads · {report.counts.calls} calls · {report.counts.consults} consults
+                  {report.counts.leads} leads / {report.counts.calls} calls / {report.counts.consults} consults
                 </p>
                 <StatusPill tone="warning">{report.cohortStatus.replaceAll("_", " ")}</StatusPill>
               </Card>
