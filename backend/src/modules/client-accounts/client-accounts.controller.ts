@@ -367,6 +367,29 @@ export class ClientAccountsController {
     }
   };
 
+  getCommunicationHistory = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
+      const history = await clientAccountsService.getCommunicationHistory(
+        user.clinicId,
+        String(req.params.clinicId),
+        {
+          search: typeof req.query.search === "string" ? req.query.search : null,
+          limit: (req.query.limit ?? null) as string | number | null,
+        },
+        { canManageAllClientAccounts },
+      );
+
+      res.status(200).json({
+        status: "success",
+        data: history,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   listDocumentLinks = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;

@@ -1132,6 +1132,72 @@ test("client account contacts and tasks use stable workspace-scoped relations", 
     const clientAProfileId = linked.body.data.account.id;
     assert.ok(clientAProfileId);
 
+    const emailId = uuidv4();
+    const smsId = uuidv4();
+    const whatsappConversationId = uuidv4();
+    const whatsappMessageId = uuidv4();
+    const callId = uuidv4();
+    await pool.execute(
+      `INSERT INTO email (id, clinic_id, contact_id, user_id, subject, body, direction, status)
+       VALUES (?, ?, ?, ?, 'Board decision', 'Client approved the launch plan and asked for a follow-up on tracking.', 'inbound', 'read')`,
+      [emailId, primary.clinicId, contactId, primary.userId],
+    );
+    await pool.execute(
+      `INSERT INTO sms (id, clinic_id, contact_id, user_id, message, direction, status)
+       VALUES (?, ?, ?, ?, 'We will send the revised action plan tomorrow.', 'outbound', 'sent')`,
+      [smsId, primary.clinicId, contactId, primary.userId],
+    );
+    await pool.execute(
+      `INSERT INTO whatsapp_conversation (id, clinic_id, contact_id, whatsapp_number, owner_user_id, status)
+       VALUES (?, ?, ?, '447700900111', ?, 'open')`,
+      [whatsappConversationId, primary.clinicId, contactId, primary.userId],
+    );
+    await pool.execute(
+      `INSERT INTO whatsapp_message (id, clinic_id, conversation_id, contact_id, user_id, direction, body, status)
+       VALUES (?, ?, ?, ?, ?, 'inbound', 'There is an outstanding complaint about reporting access.', 'received')`,
+      [whatsappMessageId, primary.clinicId, whatsappConversationId, contactId, primary.userId],
+    );
+    await pool.execute(
+      `INSERT INTO \` call \`
+        (id, clinic_id, contact_id, user_id, direction, call_status, recording_url, recording_status, transcript, ai_summary, notes)
+       VALUES (?, ?, ?, ?, 'inbound', 'completed', 'https://recordings.example.test/client-call.mp3', 'completed',
+        'The client asked for a decision on next steps and confirmed the commitment.',
+        'Call covered next steps, reporting concerns and owner commitments.', 'Follow-up call')`,
+      [callId, primary.clinicId, contactId, primary.userId],
+    );
+
+    const communicationHistory = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${clientA.clinicId}/communication-history`,
+      primary.token,
+    );
+    assert.equal(communicationHistory.response.status, 200, JSON.stringify(communicationHistory.body));
+    assert.equal(communicationHistory.body.data.counts.email, 1);
+    assert.equal(communicationHistory.body.data.counts.sms, 1);
+    assert.equal(communicationHistory.body.data.counts.whatsapp, 1);
+    assert.equal(communicationHistory.body.data.counts.calls, 1);
+    assert.equal(communicationHistory.body.data.counts.recordings, 1);
+    assert.equal(communicationHistory.body.data.counts.transcripts, 1);
+    assert.equal(communicationHistory.body.data.items.some((item: any) => item.channel === "call" && item.hasTranscript), true);
+    assert.equal(communicationHistory.body.data.items.some((item: any) => item.twilioCallSid), false);
+    assert.match(communicationHistory.body.data.aiContext.searchableText, /Board decision/);
+    assert.ok(communicationHistory.body.data.aiContext.commitmentSignals > 0);
+    assert.ok(communicationHistory.body.data.aiContext.complaintSignals > 0);
+
+    const searchedCommunicationHistory = await fetchJson(
+      baseUrl,
+      `/api/client-accounts/${clientA.clinicId}/communication-history?search=complaint`,
+      primary.token,
+    );
+    assert.equal(searchedCommunicationHistory.response.status, 200);
+    assert.equal(searchedCommunicationHistory.body.data.counts.total >= 1, true);
+    assert.equal(
+      searchedCommunicationHistory.body.data.items.every((item: any) =>
+        [item.preview, item.body, item.transcript, item.aiSummary].filter(Boolean).join(" ").toLowerCase().includes("complaint"),
+      ),
+      true,
+    );
+
     const duplicateLink = await fetchJson(
       baseUrl,
       `/api/client-accounts/${clientA.clinicId}/contacts/${contactId}/link`,
@@ -1222,6 +1288,11 @@ test("client account contacts and tasks use stable workspace-scoped relations", 
 
     console.log("[client-accounts] stable relation link/unlink, rename, duplicate name, backlink and task scope checks passed");
   } finally {
+    await pool.execute("DELETE FROM ` call ` WHERE clinic_id = ? AND contact_id = ?", [primary.clinicId, contactId]);
+    await pool.execute("DELETE FROM whatsapp_message WHERE clinic_id = ? AND contact_id = ?", [primary.clinicId, contactId]);
+    await pool.execute("DELETE FROM whatsapp_conversation WHERE clinic_id = ? AND contact_id = ?", [primary.clinicId, contactId]);
+    await pool.execute("DELETE FROM sms WHERE clinic_id = ? AND contact_id = ?", [primary.clinicId, contactId]);
+    await pool.execute("DELETE FROM email WHERE clinic_id = ? AND contact_id = ?", [primary.clinicId, contactId]);
     await pool.execute("DELETE FROM task WHERE clinic_id = ? AND contact_id = ?", [primary.clinicId, contactId]);
     await pool.execute("DELETE FROM client_account_contact WHERE clinic_id = ? AND contact_id IN (?, ?)", [primary.clinicId, contactId, secondContactId]);
     await pool.execute("UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id IN (?, ?)", [primary.clinicId, contactId, secondContactId]);

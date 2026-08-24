@@ -12,6 +12,8 @@ import type {
   ClientAccountAuditContext,
   ClientAccountContactAccountLinkResponse,
   ClientAccountAcceptedProposalResponse,
+  ClientAccountCommunicationHistoryResponse,
+  ClientAccountCommunicationItemResponse,
   ClientAccountListQuery,
   ClientAccountLinkedContactResponse,
   ClientAccountLinkedRecordsResponse,
@@ -43,6 +45,8 @@ import type {
   UpdateClientAccountServiceDTO,
   UpdateClientAccountProfileDTO,
 } from "./client-accounts.types.js";
+
+const CALL_TABLE = "`\u00A0call\u00A0`";
 
 const DEFAULT_PROFILE = {
   activeServices: [] as string[],
@@ -339,6 +343,16 @@ function toIsoString(value: unknown) {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString();
   return new Date(String(value)).toISOString();
+}
+
+function compactText(value: unknown, maxLength = 280) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
+}
+
+function countSignals(text: string, patterns: RegExp[]) {
+  return patterns.reduce((total, pattern) => total + (pattern.test(text) ? 1 : 0), 0);
 }
 
 function ownKey<T extends object>(data: T, key: keyof T) {
@@ -1750,6 +1764,75 @@ export class ClientAccountsService {
         acceptedProposals: acceptedProposals.length,
       },
     };
+  }
+
+  async getCommunicationHistory(
+    sourceClinicId: string,
+    clientClinicId: string,
+    options: { search?: string | null; limit?: number | string | null } = {},
+    access: { canManageAllClientAccounts: boolean } = { canManageAllClientAccounts: false },
+  ): Promise<ClientAccountCommunicationHistoryResponse> {
+    await this.ensureClientAccountAvailableToWorkspace(sourceClinicId, clientClinicId, access);
+    const account = await this.getProfile(clientClinicId, sourceClinicId);
+    const contacts = account.id ? await this.listLinkedContacts(sourceClinicId, account.id) : [];
+    const limit = Math.min(Math.max(Number(options.limit || 100) || 100, 1), 200);
+    const search = String(options.search || "").trim().toLowerCase();
+
+    if (!account.id || contacts.length === 0) {
+      return this.buildCommunicationHistoryResponse(account, contacts, [], search);
+    }
+
+    const contactIds = contacts.map((contact) => contact.id);
+    const rows = await this.listCommunicationRows(sourceClinicId, contactIds, limit * 2);
+    const contactNameById = new Map(contacts.map((contact) => [contact.id, contact.name]));
+    const items = rows
+      .map((row: any): ClientAccountCommunicationItemResponse => {
+        const body = row.body || row.notes || null;
+        const transcript = row.transcript || null;
+        const aiSummary = row.aiSummary || null;
+        const preview = compactText(
+          row.channel === "call"
+            ? aiSummary || transcript || body || row.subject || `${row.direction || "Call"} call`
+            : body || row.subject || "",
+        );
+        return {
+          id: row.id,
+          channel: row.channel,
+          kind: row.kind,
+          contactId: row.contactId,
+          contactName: contactNameById.get(row.contactId) || "Linked contact",
+          direction: row.direction || null,
+          status: row.status || null,
+          subject: row.subject || null,
+          preview,
+          body: body || null,
+          transcript,
+          aiSummary,
+          recordingUrl: row.recordingUrl || null,
+          recordingStatus: row.recordingStatus || null,
+          hasRecording: Boolean(row.recordingUrl),
+          hasTranscript: Boolean(transcript),
+          occurredAt: toIsoString(row.occurredAt) || new Date().toISOString(),
+        };
+      })
+      .filter((item: ClientAccountCommunicationItemResponse) => {
+        if (!search) return true;
+        const haystack = [
+          item.channel,
+          item.contactName,
+          item.direction,
+          item.status,
+          item.subject,
+          item.preview,
+          item.body,
+          item.transcript,
+          item.aiSummary,
+        ].filter(Boolean).join(" ").toLowerCase();
+        return haystack.includes(search);
+      })
+      .slice(0, limit);
+
+    return this.buildCommunicationHistoryResponse(account, contacts, items, search);
   }
 
   async linkContactToAccount(
@@ -3847,6 +3930,169 @@ export class ClientAccountsService {
           clinicName: rows[0].clinicName ? String(rows[0].clinicName) : null,
         }
       : null;
+  }
+
+  private async listCommunicationRows(sourceClinicId: string, contactIds: string[], limit: number) {
+    if (contactIds.length === 0) return [];
+    const placeholders = contactIds.map(() => "?").join(", ");
+    const safeLimit = Math.min(Math.max(Math.trunc(Number(limit) || 100), 1), 400);
+    const values = [
+      sourceClinicId,
+      ...contactIds,
+      sourceClinicId,
+      ...contactIds,
+      sourceClinicId,
+      ...contactIds,
+      sourceClinicId,
+      ...contactIds,
+    ];
+
+    const [rows]: any = await pool.execute(
+      `SELECT *
+       FROM (
+         SELECT e.id,
+                'email' as channel,
+                'message' as kind,
+                e.contact_id as contactId,
+                e.direction,
+                e.status,
+                e.subject,
+                e.body,
+                NULL as notes,
+                NULL as transcript,
+                NULL as aiSummary,
+                NULL as recordingUrl,
+                NULL as recordingStatus,
+                e.created_at as occurredAt
+         FROM email e
+         WHERE e.clinic_id = ?
+           AND e.contact_id IN (${placeholders})
+           AND e.deleted_at IS NULL
+
+         UNION ALL
+
+         SELECT s.id,
+                'sms' as channel,
+                'message' as kind,
+                s.contact_id as contactId,
+                s.direction,
+                s.status,
+                NULL as subject,
+                s.message as body,
+                NULL as notes,
+                NULL as transcript,
+                NULL as aiSummary,
+                NULL as recordingUrl,
+                NULL as recordingStatus,
+                s.created_at as occurredAt
+         FROM sms s
+         WHERE s.clinic_id = ?
+           AND s.contact_id IN (${placeholders})
+           AND s.deleted_at IS NULL
+
+         UNION ALL
+
+         SELECT wm.id,
+                'whatsapp' as channel,
+                'message' as kind,
+                wm.contact_id as contactId,
+                wm.direction,
+                wm.status,
+                NULL as subject,
+                wm.body,
+                NULL as notes,
+                NULL as transcript,
+                NULL as aiSummary,
+                NULL as recordingUrl,
+                NULL as recordingStatus,
+                wm.created_at as occurredAt
+         FROM whatsapp_message wm
+         WHERE wm.clinic_id = ?
+           AND wm.contact_id IN (${placeholders})
+           AND wm.deleted_at IS NULL
+
+         UNION ALL
+
+         SELECT c.id,
+                'call' as channel,
+                'call' as kind,
+                c.contact_id as contactId,
+                c.direction,
+                COALESCE(c.call_status, c.outcome, c.disposition) as status,
+                NULL as subject,
+                NULL as body,
+                c.notes,
+                c.transcript,
+                c.ai_summary as aiSummary,
+                c.recording_url as recordingUrl,
+                c.recording_status as recordingStatus,
+                COALESCE(c.started_at, c.created_at) as occurredAt
+         FROM ${CALL_TABLE} c
+         WHERE c.clinic_id = ?
+           AND c.contact_id IN (${placeholders})
+           AND c.deleted_at IS NULL
+       ) communication
+       ORDER BY occurredAt DESC
+       LIMIT ${safeLimit}`,
+      values,
+    );
+
+    return rows;
+  }
+
+  private buildCommunicationHistoryResponse(
+    account: ClientAccountProfileResponse,
+    contacts: ClientAccountLinkedContactResponse[],
+    items: ClientAccountCommunicationItemResponse[],
+    search: string,
+  ): ClientAccountCommunicationHistoryResponse {
+    const searchableText = items
+      .slice(0, 80)
+      .map((item) => [
+        item.occurredAt,
+        item.channel,
+        item.contactName,
+        item.direction,
+        item.status,
+        item.subject,
+        item.preview,
+        item.body,
+        item.transcript,
+        item.aiSummary,
+      ].filter(Boolean).join(" | "))
+      .join("\n")
+      .slice(0, 20000);
+    const signalText = searchableText.toLowerCase();
+    const transcriptCount = items.filter((item) => item.hasTranscript).length;
+    const counts = {
+      email: items.filter((item) => item.channel === "email").length,
+      sms: items.filter((item) => item.channel === "sms").length,
+      whatsapp: items.filter((item) => item.channel === "whatsapp").length,
+      calls: items.filter((item) => item.channel === "call").length,
+      recordings: items.filter((item) => item.hasRecording).length,
+      transcripts: transcriptCount,
+      total: items.length,
+    };
+
+    return {
+      account,
+      contacts,
+      items,
+      counts,
+      aiContext: {
+        summary: counts.total === 0
+          ? search
+            ? "No linked client communications matched this search."
+            : "No linked client communications are available yet."
+          : `${counts.total} linked client communications across ${contacts.length} contact${contacts.length === 1 ? "" : "s"}, including ${counts.calls} calls and ${transcriptCount} transcript${transcriptCount === 1 ? "" : "s"}.`,
+        searchableText,
+        transcriptCount,
+        outstandingSignals: countSignals(signalText, [/outstanding/, /follow[- ]?up/, /blocked/, /waiting/]),
+        commitmentSignals: countSignals(signalText, [/commit/, /agreed/, /we will/, /next step/]),
+        complaintSignals: countSignals(signalText, [/complaint/, /unhappy/, /issue/, /problem/, /escalat/]),
+        decisionSignals: countSignals(signalText, [/decision/, /decided/, /approved/, /sign[- ]?off/]),
+      },
+    };
   }
 
   private async listLinkedTasks(sourceClinicId: string, clientAccountProfileId: string): Promise<ClientAccountLinkedTaskResponse[]> {

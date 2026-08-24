@@ -17,6 +17,7 @@ import {
   Loader2,
   Mail,
   MapPin,
+  MessageSquareText,
   NotebookText,
   Pencil,
   Phone,
@@ -32,6 +33,7 @@ import { RecordMeetingsPanel } from "@/components/calendar/record-meetings-panel
 import { api } from "@/lib/api-client";
 import type {
   ClientAccountLinkedRecords,
+  ClientAccountCommunicationHistory,
   ClientAccountLinkedTaskRecord,
   ClientAccountAccessItemRecord,
   ClientAccountDocumentLinkRecord,
@@ -170,6 +172,7 @@ const emptyIssueForm = {
 };
 
 const clientAccountRecordTabs = [
+  { id: "communication", label: "Communication history", panelId: "account-communication" },
   { id: "files", label: "Files/Documents", panelId: "account-files" },
   { id: "access", label: "Access/assets", panelId: "account-access-assets" },
   { id: "onboarding", label: "Onboarding", panelId: "account-onboarding" },
@@ -200,6 +203,10 @@ export default function ClientAccountDetailPage() {
   const [account, setAccount] = useState<ClientAccountSummaryRecord | null>(null);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [linkedRecords, setLinkedRecords] = useState<ClientAccountLinkedRecords | null>(null);
+  const [communicationHistory, setCommunicationHistory] = useState<ClientAccountCommunicationHistory | null>(null);
+  const [communicationSearch, setCommunicationSearch] = useState("");
+  const [communicationStatusMessage, setCommunicationStatusMessage] = useState("");
+  const [isLoadingCommunication, setIsLoadingCommunication] = useState(false);
   const [documents, setDocuments] = useState<ClientAccountDocumentLinkRecord[]>([]);
   const [accessItems, setAccessItems] = useState<ClientAccountAccessItemRecord[]>([]);
   const [issues, setIssues] = useState<ClientIssueRecord[]>([]);
@@ -260,17 +267,19 @@ export default function ClientAccountDetailPage() {
       api.clientAccounts.list(token),
       api.clientAccounts.listServices(token, { includeArchived: false, includeAllClinics: true }),
       api.clientAccounts.getLinkedRecords(token, clinicId),
+      api.clientAccounts.getCommunicationHistory(token, clinicId),
       api.clientAccounts.listDocuments(token, clinicId),
       api.clientAccounts.listAccessItems(token, clinicId),
       api.clientAccounts.listIssues(token, clinicId),
       teamMembersRequest,
     ])
-      .then(([accounts, allServices, records, documentLinks, accessList, issueRows, members]) => {
+      .then(([accounts, allServices, records, communicationRows, documentLinks, accessList, issueRows, members]) => {
         const selected = accounts.find((item) => item.clinicId === clinicId) || null;
         if (!selected) throw new Error("Client account not found or unavailable to this user.");
         setAccount(selected);
         setServices(allServices.filter((service) => service.clinicId === clinicId));
         setLinkedRecords(records);
+        setCommunicationHistory(communicationRows);
         setDocuments(documentLinks);
         setAccessItems(accessList);
         setIssues(issueRows);
@@ -339,6 +348,10 @@ export default function ClientAccountDetailPage() {
     () => linkedRecords?.acceptedProposals || [],
     [linkedRecords?.acceptedProposals],
   );
+  const communicationItems = useMemo(
+    () => communicationHistory?.items || [],
+    [communicationHistory?.items],
+  );
   const onboardingOpenTasks = useMemo(
     () => openTasks.filter(isCanonicalWonClientOnboardingTask),
     [openTasks],
@@ -362,6 +375,27 @@ export default function ClientAccountDetailPage() {
       setQuickBooksMessage(error instanceof Error ? error.message : "QuickBooks customer search failed.");
     } finally {
       setIsQuickBooksBusy(false);
+    }
+  };
+
+  const refreshCommunicationHistory = async () => {
+    if (!token || !clinicId) return;
+    setIsLoadingCommunication(true);
+    setCommunicationStatusMessage("");
+    try {
+      const history = await api.clientAccounts.getCommunicationHistory(token, clinicId, {
+        search: communicationSearch.trim() || undefined,
+      });
+      setCommunicationHistory(history);
+      setCommunicationStatusMessage(
+        communicationSearch.trim()
+          ? `${history.counts.total} communication${history.counts.total === 1 ? "" : "s"} matched "${communicationSearch.trim()}".`
+          : "Communication history refreshed.",
+      );
+    } catch (error) {
+      setCommunicationStatusMessage(error instanceof Error ? error.message : "Communication history could not be loaded.");
+    } finally {
+      setIsLoadingCommunication(false);
     }
   };
 
@@ -1250,6 +1284,157 @@ export default function ClientAccountDetailPage() {
             <div className="mt-5 flex flex-wrap gap-2">{activeServices.map((service) => <Badge key={service.id} variant="success">{service.name}</Badge>)}{activeServices.length === 0 && <Badge variant="warning">No active services</Badge>}</div>
           </Card>
 
+          {activeRecordTab === "communication" ? (
+          <div
+            id="account-communication"
+            role="tabpanel"
+            aria-labelledby="account-communication-tab"
+            tabIndex={0}
+            className="scroll-mt-24"
+          >
+          <Card padding="p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-[#151f21]">
+                  <MessageSquareText className="h-5 w-5 text-[#315f62]" />
+                  Communication history
+                </h2>
+                <p className="mt-1 text-sm text-[#7A746A]">
+                  Email, WhatsApp, SMS, calls, recordings and transcripts linked to this client account.
+                </p>
+              </div>
+              <Badge variant={communicationHistory?.counts.total ? "info" : "neutral"}>
+                {communicationHistory?.counts.total || 0} interactions
+              </Badge>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+              {[
+                ["Email", communicationHistory?.counts.email || 0],
+                ["WhatsApp", communicationHistory?.counts.whatsapp || 0],
+                ["SMS", communicationHistory?.counts.sms || 0],
+                ["Calls", communicationHistory?.counts.calls || 0],
+                ["Recordings", communicationHistory?.counts.recordings || 0],
+                ["Transcripts", communicationHistory?.counts.transcripts || 0],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7A746A]">{String(label)}</p>
+                  <p className="mt-1 text-xl font-bold text-[#151f21]">{String(value)}</p>
+                </div>
+              ))}
+            </div>
+
+            <form
+              className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void refreshCommunicationHistory();
+              }}
+            >
+              <input
+                value={communicationSearch}
+                onChange={(event) => setCommunicationSearch(event.target.value)}
+                placeholder="Search emails, WhatsApp, calls and transcripts"
+                className="min-h-11 rounded-xl border border-[#d8ddda] bg-white px-3 text-sm outline-none focus:border-[#75aaa7] focus:ring-2 focus:ring-[#d5e8e4]"
+              />
+              <button
+                type="submit"
+                disabled={isLoadingCommunication}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#315f62] px-4 text-sm font-semibold text-white hover:bg-[#264f51] disabled:opacity-60"
+              >
+                {isLoadingCommunication ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                Search
+              </button>
+            </form>
+
+            {communicationStatusMessage ? (
+              <p className="mt-3 rounded-xl border border-[#d8ddda] bg-[#FAF8F5] p-3 text-sm text-[#315f62]">
+                {communicationStatusMessage}
+              </p>
+            ) : null}
+
+            <div className="mt-5 rounded-2xl border border-[#d8ddda] bg-[#FAF8F5] p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#151f21]">AI-ready client context</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5f6f70]">
+                    {communicationHistory?.aiContext.summary || "No communication context is available yet."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant={communicationHistory?.aiContext.outstandingSignals ? "warning" : "neutral"}>
+                    {communicationHistory?.aiContext.outstandingSignals || 0} outstanding
+                  </Badge>
+                  <Badge variant={communicationHistory?.aiContext.commitmentSignals ? "info" : "neutral"}>
+                    {communicationHistory?.aiContext.commitmentSignals || 0} commitments
+                  </Badge>
+                  <Badge variant={communicationHistory?.aiContext.complaintSignals ? "error" : "neutral"}>
+                    {communicationHistory?.aiContext.complaintSignals || 0} complaints
+                  </Badge>
+                  <Badge variant={communicationHistory?.aiContext.decisionSignals ? "success" : "neutral"}>
+                    {communicationHistory?.aiContext.decisionSignals || 0} decisions
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {communicationItems.map((item) => (
+                <article key={`${item.channel}-${item.id}`} className="rounded-xl border border-[#E7E1DA] bg-[#FAF8F5] p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={item.channel === "call" ? "info" : item.channel === "whatsapp" ? "success" : "neutral"}>
+                          {formatLabel(item.channel)}
+                        </Badge>
+                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[#7A746A]">
+                          {item.direction ? formatLabel(item.direction) : "Direction not set"}
+                        </span>
+                      </div>
+                      <h3 className="mt-2 break-words text-sm font-semibold text-[#151f21]">
+                        {item.subject || item.preview || "Client communication"}
+                      </h3>
+                      {item.subject && item.preview ? (
+                        <p className="mt-1 break-words text-sm leading-6 text-[#5f6f70]">{item.preview}</p>
+                      ) : null}
+                      {item.aiSummary ? (
+                        <p className="mt-2 rounded-lg bg-white p-3 text-sm leading-6 text-[#5f6f70]">
+                          {item.aiSummary}
+                        </p>
+                      ) : null}
+                      {item.transcript ? (
+                        <p className="mt-2 line-clamp-4 rounded-lg bg-white p-3 text-sm leading-6 text-[#5f6f70]">
+                          {item.transcript}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="shrink-0 text-left text-xs text-[#7A746A] sm:text-right">
+                      <p className="font-semibold text-[#151f21]">{item.contactName}</p>
+                      <p className="mt-1">{formatDateTime(item.occurredAt)}</p>
+                      <div className="mt-2 flex flex-wrap gap-2 sm:justify-end">
+                        {item.hasRecording ? <Badge variant="info">Recording</Badge> : null}
+                        {item.hasTranscript ? <Badge variant="success">Transcript</Badge> : null}
+                        {item.status ? <Badge variant="neutral">{formatLabel(item.status)}</Badge> : null}
+                      </div>
+                      {item.recordingUrl ? (
+                        <a href={item.recordingUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 font-semibold text-[#315f62] hover:underline">
+                          Recording<ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {communicationItems.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-[#E7E1DA] p-5 text-center text-sm text-[#7A746A]">
+                  No linked email, WhatsApp, SMS or call history is available for this client account yet.
+                </p>
+              ) : null}
+            </div>
+          </Card>
+          </div>
+          ) : null}
+
           {activeRecordTab === "issues" ? (
           <div
             id="account-issues"
@@ -1744,6 +1929,7 @@ export default function ClientAccountDetailPage() {
               {[
                 [Users, "Contacts and leads", `/app/leads?account=${encodeURIComponent(account.clinicName)}`],
                 [BriefcaseBusiness, "Deals", `/app/crm/pipeline?account=${encodeURIComponent(account.clinicName)}`],
+                [MessageSquareText, "Communication history", "#account-communication"],
                 [LifeBuoy, "Issues/Support", "#account-issues"],
                 [FolderOpen, "Files/Documents", "#account-files"],
                 [ShieldCheck, "Access/assets", "#account-access-assets"],

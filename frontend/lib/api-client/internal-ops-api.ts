@@ -8,6 +8,7 @@ import type {
   ClientAccountDocumentLinkRecord,
   ClientAccountDocumentType,
   ClientAccountContactAccountLinkRecord,
+  ClientAccountCommunicationHistory,
   ClientAccountFromContactPayload,
   ClientAccountWonDealConversionPayload,
   ClientAccountLinkedRecords,
@@ -234,6 +235,17 @@ export function createInternalOpsApi(apiRequest: ApiRequest) {
       async getLinkedRecords(token: string, clinicId: string) {
         const response = await apiRequest<ClientAccountLinkedRecords>(
           `/api/client-accounts/${encodeURIComponent(clinicId)}/linked-records`,
+          { token },
+        );
+        return response.data!;
+      },
+      async getCommunicationHistory(
+        token: string,
+        clinicId: string,
+        params?: { search?: string; limit?: number },
+      ) {
+        const response = await apiRequest<ClientAccountCommunicationHistory>(
+          `/api/client-accounts/${encodeURIComponent(clinicId)}/communication-history${buildQuery(params)}`,
           { token },
         );
         return response.data!;

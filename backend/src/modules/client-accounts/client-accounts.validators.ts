@@ -342,6 +342,12 @@ export const clientAccountClinicIdParamValidator = [
   param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
 ];
 
+export const clientAccountCommunicationHistoryValidator = [
+  ...clientAccountClinicIdParamValidator,
+  query("search").optional().trim().isLength({ max: 120 }).withMessage("Search must be 120 characters or fewer"),
+  query("limit").optional().isInt({ min: 1, max: 200 }).withMessage("Limit must be between 1 and 200").toInt(),
+];
+
 export const clientAccountContactLinkValidator = [
   param("clinicId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid client account ID is required"),
   param("contactId").isString().trim().isLength({ min: 1, max: 100 }).withMessage("Valid contact ID is required"),

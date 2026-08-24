@@ -361,6 +361,52 @@ export interface ClientAccountLinkedRecords {
   };
 }
 
+export type ClientAccountCommunicationChannel = "email" | "sms" | "whatsapp" | "call";
+
+export interface ClientAccountCommunicationItemRecord {
+  id: string;
+  channel: ClientAccountCommunicationChannel;
+  kind: "message" | "call";
+  contactId: string;
+  contactName: string;
+  direction: string | null;
+  status: string | null;
+  subject: string | null;
+  preview: string;
+  body: string | null;
+  transcript: string | null;
+  aiSummary: string | null;
+  recordingUrl: string | null;
+  recordingStatus: string | null;
+  hasRecording: boolean;
+  hasTranscript: boolean;
+  occurredAt: string;
+}
+
+export interface ClientAccountCommunicationHistory {
+  account: ClientAccountProfileRecord;
+  contacts: ClientAccountLinkedContactRecord[];
+  items: ClientAccountCommunicationItemRecord[];
+  counts: {
+    email: number;
+    sms: number;
+    whatsapp: number;
+    calls: number;
+    recordings: number;
+    transcripts: number;
+    total: number;
+  };
+  aiContext: {
+    summary: string;
+    searchableText: string;
+    transcriptCount: number;
+    outstandingSignals: number;
+    commitmentSignals: number;
+    complaintSignals: number;
+    decisionSignals: number;
+  };
+}
+
 export interface ClientAccountListParams {
   search?: string;
   healthStatus?: ClientAccountHealthStatus | "all";

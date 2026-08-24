@@ -6,6 +6,7 @@ import { validate } from "../../middleware/validate.js";
 import { clientAccountsController } from "./client-accounts.controller.js";
 import {
   clientAccountClinicIdParamValidator,
+  clientAccountCommunicationHistoryValidator,
   clientAccountContactIdParamValidator,
   clientAccountContactLinkValidator,
   clientAccountServiceIdParamValidator,
@@ -161,6 +162,14 @@ router.get(
   clientAccountClinicIdParamValidator,
   validate,
   clientAccountsController.getLinkedRecords,
+);
+
+router.get(
+  "/:clinicId/communication-history",
+  authorizePermission("client_accounts:read"),
+  clientAccountCommunicationHistoryValidator,
+  validate,
+  clientAccountsController.getCommunicationHistory,
 );
 
 router.get(
