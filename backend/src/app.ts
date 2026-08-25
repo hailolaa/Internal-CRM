@@ -76,6 +76,7 @@ import fleetIngestionRoutes from "./modules/fleet-ingestion/fleet-ingestion.rout
 import commercialContractsRoutes from "./modules/commercial-contracts/commercial-contracts.routes.js";
 import missionControlApiRoutes from "./modules/mission-control-api/mission-control-api.routes.js";
 import missionControlMcpRoutes from "./modules/mission-control-api/mcp.routes.js";
+import clinicOsEntitlementsRoutes from "./modules/clinic-os-entitlements/clinic-os-entitlements.routes.js";
 
 const app = express();
 
@@ -177,6 +178,7 @@ app.use("/api/quickbooks", quickBooksRoutes);
 app.use("/api/missed-call-recovery", missedCallRecoveryRoutes);
 app.use("/api/fleet-ingestion", fleetIngestionRoutes);
 app.use("/api/commercial-contracts", commercialContractsRoutes);
+app.use("/api/clinic-os-entitlements", clinicOsEntitlementsRoutes);
 app.use("/api/v1", missionControlApiRoutes);
 app.use("/mcp", missionControlMcpRoutes);
 app.use("/api/health", healthRoutes);

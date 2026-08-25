@@ -1,8 +1,37 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { AddressInfo } from "node:net";
+import type { Server } from "node:http";
+import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
 import { clinicOsEntitlementsService } from "../modules/clinic-os-entitlements/clinic-os-entitlements.service.js";
 import { createTestClinicAndAdmin } from "./test-fixtures.js";
+
+async function closeServer(server: Server) {
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+async function fetchJson(baseUrl: string, path: string, token?: string, init: RequestInit = {}) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(init.headers || {}),
+    },
+  });
+  const body: any = await response.json().catch(() => ({}));
+  return { response, body };
+}
+
+test.after(async () => {
+  await pool.end();
+});
 
 test("Clinic OS entitlement push enforces free audit outside-in access and blocks Growth Score", async () => {
   await testConnection();
@@ -102,9 +131,47 @@ test("Clinic OS entitlement push rejects Growth Score when paid diagnostic or da
     sufficientDataConfirmed: false,
     changedBy: "Haile Michael",
   });
-  const pending = await clinicOsEntitlementsService.listPendingPushes(10);
+  const pending = await clinicOsEntitlementsService.listPendingPushes(200);
 
   assert.equal(missingDiagnostic.version.growthScoreEnabled, false);
   assert.equal(missingData.version.growthScoreEnabled, false);
   assert.equal(pending.some((push) => push.entitlementVersionId === missingData.version.id), true);
+});
+
+test("Clinic OS entitlement route is authenticated and publishes queued settings", async () => {
+  const clinic = await createTestClinicAndAdmin("clinic-os-route");
+  const server = app.listen(0);
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Failed to start Clinic OS entitlement route test server");
+  const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
+
+  try {
+    const denied = await fetchJson(baseUrl, "/api/clinic-os-entitlements/publish", undefined, {
+      method: "POST",
+      body: JSON.stringify({
+        clinicId: clinic.clinicId,
+        tenantKey: `clinic-os-route-${clinic.clinicId}`,
+        accessTier: "free_audit",
+      }),
+    });
+    assert.equal(denied.response.status, 401);
+
+    const published = await fetchJson(baseUrl, "/api/clinic-os-entitlements/publish", clinic.token, {
+      method: "POST",
+      body: JSON.stringify({
+        clinicId: clinic.clinicId,
+        tenantKey: `clinic-os-route-${clinic.clinicId}`,
+        accessTier: "paid_diagnostic",
+        growthScoreRequested: true,
+        paidDiagnosticConfirmed: true,
+        sufficientDataConfirmed: true,
+        settings: { modules: ["growth_score"] },
+      }),
+    });
+    assert.equal(published.response.status, 201, JSON.stringify(published.body));
+    assert.equal(published.body.data.version.growthScoreEnabled, true);
+    assert.equal(published.body.data.push.status, "pending");
+  } finally {
+    await closeServer(server);
+  }
 });

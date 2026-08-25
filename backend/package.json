@@ -40,6 +40,7 @@
     "test:proposals-public": "npm run build && node --test dist/test/test-proposals-public.js",
     "test:proposals": "npm run build && node --test dist/test/test-proposals.js",
     "test:clickup": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-clickup-mappings.js",
+    "test:clinic-os-entitlements": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-clinic-os-entitlements.js",
     "test:mission-control-api": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-mission-control-api.js",
     "test:quickbooks": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-quickbooks-oauth.js",
     "test:release": "node --test --experimental-test-isolation=none ../scripts/release-verification.test.mjs",
