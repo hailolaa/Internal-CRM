@@ -63,6 +63,15 @@ router.post(
 );
 
 router.post(
+  "/pushes/:pushId/deliver",
+  authorizePermission("settings:write"),
+  param("pushId").isUUID(),
+  body("clinicId").isUUID(),
+  validate,
+  clinicOsEntitlementsController.deliverPush,
+);
+
+router.post(
   "/pushes/:pushId/acknowledge",
   authorizePermission("settings:write"),
   param("pushId").isUUID(),

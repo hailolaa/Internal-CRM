@@ -67,6 +67,15 @@ export class ClinicOsEntitlementsController {
     }
   };
 
+  deliverPush = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = await clinicOsEntitlementsService.deliverPush(String(req.body.clinicId), String(req.params.pushId));
+      res.status(200).json({ status: "success", data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   acknowledgePush = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = await clinicOsEntitlementsService.acknowledgePush(

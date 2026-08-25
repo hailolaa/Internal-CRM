@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
+import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import type { ClinicOsAccessTier, ClinicOsEntitlementVersion, ClinicOsSettingsPush } from "./clinic-os-entitlements.types.js";
 
@@ -37,6 +38,13 @@ function stableStringify(value: unknown): string {
 
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function signPayload(payload: unknown, secret: string, timestamp = Math.floor(Date.now() / 1000)) {
+  return {
+    timestamp: String(timestamp),
+    signature: `sha256=${createHmac("sha256", secret).update(`${timestamp}.${stableStringify(payload)}`).digest("hex")}`,
+  };
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {
@@ -245,6 +253,55 @@ export class ClinicOsEntitlementsService {
       [pushId, clinicId],
     );
     return this.getPushById(clinicId, pushId);
+  }
+
+  async deliverPush(
+    clinicId: string,
+    pushId: string,
+    fetcher: typeof fetch = fetch,
+  ): Promise<ClinicOsSettingsPush> {
+    const endpointUrl = config.clinicOsSettingsPush.endpointUrl.trim();
+    const signingSecret = config.clinicOsSettingsPush.signingSecret.trim();
+    if (!endpointUrl || !signingSecret) {
+      return this.markPushFailed(clinicId, pushId, "Clinic OS settings push endpoint or signing secret is not configured.");
+    }
+
+    const push = await this.getPushById(clinicId, pushId);
+    const version = await this.getVersionById(clinicId, push.entitlementVersionId);
+    const payload = {
+      id: push.id,
+      clinicId: version.clinicId,
+      tenantKey: version.tenantKey,
+      entitlementVersionId: version.id,
+      version: version.version,
+      accessTier: version.accessTier,
+      growthScoreEnabled: version.growthScoreEnabled,
+      paidDiagnosticConfirmed: version.paidDiagnosticConfirmed,
+      sufficientDataConfirmed: version.sufficientDataConfirmed,
+      settings: version.settings,
+      payloadHash: version.payloadHash,
+    };
+    const signed = signPayload(payload, signingSecret);
+
+    try {
+      const response = await fetcher(endpointUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Mission-Control-Timestamp": signed.timestamp,
+          "X-Mission-Control-Signature": signed.signature,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        return this.markPushFailed(clinicId, pushId, `Clinic OS settings push failed with status ${response.status}.`);
+      }
+      await this.markPushSent(clinicId, pushId);
+      return this.acknowledgePush(clinicId, pushId, push.payloadHash);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Clinic OS settings push request failed.";
+      return this.markPushFailed(clinicId, pushId, message);
+    }
   }
 
   private normalizeSettings(

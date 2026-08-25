@@ -3,6 +3,7 @@ import test from "node:test";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import app from "../app.js";
+import { config } from "../config/index.js";
 import pool, { testConnection } from "../config/database.js";
 import { clinicOsEntitlementsService } from "../modules/clinic-os-entitlements/clinic-os-entitlements.service.js";
 import { createTestClinicAndAdmin } from "./test-fixtures.js";
@@ -173,5 +174,46 @@ test("Clinic OS entitlement route is authenticated and publishes queued settings
     assert.equal(published.body.data.push.status, "pending");
   } finally {
     await closeServer(server);
+  }
+});
+
+test("Clinic OS entitlement delivery signs the push and acknowledges successful apply", async () => {
+  const clinic = await createTestClinicAndAdmin("clinic-os-delivery");
+  const mutablePushConfig = config.clinicOsSettingsPush as { endpointUrl: string; signingSecret: string };
+  const originalConfig = { ...config.clinicOsSettingsPush };
+  mutablePushConfig.endpointUrl = "https://clinic-os.example.test/api/mission-control/settings-push";
+  mutablePushConfig.signingSecret = "test-clinic-os-settings-push-secret-32";
+
+  try {
+    const published = await clinicOsEntitlementsService.publishSettings({
+      clinicId: clinic.clinicId,
+      tenantKey: `clinic-os-delivery-${clinic.clinicId}`,
+      accessTier: "clinic_os",
+      growthScoreRequested: true,
+      paidDiagnosticConfirmed: true,
+      sufficientDataConfirmed: true,
+      settings: { modules: ["growth_score", "pipeline"] },
+      changedBy: clinic.userId,
+    });
+    let deliveredPayload: any = null;
+    const delivered = await clinicOsEntitlementsService.deliverPush(
+      clinic.clinicId,
+      published.push.id,
+      async (url, init) => {
+        assert.equal(url, mutablePushConfig.endpointUrl);
+        assert.match(String((init?.headers as any)?.["X-Mission-Control-Signature"] || ""), /^sha256=[a-f0-9]{64}$/);
+        assert.ok(String((init?.headers as any)?.["X-Mission-Control-Timestamp"] || ""));
+        deliveredPayload = JSON.parse(String(init?.body || "{}"));
+        return new Response(JSON.stringify({ status: "success" }), { status: 200 });
+      },
+    );
+
+    assert.equal(delivered.status, "acknowledged");
+    assert.equal(deliveredPayload.entitlementVersionId, published.version.id);
+    assert.equal(deliveredPayload.payloadHash, published.version.payloadHash);
+    assert.equal(deliveredPayload.growthScoreEnabled, true);
+  } finally {
+    mutablePushConfig.endpointUrl = originalConfig.endpointUrl;
+    mutablePushConfig.signingSecret = originalConfig.signingSecret;
   }
 });

@@ -99,6 +99,7 @@ export function getSecretConfigurationIssues(env: NodeJS.ProcessEnv = process.en
         { name: "BACKUP_ENCRYPTION_KEY", value: env.BACKUP_ENCRYPTION_KEY, required: nonLocal, minLength: 32 },
         { name: "CREDENTIAL_ENCRYPTION_KEY", value: env.CREDENTIAL_ENCRYPTION_KEY, required: nonLocal, minLength: 32 },
         { name: "CLINICGROWER_EVENT_SIGNING_SECRET", value: env.CLINICGROWER_EVENT_SIGNING_SECRET, required: nonLocal, minLength: 32 },
+        { name: "CLINIC_OS_SETTINGS_PUSH_SECRET", value: env.CLINIC_OS_SETTINGS_PUSH_SECRET, required: Boolean(env.CLINIC_OS_SETTINGS_PUSH_URL), minLength: 32 },
         { name: "OBSERVABILITY_ALERT_WEBHOOK_TOKEN", value: env.OBSERVABILITY_ALERT_WEBHOOK_TOKEN, required: Boolean(env.OBSERVABILITY_ALERT_WEBHOOK_URL), minLength: 24 },
         { name: "BREVO_API_KEY", value: env.BREVO_API_KEY, required: env.EMAIL_PROVIDER === "brevo", minLength: 24 },
         {
@@ -234,6 +235,11 @@ export const config = {
     clinicGrowerEvents: {
         signingSecret: process.env.CLINICGROWER_EVENT_SIGNING_SECRET || "",
         timestampToleranceSeconds: parseInt(process.env.CLINICGROWER_EVENT_TIMESTAMP_TOLERANCE_SECONDS || "300", 10),
+    },
+
+    clinicOsSettingsPush: {
+        endpointUrl: process.env.CLINIC_OS_SETTINGS_PUSH_URL || "",
+        signingSecret: process.env.CLINIC_OS_SETTINGS_PUSH_SECRET || "",
     },
 
     esign: {
