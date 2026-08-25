@@ -155,8 +155,10 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     const openApi = await fetchJson(baseUrl, "/api/openapi.json");
     expectStatus("openapi", openApi, 200);
     assert.equal(openApi.body.openapi, "3.1.0");
-    assert.ok(openApi.body.paths["/v1/search"]);
-    assert.ok(openApi.body.paths["/v1/records/{type}/{id}"]);
+    assert.ok(openApi.body.paths["/api/v1/search"]);
+    assert.ok(openApi.body.paths["/api/v1/records/{type}/{id}"]);
+    assert.ok(openApi.body.paths["/mcp"]);
+    assert.equal(openApi.body.components.securitySchemes.bearerAuth.type, "http");
 
     await pool.execute(
       `INSERT INTO contact
@@ -319,6 +321,11 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.equal(crossTenantFetch.body.success, false);
     assert.equal(crossTenantFetch.body.error.code, "not_found");
 
+    const missingFetch = await fetchJson(baseUrl, `/api/v1/records/contact/${uuidv4()}`, reader.token);
+    expectStatus("missing fetch", missingFetch, 404);
+    assert.equal(missingFetch.body.success, false);
+    assert.equal(missingFetch.body.error.code, "not_found");
+
     const clientAccountFetch = await fetchJson(baseUrl, `/api/v1/records/client_account/${clientAccountId}`, reader.token);
     expectStatus("client account fetch", clientAccountFetch, 200);
     assert.equal(clientAccountFetch.body.data.id, clientAccountId);
@@ -362,6 +369,8 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
       }),
     });
     expectStatus("mcp unsupported write tool", unsupportedMcpWrite, 400);
+    assert.equal(unsupportedMcpWrite.body.error.code, -32601);
+    assert.equal(unsupportedMcpWrite.body.error.message, "Unsupported MCP tool");
 
     const mcpSearch = await fetchJson(baseUrl, "/mcp", reader.token, {
       method: "POST",
@@ -386,6 +395,18 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     });
     expectStatus("mcp fetch", mcpFetch, 200);
     assert.equal(mcpFetch.body.result.content[0].json.id, contactId);
+
+    const mcpCrossTenantFetch = await fetchJson(baseUrl, "/mcp", reader.token, {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "fetch-other",
+        method: "tools/call",
+        params: { name: "fetch", arguments: { type: "contact", id: otherContactId } },
+      }),
+    });
+    expectStatus("mcp cross-tenant fetch", mcpCrossTenantFetch, 404);
+    assert.equal(mcpCrossTenantFetch.body.error.code, -32004);
 
     let rateLimited = false;
     for (let index = 0; index < 150; index += 1) {

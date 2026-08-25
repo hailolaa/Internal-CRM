@@ -5,31 +5,38 @@ export const missionControlOpenApiDocument = {
     version: "v1",
     description: "Read-only Mission Control API and MCP discovery surface.",
   },
-  servers: [{ url: "/api" }],
+  servers: [{ url: "" }],
   security: [{ bearerAuth: [] }],
   paths: {
-    "/v1/health": {
+    "/api/openapi.json": {
+      get: {
+        summary: "OpenAPI 3.1 document for the Mission Control read API",
+        security: [],
+        responses: { "200": { description: "OpenAPI document" } },
+      },
+    },
+    "/api/v1/health": {
       get: {
         summary: "Mission Control API health",
         security: [{ bearerAuth: [] }],
         responses: { "200": { description: "Health envelope" }, "401": { description: "Unauthorized" } },
       },
     },
-    "/v1/version": {
+    "/api/v1/version": {
       get: {
         summary: "Mission Control API version",
         security: [{ bearerAuth: [] }],
         responses: { "200": { description: "Version envelope" }, "401": { description: "Unauthorized" } },
       },
     },
-    "/v1/capabilities": {
+    "/api/v1/capabilities": {
       get: {
         summary: "Read-only capabilities and supported record types",
         security: [{ bearerAuth: [] }],
         responses: { "200": { description: "Capabilities envelope" }, "403": { description: "Forbidden" } },
       },
     },
-    "/v1/search": {
+    "/api/v1/search": {
       get: {
         summary: "Tenant-scoped universal search",
         security: [{ bearerAuth: [] }],
@@ -54,7 +61,7 @@ export const missionControlOpenApiDocument = {
         },
       },
     },
-    "/v1/records/{type}/{id}": {
+    "/api/v1/records/{type}/{id}": {
       get: {
         summary: "Fetch one tenant-scoped record",
         security: [{ bearerAuth: [] }],
@@ -66,6 +73,22 @@ export const missionControlOpenApiDocument = {
           "200": { description: "Record envelope" },
           "400": { description: "Unsupported record type" },
           "404": { description: "Record not found or not visible to the tenant" },
+        },
+      },
+    },
+    "/mcp": {
+      get: {
+        summary: "MCP endpoint metadata",
+        security: [{ bearerAuth: [] }],
+        responses: { "200": { description: "MCP metadata" }, "403": { description: "Forbidden" } },
+      },
+      post: {
+        summary: "MCP JSON-RPC tools/list and tools/call",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          "200": { description: "JSON-RPC result" },
+          "400": { description: "JSON-RPC error for invalid requests or unsupported tools" },
+          "403": { description: "Forbidden" },
         },
       },
     },

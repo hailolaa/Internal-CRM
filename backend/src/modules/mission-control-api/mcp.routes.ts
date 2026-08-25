@@ -26,6 +26,13 @@ function jsonRpcError(id: unknown, code: number, message: string) {
   return { jsonrpc: "2.0", id: id ?? null, error: { code, message } };
 }
 
+function jsonRpcErrorCode(error: unknown) {
+  const statusCode = error instanceof ApiError ? error.statusCode : (error as any)?.statusCode;
+  if (statusCode === 404) return -32004;
+  if (statusCode && statusCode >= 400 && statusCode < 500) return -32602;
+  return -32603;
+}
+
 router.use(authenticate);
 router.use(authorizePermission("mission_control_mcp:read"));
 
@@ -69,7 +76,8 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       } else if (name === "fetch") {
         data = await missionControlApiService.fetchRecord(user(req), args.type as MissionControlRecordType, String(args.id || ""));
       } else {
-        throw ApiError.badRequest("Unsupported MCP tool");
+        res.status(400).json(jsonRpcError(id, -32601, "Unsupported MCP tool"));
+        return;
       }
 
       await logAuditEvent({
@@ -85,6 +93,11 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 
     res.status(400).json(jsonRpcError(id, -32601, "Unsupported MCP method"));
   } catch (error) {
+    if (req.body?.jsonrpc === "2.0") {
+      const statusCode = error instanceof ApiError ? error.statusCode : (error as any)?.statusCode || 500;
+      res.status(statusCode).json(jsonRpcError(req.body?.id ?? null, jsonRpcErrorCode(error), (error as Error).message || "MCP request failed"));
+      return;
+    }
     next(error);
   }
 });
