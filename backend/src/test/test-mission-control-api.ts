@@ -212,6 +212,25 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     });
     expectStatus("mcp tools/list", mcpTools, 200);
     assert.equal(mcpTools.body.result.tools.some((tool: any) => tool.name === "fetch"), true);
+    assert.equal(mcpTools.body.result.tools.every((tool: any) => tool.readOnlyHint === true), true);
+    assert.equal(mcpTools.body.result.tools.every((tool: any) => tool.destructiveHint === false), true);
+
+    const mcpForbidden = await fetchJson(baseUrl, "/mcp", denied.token, {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "denied-tools", method: "tools/list" }),
+    });
+    expectStatus("mcp denied tools/list", mcpForbidden, 403);
+
+    const unsupportedMcpWrite = await fetchJson(baseUrl, "/mcp", reader.token, {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "write",
+        method: "tools/call",
+        params: { name: "create_task", arguments: { title: "Should not be created" } },
+      }),
+    });
+    expectStatus("mcp unsupported write tool", unsupportedMcpWrite, 400);
 
     const mcpSearch = await fetchJson(baseUrl, "/mcp", reader.token, {
       method: "POST",
