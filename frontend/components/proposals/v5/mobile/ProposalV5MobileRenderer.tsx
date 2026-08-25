@@ -142,7 +142,11 @@ function investmentDisplayName(snapshot: ProposalV5Snapshot) {
 }
 
 function ownerFirstName(snapshot: ProposalV5Snapshot) {
-  return snapshot.recipient.name.value?.trim().split(/\s+/)[0] || "you";
+  const words = snapshot.recipient.name.value?.trim().split(/\s+/).filter(Boolean) || [];
+  if (/^(dr|mr|mrs|ms|miss|prof|professor)$/i.test(words[0] || "") && words[1]) {
+    return words.slice(0, 2).join(" ");
+  }
+  return words[0] || "you";
 }
 
 function termPhrase(months: number | null | undefined) {

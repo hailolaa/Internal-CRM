@@ -74,6 +74,8 @@ describe("ProposalV5MobileRenderer V19", () => {
     expect(html).toContain("Prepare the final agreement for");
     expect(html).toContain("Yes - prepare");
     expect(html).toContain("90 days&#x27; written notice");
+    expect(html).toContain("Dr Tanja, you do not need another supplier");
+    expect(html).not.toContain("Dr, you do not need another supplier");
     expect(html).not.toContain(`Prepare the final agreement for ${snapshot.proposal.reference}`);
   });
 });

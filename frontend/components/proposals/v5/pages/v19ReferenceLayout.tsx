@@ -404,7 +404,13 @@ function ownerName(snapshot: ProposalV5Snapshot) {
 }
 
 function ownerFirst(snapshot: ProposalV5Snapshot, spec: SectorSpec) {
-  return ownerName(snapshot).split(/\s+/).filter(Boolean)[0] || spec.exampleOwner.split(/\s+/)[0];
+  const words = ownerName(snapshot).split(/\s+/).filter(Boolean);
+  const fallback = spec.exampleOwner.split(/\s+/).filter(Boolean);
+  const source = words.length ? words : fallback;
+  if (/^(dr|mr|mrs|ms|miss|prof|professor)$/i.test(source[0] || "") && source[1]) {
+    return source.slice(0, 2).join(" ");
+  }
+  return source[0] || "";
 }
 
 function clinicShort(snapshot: ProposalV5Snapshot, spec: SectorSpec) {
@@ -413,6 +419,13 @@ function clinicShort(snapshot: ProposalV5Snapshot, spec: SectorSpec) {
   const firstChunk = name.split(/[|,&-]/)[0]?.trim() || name;
   const words = firstChunk.split(/\s+/).filter(Boolean);
   return words.slice(0, Math.min(words.length, 2)).join(" ");
+}
+
+function page7HeadlineLayout(title: string) {
+  const longTitle = title.length > 72;
+  return longTitle
+    ? { size: 25.2, leading: 27.2, subtitleTop: 252 }
+    : { size: 29, leading: 31.03, subtitleTop: 226 };
 }
 
 function priority(snapshot: ProposalV5Snapshot, spec: SectorSpec) {
@@ -1407,11 +1420,13 @@ function page7(snapshot: ProposalV5Snapshot): ReactElement {
   const spec = sector(snapshot);
   const short = clinicShort(snapshot, spec);
   const service = priority(snapshot, spec);
+  const title = `Build ${short}'s local authority while paid search for ${service} learns.`;
+  const headline = page7HeadlineLayout(title);
   return (
     <Page id="V5Page07SeoGbpWebsite" page={7} background={C.cream} snapshot={snapshot} section="SEO, Google Business Profile and website">
       <T x={49} top={88} width={285} size={8} leading={10} weight={900} color={C.tealDark} uppercase maxLines={1}>Build compounding local demand</T>
-      <T x={49} top={124} width={482} size={29} leading={31.03} weight={900} color={C.dark} maxLines={4}>{`Build ${short}'s local authority while paid search for ${service} learns.`}</T>
-      <T x={49} top={226} width={482} size={9.4} leading={12.8} weight={800} color={C.muted} maxLines={3}>Google Ads captures patients searching now. SEO, Google Business Profile and a clearer website route help {short} be found, trusted and chosen over time.</T>
+      <T x={49} top={124} width={482} size={headline.size} leading={headline.leading} weight={900} color={C.dark} maxLines={4}>{title}</T>
+      <T x={49} top={headline.subtitleTop} width={482} size={9.4} leading={12.8} weight={800} color={C.muted} maxLines={3}>Google Ads captures patients searching now. SEO, Google Business Profile and a clearer website route help {short} be found, trusted and chosen over time.</T>
       <T x={49} top={304} width={220} size={8} leading={10} weight={900} color={C.tealDark} uppercase maxLines={1}>{spec.pageNouns[3]}</T>
       <T x={311} top={304} width={232} size={8} leading={10} weight={900} color={C.tealDark} uppercase maxLines={1}>Local discovery + website</T>
       <T x={49} top={333} width={231} size={7.5} leading={9.3} weight={900} color={C.tealDark} maxLines={2}>1 baseline | 1 {spec.seoPageLabel} | up to 2 assets/month | up to 10 internal links</T>

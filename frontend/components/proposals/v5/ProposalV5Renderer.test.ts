@@ -77,6 +77,26 @@ describe("ProposalV5Renderer V19", () => {
     expect(bodyMarkup).toContain("top:250pt");
   });
 
+  it("keeps Page 7 readable for longer clinic names and preserves title plus first name", () => {
+    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth" });
+    const html = render(snapshot);
+
+    const title = "Build BristolDent Harbourside&#x27;s local authority while paid search for Dental implants learns.";
+    const titleIndex = html.indexOf(title);
+    expect(titleIndex).toBeGreaterThanOrEqual(0);
+    const titleMarkup = html.slice(html.lastIndexOf("<p", titleIndex), html.indexOf("</p>", titleIndex));
+    expect(titleMarkup).toContain("font-size:25.2pt");
+    expect(titleMarkup).toContain("line-height:27.2pt");
+
+    const bodyIndex = html.indexOf("Google Ads captures patients searching now.");
+    expect(bodyIndex).toBeGreaterThanOrEqual(0);
+    const bodyMarkup = html.slice(html.lastIndexOf("<p", bodyIndex), html.indexOf("</p>", bodyIndex));
+    expect(bodyMarkup).toContain("top:252pt");
+
+    expect(html).toContain("What Dr Tanja will see");
+    expect(html).not.toContain("What Dr will see");
+  });
+
   it("keeps clinic type and selected package independent", () => {
     const dentalGrowth = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth" });
     const dentalAudit = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "free-clinic-growth-audit" });
