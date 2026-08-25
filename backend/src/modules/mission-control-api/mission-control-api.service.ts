@@ -30,6 +30,21 @@ const tools = [
     title: "Search Mission Control",
     description:
       "Search tenant-scoped Mission Control client, sales, delivery, communications, finance, marketing and management records.",
+    supportedRecordTypes: supportedTypes,
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        query: { type: "string", description: "Optional search text.", maxLength: 120 },
+        types: {
+          type: "array",
+          description: "Optional record type filter.",
+          items: { type: "string", enum: supportedTypes },
+        },
+        limit: { type: "integer", minimum: 1, maximum: 25, default: 10 },
+        cursor: { type: "string", description: "Optional cursor returned by a previous search page." },
+      },
+    },
     readOnlyHint: true,
     destructiveHint: false,
   },
@@ -37,6 +52,16 @@ const tools = [
     name: "fetch",
     title: "Fetch Mission Control record",
     description: "Fetch one tenant-scoped Mission Control record by type and stable ID.",
+    supportedRecordTypes: supportedTypes,
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["type", "id"],
+      properties: {
+        type: { type: "string", enum: supportedTypes },
+        id: { type: "string", minLength: 1, maxLength: 128 },
+      },
+    },
     readOnlyHint: true,
     destructiveHint: false,
   },

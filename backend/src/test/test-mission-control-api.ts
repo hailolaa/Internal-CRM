@@ -349,9 +349,17 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
       body: JSON.stringify({ jsonrpc: "2.0", id: "tools", method: "tools/list" }),
     });
     expectStatus("mcp tools/list", mcpTools, 200);
+    assert.equal(mcpTools.body.id, "tools");
+    assert.ok(mcpTools.body.result.request_id);
+    assert.ok(mcpTools.body.result.generated_at);
     assert.equal(mcpTools.body.result.tools.some((tool: any) => tool.name === "fetch"), true);
     assert.equal(mcpTools.body.result.tools.every((tool: any) => tool.readOnlyHint === true), true);
     assert.equal(mcpTools.body.result.tools.every((tool: any) => tool.destructiveHint === false), true);
+    const searchTool = mcpTools.body.result.tools.find((tool: any) => tool.name === "search");
+    const fetchTool = mcpTools.body.result.tools.find((tool: any) => tool.name === "fetch");
+    assert.equal(searchTool.inputSchema.properties.limit.maximum, 25);
+    assert.equal(searchTool.supportedRecordTypes.includes("management"), true);
+    assert.deepEqual(fetchTool.inputSchema.required, ["type", "id"]);
 
     const mcpForbidden = await fetchJson(baseUrl, "/mcp", denied.token, {
       method: "POST",
@@ -372,6 +380,37 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.equal(unsupportedMcpWrite.body.error.code, -32601);
     assert.equal(unsupportedMcpWrite.body.error.message, "Unsupported MCP tool");
 
+    const malformedMcp = await fetchJson(baseUrl, "/mcp", reader.token, {
+      method: "POST",
+      body: JSON.stringify({ id: "bad-jsonrpc", method: "tools/list" }),
+    });
+    expectStatus("mcp malformed request", malformedMcp, 400);
+    assert.equal(malformedMcp.body.error.code, -32600);
+
+    const malformedArguments = await fetchJson(baseUrl, "/mcp", reader.token, {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "bad-args",
+        method: "tools/call",
+        params: { name: "search", arguments: "not-an-object" },
+      }),
+    });
+    expectStatus("mcp malformed arguments", malformedArguments, 400);
+    assert.equal(malformedArguments.body.error.code, -32602);
+
+    const excessiveLimit = await fetchJson(baseUrl, "/mcp", reader.token, {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "limit",
+        method: "tools/call",
+        params: { name: "search", arguments: { query: "MCP Clinic", limit: 500 } },
+      }),
+    });
+    expectStatus("mcp excessive search limit", excessiveLimit, 400);
+    assert.equal(excessiveLimit.body.error.code, -32602);
+
     const mcpSearch = await fetchJson(baseUrl, "/mcp", reader.token, {
       method: "POST",
       body: JSON.stringify({
@@ -382,6 +421,9 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
       }),
     });
     expectStatus("mcp search", mcpSearch, 200);
+    assert.equal(mcpSearch.body.id, "search");
+    assert.ok(mcpSearch.body.result.request_id);
+    assert.ok(mcpSearch.body.result.generated_at);
     assert.equal(mcpSearch.body.result.content[0].json.results[0].id, contactId);
 
     const mcpFetch = await fetchJson(baseUrl, "/mcp", reader.token, {
@@ -394,7 +436,20 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
       }),
     });
     expectStatus("mcp fetch", mcpFetch, 200);
+    assert.equal(mcpFetch.body.id, "fetch");
     assert.equal(mcpFetch.body.result.content[0].json.id, contactId);
+
+    const mcpMissingFetchId = await fetchJson(baseUrl, "/mcp", reader.token, {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "missing-id",
+        method: "tools/call",
+        params: { name: "fetch", arguments: { type: "contact" } },
+      }),
+    });
+    expectStatus("mcp missing fetch id", mcpMissingFetchId, 400);
+    assert.equal(mcpMissingFetchId.body.error.code, -32602);
 
     const mcpCrossTenantFetch = await fetchJson(baseUrl, "/mcp", reader.token, {
       method: "POST",
