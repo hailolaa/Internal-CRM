@@ -130,12 +130,20 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
   );
   const denied = await createPermissionedUser(workspace.clinicId, "mc_api_denied", []);
   const contactId = uuidv4();
+  const oldContactId = uuidv4();
+  const overflowContactIds = Array.from({ length: 30 }, () => uuidv4());
   const otherContactId = uuidv4();
+  const clientAccountId = uuidv4();
   const proposalId = uuidv4();
   const taskId = uuidv4();
   const dealId = uuidv4();
   const pipelineId = uuidv4();
   const pipelineStageId = uuidv4();
+  const emailId = uuidv4();
+  const smsId = uuidv4();
+  const depositId = uuidv4();
+  const campaignId = uuidv4();
+  const strategyLogId = uuidv4();
   const server = app.listen(0);
   const address = server.address();
   if (!address || typeof address === "string") {
@@ -144,12 +152,46 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
 
   try {
+    const openApi = await fetchJson(baseUrl, "/api/openapi.json");
+    expectStatus("openapi", openApi, 200);
+    assert.equal(openApi.body.openapi, "3.1.0");
+    assert.ok(openApi.body.paths["/v1/search"]);
+    assert.ok(openApi.body.paths["/v1/records/{type}/{id}"]);
+
     await pool.execute(
       `INSERT INTO contact
         (id, clinic_id, account_name, first_name, last_name, email, status, lead_status, source)
        VALUES (?, ?, 'MCP Clinic', 'Mcp', 'Patient', ?, 'lead', 'qualified', 'website'),
               (?, ?, 'Other Tenant', 'Other', 'Patient', ?, 'lead', 'new', 'website')`,
       [contactId, workspace.clinicId, `${unique("mcp")}@lead.test`, otherContactId, otherWorkspace.clinicId, `${unique("other")}@lead.test`],
+    );
+    await pool.execute(
+      `INSERT INTO contact
+        (id, clinic_id, account_name, first_name, last_name, email, status, lead_status, source, created_at, updated_at)
+       VALUES (?, ?, 'Older Direct Fetch Clinic', 'Older', 'Patient', ?, 'lead', 'qualified', 'website', '2020-01-01 00:00:00', '2020-01-01 00:00:00')`,
+      [oldContactId, workspace.clinicId, `${unique("older")}@lead.test`],
+    );
+    for (let index = 0; index < overflowContactIds.length; index += 1) {
+      const overflowContactId = overflowContactIds[index];
+      if (!overflowContactId) throw new Error("Missing overflow contact ID");
+      await pool.execute(
+        `INSERT INTO contact
+          (id, clinic_id, account_name, first_name, last_name, email, status, lead_status, source)
+         VALUES (?, ?, ?, 'Recent', ?, ?, 'lead', 'new', 'website')`,
+        [
+          overflowContactId,
+          workspace.clinicId,
+          `Recent API Contact ${index}`,
+          `Contact ${index}`,
+          `${unique(`recent_${index}`)}@lead.test`,
+        ],
+      );
+    }
+    await pool.execute(
+      `INSERT INTO client_account_profile
+        (id, clinic_id, client_status, health_status, current_package, created_by)
+       VALUES (?, ?, 'active', 'healthy', 'MCP Clinic Growth', ?)`,
+      [clientAccountId, workspace.clinicId, workspace.userId],
     );
     await pool.execute(
       `INSERT INTO proposal (id, clinic_id, contact_id, proposal_name, package_name, status, value, currency, created_by)
@@ -177,12 +219,54 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
        VALUES (?, ?, ?, ?, ?, 'MCP Clinic Opportunity', 1995, 'Proposal', 70, ?, 'website', 'open', CURRENT_DATE)`,
       [dealId, workspace.clinicId, contactId, pipelineId, pipelineStageId, workspace.userId],
     );
+    await pool.execute(
+      `INSERT INTO email (id, clinic_id, contact_id, user_id, subject, body, direction, status)
+       VALUES (?, ?, ?, ?, 'MCP Clinic email follow-up', 'Sensitive body should not be surfaced in search metadata.', 'outbound', 'sent')`,
+      [emailId, workspace.clinicId, contactId, workspace.userId],
+    );
+    await pool.execute(
+      `INSERT INTO sms (id, clinic_id, contact_id, user_id, message, direction, status, call_followup)
+       VALUES (?, ?, ?, ?, 'MCP Clinic SMS follow-up', 'outbound', 'sent', 1)`,
+      [smsId, workspace.clinicId, contactId, workspace.userId],
+    );
+    await pool.execute(
+      `INSERT INTO deposit_record
+        (id, clinic_id, contact_id, contact_name, treatment, deposit_amount, deposit_paid, status, payment_status, created_by)
+       VALUES (?, ?, ?, 'MCP Clinic Patient', 'Implants', 50.00, 1, 'paid', 'paid', ?)`,
+      [depositId, workspace.clinicId, contactId, workspace.userId],
+    );
+    await pool.execute(
+      `INSERT INTO campaign (id, clinic_id, name, type, status, budget, channel)
+       VALUES (?, ?, 'MCP Clinic Campaign', 'search', 'active', 1000.00, 'Google Ads')`,
+      [campaignId, workspace.clinicId],
+    );
+    await pool.execute(
+      `INSERT INTO strategy_log
+        (id, clinic_id, client_account_profile_id, log_month, log_type, meeting_notes, decisions, next_actions, created_by)
+       VALUES (?, ?, ?, CURRENT_DATE, 'strategy', 'MCP Clinic strategy notes', 'Continue tracked growth plan', 'Review next month', ?)`,
+      [strategyLogId, workspace.clinicId, clientAccountId, workspace.userId],
+    );
 
     const unauthenticated = await fetchJson(baseUrl, "/api/v1/capabilities");
     expectStatus("unauthenticated capabilities", unauthenticated, 401);
+    assert.equal(unauthenticated.body.success, false);
+    assert.equal(unauthenticated.body.data, null);
+    assert.equal(unauthenticated.body.error.code, "unauthorized");
 
     const forbidden = await fetchJson(baseUrl, "/api/v1/capabilities", denied.token);
     expectStatus("forbidden capabilities", forbidden, 403);
+    assert.equal(forbidden.body.success, false);
+    assert.equal(forbidden.body.error.code, "forbidden");
+
+    const health = await fetchJson(baseUrl, "/api/v1/health", reader.token);
+    expectStatus("reader health", health, 200);
+    assert.equal(health.body.success, true);
+    assert.equal(health.body.data.service, "mission-control-api");
+
+    const version = await fetchJson(baseUrl, "/api/v1/version", reader.token);
+    expectStatus("reader version", version, 200);
+    assert.equal(version.body.success, true);
+    assert.equal(version.body.data.apiVersion, "v1");
 
     const capabilities = await fetchJson(baseUrl, "/api/v1/capabilities", reader.token);
     expectStatus("reader capabilities", capabilities, 200);
@@ -192,19 +276,66 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.ok(capabilities.body.generated_at);
     assert.equal(capabilities.body.data.writePolicy.currentPhase, "read_only");
     assert.equal(capabilities.body.data.writePolicy.externalActionsEnabled, false);
+    assert.equal(capabilities.body.data.recordTypes.includes("communication"), true);
+    assert.equal(capabilities.body.data.recordTypes.includes("finance"), true);
+    assert.equal(capabilities.body.data.recordTypes.includes("marketing"), true);
+    assert.equal(capabilities.body.data.recordTypes.includes("management"), true);
     assert.equal(capabilities.body.data.tools.some((tool: any) => tool.name === "search" && tool.readOnlyHint), true);
 
-    const search = await fetchJson(baseUrl, "/api/v1/search?query=MCP%20Clinic&types=contact,proposal,task,opportunity&limit=10", reader.token);
+    const search = await fetchJson(
+      baseUrl,
+      "/api/v1/search?query=MCP%20Clinic&types=contact,client_account,proposal,task,opportunity,communication,finance,marketing,management&limit=20",
+      reader.token,
+    );
     expectStatus("reader search", search, 200);
     assert.equal(search.body.data.results.some((item: any) => item.id === contactId && item.type === "contact"), true);
+    assert.equal(search.body.data.results.some((item: any) => item.id === clientAccountId && item.type === "client_account"), true);
     assert.equal(search.body.data.results.some((item: any) => item.id === proposalId && item.type === "proposal"), true);
     assert.equal(search.body.data.results.some((item: any) => item.id === taskId && item.type === "task"), true);
     assert.equal(search.body.data.results.some((item: any) => item.id === dealId && item.type === "opportunity"), true);
+    assert.equal(search.body.data.results.some((item: any) => item.id === emailId && item.type === "communication"), true);
+    assert.equal(search.body.data.results.some((item: any) => item.id === depositId && item.type === "finance"), true);
+    assert.equal(search.body.data.results.some((item: any) => item.id === campaignId && item.type === "marketing"), true);
+    assert.equal(search.body.data.results.some((item: any) => item.id === strategyLogId && item.type === "management"), true);
     assert.equal(search.body.data.results.some((item: any) => item.id === otherContactId), false);
     assert.equal(search.body.data.results.every((item: any) => item.provenance?.source === "mission_control_database"), true);
+    assert.equal(JSON.stringify(search.body).includes("Sensitive body should not be surfaced"), false);
+
+    const emptySearch = await fetchJson(baseUrl, "/api/v1/search?query=NoMatchingMissionControlRecord", reader.token);
+    expectStatus("empty search", emptySearch, 200);
+    assert.equal(emptySearch.body.data.page.returned, 0);
+
+    const pagedSearch = await fetchJson(baseUrl, "/api/v1/search?types=contact&limit=2", reader.token);
+    expectStatus("paged search", pagedSearch, 200);
+    assert.equal(pagedSearch.body.data.page.returned, 2);
+    assert.equal(pagedSearch.body.data.page.nextCursor, "2");
+
+    const directOldContact = await fetchJson(baseUrl, `/api/v1/records/contact/${oldContactId}`, reader.token);
+    expectStatus("direct old contact fetch", directOldContact, 200);
+    assert.equal(directOldContact.body.data.id, oldContactId);
+
+    const crossTenantFetch = await fetchJson(baseUrl, `/api/v1/records/contact/${otherContactId}`, reader.token);
+    expectStatus("cross tenant fetch", crossTenantFetch, 404);
+    assert.equal(crossTenantFetch.body.success, false);
+    assert.equal(crossTenantFetch.body.error.code, "not_found");
+
+    const clientAccountFetch = await fetchJson(baseUrl, `/api/v1/records/client_account/${clientAccountId}`, reader.token);
+    expectStatus("client account fetch", clientAccountFetch, 200);
+    assert.equal(clientAccountFetch.body.data.id, clientAccountId);
+
+    const communicationFetch = await fetchJson(baseUrl, `/api/v1/records/communication/${smsId}`, reader.token);
+    expectStatus("communication fetch", communicationFetch, 200);
+    assert.equal(communicationFetch.body.data.metadata.channel, "sms");
+
+    const invalidFetchType = await fetchJson(baseUrl, `/api/v1/records/secret_keys/${contactId}`, reader.token);
+    expectStatus("invalid fetch type", invalidFetchType, 400);
+    assert.equal(invalidFetchType.body.success, false);
+    assert.equal(invalidFetchType.body.error.code, "bad_request");
 
     const invalidType = await fetchJson(baseUrl, "/api/v1/search?types=secret_keys", reader.token);
     expectStatus("invalid search type", invalidType, 400);
+    assert.equal(invalidType.body.success, false);
+    assert.equal(invalidType.body.error.code, "bad_request");
 
     const mcpTools = await fetchJson(baseUrl, "/mcp", reader.token, {
       method: "POST",
@@ -255,13 +386,34 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     });
     expectStatus("mcp fetch", mcpFetch, 200);
     assert.equal(mcpFetch.body.result.content[0].json.id, contactId);
+
+    let rateLimited = false;
+    for (let index = 0; index < 150; index += 1) {
+      const response = await fetchJson(baseUrl, "/api/v1/version", reader.token);
+      if (response.response.status === 429) {
+        rateLimited = true;
+        assert.equal(response.body.success, false);
+        assert.equal(response.body.error.code, "rate_limit_exceeded");
+        break;
+      }
+    }
+    assert.equal(rateLimited, true, "Expected dedicated /api/v1 rate limit to trigger");
   } finally {
+    await pool.execute("DELETE FROM strategy_log WHERE id = ?", [strategyLogId]);
+    await pool.execute("DELETE FROM campaign WHERE id = ?", [campaignId]);
+    await pool.execute("DELETE FROM deposit_record WHERE id = ?", [depositId]);
+    await pool.execute("DELETE FROM sms WHERE id = ?", [smsId]);
+    await pool.execute("DELETE FROM email WHERE id = ?", [emailId]);
     await pool.execute("DELETE FROM deal WHERE id = ?", [dealId]);
     await pool.execute("DELETE FROM pipeline_stage WHERE id = ?", [pipelineStageId]);
     await pool.execute("DELETE FROM pipeline WHERE id = ?", [pipelineId]);
     await pool.execute("DELETE FROM task WHERE id = ?", [taskId]);
     await pool.execute("DELETE FROM proposal WHERE id = ?", [proposalId]);
-    await pool.execute("DELETE FROM contact WHERE id IN (?, ?)", [contactId, otherContactId]);
+    await pool.execute("DELETE FROM client_account_profile WHERE id = ?", [clientAccountId]);
+    await pool.execute(
+      `DELETE FROM contact WHERE id IN (${[contactId, oldContactId, otherContactId, ...overflowContactIds].map(() => "?").join(", ")})`,
+      [contactId, oldContactId, otherContactId, ...overflowContactIds],
+    );
     await pool.execute("DELETE FROM audit_log WHERE clinic_id IN (?, ?)", [workspace.clinicId, otherWorkspace.clinicId]);
     await pool.execute("DELETE FROM tokens WHERE user_id IN (?, ?, ?, ?)", [workspace.userId, otherWorkspace.userId, reader.userId, denied.userId]);
     await pool.execute("DELETE FROM clinic_membership WHERE user_id IN (?, ?, ?, ?)", [workspace.userId, otherWorkspace.userId, reader.userId, denied.userId]);

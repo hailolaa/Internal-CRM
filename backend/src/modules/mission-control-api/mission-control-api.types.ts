@@ -3,7 +3,11 @@ export type MissionControlRecordType =
   | "client_account"
   | "proposal"
   | "task"
-  | "opportunity";
+  | "opportunity"
+  | "communication"
+  | "finance"
+  | "marketing"
+  | "management";
 
 export interface MissionControlUserContext {
   clinicId: string;
@@ -18,7 +22,19 @@ export interface MissionControlProvenance {
   recordUrl?: string;
   lastSourceUpdate?: string | null;
   lastSyncAt?: string | null;
-  dataState: "live" | "cached" | "manual" | "estimated" | "calculated" | "not_applicable";
+  dataState:
+    | "live"
+    | "cached"
+    | "manual"
+    | "estimated"
+    | "calculated"
+    | "demo"
+    | "preview"
+    | "partial"
+    | "provider_dependent"
+    | "roadmap"
+    | "unknown"
+    | "not_applicable";
 }
 
 export interface MissionControlSearchResult {

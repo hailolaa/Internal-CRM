@@ -54,3 +54,23 @@ export const landingPageLeadRateLimit = rateLimit({
     message: "Too many lead submissions. Please try again shortly.",
   },
 });
+
+export const missionControlApiRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  limit: Number(process.env.MISSION_CONTROL_API_RATE_LIMIT_MAX || (process.env.NODE_ENV === "production" ? 600 : 120)),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      success: false,
+      data: null,
+      error: {
+        code: "rate_limit_exceeded",
+        message: "Too many Mission Control API requests. Please try again shortly.",
+        status: 429,
+      },
+      request_id: (req as any).requestId,
+      generated_at: new Date().toISOString(),
+    });
+  },
+});

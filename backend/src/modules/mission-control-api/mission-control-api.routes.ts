@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorizePermission } from "../../middleware/authorize.js";
+import { missionControlApiRateLimit } from "../../middleware/rateLimit.js";
 import { missionControlApiController } from "./mission-control-api.controller.js";
 
 const router = Router();
 
+router.use(missionControlApiRateLimit);
 router.use(authenticate);
 router.use(authorizePermission("mission_control_api:read"));
 

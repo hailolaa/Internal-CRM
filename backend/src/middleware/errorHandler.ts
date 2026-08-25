@@ -55,6 +55,34 @@ const errorHandler = (
         });
     }
 
+    if (req.originalUrl.startsWith("/api/v1")) {
+        const apiResponse = {
+            success: false,
+            data: null,
+            error: {
+                code: statusCode === 401
+                    ? "unauthorized"
+                    : statusCode === 403
+                        ? "forbidden"
+                        : statusCode === 404
+                            ? "not_found"
+                            : statusCode === 429
+                                ? "rate_limit_exceeded"
+                                : statusCode >= 500
+                                    ? "internal_error"
+                                    : "bad_request",
+                message,
+                status: statusCode,
+                ...(details !== undefined && { details }),
+            },
+            request_id: (req as any).requestId,
+            generated_at: new Date().toISOString(),
+        };
+
+        res.status(statusCode).json(apiResponse);
+        return;
+    }
+
     const response = {
         status: "error",
         message,
