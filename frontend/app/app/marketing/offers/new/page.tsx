@@ -25,11 +25,10 @@ import type { OfferRecord } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 
 const packageOptions = [
-  { value: "Clinic Growth Score", label: "Clinic Growth Score" },
-  { value: "Growth Diagnostic", label: "Growth Diagnostic" },
-  { value: "Lead Concierge", label: "Lead Concierge" },
-  { value: "Performance OS", label: "Performance OS" },
-  { value: "Growth Engine", label: "Growth Engine" },
+  { value: "Free Clinic Growth Audit", label: "Free Clinic Growth Audit" },
+  { value: "Clinic Growth Diagnostic", label: "Clinic Growth Diagnostic" },
+  { value: "Treatment Growth", label: "Treatment Growth" },
+  { value: "Clinic Growth", label: "Clinic Growth" },
   { value: "Market Leader", label: "Market Leader" },
   { value: "Bespoke", label: "Bespoke" },
 ];
@@ -67,7 +66,7 @@ export default function NewOfferPage() {
   const isEditMode = Boolean(editingOfferId);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [packageFocus, setPackageFocus] = useState("Growth Engine");
+  const [packageFocus, setPackageFocus] = useState("Clinic Growth");
   const [discountType, setDiscountType] = useState("percentage");
   const [discountValue, setDiscountValue] = useState("");
   const [validUntil, setValidUntil] = useState("");
@@ -240,7 +239,7 @@ export default function NewOfferPage() {
                 label="Offer name"
                 value={name}
                 onChange={setName}
-                placeholder="Growth Diagnostic launch incentive"
+                placeholder="Clinic Growth Diagnostic launch incentive"
                 required
               />
               <FormField

@@ -39,7 +39,7 @@ describe("ProposalV5Renderer V19", () => {
   });
 
   it("builds and renders a 15-page snapshot without Page 16", () => {
-    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth-engine" });
+    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth" });
     const html = render(snapshot);
 
     expect(isProposalV5Snapshot(snapshot)).toBe(true);
@@ -54,7 +54,7 @@ describe("ProposalV5Renderer V19", () => {
   });
 
   it("keeps Page 4 readable when the clinic name makes the headline longer", () => {
-    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth-engine" });
+    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth" });
     const html = render({
       ...snapshot,
       clinic: {
@@ -78,9 +78,9 @@ describe("ProposalV5Renderer V19", () => {
   });
 
   it("keeps clinic type and selected package independent", () => {
-    const dentalGrowth = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth-engine" });
+    const dentalGrowth = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth" });
     const dentalAudit = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "free-clinic-growth-audit" });
-    const aestheticsGrowth = buildProposalV5PreviewSnapshot({ clinicType: "aesthetic_clinic", packageId: "clinic-growth-engine" });
+    const aestheticsGrowth = buildProposalV5PreviewSnapshot({ clinicType: "aesthetic_clinic", packageId: "clinic-growth" });
 
     expect(dentalGrowth.clinic.clinicType).toBe(dentalAudit.clinic.clinicType);
     expect(dentalGrowth.selectedPackage.name).not.toBe(dentalAudit.selectedPackage.name);
@@ -90,7 +90,7 @@ describe("ProposalV5Renderer V19", () => {
 
   it("renders every clinic variant with sector assets and proof", () => {
     for (const clinicType of listProposalV5PreviewClinicTypes()) {
-      const snapshot = buildProposalV5PreviewSnapshot({ clinicType, packageId: "clinic-growth-engine" });
+      const snapshot = buildProposalV5PreviewSnapshot({ clinicType, packageId: "clinic-growth" });
       const html = render(snapshot);
 
       expect(html).toContain(snapshot.clinic.typeShortLabel);
@@ -115,7 +115,7 @@ describe("ProposalV5Renderer V19", () => {
   });
 
   it("keeps proof media paired on the published proof page for high proof counts", () => {
-    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "aesthetic_clinic", packageId: "growth-engine-plus" });
+    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "aesthetic_clinic", packageId: "market-leader" });
     const repeatedProof = Array.from({ length: 20 }, (_, index) => ({
       ...snapshot.proof[index % snapshot.proof.length],
       title: `${snapshot.proof[index % snapshot.proof.length].title} ${index + 1}`,
@@ -133,7 +133,7 @@ describe("ProposalV5Renderer V19", () => {
   });
 
   it("renders the strict V19 reference copy for the audited pages", () => {
-    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth-engine" });
+    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth" });
     const html = render(snapshot);
 
     expect(html).toContain("Illustrative media ROAS");
@@ -146,11 +146,11 @@ describe("ProposalV5Renderer V19", () => {
     expect(html).toContain("+100.6%");
     expect(html).toContain("DREAMAMED");
     expect(html).toContain("MEDISKIN");
-    expect(html).toContain("About £82");
-    expect(html).not.toContain("£82.02");
+    expect(html).toContain("billed monthly at £1,995 + VAT");
+    expect(html).not.toMatch(/per day|Per calendar day|daily-equivalent/i);
     expect(html).toContain("90 days&#x27; written notice");
     expect(html).toContain("One initial six-month Growth Partnership");
-    expect(html).toContain("ClinicGrower Managed Growth");
+    expect(html).toContain("Clinic Growth");
     expect(html).not.toContain("Selected matched case study");
   });
 });

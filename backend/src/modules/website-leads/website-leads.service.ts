@@ -9,11 +9,10 @@ import type { WebsiteLeadCapturePayload, WebsiteLeadCaptureResult } from "./webs
 
 const PAYLOAD_SOURCE = "website_lead_capture";
 const PACKAGE_NAMES = {
-  growthScore: "Clinic Growth Score",
-  growthDiagnostic: "Growth Diagnostic",
-  leadConcierge: "Lead Concierge",
-  performanceOs: "Performance OS",
-  growthEngine: "Growth Engine",
+  freeAudit: "Free Clinic Growth Audit",
+  clinicGrowthDiagnostic: "Clinic Growth Diagnostic",
+  treatmentGrowth: "Treatment Growth",
+  clinicGrowth: "Clinic Growth",
   marketLeader: "Market Leader",
 } as const;
 
@@ -128,12 +127,16 @@ function buildIntentSearchText(data: WebsiteLeadCapturePayload) {
 
 function inferPackageInterest(text: string) {
   if (/\b(market leader|market leadership|dominant market)\b/.test(text)) return PACKAGE_NAMES.marketLeader;
-  if (/\b(growth engine|engine call|engine demo)\b/.test(text)) return PACKAGE_NAMES.growthEngine;
-  if (/\b(performance os|performance demo|os demo|demo performance)\b/.test(text)) return PACKAGE_NAMES.performanceOs;
-  if (/\b(lead concierge|concierge)\b/.test(text)) return PACKAGE_NAMES.leadConcierge;
-  if (/\b(growth diagnostic|diagnostic)\b/.test(text)) return PACKAGE_NAMES.growthDiagnostic;
-  if (/\b(clinic growth score|growth score|free audit|audit form|score form)\b/.test(text)) return PACKAGE_NAMES.growthScore;
+  if (/\b(clinic growth diagnostic|growth diagnostic|diagnostic)\b/.test(text)) return PACKAGE_NAMES.clinicGrowthDiagnostic;
+  if (/\b(free clinic growth audit|clinic growth score|growth score|free audit|audit form|score form)\b/.test(text)) return PACKAGE_NAMES.freeAudit;
+  if (/\b(treatment growth|priority treatment|one treatment)\b/.test(text)) return PACKAGE_NAMES.treatmentGrowth;
+  if (/\b(clinic growth|growth engine|engine call|engine demo|lead concierge|concierge|performance os|performance demo|os demo|demo performance|starter engine|growth partner|clinic growth engine|growth engine plus)\b/.test(text)) return PACKAGE_NAMES.clinicGrowth;
   return null;
+}
+
+function normalizePackageInterest(value: string | null) {
+  if (!value) return null;
+  return inferPackageInterest(normalizeText(value)) || value;
 }
 
 function specificInboundSource(data: WebsiteLeadCapturePayload, fallback: string) {
@@ -171,13 +174,13 @@ export function buildGuideDownloadContext(data: WebsiteLeadCapturePayload): Guid
   return {
     downloadedAt: toIsoDateTime(pick(data, "downloadedAt", "downloaded_at", "downloadAt", "download_at", "downloadDate", "download_date")),
     guideName: pick(data, "guideName", "guideTitle") || "Free guide",
-    nextAction: "Request/calculate Clinic Growth Score",
+    nextAction: "Start Free Clinic Growth Audit",
   };
 }
 
 export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLeadIntentMapping {
   const text = buildIntentSearchText(data);
-  const explicitPackage = pick(data, "packageInterest", "package_interest", "package", "serviceInterest");
+  const explicitPackage = normalizePackageInterest(pick(data, "packageInterest", "package_interest", "package", "serviceInterest"));
   const packageInterest = explicitPackage || inferPackageInterest(text);
   const explicitLeadType = pick(data, "leadType");
   const configuredSource = pick(data, "_configuredSource");
@@ -211,49 +214,40 @@ export function mapWebsiteLeadIntent(data: WebsiteLeadCapturePayload): WebsiteLe
     };
   }
 
-  if (/\b(growth engine|engine call|engine demo)\b/.test(text)) {
+  if (/\b(clinic growth diagnostic|growth diagnostic|diagnostic)\b/.test(text)) {
     return {
       leadType: explicitLeadType || "package_interest",
-      packageInterest: PACKAGE_NAMES.growthEngine,
-      source: configuredSource || "website_growth_engine_cta",
-      tags: ["website_cta", "lead_type:package_interest", "package:growth_engine"],
+      packageInterest: PACKAGE_NAMES.clinicGrowthDiagnostic,
+      source: configuredSource || "website_clinic_growth_diagnostic_cta",
+      tags: ["website_cta", "lead_type:package_interest", "package:clinic_growth_diagnostic"],
     };
   }
 
-  if (/\b(performance os|performance demo|os demo|demo performance)\b/.test(text)) {
+  if (/\b(treatment growth|priority treatment|one treatment)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "package_interest",
+      packageInterest: PACKAGE_NAMES.treatmentGrowth,
+      source: configuredSource || "website_treatment_growth_cta",
+      tags: ["website_cta", "lead_type:package_interest", "package:treatment_growth"],
+    };
+  }
+
+  if (/\b(free clinic growth audit|clinic growth score|growth score|free audit|audit form|score form)\b/.test(text)) {
+    return {
+      leadType: explicitLeadType || "free_audit",
+      packageInterest: PACKAGE_NAMES.freeAudit,
+      source: configuredSource || "website_free_clinic_growth_audit",
+      tags: ["website_form", "lead_type:free_audit", "package:free_clinic_growth_audit"],
+    };
+  }
+
+  if (/\b(clinic growth|growth engine|engine call|engine demo|lead concierge|concierge|performance os|performance demo|os demo|demo performance|starter engine|growth partner|clinic growth engine|growth engine plus)\b/.test(text)) {
     const leadType = explicitLeadType || (/\bdemo\b/.test(text) ? "demo_request" : "package_interest");
     return {
       leadType,
-      packageInterest: PACKAGE_NAMES.performanceOs,
-      source: configuredSource || "website_performance_os_demo",
-      tags: ["website_cta", `lead_type:${leadType}`, "package:performance_os"],
-    };
-  }
-
-  if (/\b(lead concierge|concierge)\b/.test(text)) {
-    return {
-      leadType: explicitLeadType || "package_interest",
-      packageInterest: PACKAGE_NAMES.leadConcierge,
-      source: configuredSource || "website_lead_concierge_cta",
-      tags: ["website_cta", "lead_type:package_interest", "package:lead_concierge"],
-    };
-  }
-
-  if (/\b(growth diagnostic|diagnostic)\b/.test(text)) {
-    return {
-      leadType: explicitLeadType || "package_interest",
-      packageInterest: PACKAGE_NAMES.growthDiagnostic,
-      source: configuredSource || "website_growth_diagnostic_cta",
-      tags: ["website_cta", "lead_type:package_interest", "package:growth_diagnostic"],
-    };
-  }
-
-  if (/\b(clinic growth score|growth score|free audit|audit form|score form)\b/.test(text)) {
-    return {
-      leadType: explicitLeadType || "free_audit",
-      packageInterest: PACKAGE_NAMES.growthScore,
-      source: configuredSource || "website_growth_score_form",
-      tags: ["website_form", "lead_type:free_audit", "package:clinic_growth_score"],
+      packageInterest: PACKAGE_NAMES.clinicGrowth,
+      source: configuredSource || "website_clinic_growth_cta",
+      tags: ["website_cta", `lead_type:${leadType}`, "package:clinic_growth"],
     };
   }
 
@@ -527,14 +521,14 @@ function toContactPayload(data: WebsiteLeadCapturePayload, rawPayloadId: string)
     gbraid: pick(data, "gbraid"),
     wbraid: pick(data, "wbraid"),
     packageInterest,
-    recommendedPackage: guideContext ? PACKAGE_NAMES.growthScore : null,
+    recommendedPackage: guideContext ? PACKAGE_NAMES.freeAudit : null,
     treatmentInterests: packageInterest ? [packageInterest] : [],
     tags: Array.from(new Set([
       "website_lead",
       `lead_type:${mapping.leadType}`,
       ...mapping.tags,
       guideName ? `guide:${guideName}` : null,
-      guideContext ? "next_action:clinic_growth_score" : null,
+      guideContext ? "next_action:free_clinic_growth_audit" : null,
       ctaClicked ? `cta:${ctaClicked}` : null,
     ].filter(Boolean) as string[])),
     notes: buildNotes(data, mapping),
@@ -798,7 +792,7 @@ export class WebsiteLeadsService {
       "website_lead",
       "website_form",
       "lead_type:lead_magnet_nurture",
-      "next_action:clinic_growth_score",
+      "next_action:free_clinic_growth_audit",
       `guide:${guideContext.guideName}`,
     ]));
     const guideNote = [
@@ -819,7 +813,7 @@ export class WebsiteLeadsService {
            recommended_package = COALESCE(recommended_package, ?),
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND clinic_id = ? AND deleted_at IS NULL`,
-      [JSON.stringify(tags), notes, PACKAGE_NAMES.growthScore, contactId, clinicId],
+      [JSON.stringify(tags), notes, PACKAGE_NAMES.freeAudit, contactId, clinicId],
     );
 
     await pool.execute(
@@ -1139,7 +1133,7 @@ export class WebsiteLeadsService {
     guideContext: GuideDownloadContext,
     sourceConfig?: WebsiteLeadSourceConfig,
   ) {
-    const title = "Request/calculate Clinic Growth Score";
+    const title = "Start Free Clinic Growth Audit";
     const [existingRows]: any = await pool.execute(
       `SELECT id
        FROM task

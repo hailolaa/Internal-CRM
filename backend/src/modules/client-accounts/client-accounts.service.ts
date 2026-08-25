@@ -393,63 +393,46 @@ function buildUpsellPrompts(row: {
   };
 
   if (
-    current.includes("growth diagnostic") &&
-    (scoreIsWeak(categories.leadHandling) || scoreIsWeak(categories.responseSpeed) || recommended.includes("lead concierge"))
+    (current.includes("clinic growth diagnostic") || current.includes("growth diagnostic") || current.includes("free clinic growth audit")) &&
+    (scoreIsWeak(categories.leadHandling) || scoreIsWeak(categories.responseSpeed) || recommended.includes("treatment growth"))
   ) {
     addPrompt({
-      ruleKey: "growth_diagnostic_to_lead_concierge",
-      fromPackage: "Growth Diagnostic",
-      toPackage: "Lead Concierge",
-      reason: "Lead handling or response speed is weak, so Lead Concierge should be reviewed.",
+      ruleKey: "diagnostic_to_treatment_growth",
+      fromPackage: current.includes("free clinic growth audit") ? "Free Clinic Growth Audit" : "Clinic Growth Diagnostic",
+      toPackage: "Treatment Growth",
+      reason: "Lead handling or response speed is weak, so Treatment Growth should be reviewed for the first priority journey.",
       severity: "high",
     });
   }
 
   if (
-    current.includes("lead concierge") &&
+    (current.includes("treatment growth") || current.includes("lead concierge") || current.includes("performance os")) &&
     (
       scoreIsWeak(categories.websiteVisibility) ||
       scoreIsWeak(categories.seo) ||
       scoreIsWeak(categories.gbp) ||
       scoreIsWeak(categories.tracking) ||
       scoreIsWeak(categories.enquiryVisibility) ||
-      recommended.includes("performance os")
+      recommended.includes("clinic growth")
     )
   ) {
     addPrompt({
-      ruleKey: "lead_concierge_to_performance_os",
-      fromPackage: "Lead Concierge",
-      toPackage: "Performance OS",
-      reason: "Visibility, tracking or accountability gaps suggest Performance OS.",
+      ruleKey: "treatment_growth_to_clinic_growth",
+      fromPackage: "Treatment Growth",
+      toPackage: "Clinic Growth",
+      reason: "Visibility, tracking or accountability gaps suggest Clinic Growth should be reviewed.",
       severity: "medium",
     });
   }
 
   if (
-    current.includes("performance os") &&
-    (
-      scoreIsWeak(categories.conversion) ||
-      scoreIsWeak(categories.revenueLeakage) ||
-      scoreIsStrong(categories.growthOpportunity) ||
-      recommended.includes("growth engine")
-    )
-  ) {
-    addPrompt({
-      ruleKey: "performance_os_to_growth_engine",
-      fromPackage: "Performance OS",
-      toPackage: "Growth Engine",
-      reason: "Conversion, revenue leakage or growth-opportunity signals point to managed growth.",
-      severity: "medium",
-    });
-  }
-
-  if (
-    current.includes("growth engine") &&
+    (current.includes("clinic growth") || current.includes("growth engine")) &&
+    !current.includes("clinic growth diagnostic") &&
     (scoreIsStrong(categories.growthOpportunity) || scoreIsStrong(row.growthScoreOverall) || recommended.includes("market leader"))
   ) {
     addPrompt({
-      ruleKey: "growth_engine_to_market_leader",
-      fromPackage: "Growth Engine",
+      ruleKey: "clinic_growth_to_market_leader",
+      fromPackage: "Clinic Growth",
       toPackage: "Market Leader",
       reason: "High growth opportunity or strong current performance suggests Market Leader should be considered.",
       severity: "medium",

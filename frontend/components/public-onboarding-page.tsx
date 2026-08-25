@@ -44,15 +44,39 @@ const primaryPaths = [
   },
 ];
 
-const packages = [
-  { name: "Free Clinic Growth Audit", price: "Free", detail: "Outside-in review" },
-  { name: "Growth Diagnostic", price: "£395/mo", detail: "Focused monthly diagnosis" },
-  { name: "Lead Concierge", price: "£595/mo", detail: "Lead handling visibility" },
-  { name: "Starter Engine", price: "£995/mo", detail: "Starter operating rhythm" },
-  { name: "Growth Partner", price: "£1,695/mo", detail: "Growth accountability layer" },
-  { name: "Clinic Growth Engine", price: "£2,495/mo", detail: "£995 setup" },
-  { name: "Growth Engine Plus", price: "£3,495/mo", detail: "£995 setup" },
-  { name: "Market Leader", price: "From £4,995/mo", detail: "£995 setup" },
+const funnelStages = [
+  {
+    name: "Free Clinic Growth Audit",
+    price: "Free",
+    detail: "High-level assessment and qualification. It does not provide the verified numerical Clinic Growth Score.",
+  },
+  {
+    name: "Clinic Growth Diagnostic",
+    price: "£395 + VAT one-off",
+    detail: "Unlocks the verified Clinic Growth Score, leakage diagnosis and recommended 90-day plan.",
+  },
+];
+
+const monthlyPackages = [
+  {
+    name: "Treatment Growth",
+    price: "£995 + VAT/month",
+    setup: "Implementation and benchmarking: £495 + VAT",
+    detail: "Prove measurable growth on one priority treatment.",
+  },
+  {
+    name: "Clinic Growth",
+    price: "£1,995 + VAT/month",
+    setup: "Implementation and benchmarking: £995 + VAT",
+    detail: "Turn one successful treatment pathway into a repeatable clinic growth system.",
+    badge: "Recommended for established clinics",
+  },
+  {
+    name: "Market Leader",
+    price: "£3,495 + VAT/month",
+    setup: "Implementation and benchmarking: £1,495 + VAT",
+    detail: "Build the clinic patients recognise, trust and choose first.",
+  },
 ];
 
 export default function PublicOnboardingPage() {
@@ -93,7 +117,7 @@ export default function PublicOnboardingPage() {
                 href="/login"
                 className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-[#151F21] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#253639]"
               >
-                Open Internal CRM
+                Start Your Free Clinic Growth Audit.
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
@@ -114,19 +138,19 @@ export default function PublicOnboardingPage() {
               <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#2F7F7B]">
-                    Current package catalogue
+                    Current public structure
                   </p>
                   <h2 className="mt-1.5 text-xl font-semibold text-[#151F21]">
-                    Public pricing reference
+                    Start with one treatment. Expand only when the numbers justify it.
                   </h2>
                 </div>
                 <p className="max-w-sm text-xs leading-5 text-[#5E6E70]">
-                  Media spend, VAT treatment, scope and term are confirmed on the issued proposal.
+                  Prices exclude VAT. Advertising spend is separate and paid directly by the clinic.
                 </p>
               </div>
 
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                {packages.map((item) => (
+                {funnelStages.map((item) => (
                   <div
                     key={item.name}
                     className="rounded-lg border border-[rgba(21,31,33,0.08)] bg-[#F7F4EE] px-3 py-2.5"
@@ -139,6 +163,33 @@ export default function PublicOnboardingPage() {
                   </div>
                 ))}
               </div>
+
+              <div className="mt-4 grid gap-2 lg:grid-cols-3">
+                {monthlyPackages.map((item) => (
+                  <div
+                    key={item.name}
+                    className={`rounded-lg border px-3 py-2.5 ${
+                      item.badge
+                        ? "border-[#60B4AF] bg-[#E9F5F3]"
+                        : "border-[rgba(21,31,33,0.08)] bg-[#F7F4EE]"
+                    }`}
+                  >
+                    {item.badge ? (
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#2F7F7B]">
+                        {item.badge}
+                      </p>
+                    ) : null}
+                    <p className="text-sm font-semibold text-[#151F21]">{item.name}</p>
+                    <p className="mt-1 text-sm font-bold text-[#2F7F7B]">{item.price}</p>
+                    <p className="mt-1 text-xs leading-5 text-[#5E6E70]">{item.setup}</p>
+                    <p className="mt-2 text-xs leading-5 text-[#5E6E70]">{item.detail}</p>
+                  </div>
+                ))}
+              </div>
+
+              <p className="mt-4 text-xs leading-5 text-[#5E6E70]">
+                Standard prices are per clinic location. Multi-location and group requirements are bespoke.
+              </p>
             </section>
           </div>
 

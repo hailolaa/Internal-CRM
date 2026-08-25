@@ -6,15 +6,15 @@ import {
   mapWebsiteLeadIntent,
 } from "../modules/website-leads/website-leads.service.js";
 
-test("Clinic Growth Score form maps to Growth Score free audit", () => {
+test("Clinic Growth Score form maps to the Free Clinic Growth Audit without implying a verified score", () => {
   const result = mapWebsiteLeadIntent({
     formName: "Clinic Growth Score form",
     ctaClicked: "Get my free audit",
   });
 
-  assert.equal(result.source, "website_growth_score_form");
+  assert.equal(result.source, "website_free_clinic_growth_audit");
   assert.equal(result.leadType, "free_audit");
-  assert.equal(result.packageInterest, "Clinic Growth Score");
+  assert.equal(result.packageInterest, "Free Clinic Growth Audit");
 });
 
 test("free guide download maps to lead magnet nurture", () => {
@@ -36,15 +36,16 @@ test("free guide download stores guide title, download time, and Growth Score ne
 
   assert.equal(context.guideName, "Clinic Growth Guide");
   assert.equal(context.downloadedAt, "2026-07-16T10:30:00.000Z");
-  assert.equal(context.nextAction, "Request/calculate Clinic Growth Score");
+  assert.equal(context.nextAction, "Start Free Clinic Growth Audit");
 });
 
-test("website package CTAs map to the correct package interests", () => {
+test("website package CTAs map to the approved funnel and monthly package interests", () => {
   const cases = [
-    ["Book Growth Diagnostic", "Growth Diagnostic", "website_growth_diagnostic_cta", "package_interest"],
-    ["Talk to us about Lead Concierge", "Lead Concierge", "website_lead_concierge_cta", "package_interest"],
-    ["Book a Performance OS demo", "Performance OS", "website_performance_os_demo", "demo_request"],
-    ["Scale with Growth Engine", "Growth Engine", "website_growth_engine_cta", "package_interest"],
+    ["Book Clinic Growth Diagnostic", "Clinic Growth Diagnostic", "website_clinic_growth_diagnostic_cta", "package_interest"],
+    ["Prove one priority treatment with Treatment Growth", "Treatment Growth", "website_treatment_growth_cta", "package_interest"],
+    ["Talk to us about Lead Concierge", "Clinic Growth", "website_clinic_growth_cta", "package_interest"],
+    ["Book a Performance OS demo", "Clinic Growth", "website_clinic_growth_cta", "demo_request"],
+    ["Scale with Growth Engine", "Clinic Growth", "website_clinic_growth_cta", "package_interest"],
     ["Become the Market Leader", "Market Leader", "website_market_leader_cta", "package_interest"],
   ] as const;
 
@@ -74,13 +75,13 @@ test("Calendly and schedule-call submissions map to scheduled sales calls", () =
   const result = mapWebsiteLeadIntent({
     source: "website",
     calendlyEventUri: "https://api.calendly.com/scheduled_events/event-123",
-    ctaClicked: "Book a Growth Engine call",
+    ctaClicked: "Book a Clinic Growth call",
     scheduledAt: "2026-08-05T10:00:00.000Z",
   });
 
   assert.equal(result.source, "website_schedule_call");
   assert.equal(result.leadType, "schedule_call");
-  assert.equal(result.packageInterest, "Growth Engine");
+  assert.equal(result.packageInterest, "Clinic Growth");
   assert.ok(result.tags.includes("website_schedule_call"));
 });
 
@@ -93,7 +94,7 @@ test("chatbot submissions map to chatbot lead capture", () => {
 
   assert.equal(result.source, "website_chatbot");
   assert.equal(result.leadType, "chatbot");
-  assert.equal(result.packageInterest, "Performance OS");
+  assert.equal(result.packageInterest, "Clinic Growth");
   assert.ok(result.tags.includes("website_chatbot"));
 });
 

@@ -123,13 +123,22 @@ function money(value: number | null | undefined) {
   return typeof value === "number" ? formatProposalV5Money(value) : "To confirm";
 }
 
-function dailyFee(value: number | null | undefined) {
-  if (typeof value !== "number") return "To confirm";
-  return formatProposalV5Money(Math.round(value / 100 / 30.42) * 100);
-}
-
 function investmentDisplayName(snapshot: ProposalV5Snapshot) {
-  return snapshot.selectedPackage.name === "Clinic Growth Engine" ? "ClinicGrower Managed Growth" : snapshot.selectedPackage.name;
+  const packageId = String(snapshot.selectedPackage.id || "");
+  const names: Record<string, string> = {
+    "free-clinic-growth-audit": "Free Clinic Growth Audit",
+    "growth-diagnostic": "Clinic Growth Diagnostic",
+    "clinic-growth-diagnostic": "Clinic Growth Diagnostic",
+    "lead-concierge": "Clinic Growth",
+    "performance-os": "Clinic Growth",
+    "growth-engine": "Clinic Growth",
+    "clinic-growth-engine": "Clinic Growth",
+    "growth-engine-plus": "Market Leader",
+    "treatment-growth": "Treatment Growth",
+    "clinic-growth": "Clinic Growth",
+    "market-leader": "Market Leader",
+  };
+  return names[packageId] || snapshot.selectedPackage.name;
 }
 
 function ownerFirstName(snapshot: ProposalV5Snapshot) {
@@ -201,13 +210,12 @@ function sectionData(snapshot: ProposalV5Snapshot): Array<{
   const ownerFirst = ownerFirstName(snapshot);
   const monthlyFee = money(snapshot.commercial.monthlyFeeCents);
   const setupFee = money(snapshot.commercial.setupFeeCents);
-  const daily = dailyFee(snapshot.commercial.monthlyFeeCents);
   const mediaSpend = money(snapshot.commercial.mediaSpend.value);
   const noticeDays = snapshot.commercial.noticePeriodDays || 90;
   const minimumTerm = snapshot.commercial.minimumTermMonths || 6;
   const commercialValues = [
     panel(investmentDisplayName(snapshot), `${monthlyFee} + VAT per month`, true, "monthly-fee"),
-    panel(`About ${daily}`, "Per calendar day. Equivalent of the monthly ClinicGrower service fee, rounded. Excludes VAT, setup and Google media.", true, "daily-fee"),
+    panel("Monthly billing", "One recurring service fee. Excludes VAT, setup and Google media.", true, "monthly-billing"),
     panel("One-off setup", `${setupFee} + VAT once. First invoice only. Not recurring.`, true, "setup-fee"),
     panel("Media", snapshot.commercial.mediaSpendRule || "Separate from ClinicGrower fees", true, "media-rule"),
   ];
@@ -367,7 +375,7 @@ function sectionData(snapshot: ProposalV5Snapshot): Array<{
       id: "mobile-page-13",
       pageId: "V5Page13PartnershipInvestment",
       eyebrow: "One accountable team | one monthly ClinicGrower fee",
-      title: `A joined-up team across marketing and growth operations, for about ${daily} per day.`,
+      title: `A joined-up team across marketing and growth operations, billed monthly at ${monthlyFee} + VAT.`,
       body: `${clinicName} gets one team across marketing, the patient journey and commercial optimisation - without disconnected suppliers or reports for ${ownerFirst} to manage.`,
       dark: true,
       content: <div style={styles.grid}>{commercialValues}</div>,
@@ -398,7 +406,7 @@ function sectionData(snapshot: ProposalV5Snapshot): Array<{
           {panel("Prepare the final agreement for", null, false, "agreement-label")}
           {bulletList([
             `One initial ${termPhrase(minimumTerm)} Growth Partnership for ${clinicName}'s ${service} patient journey.`,
-            `${monthlyFee} + VAT per month - about ${daily} per calendar day for the ClinicGrower service.`,
+            `${monthlyFee} + VAT per month for the ClinicGrower service.`,
             `One-off ${setupFee} + VAT setup fee, charged on the first invoice only.`,
             `Google Ads media up to ${mediaSpend} per live month, planned from month two and paid directly by ${clinicName} to Google.`,
             `${noticeDays} days' written notice may be given at any time, but cannot expire before the end of month ${termEnd(minimumTerm)}.`,

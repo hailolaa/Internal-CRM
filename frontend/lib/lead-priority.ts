@@ -27,11 +27,15 @@ export interface LeadPriorityResult {
 
 const packageScores = [
   { match: "market leader", score: 30, reason: "Market Leader interest" },
-  { match: "growth engine", score: 25, reason: "Growth Engine interest" },
-  { match: "performance os", score: 22, reason: "Performance OS interest" },
-  { match: "lead concierge", score: 16, reason: "Lead Concierge interest" },
-  { match: "growth diagnostic", score: 12, reason: "Growth Diagnostic interest" },
-  { match: "clinic growth score", score: 10, reason: "Clinic Growth Score interest" },
+  { match: "clinic growth diagnostic", score: 12, reason: "Clinic Growth Diagnostic interest" },
+  { match: "free clinic growth audit", score: 10, reason: "Free Clinic Growth Audit interest" },
+  { match: "treatment growth", score: 18, reason: "Treatment Growth interest" },
+  { match: "clinic growth", score: 25, reason: "Clinic Growth interest" },
+  { match: "growth diagnostic", score: 12, reason: "Clinic Growth Diagnostic interest" },
+  { match: "clinic growth score", score: 10, reason: "Free Clinic Growth Audit interest" },
+  { match: "growth engine", score: 25, reason: "Clinic Growth interest" },
+  { match: "performance os", score: 25, reason: "Clinic Growth interest" },
+  { match: "lead concierge", score: 25, reason: "Clinic Growth interest" },
 ];
 
 function compact(value: unknown) {

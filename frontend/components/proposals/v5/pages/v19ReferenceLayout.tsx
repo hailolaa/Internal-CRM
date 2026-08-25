@@ -365,10 +365,16 @@ function money(centsOrPounds: number | null | undefined, input: "cents" | "pound
 
 function selectedPackageName(snapshot: ProposalV5Snapshot) {
   const names: Record<string, string> = {
-    "growth-diagnostic": "Growth Diagnostic",
-    "lead-concierge": "Lead Concierge",
-    "clinic-growth-engine": "Clinic Growth Engine",
-    "growth-engine-plus": "Growth Engine Plus",
+    "free-clinic-growth-audit": "Free Clinic Growth Audit",
+    "growth-diagnostic": "Clinic Growth Diagnostic",
+    "clinic-growth-diagnostic": "Clinic Growth Diagnostic",
+    "lead-concierge": "Clinic Growth",
+    "performance-os": "Clinic Growth",
+    "growth-engine": "Clinic Growth",
+    "clinic-growth-engine": "Clinic Growth",
+    "growth-engine-plus": "Market Leader",
+    "treatment-growth": "Treatment Growth",
+    "clinic-growth": "Clinic Growth",
     "market-leader": "Market Leader",
   };
   return names[String(snapshot.selectedPackage.id || "")] || snapshot.selectedPackage.name || "ClinicGrower growth partnership";
@@ -429,14 +435,8 @@ function findProofAsset(proof: ProposalV5ProofAsset[], terms: string[]) {
   });
 }
 
-function dailyFeeLabel(monthlyFeeCents: number | null | undefined) {
-  if (typeof monthlyFeeCents !== "number") return money(null);
-  return money(Math.round(monthlyFeeCents / 100 / 30.42), "pounds");
-}
-
 function investmentDisplayName(snapshot: ProposalV5Snapshot) {
-  const packageName = selectedPackageName(snapshot);
-  return packageName === "Clinic Growth Engine" ? "ClinicGrower Managed Growth" : packageName;
+  return selectedPackageName(snapshot);
 }
 
 function initialTermPhrase(months: number) {
@@ -1729,12 +1729,11 @@ function page13(snapshot: ProposalV5Snapshot): ReactElement {
   const displayName = investmentDisplayName(snapshot);
   const monthly = snapshot.commercial.monthlyFeeCents;
   const setup = snapshot.commercial.setupFeeCents;
-  const daily = dailyFeeLabel(monthly);
   const media = money(snapshot.commercial.mediaSpend.value);
   return (
     <Page id="V5Page13PartnershipInvestment" page={13} background={C.dark} dark snapshot={snapshot} section="Your monthly growth partnership">
       <T x={49} top={88} width={420} size={8.2} leading={10.2} weight={900} color={C.teal} uppercase maxLines={1}>One accountable team | one monthly ClinicGrower fee</T>
-      <T x={49} top={124} width={482} size={25.5} leading={27.3} weight={900} color={C.white} maxLines={3}>A joined-up team across marketing and growth operations, for about {daily} per day.</T>
+      <T x={49} top={124} width={482} size={25.5} leading={27.3} weight={900} color={C.white} maxLines={3}>A joined-up team across marketing and growth operations, billed monthly at {money(monthly)} + VAT.</T>
       <T x={49} top={214} width={482} size={10.5} leading={14.2} color="#D2E0DE" maxLines={4}>{short} gets one team across marketing, the patient journey and commercial optimisation - without disconnected suppliers or reports for {owner} to manage.</T>
       <Box x={49} top={275} width={494} height={184} fill={C.paper} radius={10} />
       <span style={{ position: "absolute", left: pt(49), top: pt(268), width: pt(1), height: pt(1), overflow: "hidden", color: "transparent", fontSize: 0, lineHeight: 0 }}>
@@ -1744,9 +1743,9 @@ function page13(snapshot: ProposalV5Snapshot): ReactElement {
       <T x={70} top={327} width={170} size={35} leading={40} weight={900} color={C.dark} maxLines={1}>{money(monthly)}</T>
       <T x={252} top={348} width={180} size={10.5} leading={13} weight={900} color={C.tealDark} uppercase maxLines={1}>+ VAT per month</T>
       <Rule x1={70} x2={520} top={379} color={C.line} width={0.8} />
-      <T x={70} top={397} width={180} size={23} leading={28} weight={900} color={C.tealDark} uppercase maxLines={1}>About {daily}</T>
-      <T x={252} top={411} width={185} size={10} leading={12.5} weight={900} color={C.dark} uppercase maxLines={1}>Per calendar day*</T>
-      <T x={70} top={432} width={448} size={9.1} leading={11.4} color={C.muted} maxLines={2}>*Equivalent of the monthly ClinicGrower service fee, rounded. Excludes VAT, the one-off setup fee and Google media. Billing remains monthly.</T>
+      <T x={70} top={397} width={180} size={23} leading={28} weight={900} color={C.tealDark} uppercase maxLines={1}>Monthly billing</T>
+      <T x={252} top={411} width={185} size={10} leading={12.5} weight={900} color={C.dark} uppercase maxLines={1}>One recurring service fee</T>
+      <T x={70} top={432} width={448} size={9.1} leading={11.4} color={C.muted} maxLines={2}>The monthly ClinicGrower service fee excludes VAT, the one-off setup fee and Google media. Billing remains monthly.</T>
       <Box x={49} top={475} width={494} height={126} fill={C.dark2} stroke="#31575A" radius={8} />
       <T x={70} top={492} width={330} size={9.2} leading={11.5} weight={900} color={C.teal} uppercase maxLines={1}>What {short} gets for that monthly fee</T>
       {[["CREATE DEMAND", "Google Ads management, SEO and Google Business Profile."], ["CONVERT DEMAND", "Landing pages, CRO and patient-journey optimisation."], ["SEE THE TRUTH", "Tracking, Mission Control and monthly commercial decisions."]].map(([label, body], index) => (
@@ -1818,7 +1817,6 @@ function page15(snapshot: ProposalV5Snapshot): ReactElement {
   const noticeDays = snapshot.commercial.noticePeriodDays || 90;
   const termPhrase = initialTermPhrase(term);
   const termEnd = initialTermEndText(term);
-  const daily = dailyFeeLabel(snapshot.commercial.monthlyFeeCents);
   const accept = safeV19Href(snapshot.links.acceptUrl || snapshot.links.onlineProposalUrl, `mailto:max@clinicgrower.co.uk?subject=${encodeURIComponent(`Request ${short} Growth Partnership agreement | ${snapshot.proposal.reference}`)}`);
   const question = safeV19Href(snapshot.links.questionUrl, "mailto:max@clinicgrower.co.uk");
   return (
@@ -1830,7 +1828,7 @@ function page15(snapshot: ProposalV5Snapshot): ReactElement {
       <T x={70} top={317} width={300} size={9.2} leading={11.5} weight={900} color={C.tealDark} uppercase maxLines={1}>Prepare the final agreement for</T>
       {[
         `One initial ${termPhrase} Growth Partnership for ${short}'s ${service} patient journey.`,
-        `${monthly} + VAT per month - about ${daily} per calendar day for the ClinicGrower service.`,
+        `${monthly} + VAT per month for the ClinicGrower service.`,
         `One-off ${setup} + VAT setup fee, charged on the first invoice only.`,
         `Google Ads media up to ${media} per live month, planned from month two and paid directly by ${short} to Google.`,
         `${noticeDays} days' written notice may be given at any time, but cannot expire before the end of month ${termEnd}.`,

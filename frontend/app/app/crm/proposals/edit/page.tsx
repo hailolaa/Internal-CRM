@@ -142,11 +142,11 @@ const proofAssetGuidance: Record<ProposalProofAssetType, { copy: string; placeho
 
 const fallbackProposalTemplates: ProposalTemplateRecord[] = [
   {
-    id: "fallback-clinic-growth-engine",
+    id: "fallback-clinic-growth",
     templateKey: "clinicgrower_v5",
-    name: "Clinic Growth Engine",
-    description: "Default sales proposal for Growth Score, growth plan and ongoing package recommendations.",
-    packageName: "Clinic Growth Engine",
+    name: "Clinic Growth",
+    description: "Default sales proposal for the verified diagnostic, 90-day plan and approved monthly programme recommendation.",
+    packageName: "Clinic Growth",
     defaultSections: {},
     defaultRoadmap: [],
     defaultTerms: "",
@@ -1839,7 +1839,7 @@ export default function ProposalEditPage() {
   const applyPackage = (packageId: string) => {
     if (!canEditCurrentProposal) return;
     const packageRecord = packages.find((item) => item.id === packageId);
-    const isReferenceGrowthPackage = packageRecord?.name === "Clinic Growth Engine";
+    const isReferenceGrowthPackage = packageRecord?.name === "Clinic Growth";
     updateForm({
       recommendedPackageId: packageId,
       packageName: packageRecord?.name || "",
@@ -2492,7 +2492,7 @@ export default function ProposalEditPage() {
                           <input
                             value={form.packageName}
                             onChange={(event) => updateForm({ packageName: event.target.value })}
-                            placeholder="Clinic Growth Engine"
+                            placeholder="Clinic Growth"
                             className={builderInputClassName}
                           />
                         </label>

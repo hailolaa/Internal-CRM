@@ -24,7 +24,7 @@ describe("ProposalV5MobileRenderer V19", () => {
 
   it("renders every clinic variant with matching terminology and assets", () => {
     for (const clinicType of listProposalV5PreviewClinicTypes()) {
-      const snapshot = buildProposalV5PreviewSnapshot({ clinicType, packageId: "clinic-growth-engine" });
+      const snapshot = buildProposalV5PreviewSnapshot({ clinicType, packageId: "clinic-growth" });
       const html = renderMobile(snapshot);
 
       expect(html).toContain(snapshot.clinic.name.value);
@@ -44,7 +44,7 @@ describe("ProposalV5MobileRenderer V19", () => {
   });
 
   it("keeps the V19 Page 11 proof hierarchy on mobile without internal labels", () => {
-    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth-engine" });
+    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth" });
     const html = renderMobile(snapshot);
 
     expect(html).toContain('data-v5-page-id="V5Page11PublishedProof"');
@@ -62,10 +62,12 @@ describe("ProposalV5MobileRenderer V19", () => {
   });
 
   it("uses the V19 Page 13 and Page 15 decision wording on mobile", () => {
-    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth-engine" });
+    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth" });
     const html = renderMobile(snapshot);
 
-    expect(html).toContain("for about £82 per day");
+    expect(html).toContain("billed monthly at £1,995 + VAT");
+    expect(html).toContain("Monthly billing");
+    expect(html).not.toMatch(/per day|Per calendar day|daily-equivalent/i);
     expect(html).toContain("without disconnected suppliers or reports for");
     expect(html).toContain("The decision requested");
     expect(html).toContain("you do not need another supplier that stops at enquiries");

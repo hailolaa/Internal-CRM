@@ -64,7 +64,7 @@ export function ProposalV5PrivatePrintPreviewView({
   persistedProposalName?: string | null;
 }) {
   const clinicType = normaliseProposalV5ClinicTypeId(clinicTypeInput);
-  const packageId = packageIdInput || "clinic-growth-engine";
+  const packageId = packageIdInput || "clinic-growth";
   const fixtureSnapshot = useMemo(() => {
     const snapshot = buildProposalV5PreviewSnapshot({
       clinicType,

@@ -26,7 +26,7 @@ const completeInput: ProposalBuilderProgressInput = {
   proposalReference: "CG-2026-001",
   clinicType: "dental_clinic",
   location: "Private dental practice in Bristol",
-  selectedPackageId: "clinic-growth-engine",
+  selectedPackageId: "clinic-growth",
   personalIntroduction: "Hi Alex, this is built around the growth issues discussed.",
   discoverySource: "Discovery call on 10 August 2026",
   evidenceConfidenceState: "working_diagnosis",

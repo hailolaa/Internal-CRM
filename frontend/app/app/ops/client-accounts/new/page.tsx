@@ -405,7 +405,7 @@ export default function NewClientAccountPage() {
                   value={form.upsellOpportunity || ""}
                   onChange={(event) => setForm((current) => ({ ...current, upsellOpportunity: event.target.value }))}
                   className={fieldClass}
-                  placeholder="e.g. Move to Growth Engine after tracking QA"
+                  placeholder="e.g. Move to Clinic Growth after tracking QA"
                 />
               </label>
               <label className="space-y-1.5">

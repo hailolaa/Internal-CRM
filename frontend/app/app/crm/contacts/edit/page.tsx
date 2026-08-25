@@ -67,11 +67,10 @@ const TAG_OPTIONS = [
 ];
 
 const FALLBACK_PACKAGE_OPTIONS = [
-  "Clinic Growth Score",
-  "Growth Diagnostic",
-  "Lead Concierge",
-  "Performance OS",
-  "Growth Engine",
+  "Free Clinic Growth Audit",
+  "Clinic Growth Diagnostic",
+  "Treatment Growth",
+  "Clinic Growth",
   "Market Leader",
 ];
 

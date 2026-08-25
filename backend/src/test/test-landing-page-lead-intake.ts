@@ -87,12 +87,12 @@ test("landing-page lead intake is source-scoped, idempotent and workspace-safe",
       phone: "+447700900123",
       website: "https://bristoldent.example",
       message: "I want help with SEO and paid ads.",
-      packageInterest: "Growth Engine",
-      landingPage: "https://clinicgrower.co.uk/growth-engine",
+      packageInterest: "Clinic Growth",
+      landingPage: "https://clinicgrower.co.uk/clinic-growth",
       referrer: "https://google.com",
       utmSource: "google",
       utmMedium: "cpc",
-      utmCampaign: "growth-engine-test",
+      utmCampaign: "clinic-growth-test",
       gclid: "test-gclid",
       consent: {
         email: true,
@@ -135,7 +135,7 @@ test("landing-page lead intake is source-scoped, idempotent and workspace-safe",
     assert.equal(contactRows[0].landingPage, payload.landingPage);
     assert.equal(contactRows[0].utmSource, "google");
     assert.equal(contactRows[0].gclid, "test-gclid");
-    assert.equal(contactRows[0].packageInterest, "Growth Engine");
+    assert.equal(contactRows[0].packageInterest, "Clinic Growth");
     assert.equal(Boolean(contactRows[0].canEmail), true);
     assert.equal(Boolean(contactRows[0].canCall), true);
     assert.equal(Boolean(contactRows[0].canWhatsAppMessage), true);
@@ -187,7 +187,7 @@ test("landing-page lead intake is source-scoped, idempotent and workspace-safe",
       ...payload,
       idempotencyKey: `${payload.idempotencyKey}-second`,
       message: "Second submit from the same person.",
-      utmCampaign: "growth-engine-second-submit",
+      utmCampaign: "clinic-growth-second-submit",
     });
     assert.equal(upsertResult.response.status, 201);
     assert.equal(upsertResult.body.data.contactId, firstResult.body.data.contactId);
@@ -213,8 +213,8 @@ test("landing-page lead intake is source-scoped, idempotent and workspace-safe",
       phone: "+447700900456",
       source: "website",
       chatbotConversationId: `chatbot-${Date.now()}`,
-      conversationTranscript: "Visitor asked whether Growth Engine can help with paid search and booking follow-up.",
-      packageInterest: "Growth Engine",
+      conversationTranscript: "Visitor asked whether Clinic Growth can help with paid search and booking follow-up.",
+      packageInterest: "Clinic Growth",
       landingPage: "https://clinicgrower.co.uk/chatbot",
       utmSource: "chatbot",
       utmMedium: "website_widget",
@@ -253,7 +253,7 @@ test("landing-page lead intake is source-scoped, idempotent and workspace-safe",
     assert.equal(chatbotContactRows[0].latestSource, "website_chatbot");
     assert.equal(chatbotContactRows[0].landingPage, chatbotPayload.landingPage);
     assert.equal(chatbotContactRows[0].utmSource, "chatbot");
-    assert.equal(chatbotContactRows[0].packageInterest, "Growth Engine");
+    assert.equal(chatbotContactRows[0].packageInterest, "Clinic Growth");
     assert.match(chatbotContactRows[0].notes, /Chatbot conversation ID:/);
     assert.match(chatbotContactRows[0].notes, /Chatbot transcript:/);
 
@@ -267,7 +267,7 @@ test("landing-page lead intake is source-scoped, idempotent and workspace-safe",
     assert.equal(chatbotDealRows.length, 1);
     assert.equal(chatbotDealRows[0].stage, "New Lead");
     assert.equal(chatbotDealRows[0].source, "website_chatbot");
-    assert.equal(chatbotDealRows[0].treatment, "Growth Engine");
+    assert.equal(chatbotDealRows[0].treatment, "Clinic Growth");
 
     const [chatbotTaskRows]: any = await pool.execute(
       `SELECT id, title, priority, status, due_label as dueLabel

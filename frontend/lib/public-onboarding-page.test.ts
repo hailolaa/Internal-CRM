@@ -17,17 +17,25 @@ describe("public onboarding page", () => {
     expect(pageSource).not.toContain("Advanced Proposal Editor");
   });
 
-  it("shows the current V5 package pricing catalogue without stale package names", () => {
+  it("shows the approved public funnel and three monthly packages without stale package cards", () => {
     expect(pageSource).toContain("Free Clinic Growth Audit");
-    expect(pageSource).toContain("Growth Diagnostic");
-    expect(pageSource).toContain("£395/mo");
-    expect(pageSource).toContain("Lead Concierge");
-    expect(pageSource).toContain("£595/mo");
-    expect(pageSource).toContain("Clinic Growth Engine");
-    expect(pageSource).toContain("£2,495/mo");
+    expect(pageSource).toContain("Clinic Growth Diagnostic");
+    expect(pageSource).toContain("£395 + VAT one-off");
+    expect(pageSource).toContain("Treatment Growth");
+    expect(pageSource).toContain("£995 + VAT/month");
+    expect(pageSource).toContain("Clinic Growth");
+    expect(pageSource).toContain("£1,995 + VAT/month");
+    expect(pageSource).toContain("Recommended for established clinics");
     expect(pageSource).toContain("Market Leader");
-    expect(pageSource).toContain("From £4,995/mo");
+    expect(pageSource).toContain("£3,495 + VAT/month");
+    expect(pageSource).toContain("Start with one treatment. Expand only when the numbers justify it.");
+    expect(pageSource).toContain("Start Your Free Clinic Growth Audit.");
+    expect(pageSource).not.toContain("Most Popular");
+    expect(pageSource).not.toContain("Lead Concierge");
     expect(pageSource).not.toContain("Performance OS");
-    expect(pageSource).not.toMatch(/\{\s*name:\s*"Growth Engine"/);
+    expect(pageSource).not.toContain("Growth Engine Plus");
+    expect(pageSource).not.toContain("Clinic Growth Engine");
+    expect(pageSource).not.toContain("£2,495");
+    expect(pageSource).not.toContain("£4,995");
   });
 });

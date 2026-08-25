@@ -42,11 +42,10 @@ const objectiveOptions = [
 ];
 
 const packageOptions = [
-  { value: "Clinic Growth Score", label: "Clinic Growth Score" },
-  { value: "Growth Diagnostic", label: "Growth Diagnostic" },
-  { value: "Lead Concierge", label: "Lead Concierge" },
-  { value: "Performance OS", label: "Performance OS" },
-  { value: "Growth Engine", label: "Growth Engine" },
+  { value: "Free Clinic Growth Audit", label: "Free Clinic Growth Audit" },
+  { value: "Clinic Growth Diagnostic", label: "Clinic Growth Diagnostic" },
+  { value: "Treatment Growth", label: "Treatment Growth" },
+  { value: "Clinic Growth", label: "Clinic Growth" },
   { value: "Market Leader", label: "Market Leader" },
   { value: "Bespoke", label: "Bespoke" },
 ];
@@ -75,7 +74,7 @@ export default function NewCampaignPage() {
   const [name, setName] = useState("");
   const [channel, setChannel] = useState("Google Ads");
   const [objective, setObjective] = useState("Lead generation");
-  const [packageFocus, setPackageFocus] = useState("Growth Engine");
+  const [packageFocus, setPackageFocus] = useState("Clinic Growth");
   const [status, setStatus] = useState("draft");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -188,7 +187,7 @@ export default function NewCampaignPage() {
                 label="Campaign name"
                 value={name}
                 onChange={setName}
-                placeholder="August Growth Engine audit push"
+                placeholder="August Clinic Growth audit push"
                 required
               />
               <FormField
@@ -264,7 +263,7 @@ export default function NewCampaignPage() {
                 label="Primary CTA"
                 value={primaryCta}
                 onChange={setPrimaryCta}
-                placeholder="Book a Growth Diagnostic call"
+                placeholder="Start Your Free Clinic Growth Audit."
               />
               <FormField
                 label="Landing page"

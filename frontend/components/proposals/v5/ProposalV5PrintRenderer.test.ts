@@ -20,7 +20,7 @@ describe("ProposalV5PrintRenderer V19", () => {
   });
 
   it("prints proof/media pairs on Page 11", () => {
-    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth-engine" });
+    const snapshot = buildProposalV5PreviewSnapshot({ clinicType: "dental_clinic", packageId: "clinic-growth" });
     const html = renderPrint(snapshot);
 
     expect(html).toContain('data-v5-page-id="V5Page11PublishedProof"');

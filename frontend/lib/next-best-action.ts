@@ -95,8 +95,8 @@ export function getLeadNextBestAction(input: LeadNextBestActionInput): NextBestA
   if (includesAny(`${source} ${guideSignal}`, ["website_lead_magnet", "lead magnet", "free guide", "guide"])) {
     return {
       kind: "growth_score_follow_up",
-      label: "Offer Growth Score",
-      detail: "Free guide lead should be moved toward the Clinic Growth Score audit.",
+      label: "Offer Free Audit",
+      detail: "Free guide lead should be moved toward the Free Clinic Growth Audit.",
       urgency: "medium",
       href,
     };

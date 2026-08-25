@@ -151,7 +151,7 @@ describe("real-record V5 proposal preview bridge", () => {
   it("renders desktop, mobile and print from the exact same frozen snapshot", () => {
     const snapshot = buildProposalV5PreviewSnapshot({
       clinicType: "dental_clinic",
-      packageId: "clinic-growth-engine",
+      packageId: "clinic-growth",
     });
     const desktop = renderRealRecord(snapshot, "v5");
     const mobile = renderRealRecord(snapshot, "v5-mobile");
@@ -162,7 +162,7 @@ describe("real-record V5 proposal preview bridge", () => {
     expect(print).toContain("proposal-v5-print-root");
     [desktop, mobile, print].forEach((html) => {
       expect(html).toContain("BristolDent Harbourside");
-      expect(html).toContain("Clinic Growth Engine");
+      expect(html).toContain("Clinic Growth");
       expect(html).toContain("Dr Tanja Phillips");
       expect(html).not.toContain(snapshot.snapshotHash);
       expect(html).not.toContain(snapshot.sourceProposalVersion);
@@ -175,8 +175,8 @@ describe("real-record V5 proposal preview bridge", () => {
 
   it("keeps package-specific scope and commercial values snapshot-driven across real records", () => {
     const packageCases = [
-      ["growth-diagnostic", "Growth Diagnostic"],
-      ["clinic-growth-engine", "Clinic Growth Engine"],
+      ["clinic-growth-diagnostic", "Clinic Growth Diagnostic"],
+      ["clinic-growth", "Clinic Growth"],
       ["market-leader", "Market Leader"],
     ] as const;
     const firstScopeTitles = new Set<string>();

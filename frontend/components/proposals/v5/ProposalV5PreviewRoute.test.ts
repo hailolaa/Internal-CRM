@@ -22,7 +22,7 @@ describe("private V5 proposal preview route", () => {
     const html = renderToStaticMarkup(
       createElement(ProposalV5PrivatePreviewView, {
         clinicTypeInput: "dental_clinic",
-        packageIdInput: "clinic-growth-engine",
+        packageIdInput: "clinic-growth",
       }),
     );
 
@@ -32,7 +32,7 @@ describe("private V5 proposal preview route", () => {
     expect(html).toContain("proposal-v5-renderer");
     expect(html.match(/data-v5-page-id=/g)).toHaveLength(15);
     expect(html).toContain("BristolDent Harbourside");
-    expect(html).toContain("Clinic Growth Engine");
+    expect(html).toContain("Clinic Growth");
     expect(html).not.toContain("/proposals/shared?token=");
   });
 
@@ -42,7 +42,7 @@ describe("private V5 proposal preview route", () => {
     listProposalV5PreviewClinicTypes().forEach((clinicType) => {
       const snapshot = buildProposalV5PreviewSnapshot({
         clinicType,
-        packageId: "clinic-growth-engine",
+        packageId: "clinic-growth",
       });
       const html = renderToStaticMarkup(createElement(ProposalV5Renderer, { snapshot }));
 
@@ -50,7 +50,7 @@ describe("private V5 proposal preview route", () => {
       expect(snapshot.pageCount).toBe(15);
       expect(snapshot.pages).toHaveLength(15);
       expect(snapshot.clinic.clinicType).toBe(clinicType);
-      expect(snapshot.selectedPackage.id).toBe("clinic-growth-engine");
+      expect(snapshot.selectedPackage.id).toBe("clinic-growth");
       expect(snapshot.assets.sectorImages.cover.url).toMatch(/^\/brand\/proposal\/v5-reference\//);
       expect(html.match(/data-v5-page-id=/g)).toHaveLength(15);
       coverImages.add(snapshot.assets.sectorImages.cover.url || "");
@@ -85,7 +85,7 @@ describe("private V5 proposal preview route", () => {
   it("has real public assets for the private preview snapshot", () => {
     const snapshot = buildProposalV5PreviewSnapshot({
       clinicType: "dental_clinic",
-      packageId: "clinic-growth-engine",
+      packageId: "clinic-growth",
     });
     const assetUrls = getProposalV5PreviewAssetUrls(snapshot);
 
@@ -97,13 +97,13 @@ describe("private V5 proposal preview route", () => {
   it("renders the long-content preview without changing page count or selected package", () => {
     const snapshot = buildProposalV5PreviewSnapshot({
       clinicType: "private_gp_medical_clinic",
-      packageId: "growth-engine-plus",
+      packageId: "market-leader",
       longContent: true,
     });
     const html = renderToStaticMarkup(createElement(ProposalV5Renderer, { snapshot }));
 
     expect(snapshot.clinic.clinicType).toBe("private_gp_medical_clinic");
-    expect(snapshot.selectedPackage.id).toBe("growth-engine-plus");
+    expect(snapshot.selectedPackage.id).toBe("market-leader");
     expect(snapshot.scope.some((item) => item.title?.includes("Extended responsibility"))).toBe(true);
     expect(html.match(/data-v5-page-id=/g)).toHaveLength(15);
   });
@@ -111,7 +111,7 @@ describe("private V5 proposal preview route", () => {
   it("can render an already persisted frozen snapshot without rebuilding fixture data", () => {
     const snapshot = buildProposalV5PreviewSnapshot({
       clinicType: "dental_clinic",
-      packageId: "clinic-growth-engine",
+      packageId: "clinic-growth",
     });
     const html = renderToStaticMarkup(
       createElement(ProposalV5PrivatePreviewView, {

@@ -2355,8 +2355,8 @@ test("client account profile API is permission protected, updateable, audited, a
       paymentStatus: "pending",
       invoiceStatus: "sent",
       paymentNotes: "Manual invoice raised in QuickBooks sandbox notes.",
-      currentPackage: "Growth Diagnostic",
-      recommendedNextPackage: "Lead Concierge",
+      currentPackage: "Clinic Growth Diagnostic",
+      recommendedNextPackage: "Treatment Growth",
       growthScoreCategories: {
         websiteVisibility: 74,
         seo: 68,
@@ -2418,15 +2418,15 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(updated.body.data.paymentStatus, "pending");
     assert.equal(updated.body.data.invoiceStatus, "sent");
     assert.equal(updated.body.data.paymentNotes, "Manual invoice raised in QuickBooks sandbox notes.");
-    assert.equal(updated.body.data.currentPackage, "Growth Diagnostic");
-    assert.equal(updated.body.data.recommendedNextPackage, "Lead Concierge");
+    assert.equal(updated.body.data.currentPackage, "Clinic Growth Diagnostic");
+    assert.equal(updated.body.data.recommendedNextPackage, "Treatment Growth");
     assert.equal(updated.body.data.churnRisk, "low");
     assert.equal(updated.body.data.lastContactAt.slice(0, 10), "2026-07-10");
     assert.equal(updated.body.data.lastReportAt.slice(0, 10), "2026-07-11");
     assert.equal(updated.body.data.lastLoomAt.slice(0, 10), "2026-07-12");
     assert.equal(updated.body.data.upsellPrompts.length, 1);
-    assert.equal(updated.body.data.upsellPrompts[0].ruleKey, "growth_diagnostic_to_lead_concierge");
-    assert.equal(updated.body.data.upsellPrompts[0].toPackage, "Lead Concierge");
+    assert.equal(updated.body.data.upsellPrompts[0].ruleKey, "diagnostic_to_treatment_growth");
+    assert.equal(updated.body.data.upsellPrompts[0].toPackage, "Treatment Growth");
     assert.equal(updated.body.data.renewalDate, "2026-12-31");
     assert.equal(updated.body.data.contractStatus, "active");
     assert.equal(updated.body.data.keyNotes, "Quarterly review scheduled");
@@ -2457,7 +2457,7 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(auditRows[0].entityId, profileRows[0].id);
     const auditChanges = parseDbJsonObject(auditRows[0].changes);
     assert.ok(auditChanges);
-    assert.equal(auditChanges.currentPackage.after, "Growth Diagnostic");
+    assert.equal(auditChanges.currentPackage.after, "Clinic Growth Diagnostic");
     assert.equal(auditChanges.healthStatus.after, "healthy");
     assert.equal(auditChanges.clientStatus.after, "active");
     assert.equal(auditChanges.contractStatus.after, "active");
