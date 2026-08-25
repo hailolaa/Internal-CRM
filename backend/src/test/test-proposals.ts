@@ -1806,6 +1806,29 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     assert.equal(frozenRender.body.data.frozen, true);
     assert.equal(frozenRender.body.data.v5Snapshot.snapshotHash, frozenV5Hash);
 
+    const v5PrintArchive = await request(
+      baseUrl,
+      `/api/proposals/render-archive?search=${encodeURIComponent("V5 frozen proposal")}`,
+      writer.token,
+    );
+    assert.equal(v5PrintArchive.response.status, 200);
+    const archivedV5 = v5PrintArchive.body.data.find((item: any) => item.proposalId === v5Proposal.body.data.id);
+    assert.ok(archivedV5);
+    assert.equal(archivedV5.artifactType, "v5_print_pdf");
+    assert.equal(archivedV5.proposalReference, "CG-TEST-001");
+    assert.equal(archivedV5.snapshotHash, frozenV5Hash);
+    assert.equal(archivedV5.snapshotVersion, "proposal_v5_2026_08_11");
+    assert.equal(archivedV5.pageCount, 15);
+    assert.match(archivedV5.printUrl, /\/app\/crm\/proposals\/v5-print-preview\?proposalId=/);
+
+    const otherTenantV5PrintArchive = await request(
+      baseUrl,
+      `/api/proposals/render-archive?search=${encodeURIComponent("V5 frozen proposal")}`,
+      otherWriter.token,
+    );
+    assert.equal(otherTenantV5PrintArchive.response.status, 200);
+    assert.equal(otherTenantV5PrintArchive.body.data.length, 0);
+
     const createSentV5AcceptanceCase = async (proposalName: string) => {
       const proposal = await request(baseUrl, "/api/proposals", writer.token, {
         method: "POST",
@@ -3476,6 +3499,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       await pool.execute("DELETE FROM proposal_discovery_answer_source WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal_discovery_session WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal_acceptance_record WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
+      await pool.execute("DELETE FROM proposal_render_archive WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal_scope_item WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);
       await pool.execute("DELETE FROM proposal_template_version WHERE clinic_id IN (?, ?)", [primaryClinicId, otherClinicId]);

@@ -142,6 +142,38 @@ export interface ProposalRenderRecord {
   validation: ProposalClientReadinessRecord;
 }
 
+export interface ProposalRenderArchiveParams {
+  proposalId?: string;
+  clientAccountProfileId?: string;
+  search?: string;
+  limit?: number;
+}
+
+export interface ProposalRenderArchiveRecord {
+  id: string;
+  proposalId: string;
+  contactId: string | null;
+  dealId: string | null;
+  clientAccountProfileId: string | null;
+  artifactType: "v5_print_pdf";
+  status: "available";
+  proposalReference: string;
+  proposalName: string;
+  clientName: string | null;
+  packageName: string | null;
+  publicUrl: string | null;
+  printUrl: string | null;
+  snapshotHash: string;
+  snapshotVersion: string;
+  sourceProposalVersion: string | null;
+  templateVersionId: string | null;
+  templateContentHash: string | null;
+  pageCount: number;
+  contentFingerprint: string;
+  createdBy: string | null;
+  createdAt: string;
+}
+
 export type ProposalSignatureStatus =
   | "requested"
   | "sent"

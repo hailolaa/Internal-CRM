@@ -20,6 +20,7 @@ import {
   exportProposalsValidator,
   listProofAssetsValidator,
   listProposalsValidator,
+  listProposalRenderArchiveValidator,
   proposalTemplateIdParamValidator,
   proposalTemplateVersionIdParamValidator,
   proofAssetIdParamValidator,
@@ -79,6 +80,14 @@ router.get(
   exportProposalsValidator,
   validate,
   proposalsController.exportProposalsCsv,
+);
+
+router.get(
+  "/render-archive",
+  authorizePermission("proposals:read"),
+  listProposalRenderArchiveValidator,
+  validate,
+  proposalsController.listProposalRenderArchive,
 );
 
 router.post(

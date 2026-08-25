@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowRight, Download, FilePlus2, FileText, Loader2, RefreshCw, Search } from "lucide-react";
+import { ArrowRight, Download, FileArchive, FilePlus2, FileText, Loader2, RefreshCw, Search } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertBanner, PageHeader } from "@/components/ui";
 import { api } from "@/lib/api-client";
-import type { ProposalRecord, ProposalStatus } from "@/lib/api-types";
+import type { ProposalRecord, ProposalRenderArchiveRecord, ProposalStatus } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
 import { proposalEditorHref } from "@/lib/proposal-editor-state";
 import { saveBlobDownload } from "@/lib/download";
@@ -66,6 +66,7 @@ export default function ProposalsPage() {
   const canReadProposals = hasPermission("proposals:read");
   const canWriteProposals = hasPermission("proposals:write");
   const [proposals, setProposals] = useState<ProposalRecord[]>([]);
+  const [renderArchive, setRenderArchive] = useState<ProposalRenderArchiveRecord[]>([]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<ProposalStatus | "all">("all");
   const [isLoading, setIsLoading] = useState(true);
@@ -81,11 +82,15 @@ export default function ProposalsPage() {
     setIsLoading(true);
     setError("");
     try {
-      const records = await api.proposals.list(token, {
-        includeArchived: false,
-        limit: 250,
-      });
+      const [records, archiveRecords] = await Promise.all([
+        api.proposals.list(token, {
+          includeArchived: false,
+          limit: 250,
+        }),
+        api.proposals.renderArchive(token, { limit: 250 }),
+      ]);
       setProposals(records);
+      setRenderArchive(archiveRecords);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load saved proposals.");
     } finally {
@@ -115,9 +120,33 @@ export default function ProposalsPage() {
     });
   }, [proposals, query, status]);
 
+  const visibleRenderArchive = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return renderArchive.filter((item) => {
+      if (!normalizedQuery) return true;
+      return [
+        item.proposalReference,
+        item.proposalName,
+        item.clientName,
+        item.packageName,
+        item.snapshotHash,
+        item.sourceProposalVersion,
+      ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
+    });
+  }, [query, renderArchive]);
+
+  const renderArchiveByProposalId = useMemo(() => {
+    const records = new Map<string, ProposalRenderArchiveRecord>();
+    renderArchive.forEach((item) => {
+      if (!records.has(item.proposalId)) records.set(item.proposalId, item);
+    });
+    return records;
+  }, [renderArchive]);
+
   const draftCount = proposals.filter((proposal) => proposal.status === "draft").length;
   const followUpCount = proposals.filter((proposal) => proposal.status === "follow_up_due").length;
   const completedCount = proposals.filter((proposal) => ["accepted", "won"].includes(proposal.status)).length;
+  const archiveCount = renderArchive.length;
 
   const handleExport = useCallback(async () => {
     if (!token || !canReadProposals || isExporting) return;
@@ -214,11 +243,12 @@ export default function ProposalsPage() {
             />
           ) : null}
 
-          <section aria-label="Proposal summary" className="grid gap-3 sm:grid-cols-3">
+          <section aria-label="Proposal summary" className="grid gap-3 sm:grid-cols-4">
             {[
               ["Saved drafts", draftCount],
               ["Follow-up due", followUpCount],
               ["Accepted / won", completedCount],
+              ["Archived PDFs", archiveCount],
             ].map(([label, value]) => (
               <div key={label} className="rounded-[8px] border border-[#d8e4df] bg-white p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">{label}</p>
@@ -297,6 +327,12 @@ export default function ProposalsPage() {
                           {proposal.packageName ? ` · ${proposal.packageName}` : ""}
                         </span>
                         <span className="mt-1 block text-xs text-[#6b817a]">{formatUpdatedAt(proposal)}</span>
+                        {renderArchiveByProposalId.has(proposal.id) ? (
+                          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#edf5f1] px-2.5 py-1 text-xs font-semibold text-[#315f51]">
+                            <FileArchive className="h-3.5 w-3.5" />
+                            Archived PDF ready
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                     <span className="inline-flex items-center gap-2 text-sm font-semibold text-[#315f51]">
@@ -329,6 +365,37 @@ export default function ProposalsPage() {
               ) : null}
             </div>
           )}
+
+          {visibleRenderArchive.length ? (
+            <section className="rounded-[8px] border border-[#d8e4df] bg-white p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#6b817a]">PDF archive</p>
+                  <h2 className="mt-1 text-lg font-semibold text-[#14231f]">Frozen proposal print records</h2>
+                </div>
+                <p className="text-sm text-[#5b7069]">{visibleRenderArchive.length} archived version{visibleRenderArchive.length === 1 ? "" : "s"}</p>
+              </div>
+              <ul className="mt-4 grid gap-3">
+                {visibleRenderArchive.slice(0, 12).map((item) => (
+                  <li key={item.id} className="grid gap-3 rounded-[8px] border border-[#edf1ee] bg-[#fbfcfa] p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-semibold text-[#14231f]">{item.proposalName}</p>
+                      <p className="mt-1 text-xs leading-5 text-[#5b7069]">
+                        {item.proposalReference} - {item.clientName || "Client"} - {item.packageName || "Package"} - {item.pageCount} pages - hash {item.snapshotHash.slice(0, 10)}
+                      </p>
+                    </div>
+                    <Link
+                      href={item.printUrl || `/app/crm/proposals/v5-print-preview?proposalId=${encodeURIComponent(item.proposalId)}`}
+                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-[8px] border border-[#d8e4df] bg-white px-3 text-sm font-semibold text-[#315f51] hover:border-[#8cb8a6]"
+                    >
+                      <FileArchive className="h-4 w-4" />
+                      Open PDF archive
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </div>
       </main>
     </div>

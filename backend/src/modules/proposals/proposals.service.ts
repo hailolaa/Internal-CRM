@@ -53,6 +53,7 @@ import type {
   ProposalScopeLibraryQuery,
   ProposalPublicAcceptanceDTO,
   ProposalPublicAcceptanceSummary,
+  ProposalRenderArchiveQuery,
   ProposalResponse,
   ProposalSectionContent,
   ProposalSendDTO,
@@ -526,6 +527,48 @@ function proposalImmutableVersion(proposal: ProposalResponse) {
     proposal.acceptanceRecord?.acceptedAt;
   const proposalEvidence = acceptanceEvidence || proposal.sentAt || proposal.updatedAt || proposal.createdAt;
   return `${proposal.id}:${proposalEvidence || "draft"}`;
+}
+
+function buildProposalV5PrintArchiveFingerprint(input: {
+  proposalId: string;
+  artifactType: "v5_print_pdf";
+  snapshotHash: string;
+  snapshotVersion: string;
+  sourceProposalVersion: string | null;
+  pageCount: number;
+  publicUrl: string | null;
+  printUrl: string | null;
+}) {
+  return createHash("sha256")
+    .update(JSON.stringify(input))
+    .digest("hex");
+}
+
+function mapProposalRenderArchive(row: any) {
+  return {
+    id: row.id,
+    proposalId: row.proposalId,
+    contactId: row.contactId || null,
+    dealId: row.dealId || null,
+    clientAccountProfileId: row.clientAccountProfileId || null,
+    artifactType: row.artifactType,
+    status: row.status,
+    proposalReference: row.proposalReference,
+    proposalName: row.proposalName,
+    clientName: row.clientName || null,
+    packageName: row.packageName || null,
+    publicUrl: row.publicUrl || null,
+    printUrl: row.printUrl || null,
+    snapshotHash: row.snapshotHash,
+    snapshotVersion: row.snapshotVersion,
+    sourceProposalVersion: row.sourceProposalVersion || null,
+    templateVersionId: row.templateVersionId || null,
+    templateContentHash: row.templateContentHash || null,
+    pageCount: Number(row.pageCount || 0),
+    contentFingerprint: row.contentFingerprint,
+    createdBy: row.createdBy || null,
+    createdAt: toIso(row.createdAt) || new Date(row.createdAt).toISOString(),
+  };
 }
 
 function buildProposalCoreData(proposal: ProposalResponse): ProposalCoreData {
@@ -2339,6 +2382,73 @@ export class ProposalsService {
     return toProposalsCsv(proposals);
   }
 
+  async listProposalRenderArchive(
+    clinicId: string,
+    query: ProposalRenderArchiveQuery = {},
+  ) {
+    const where = ["clinic_id = ?"];
+    const values: any[] = [clinicId];
+
+    const proposalId = cleanString(query.proposalId);
+    if (proposalId) {
+      where.push("proposal_id = ?");
+      values.push(proposalId);
+    }
+
+    const clientAccountProfileId = cleanString(query.clientAccountProfileId);
+    if (clientAccountProfileId) {
+      where.push("client_account_profile_id = ?");
+      values.push(clientAccountProfileId);
+    }
+
+    const search = cleanString(query.search);
+    if (search) {
+      where.push(`(
+        proposal_reference LIKE ?
+        OR proposal_name LIKE ?
+        OR client_name LIKE ?
+        OR package_name LIKE ?
+        OR snapshot_hash LIKE ?
+        OR source_proposal_version LIKE ?
+      )`);
+      const like = `%${search}%`;
+      values.push(like, like, like, like, like, like);
+    }
+
+    const limit = Math.min(250, Math.max(1, Number(query.limit) || 100));
+    const [rows]: any = await pool.execute(
+      `SELECT
+          id,
+          proposal_id as proposalId,
+          contact_id as contactId,
+          deal_id as dealId,
+          client_account_profile_id as clientAccountProfileId,
+          artifact_type as artifactType,
+          status,
+          proposal_reference as proposalReference,
+          proposal_name as proposalName,
+          client_name as clientName,
+          package_name as packageName,
+          public_url as publicUrl,
+          print_url as printUrl,
+          snapshot_hash as snapshotHash,
+          snapshot_version as snapshotVersion,
+          source_proposal_version as sourceProposalVersion,
+          template_version_id as templateVersionId,
+          template_content_hash as templateContentHash,
+          page_count as pageCount,
+          content_fingerprint as contentFingerprint,
+          created_by as createdBy,
+          created_at as createdAt
+       FROM proposal_render_archive
+       WHERE ${where.join(" AND ")}
+       ORDER BY created_at DESC
+       LIMIT ${limit}`,
+      values,
+    );
+    return rows.map(mapProposalRenderArchive);
+  }
+
   async getProposal(
     clinicId: string,
     proposalId: string,
@@ -2521,6 +2631,75 @@ export class ProposalsService {
       frozen: false,
       validation,
     };
+  }
+
+  private async ensureProposalV5PrintArchive(
+    executor: QueryExecutor,
+    clinicId: string,
+    userId: string,
+    proposal: ProposalResponse,
+    snapshot: {
+      snapshotHash: string;
+      sourceProposalVersion?: string | null;
+      pageCount: number;
+      proposal: { reference: string };
+      selectedPackage: { name?: string | null };
+      clinic: { name: { value?: string | null } };
+    },
+    proposalUrl: string | null,
+  ) {
+    const artifactType = "v5_print_pdf" as const;
+    const printUrl = `/app/crm/proposals/v5-print-preview?proposalId=${encodeURIComponent(proposal.id)}`;
+    const snapshotVersion = proposalV5SnapshotVersion;
+    const contentFingerprint = buildProposalV5PrintArchiveFingerprint({
+      proposalId: proposal.id,
+      artifactType,
+      snapshotHash: snapshot.snapshotHash,
+      snapshotVersion,
+      sourceProposalVersion: snapshot.sourceProposalVersion || null,
+      pageCount: snapshot.pageCount,
+      publicUrl: proposalUrl,
+      printUrl,
+    });
+    const clientName =
+      cleanString(proposal.clientAccountName) ||
+      cleanString(proposal.accountName) ||
+      cleanString(proposal.contactName) ||
+      cleanString(snapshot.clinic.name.value);
+
+    await executor.execute(
+      `INSERT INTO proposal_render_archive
+        (id, clinic_id, proposal_id, contact_id, deal_id, client_account_profile_id,
+         artifact_type, status, proposal_reference, proposal_name, client_name,
+         package_name, public_url, print_url, snapshot_hash, snapshot_version,
+         source_proposal_version, template_version_id, template_content_hash,
+         page_count, content_fingerprint, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'available', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE id = id`,
+      [
+        uuidv4(),
+        clinicId,
+        proposal.id,
+        proposal.contactId,
+        proposal.dealId,
+        proposal.clientAccountProfileId,
+        artifactType,
+        snapshot.proposal.reference,
+        proposal.proposalName,
+        clientName,
+        proposal.packageName || snapshot.selectedPackage.name || null,
+        proposalUrl,
+        printUrl,
+        snapshot.snapshotHash,
+        snapshotVersion,
+        snapshot.sourceProposalVersion || null,
+        proposal.templateVersionId,
+        proposal.templateContentHash,
+        snapshot.pageCount,
+        contentFingerprint,
+        userId,
+      ],
+    );
   }
 
   async createProposalShare(clinicId: string, userId: string, proposalId: string): Promise<ProposalShareResponse> {
@@ -2720,6 +2899,14 @@ export class ProposalsService {
         if (Number(sendResult.affectedRows || 0) !== 1) {
           throw ApiError.conflict("Proposal changed while it was being marked sent.");
         }
+        await this.ensureProposalV5PrintArchive(
+          connection,
+          clinicId,
+          userId,
+          v5ProposalForSnapshot,
+          v5Snapshot,
+          proposalUrl,
+        );
       });
 
       const updated = await this.getProposal(clinicId, proposalId);

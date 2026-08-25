@@ -531,6 +531,13 @@ const proposalListValidators = (maximumLimit: number) => [
 export const listProposalsValidator = proposalListValidators(250);
 export const exportProposalsValidator = proposalListValidators(5000);
 
+export const listProposalRenderArchiveValidator = [
+  query("proposalId").optional().trim().isLength({ min: 1, max: 36 }),
+  query("clientAccountProfileId").optional().trim().isLength({ min: 1, max: 36 }),
+  query("search").optional().trim().isLength({ max: 255 }),
+  query("limit").optional().isInt({ min: 1, max: 250 }).toInt(),
+];
+
 export const proposalSourceDataValidator = [
   query("contactId").optional().trim().isLength({ min: 1, max: 36 }),
   query("dealId").optional().trim().isLength({ min: 1, max: 36 }),

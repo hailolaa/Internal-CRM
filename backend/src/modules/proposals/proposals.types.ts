@@ -1055,6 +1055,38 @@ export interface ProposalShareResponse {
   createdAt: string;
 }
 
+export interface ProposalRenderArchiveQuery {
+  search?: string;
+  proposalId?: string;
+  clientAccountProfileId?: string;
+  limit?: number | string;
+}
+
+export interface ProposalRenderArchiveResponse {
+  id: string;
+  proposalId: string;
+  contactId: string | null;
+  dealId: string | null;
+  clientAccountProfileId: string | null;
+  artifactType: "v5_print_pdf";
+  status: "available";
+  proposalReference: string;
+  proposalName: string;
+  clientName: string | null;
+  packageName: string | null;
+  publicUrl: string | null;
+  printUrl: string | null;
+  snapshotHash: string;
+  snapshotVersion: string;
+  sourceProposalVersion: string | null;
+  templateVersionId: string | null;
+  templateContentHash: string | null;
+  pageCount: number;
+  contentFingerprint: string;
+  createdBy: string | null;
+  createdAt: string;
+}
+
 export interface ProposalPublicResponse {
   proposalName: string;
   templateKey: string;

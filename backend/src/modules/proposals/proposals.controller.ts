@@ -292,6 +292,16 @@ export class ProposalsController {
     }
   };
 
+  listProposalRenderArchive = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const archive = await proposalsService.listProposalRenderArchive(clinicId, req.query as any);
+      res.status(200).json({ status: "success", data: archive });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getProposal = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { clinicId } = (req as any).user;

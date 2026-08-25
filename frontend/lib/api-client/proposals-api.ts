@@ -13,6 +13,8 @@ import type {
   ProposalPublicEventPayload,
   ProposalPublicPreviewRecord,
   ProposalRecord,
+  ProposalRenderArchiveParams,
+  ProposalRenderArchiveRecord,
   ProposalRenderRecord,
   ProposalSendPayload,
   ProposalShareRecord,
@@ -364,6 +366,14 @@ export function createProposalsApi(apiRequest: ApiRequest) {
       },
       async render(token: string, proposalId: string) {
         const response = await apiRequest<ProposalRenderRecord>(`/api/proposals/${proposalId}/render`, { token });
+        return response.data!;
+      },
+      async renderArchive(token: string, params: ProposalRenderArchiveParams = {}) {
+        const query = toQuery(params);
+        const response = await apiRequest<ProposalRenderArchiveRecord[]>(
+          `/api/proposals/render-archive${query ? `?${query}` : ""}`,
+          { token },
+        );
         return response.data!;
       },
       async send(token: string, proposalId: string, payload: ProposalSendPayload) {
