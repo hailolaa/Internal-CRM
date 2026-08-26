@@ -159,6 +159,20 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.ok(openApi.body.paths["/api/v1/records/{type}/{id}"]);
     assert.ok(openApi.body.paths["/mcp"]);
     assert.equal(openApi.body.components.securitySchemes.bearerAuth.type, "http");
+    assert.deepEqual(openApi.body.components.schemas.RecordType.enum, [
+      "contact",
+      "client_account",
+      "proposal",
+      "task",
+      "opportunity",
+      "communication",
+      "finance",
+      "marketing",
+      "management",
+    ]);
+    assert.ok(openApi.body.components.schemas.ApiErrorEnvelope);
+    assert.ok(openApi.body.components.schemas.JsonRpcError);
+    assert.ok(openApi.body.paths["/api/v1/search"].get.responses["400"].content["application/json"].schema.$ref);
 
     await pool.execute(
       `INSERT INTO contact
@@ -255,6 +269,11 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.equal(unauthenticated.body.data, null);
     assert.equal(unauthenticated.body.error.code, "unauthorized");
 
+    const invalidToken = await fetchJson(baseUrl, "/api/v1/capabilities", "not-a-real-token");
+    expectStatus("invalid token capabilities", invalidToken, 401);
+    assert.equal(invalidToken.body.success, false);
+    assert.equal(invalidToken.body.error.code, "unauthorized");
+
     const forbidden = await fetchJson(baseUrl, "/api/v1/capabilities", denied.token);
     expectStatus("forbidden capabilities", forbidden, 403);
     assert.equal(forbidden.body.success, false);
@@ -278,6 +297,8 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.ok(capabilities.body.generated_at);
     assert.equal(capabilities.body.data.writePolicy.currentPhase, "read_only");
     assert.equal(capabilities.body.data.writePolicy.externalActionsEnabled, false);
+    assert.equal(capabilities.body.data.searchPolicy.maxLimit, 25);
+    assert.equal(capabilities.body.data.searchPolicy.cursorPagination, true);
     assert.equal(capabilities.body.data.recordTypes.includes("communication"), true);
     assert.equal(capabilities.body.data.recordTypes.includes("finance"), true);
     assert.equal(capabilities.body.data.recordTypes.includes("marketing"), true);
@@ -307,10 +328,28 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     expectStatus("empty search", emptySearch, 200);
     assert.equal(emptySearch.body.data.page.returned, 0);
 
+    const missingQuerySearch = await fetchJson(baseUrl, "/api/v1/search?types=contact&limit=1", reader.token);
+    expectStatus("missing query search", missingQuerySearch, 200);
+    assert.equal(missingQuerySearch.body.data.page.returned, 1);
+
     const pagedSearch = await fetchJson(baseUrl, "/api/v1/search?types=contact&limit=2", reader.token);
     expectStatus("paged search", pagedSearch, 200);
     assert.equal(pagedSearch.body.data.page.returned, 2);
     assert.equal(pagedSearch.body.data.page.nextCursor, "2");
+
+    const repeatedCursorSearch = await fetchJson(baseUrl, "/api/v1/search?types=contact&limit=2&cursor=2", reader.token);
+    expectStatus("repeated cursor search", repeatedCursorSearch, 200);
+    assert.equal(repeatedCursorSearch.body.data.page.cursor, "2");
+    assert.equal(repeatedCursorSearch.body.data.page.returned, 2);
+
+    const excessiveRestLimit = await fetchJson(baseUrl, "/api/v1/search?types=contact&limit=500", reader.token);
+    expectStatus("excessive REST search limit", excessiveRestLimit, 200);
+    assert.equal(excessiveRestLimit.body.data.page.limit, 25);
+
+    const invalidCursor = await fetchJson(baseUrl, "/api/v1/search?types=contact&cursor=not-a-number", reader.token);
+    expectStatus("invalid cursor", invalidCursor, 400);
+    assert.equal(invalidCursor.body.success, false);
+    assert.equal(invalidCursor.body.error.code, "bad_request");
 
     const directOldContact = await fetchJson(baseUrl, `/api/v1/records/contact/${oldContactId}`, reader.token);
     expectStatus("direct old contact fetch", directOldContact, 200);
@@ -339,6 +378,11 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.equal(invalidFetchType.body.success, false);
     assert.equal(invalidFetchType.body.error.code, "bad_request");
 
+    const wrongRecordType = await fetchJson(baseUrl, `/api/v1/records/proposal/${contactId}`, reader.token);
+    expectStatus("wrong record type fetch", wrongRecordType, 404);
+    assert.equal(wrongRecordType.body.success, false);
+    assert.equal(wrongRecordType.body.error.code, "not_found");
+
     const invalidType = await fetchJson(baseUrl, "/api/v1/search?types=secret_keys", reader.token);
     expectStatus("invalid search type", invalidType, 400);
     assert.equal(invalidType.body.success, false);
@@ -366,6 +410,12 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
       body: JSON.stringify({ jsonrpc: "2.0", id: "denied-tools", method: "tools/list" }),
     });
     expectStatus("mcp denied tools/list", mcpForbidden, 403);
+
+    const mcpInvalidToken = await fetchJson(baseUrl, "/mcp", "not-a-real-token", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "invalid-token", method: "tools/list" }),
+    });
+    expectStatus("mcp invalid token", mcpInvalidToken, 401);
 
     const unsupportedMcpWrite = await fetchJson(baseUrl, "/mcp", reader.token, {
       method: "POST",
@@ -410,6 +460,18 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     });
     expectStatus("mcp excessive search limit", excessiveLimit, 400);
     assert.equal(excessiveLimit.body.error.code, -32602);
+
+    const mcpInvalidCursor = await fetchJson(baseUrl, "/mcp", reader.token, {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "bad-cursor",
+        method: "tools/call",
+        params: { name: "search", arguments: { query: "MCP Clinic", cursor: "not-a-number" } },
+      }),
+    });
+    expectStatus("mcp invalid cursor", mcpInvalidCursor, 400);
+    assert.equal(mcpInvalidCursor.body.error.code, -32602);
 
     const mcpSearch = await fetchJson(baseUrl, "/mcp", reader.token, {
       method: "POST",

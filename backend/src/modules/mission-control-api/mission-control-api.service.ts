@@ -204,6 +204,14 @@ export class MissionControlApiService {
         { method: "POST", path: "/mcp", scope: "mission_control_mcp:read" },
       ],
       recordTypes: supportedTypes,
+      searchPolicy: {
+        maxLimit: 25,
+        defaultLimit: 10,
+        cursorPagination: true,
+        invalidCursorRejected: true,
+        excessiveRestLimitClamped: true,
+        excessiveMcpLimitRejected: true,
+      },
       tools,
       writePolicy: {
         currentPhase: "read_only",
