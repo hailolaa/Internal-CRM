@@ -1,12 +1,12 @@
 export type FleetDataState = "live" | "demo" | "preview" | "partial" | "provider_dependent" | "roadmap";
 export type FleetRecordStatus = "active" | "paused" | "inactive";
 export type FleetEndpointKind = "webhook" | "api_pull" | "manual_import" | "system";
-export type FleetCheckpointStatus = "healthy" | "delayed" | "retrying" | "dead_letter" | "paused" | "reconciliation_needed";
+export type FleetCheckpointStatus = "healthy" | "delayed" | "retrying" | "dead_letter" | "paused" | "reconciliation_needed" | "unknown" | "blocked";
 export type FleetIngestionStatus = "queued" | "processing" | "processed" | "duplicate" | "quarantined" | "retrying" | "dead_letter" | "failed" | "ignored";
 export type FleetSyncSlaStatus = "met" | "at_risk" | "breached" | "not_applicable";
 export type FleetSyncExceptionType = "dead_letter" | "freshness" | "reconciliation" | "source_status";
 export type FleetSyncExceptionSeverity = "info" | "warning" | "critical";
-export type FleetSyncExceptionAction = "replay" | "resolve" | "review_provider" | "configure_source";
+export type FleetSyncExceptionAction = "replay" | "acknowledge" | "resolve" | "dismiss" | "review_provider" | "configure_source";
 
 export interface FleetSyncHealthRow {
   clinicId: string;
@@ -16,6 +16,7 @@ export interface FleetSyncHealthRow {
   tenantName: string;
   tenantDataState: FleetDataState;
   tenantStatus: FleetRecordStatus;
+  tenantOnboardingStatus: "pending" | "configured" | "active" | "blocked";
   sourceId: string;
   sourceSystem: string;
   sourceKey: string;
@@ -28,6 +29,8 @@ export interface FleetSyncHealthRow {
   lastIngestedAt: string | null;
   lastEventAt: string | null;
   lastProcessedEventAt: string | null;
+  latestSuccessfulSyncAt: string | null;
+  latestFailedSyncAt: string | null;
   lastError: string | null;
   retryingCount: number;
   deadLetterCount: number;
@@ -54,6 +57,8 @@ export interface FleetSyncException {
   detail: string;
   detectedAt: string | null;
   action: FleetSyncExceptionAction;
+  availableActions: FleetSyncExceptionAction[];
+  correlationId: string | null;
 }
 
 export interface FleetQueuedEvent {

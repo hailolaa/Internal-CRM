@@ -304,7 +304,7 @@ test("fleet sync administration shows per-client health, categorized exceptions 
   await fleetIngestionService.markEventFailed(clinic.clinicId, receipt.id, {
     retryable: false,
     errorClass: "mapping_error",
-    errorMessage: "Could not map lead owner.",
+    errorMessage: "Could not map lead owner lead@example.com with Bearer secret-token.",
   });
 
   const freshnessId = randomUUID();
@@ -342,7 +342,6 @@ test("fleet sync administration shows per-client health, categorized exceptions 
   await fleetIngestionService.markEventFailed(otherClinic.clinicId, otherReceipt.id, { retryable: false });
 
   const currentClinic = await fleetIngestionService.getSyncAdministration(clinic.clinicId, false);
-  const allClients = await fleetIngestionService.getSyncAdministration(clinic.clinicId, true);
 
   assert.equal(currentClinic.scope, "current_clinic");
   assert.equal(currentClinic.summary.clients, 1);
@@ -351,24 +350,103 @@ test("fleet sync administration shows per-client health, categorized exceptions 
   assert.equal(currentClinic.health[0]?.sourceDataState, "partial");
   assert.equal(currentClinic.health[0]?.syncStatus, "dead_letter");
   assert.equal(currentClinic.health[0]?.slaStatus, "breached");
+  assert.ok(currentClinic.health[0]?.latestFailedSyncAt);
   assert.equal(currentClinic.exceptions.map((item) => item.type).sort().join(","), "dead_letter,freshness,reconciliation");
-  assert.equal(allClients.scope, "all_clients");
-  assert.ok(allClients.summary.clients >= 2);
-
+  const deadLetterException = currentClinic.exceptions.find((item) => item.type === "dead_letter");
+  assert.ok(deadLetterException?.availableActions.includes("replay"));
+  assert.equal(deadLetterException?.detail.includes("lead@example.com"), false);
+  assert.equal(deadLetterException?.detail.includes("secret-token"), false);
   await assert.rejects(
     () => fleetIngestionService.replayDeadLetterEventForScope(clinic.clinicId, otherReceipt.id, false),
     /not found/i,
   );
 
-  const replayed = await fleetIngestionService.replayDeadLetterEventForScope(clinic.clinicId, receipt.id, false);
+  const replayed = await fleetIngestionService.replayDeadLetterEventForScope(clinic.clinicId, receipt.id, false, clinic.userId, "Retry after owner mapping review.");
   assert.equal(replayed.processingStatus, "queued");
 
-  const freshnessResolved = await fleetIngestionService.resolveSyncExceptionForScope(clinic.clinicId, "freshness", freshnessId, false);
-  const reconciliationResolved = await fleetIngestionService.resolveSyncExceptionForScope(clinic.clinicId, "reconciliation", reconciliationId, false);
+  const freshnessAcknowledged = await fleetIngestionService.resolveSyncExceptionForScope(
+    clinic.clinicId,
+    "freshness",
+    freshnessId,
+    false,
+    clinic.userId,
+    "acknowledge",
+    "Provider lag acknowledged.",
+  );
+  assert.equal(freshnessAcknowledged.status, "acknowledged");
+  await assert.rejects(
+    () => fleetIngestionService.resolveSyncExceptionForScope(clinic.clinicId, "freshness", freshnessId, false, clinic.userId, "acknowledge"),
+    /only open/i,
+  );
+  const freshnessResolved = await fleetIngestionService.resolveSyncExceptionForScope(clinic.clinicId, "freshness", freshnessId, false, clinic.userId, "resolve", "Provider lag recovered.");
+  const reconciliationResolved = await fleetIngestionService.resolveSyncExceptionForScope(
+    clinic.clinicId,
+    "reconciliation",
+    reconciliationId,
+    false,
+    clinic.userId,
+    "dismiss",
+    "Reconciliation issue reviewed and dismissed.",
+  );
   assert.equal(freshnessResolved.status, "resolved");
-  assert.equal(reconciliationResolved.status, "resolved");
+  assert.equal(reconciliationResolved.status, "dismissed");
+
+  const [actionLogRows]: any = await pool.execute(
+    `SELECT action, actor_user_id as actorUserId, reason
+     FROM fleet_sync_exception_action_log
+     WHERE clinic_id = ?
+     ORDER BY FIELD(action, 'replayed', 'acknowledged', 'resolved', 'dismissed')`,
+    [clinic.clinicId],
+  );
+  assert.deepEqual(
+    actionLogRows.map((row: any) => row.action),
+    ["replayed", "acknowledged", "resolved", "dismissed"],
+  );
+  assert.ok(actionLogRows.every((row: any) => row.actorUserId === clinic.userId));
+  assert.ok(actionLogRows.every((row: any) => row.reason));
 
   const afterResolution = await fleetIngestionService.getSyncAdministration(clinic.clinicId, false);
   assert.equal(afterResolution.summary.exceptions, 0);
   assert.equal(afterResolution.health[0]?.slaStatus, "at_risk");
+});
+
+test("fleet sync administration distinguishes unknown and blocked source states", async () => {
+  const unknownClinic = await createTestClinicAndAdmin("fleet-sync-source-unknown");
+  const blockedClinic = await createTestClinicAndAdmin("fleet-sync-source-blocked");
+  await fleetIngestionService.configureSource({
+    clinicId: unknownClinic.clinicId,
+    tenantKey: `clinic-os-unknown-${unknownClinic.clinicId}`,
+    sourceSystem: "clinic_os",
+    sourceKey: "unknown_feed",
+    sourceLabel: "Unknown feed",
+    dataState: "live",
+  });
+  await fleetIngestionService.configureSource({
+    clinicId: blockedClinic.clinicId,
+    tenantKey: `clinic-os-blocked-${blockedClinic.clinicId}`,
+    displayName: "Blocked provider tenant",
+    onboardingStatus: "blocked",
+    sourceSystem: "clinic_os",
+    sourceKey: "blocked_feed",
+    sourceLabel: "Blocked feed",
+    dataState: "provider_dependent",
+  });
+
+  const unknownAdmin = await fleetIngestionService.getSyncAdministration(unknownClinic.clinicId, false);
+  const blockedAdmin = await fleetIngestionService.getSyncAdministration(blockedClinic.clinicId, false);
+  const unknown = unknownAdmin.health.find((row) => row.sourceKey === "unknown_feed");
+  const blocked = blockedAdmin.health.find((row) => row.sourceKey === "blocked_feed");
+
+  assert.equal(unknown?.syncStatus, "unknown");
+  assert.equal(unknown?.slaStatus, "at_risk");
+  assert.equal(blocked?.syncStatus, "blocked");
+  assert.equal(blocked?.slaStatus, "not_applicable");
+  assert.deepEqual(
+    unknownAdmin.exceptions.map((item) => `${item.type}:${item.status}`),
+    ["source_status:unknown"],
+  );
+  assert.deepEqual(
+    blockedAdmin.exceptions.map((item) => `${item.type}:${item.status}`),
+    ["source_status:blocked"],
+  );
 });

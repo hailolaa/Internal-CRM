@@ -14,7 +14,15 @@ export type FleetIngestionStatus =
   | "dead_letter"
   | "failed"
   | "ignored";
-export type FleetCheckpointStatus = "healthy" | "delayed" | "retrying" | "dead_letter" | "paused" | "reconciliation_needed";
+export type FleetCheckpointStatus =
+  | "healthy"
+  | "delayed"
+  | "retrying"
+  | "dead_letter"
+  | "paused"
+  | "reconciliation_needed"
+  | "unknown"
+  | "blocked";
 
 export interface FleetTenantRegistry {
   id: string;
@@ -152,7 +160,7 @@ export interface FleetIngestionCheckpoint {
 export type FleetSyncSlaStatus = "met" | "at_risk" | "breached" | "not_applicable";
 export type FleetSyncExceptionType = "dead_letter" | "freshness" | "reconciliation" | "source_status";
 export type FleetSyncExceptionSeverity = "info" | "warning" | "critical";
-export type FleetSyncExceptionAction = "replay" | "resolve" | "review_provider" | "configure_source";
+export type FleetSyncExceptionAction = "replay" | "acknowledge" | "resolve" | "dismiss" | "review_provider" | "configure_source";
 
 export interface FleetSyncHealthRow {
   clinicId: string;
@@ -162,6 +170,7 @@ export interface FleetSyncHealthRow {
   tenantName: string;
   tenantDataState: FleetDataState;
   tenantStatus: FleetRecordStatus;
+  tenantOnboardingStatus: FleetOnboardingStatus;
   sourceId: string;
   sourceSystem: string;
   sourceKey: string;
@@ -174,6 +183,8 @@ export interface FleetSyncHealthRow {
   lastIngestedAt: string | null;
   lastEventAt: string | null;
   lastProcessedEventAt: string | null;
+  latestSuccessfulSyncAt: string | null;
+  latestFailedSyncAt: string | null;
   lastError: string | null;
   retryingCount: number;
   deadLetterCount: number;
@@ -200,6 +211,8 @@ export interface FleetSyncException {
   detail: string;
   detectedAt: string | null;
   action: FleetSyncExceptionAction;
+  availableActions: FleetSyncExceptionAction[];
+  correlationId: string | null;
 }
 
 export interface FleetSyncAdministrationResponse {

@@ -3,7 +3,7 @@ import { authenticate } from "../../middleware/authenticate.js";
 import { authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
 import { fleetIngestionController } from "./fleet-ingestion.controller.js";
-import { fleetEventIdParamValidator, fleetSyncExceptionParamValidator } from "./fleet-ingestion.validators.js";
+import { fleetEventIdParamValidator, fleetSyncExceptionActionValidator } from "./fleet-ingestion.validators.js";
 
 const router = Router();
 
@@ -24,11 +24,27 @@ router.post(
 );
 
 router.post(
+  "/sync-health/exceptions/:type/:exceptionId/acknowledge",
+  authorizePermission("reports:write"),
+  fleetSyncExceptionActionValidator,
+  validate,
+  fleetIngestionController.acknowledgeSyncException,
+);
+
+router.post(
   "/sync-health/exceptions/:type/:exceptionId/resolve",
   authorizePermission("reports:write"),
-  fleetSyncExceptionParamValidator,
+  fleetSyncExceptionActionValidator,
   validate,
   fleetIngestionController.resolveSyncException,
+);
+
+router.post(
+  "/sync-health/exceptions/:type/:exceptionId/dismiss",
+  authorizePermission("reports:write"),
+  fleetSyncExceptionActionValidator,
+  validate,
+  fleetIngestionController.dismissSyncException,
 );
 
 export default router;

@@ -38,6 +38,9 @@ const ONBOARDING_STATUSES: FleetOnboardingStatus[] = ["pending", "configured", "
 const ENDPOINT_KINDS: FleetEndpointKind[] = ["webhook", "api_pull", "manual_import", "system"];
 const IDENTITY_CONFIDENCE: FleetIdentityConfidence[] = ["known", "provisional", "needs_review"];
 const IDENTITY_STATUSES: FleetIdentityStatus[] = ["active", "needs_review", "archived"];
+const SAFE_EXCEPTION_ACTIONS = ["acknowledge", "resolve", "dismiss"] as const;
+
+type SyncExceptionAdminAction = typeof SAFE_EXCEPTION_ACTIONS[number];
 
 function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
@@ -75,6 +78,22 @@ function iso(value: unknown) {
 
 function jsonValue(value: Record<string, unknown> | null | undefined) {
   return value ? JSON.stringify(value) : null;
+}
+
+function cleanReason(value: unknown, fallback: string) {
+  const reason = cleanString(value) || fallback;
+  return reason.slice(0, 1000);
+}
+
+function redactDiagnostic(value: unknown) {
+  const text = String(value || "");
+  if (!text) return null;
+  return text
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
+    .replace(/\b(?:token|secret|password|authorization|api[_-]?key)\b\s*[:=]\s*["']?[^"',\s]+/gi, "$1=[redacted]")
+    .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi, "[redacted-auth]")
+    .replace(/\bsk_(?:live|test)_[A-Za-z0-9_]+\b/g, "[redacted-secret]")
+    .slice(0, 1000);
 }
 
 function stableStringify(value: unknown): string {
@@ -185,16 +204,19 @@ function toCheckpoint(row: any): FleetIngestionCheckpoint {
 }
 
 function toSyncStatus(row: any): FleetCheckpointStatus {
+  if (row.tenantOnboardingStatus === "blocked") return "blocked";
   if (row.sourceStatus !== "active") return "paused";
   if (Number(row.deadLetterCount || 0) > 0) return "dead_letter";
   if (Number(row.retryingCount || 0) > 0) return "retrying";
   if (Number(row.openReconciliationIssues || 0) > 0) return "reconciliation_needed";
   if (Number(row.openFreshnessAlerts || 0) > 0) return "delayed";
+  if (!row.lastEventAt && !row.lastProcessedEventAt && !row.lastIngestedAt) return "unknown";
   return row.syncStatus || "healthy";
 }
 
 function toSlaStatus(row: any, syncStatus: FleetCheckpointStatus): FleetSyncSlaStatus {
-  if (row.sourceDataState === "roadmap" || row.sourceStatus !== "active") return "not_applicable";
+  if (row.sourceDataState === "roadmap" || row.sourceStatus !== "active" || syncStatus === "blocked") return "not_applicable";
+  if (syncStatus === "unknown") return "at_risk";
   if (syncStatus === "dead_letter" || syncStatus === "delayed" || Number(row.openFreshnessAlerts || 0) > 0) return "breached";
   if (syncStatus === "retrying" || syncStatus === "reconciliation_needed" || Number(row.openReconciliationIssues || 0) > 0) return "at_risk";
   return "met";
@@ -218,6 +240,7 @@ function toSyncHealthRow(row: any): FleetSyncHealthRow {
     tenantName: row.tenantName,
     tenantDataState: row.tenantDataState,
     tenantStatus: row.tenantStatus,
+    tenantOnboardingStatus: row.tenantOnboardingStatus,
     sourceId: row.sourceId,
     sourceSystem: row.sourceSystem,
     sourceKey: row.sourceKey,
@@ -230,7 +253,9 @@ function toSyncHealthRow(row: any): FleetSyncHealthRow {
     lastIngestedAt: iso(row.lastIngestedAt),
     lastEventAt: iso(row.lastEventAt),
     lastProcessedEventAt: iso(row.lastProcessedEventAt),
-    lastError: row.lastError || null,
+    latestSuccessfulSyncAt: iso(row.latestSuccessfulSyncAt || row.lastProcessedEventAt),
+    latestFailedSyncAt: iso(row.latestFailedSyncAt),
+    lastError: redactDiagnostic(row.lastError),
     retryingCount: Number(row.retryingCount || 0),
     deadLetterCount: Number(row.deadLetterCount || 0),
     openFreshnessAlerts: Number(row.openFreshnessAlerts || 0),
@@ -258,6 +283,8 @@ function toSyncException(row: any): FleetSyncException {
     detail: row.detail,
     detectedAt: iso(row.detectedAt),
     action: row.action,
+    availableActions: row.availableActions ? String(row.availableActions).split(",").filter(Boolean) as FleetSyncException["availableActions"] : [row.action],
+    correlationId: row.correlationId || null,
   };
 }
 
@@ -671,6 +698,7 @@ export class FleetIngestionService {
          t.display_name as tenantName,
          t.data_state as tenantDataState,
          t.status as tenantStatus,
+         t.onboarding_status as tenantOnboardingStatus,
          s.id as sourceId,
          s.source_system as sourceSystem,
          s.source_key as sourceKey,
@@ -684,6 +712,8 @@ export class FleetIngestionService {
          cp.last_event_at as lastEventAt,
          cp.last_processed_event_at as lastProcessedEventAt,
          cp.last_error as lastError,
+         success.latest_successful_sync_at as latestSuccessfulSyncAt,
+         failed.latest_failed_sync_at as latestFailedSyncAt,
          COALESCE(cp.retrying_count, retrying.retrying_count, 0) as retryingCount,
          COALESCE(cp.dead_letter_count, dead.dead_letter_count, 0) as deadLetterCount,
          COALESCE(fresh.open_freshness_alerts, 0) as openFreshnessAlerts,
@@ -711,15 +741,27 @@ export class FleetIngestionService {
                 MIN(threshold_minutes) as sla_target_minutes,
                 MAX(observed_lag_minutes) as observed_lag_minutes
          FROM analytics_freshness_alert
-         WHERE status = 'open'
+         WHERE status IN ('open','acknowledged')
          GROUP BY clinic_id, source_id
        ) fresh ON fresh.clinic_id = s.clinic_id AND fresh.source_id = s.id
        LEFT JOIN (
          SELECT clinic_id, source_id, COUNT(*) as open_reconciliation_issues
          FROM analytics_reconciliation_issue
-         WHERE status = 'open'
+         WHERE status IN ('open','acknowledged')
          GROUP BY clinic_id, source_id
        ) recon ON recon.clinic_id = s.clinic_id AND recon.source_id = s.id
+       LEFT JOIN (
+         SELECT clinic_id, source_id, MAX(processed_at) as latest_successful_sync_at
+         FROM fleet_ingestion_event
+         WHERE processing_status = 'processed'
+         GROUP BY clinic_id, source_id
+       ) success ON success.clinic_id = s.clinic_id AND success.source_id = s.id
+       LEFT JOIN (
+         SELECT clinic_id, source_id, MAX(COALESCE(last_attempt_at, updated_at)) as latest_failed_sync_at
+         FROM fleet_ingestion_event
+         WHERE processing_status IN ('failed','retrying','dead_letter','quarantined')
+         GROUP BY clinic_id, source_id
+       ) failed ON failed.clinic_id = s.clinic_id AND failed.source_id = s.id
        ${where}
        ORDER BY c.name, s.source_system, s.source_label`,
       params,
@@ -764,7 +806,9 @@ export class FleetIngestionService {
          'Dead-letter ingestion event' as title,
          COALESCE(e.error_message, 'Retries are exhausted and this event needs controlled replay.') as detail,
          e.updated_at as detectedAt,
-         'replay' as action
+         'replay' as action,
+         'replay' as availableActions,
+         e.idempotency_key as correlationId
        FROM fleet_ingestion_event e
        INNER JOIN clinic c ON c.id = e.clinic_id AND c.deleted_at IS NULL
        LEFT JOIN fleet_ingestion_source s ON s.id = e.source_id AND s.clinic_id = e.clinic_id
@@ -791,11 +835,13 @@ export class FleetIngestionService {
          'Freshness SLA breached' as title,
          f.message as detail,
          f.opened_at as detectedAt,
-         'resolve' as action
+         'resolve' as action,
+         'acknowledge,resolve,dismiss' as availableActions,
+         f.alert_key as correlationId
        FROM analytics_freshness_alert f
        INNER JOIN clinic c ON c.id = f.clinic_id AND c.deleted_at IS NULL
        LEFT JOIN fleet_ingestion_source s ON s.id = f.source_id AND s.clinic_id = f.clinic_id
-       WHERE f.status = 'open' ${freshnessFilter}
+       WHERE f.status IN ('open','acknowledged') ${freshnessFilter}
        ORDER BY f.updated_at DESC
        LIMIT 200`,
       params,
@@ -818,54 +864,167 @@ export class FleetIngestionService {
          CONCAT('Reconciliation: ', REPLACE(r.issue_type, '_', ' ')) as title,
          r.entity_key as detail,
          r.detected_at as detectedAt,
-         'resolve' as action
+         'resolve' as action,
+         'acknowledge,resolve,dismiss' as availableActions,
+         r.entity_key as correlationId
        FROM analytics_reconciliation_issue r
        INNER JOIN clinic c ON c.id = r.clinic_id AND c.deleted_at IS NULL
        LEFT JOIN fleet_ingestion_source s ON s.id = r.source_id AND s.clinic_id = r.clinic_id
-       WHERE r.status = 'open' ${reconciliationFilter}
+       WHERE r.status IN ('open','acknowledged') ${reconciliationFilter}
        ORDER BY r.detected_at DESC
        LIMIT 200`,
       params,
     );
 
-    return [...deadLetterRows, ...freshnessRows, ...reconciliationRows].map(toSyncException);
+    const sourceStatusFilter = includeAllClients ? "" : "AND s.clinic_id = ?";
+    const [sourceStatusRows]: any = await pool.execute(
+      `SELECT
+         s.id,
+         s.clinic_id as clinicId,
+         COALESCE(c.name, s.clinic_id) as clinicName,
+         s.id as sourceId,
+         s.source_system as sourceSystem,
+         s.source_key as sourceKey,
+         s.source_label as sourceLabel,
+         s.data_state as dataState,
+         'source_status' as type,
+         CASE
+           WHEN t.onboarding_status = 'blocked' THEN 'critical'
+           WHEN s.data_state = 'roadmap' OR s.status <> 'active' THEN 'info'
+           ELSE 'warning'
+         END as severity,
+         CASE
+           WHEN t.onboarding_status = 'blocked' THEN 'blocked'
+           WHEN s.status <> 'active' THEN s.status
+           WHEN s.data_state = 'roadmap' THEN 'roadmap'
+           ELSE 'unknown'
+         END as status,
+         CASE
+           WHEN t.onboarding_status = 'blocked' THEN 'Source onboarding is blocked'
+           WHEN s.status <> 'active' THEN 'Source is not actively syncing'
+           WHEN s.data_state = 'roadmap' THEN 'Source is roadmap'
+           ELSE 'No sync evidence received'
+         END as title,
+         CASE
+           WHEN t.onboarding_status = 'blocked' THEN 'This client source is configured as blocked and needs administrator review.'
+           WHEN s.status <> 'active' THEN 'This source is paused or inactive, so SLA tracking is not active.'
+           WHEN s.data_state = 'roadmap' THEN 'This source is planned but should not be presented as live data.'
+           ELSE 'No source event, checkpoint or successful ingestion timestamp is recorded yet.'
+         END as detail,
+         COALESCE(s.updated_at, t.updated_at) as detectedAt,
+         CASE
+           WHEN t.onboarding_status = 'blocked' THEN 'review_provider'
+           ELSE 'configure_source'
+         END as action,
+         CASE
+           WHEN t.onboarding_status = 'blocked' THEN 'review_provider'
+           ELSE 'configure_source'
+         END as availableActions,
+         s.source_key as correlationId
+       FROM fleet_ingestion_source s
+       INNER JOIN fleet_tenant_registry t ON t.id = s.tenant_registry_id
+       INNER JOIN clinic c ON c.id = s.clinic_id AND c.deleted_at IS NULL
+       LEFT JOIN fleet_ingestion_checkpoint cp ON cp.clinic_id = s.clinic_id AND cp.source_id = s.id
+       WHERE (
+           t.onboarding_status = 'blocked'
+           OR s.status <> 'active'
+           OR s.data_state = 'roadmap'
+           OR (s.status = 'active' AND s.data_state <> 'roadmap' AND cp.id IS NULL AND s.last_ingested_at IS NULL)
+         )
+         ${sourceStatusFilter}
+       ORDER BY s.updated_at DESC
+       LIMIT 200`,
+      params,
+    );
+
+    return [...deadLetterRows, ...freshnessRows, ...reconciliationRows, ...sourceStatusRows]
+      .map(toSyncException)
+      .map((exception) => ({
+        ...exception,
+        detail: redactDiagnostic(exception.detail) || "Review required.",
+      }));
   }
 
-  async resolveSyncException(clinicId: string, exceptionType: string, exceptionId: string): Promise<{ id: string; type: string; status: "resolved" }> {
-    if (exceptionType === "freshness") {
-      const [result]: any = await pool.execute(
-        `UPDATE analytics_freshness_alert
-         SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND clinic_id = ? AND status = 'open'`,
-        [exceptionId, clinicId],
-      );
-      if (Number(result.affectedRows || 0) !== 1) throw ApiError.notFound("Freshness exception was not found.");
-      return { id: exceptionId, type: exceptionType, status: "resolved" };
-    }
+  async administerSyncException(
+    clinicId: string,
+    userId: string | null,
+    exceptionType: string,
+    exceptionId: string,
+    action: SyncExceptionAdminAction,
+    reason?: string | null,
+  ): Promise<{ id: string; type: string; status: "acknowledged" | "resolved" | "dismissed" }> {
+    if (!SAFE_EXCEPTION_ACTIONS.includes(action)) throw ApiError.badRequest("Unsupported sync exception action.");
+    const table = exceptionType === "freshness"
+      ? "analytics_freshness_alert"
+      : exceptionType === "reconciliation"
+        ? "analytics_reconciliation_issue"
+        : null;
+    if (!table) throw ApiError.badRequest("Only freshness and reconciliation exceptions can be administered.");
 
-    if (exceptionType === "reconciliation") {
-      const [result]: any = await pool.execute(
-        `UPDATE analytics_reconciliation_issue
-         SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND clinic_id = ? AND status = 'open'`,
-        [exceptionId, clinicId],
-      );
-      if (Number(result.affectedRows || 0) !== 1) throw ApiError.notFound("Reconciliation exception was not found.");
-      return { id: exceptionId, type: exceptionType, status: "resolved" };
-    }
-
-    throw ApiError.badRequest("Only freshness and reconciliation exceptions can be resolved.");
-  }
-
-  async replayDeadLetterEventForScope(scopeClinicId: string, eventId: string, includeAllClients = false): Promise<FleetQueuedEvent> {
     const [rows]: any = await pool.execute(
-      `SELECT clinic_id as clinicId FROM fleet_ingestion_event WHERE id = ? AND processing_status = 'dead_letter' LIMIT 1`,
+      `SELECT id, clinic_id as clinicId, source_id as sourceId, status
+       FROM ${table}
+       WHERE id = ? AND clinic_id = ?
+       LIMIT 1`,
+      [exceptionId, clinicId],
+    );
+    const row = rows[0];
+    if (!row) throw ApiError.notFound("Sync exception was not found.");
+    if (row.status === "resolved" || row.status === "dismissed") {
+      throw ApiError.badRequest("Sync exception is already closed.");
+    }
+    if (action === "acknowledge" && row.status !== "open") {
+      throw ApiError.badRequest("Only open sync exceptions can be acknowledged.");
+    }
+    const nextStatus: "acknowledged" | "resolved" | "dismissed" = action === "acknowledge" ? "acknowledged" : action === "resolve" ? "resolved" : "dismissed";
+    const resolvedAtClause = nextStatus === "resolved" ? ", resolved_at = CURRENT_TIMESTAMP" : "";
+    await pool.execute(
+      `UPDATE ${table}
+       SET status = ?${resolvedAtClause}
+       WHERE id = ? AND clinic_id = ?`,
+      [nextStatus, exceptionId, clinicId],
+    );
+    await this.logSyncExceptionAction({
+      clinicId,
+      sourceId: row.sourceId || null,
+      exceptionType,
+      exceptionId,
+      action: nextStatus,
+      previousStatus: row.status,
+      nextStatus,
+      reason: cleanReason(reason, `${nextStatus} from sync health administration.`),
+      actorUserId: userId,
+    });
+    return { id: exceptionId, type: exceptionType, status: nextStatus };
+  }
+
+  async replayDeadLetterEventForScope(scopeClinicId: string, eventId: string, includeAllClients = false, userId?: string | null, reason?: string | null): Promise<FleetQueuedEvent> {
+    const [rows]: any = await pool.execute(
+      `SELECT clinic_id as clinicId, source_id as sourceId, processing_status as previousStatus
+       FROM fleet_ingestion_event
+       WHERE id = ? AND processing_status = 'dead_letter'
+       LIMIT 1`,
       [eventId],
     );
     const eventClinicId = rows[0]?.clinicId;
     if (!eventClinicId) throw ApiError.notFound("Dead-letter fleet ingestion event was not found.");
     if (!includeAllClients && eventClinicId !== scopeClinicId) throw ApiError.notFound("Dead-letter fleet ingestion event was not found.");
-    return this.replayDeadLetterEvent(eventClinicId, eventId);
+    const replayed = await this.replayDeadLetterEvent(eventClinicId, eventId);
+    if (userId) {
+      await this.logSyncExceptionAction({
+        clinicId: eventClinicId,
+        sourceId: rows[0]?.sourceId || null,
+        exceptionType: "dead_letter",
+        exceptionId: eventId,
+        action: "replayed",
+        previousStatus: rows[0]?.previousStatus || "dead_letter",
+        nextStatus: replayed.processingStatus,
+        reason: cleanReason(reason, "Replayed from sync health administration."),
+        actorUserId: userId,
+        correlationId: replayed.idempotencyKey,
+      });
+    }
+    return replayed;
   }
 
   async resolveSyncExceptionForScope(
@@ -873,22 +1032,60 @@ export class FleetIngestionService {
     exceptionType: string,
     exceptionId: string,
     includeAllClients = false,
-  ): Promise<{ id: string; type: string; status: "resolved" }> {
+    userId: string | null = null,
+    action: SyncExceptionAdminAction = "resolve",
+    reason?: string | null,
+  ): Promise<{ id: string; type: string; status: "acknowledged" | "resolved" | "dismissed" }> {
     const table = exceptionType === "freshness"
       ? "analytics_freshness_alert"
       : exceptionType === "reconciliation"
         ? "analytics_reconciliation_issue"
         : null;
-    if (!table) throw ApiError.badRequest("Only freshness and reconciliation exceptions can be resolved.");
+    if (!table) throw ApiError.badRequest("Only freshness and reconciliation exceptions can be administered.");
 
     const [rows]: any = await pool.execute(
-      `SELECT clinic_id as clinicId FROM ${table} WHERE id = ? AND status = 'open' LIMIT 1`,
+      `SELECT clinic_id as clinicId FROM ${table} WHERE id = ? AND status IN ('open', 'acknowledged') LIMIT 1`,
       [exceptionId],
     );
     const exceptionClinicId = rows[0]?.clinicId;
     if (!exceptionClinicId) throw ApiError.notFound("Sync exception was not found.");
     if (!includeAllClients && exceptionClinicId !== scopeClinicId) throw ApiError.notFound("Sync exception was not found.");
-    return this.resolveSyncException(exceptionClinicId, exceptionType, exceptionId);
+    return this.administerSyncException(exceptionClinicId, userId, exceptionType, exceptionId, action, reason);
+  }
+
+  private async logSyncExceptionAction(input: {
+    clinicId: string;
+    sourceId?: string | null;
+    exceptionType: string;
+    exceptionId: string;
+    action: "acknowledged" | "resolved" | "dismissed" | "replayed" | "reopened";
+    previousStatus?: string | null;
+    nextStatus?: string | null;
+    reason?: string | null;
+    actorUserId?: string | null;
+    correlationId?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }) {
+    await pool.execute(
+      `INSERT INTO fleet_sync_exception_action_log
+        (id, clinic_id, source_id, exception_type, exception_id, action,
+         previous_status, next_status, reason, correlation_id, metadata, actor_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuidv4(),
+        input.clinicId,
+        input.sourceId || null,
+        input.exceptionType,
+        input.exceptionId,
+        input.action,
+        input.previousStatus || null,
+        input.nextStatus || null,
+        input.reason || null,
+        input.correlationId || null,
+        input.metadata ? JSON.stringify(input.metadata) : null,
+        input.actorUserId || null,
+      ],
+    );
   }
 
   private async ensureClinicExists(clinicId: string) {

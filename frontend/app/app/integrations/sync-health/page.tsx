@@ -99,17 +99,23 @@ export default function FleetSyncHealthPage() {
     return () => window.clearTimeout(timer);
   }, [loadSyncHealth, token]);
 
-  async function handleExceptionAction(exception: FleetSyncException) {
+  async function handleExceptionAction(exception: FleetSyncException, action = exception.action) {
     if (!token) return;
-    setActionId(exception.id);
+    const actionLabel = action.replace(/_/g, " ");
+    const reason = action === "acknowledge" || action === "resolve" || action === "dismiss"
+      ? window.prompt(`Reason to ${actionLabel} this exception`, `${actionLabel} reviewed from sync health administration.`)
+      : "Replayed from sync health administration.";
+    if (reason === null) return;
+    setActionId(`${exception.id}:${action}`);
     setMessage(null);
     try {
-      if (exception.action === "replay" && exception.type === "dead_letter") {
+      if (action === "replay" && exception.type === "dead_letter") {
         const replayed = await api.fleetIngestion.replayDeadLetterEvent(token, exception.id);
         setMessage({ type: "success", text: `Dead-letter event replayed. Current state: ${replayed.processingStatus.replace(/_/g, " ")}.` });
-      } else if (exception.action === "resolve") {
-        await api.fleetIngestion.resolveException(token, exception.type, exception.id);
-        setMessage({ type: "success", text: "Exception marked resolved." });
+      } else if (action === "acknowledge" || action === "resolve" || action === "dismiss") {
+        await api.fleetIngestion.administerException(token, exception.type, exception.id, action, reason || `${actionLabel} reviewed from sync health administration.`);
+        const resultLabel = action === "acknowledge" ? "acknowledged" : action === "resolve" ? "resolved" : "dismissed";
+        setMessage({ type: "success", text: `Exception ${resultLabel}.` });
       }
       await loadSyncHealth();
     } catch (reason) {
@@ -220,8 +226,8 @@ export default function FleetSyncHealthPage() {
               <ExceptionCard
                 key={`${exception.type}:${exception.id}`}
                 exception={exception}
-                busy={actionId === exception.id}
-                onAction={() => void handleExceptionAction(exception)}
+                busyAction={actionId?.startsWith(`${exception.id}:`) ? actionId.split(":").pop() || null : null}
+                onAction={(action) => void handleExceptionAction(exception, action)}
               />
             ))}
           </div>
@@ -250,8 +256,10 @@ function SyncHealthCard({ row }: { row: FleetSyncHealthRow }) {
             {row.sourceSystem} / {row.sourceKey} / {row.endpointKind.replace(/_/g, " ")}
           </p>
         </div>
-        <div className="grid gap-2 text-sm text-[#4D4945] sm:grid-cols-3 lg:min-w-[440px]">
+        <div className="grid gap-2 text-sm text-[#4D4945] sm:grid-cols-3 lg:min-w-[520px]">
           <MiniMetric label="Last processed" value={formatDateTime(row.lastProcessedEventAt)} />
+          <MiniMetric label="Latest success" value={formatDateTime(row.latestSuccessfulSyncAt)} />
+          <MiniMetric label="Latest failure" value={formatDateTime(row.latestFailedSyncAt)} />
           <MiniMetric label="Retrying" value={row.retryingCount} />
           <MiniMetric label="Dead letter" value={row.deadLetterCount} />
         </div>
@@ -265,9 +273,17 @@ function SyncHealthCard({ row }: { row: FleetSyncHealthRow }) {
   );
 }
 
-function ExceptionCard({ exception, busy, onAction }: { exception: FleetSyncException; busy: boolean; onAction: () => void }) {
+function ExceptionCard({
+  exception,
+  busyAction,
+  onAction,
+}: {
+  exception: FleetSyncException;
+  busyAction: string | null;
+  onAction: (action: FleetSyncException["action"]) => void;
+}) {
   const tone = fleetExceptionTone(exception.severity);
-  const canAct = exception.action === "replay" || exception.action === "resolve";
+  const actions = exception.availableActions.filter((action) => action === "replay" || action === "acknowledge" || action === "resolve" || action === "dismiss");
 
   return (
     <article className="rounded-2xl border border-black/[0.08] bg-[#FFFCF9] p-4">
@@ -282,17 +298,27 @@ function ExceptionCard({ exception, busy, onAction }: { exception: FleetSyncExce
           <p className="mt-1 text-sm text-[#6C6761]">{exception.clinicName}{exception.sourceLabel ? ` · ${exception.sourceLabel}` : ""}</p>
           <p className="mt-2 text-sm leading-6 text-[#4D4945]">{exception.detail}</p>
           <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8A8580]">Detected {formatDateTime(exception.detectedAt)}</p>
+          {exception.correlationId && <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-[#8A8580]">Correlation {exception.correlationId}</p>}
         </div>
-        {canAct && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onAction}
-            className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#171615] px-3 text-sm font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {exception.action === "replay" ? <RotateCcw className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
-            {busy ? "Working..." : exception.action === "replay" ? "Replay" : "Resolve"}
-          </button>
+        {actions.length > 0 && (
+          <div className="flex shrink-0 flex-wrap gap-2 md:justify-end">
+            {actions.map((action) => {
+              const busy = busyAction === action;
+              const label = action === "replay" ? "Replay" : action.charAt(0).toUpperCase() + action.slice(1);
+              return (
+                <button
+                  key={action}
+                  type="button"
+                  disabled={Boolean(busyAction)}
+                  onClick={() => onAction(action)}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#171615] px-3 text-sm font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {action === "replay" ? <RotateCcw className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
+                  {busy ? "Working..." : label}
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
     </article>

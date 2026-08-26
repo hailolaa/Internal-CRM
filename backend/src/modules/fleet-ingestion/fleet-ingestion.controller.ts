@@ -26,6 +26,8 @@ export class FleetIngestionController {
           user.clinicId,
           String(req.params.eventId),
           includeAllClients,
+          user.userId,
+          req.body?.reason,
         ),
       });
     } catch (error) {
@@ -44,6 +46,51 @@ export class FleetIngestionController {
           String(req.params.type),
           String(req.params.exceptionId),
           includeAllClients,
+          user.userId,
+          "resolve",
+          req.body?.reason,
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  acknowledgeSyncException = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const includeAllClients = await this.canUseAllClientScope(req);
+      res.status(200).json({
+        status: "success",
+        data: await fleetIngestionService.resolveSyncExceptionForScope(
+          user.clinicId,
+          String(req.params.type),
+          String(req.params.exceptionId),
+          includeAllClients,
+          user.userId,
+          "acknowledge",
+          req.body?.reason,
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  dismissSyncException = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      const includeAllClients = await this.canUseAllClientScope(req);
+      res.status(200).json({
+        status: "success",
+        data: await fleetIngestionService.resolveSyncExceptionForScope(
+          user.clinicId,
+          String(req.params.type),
+          String(req.params.exceptionId),
+          includeAllClients,
+          user.userId,
+          "dismiss",
+          req.body?.reason,
         ),
       });
     } catch (error) {

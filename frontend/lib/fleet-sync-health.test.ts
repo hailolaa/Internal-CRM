@@ -20,6 +20,7 @@ function response(overrides: Partial<FleetSyncAdministrationResponse> = {}): Fle
         tenantName: "Clinic One",
         tenantDataState: "live",
         tenantStatus: "active",
+        tenantOnboardingStatus: "active",
         sourceId: "source-1",
         sourceSystem: "clinic_os",
         sourceKey: "lead_feed",
@@ -32,6 +33,8 @@ function response(overrides: Partial<FleetSyncAdministrationResponse> = {}): Fle
         lastIngestedAt: null,
         lastEventAt: null,
         lastProcessedEventAt: null,
+        latestSuccessfulSyncAt: null,
+        latestFailedSyncAt: "2026-08-24T00:00:00.000Z",
         lastError: "Provider timeout",
         retryingCount: 1,
         deadLetterCount: 0,
@@ -59,6 +62,8 @@ function response(overrides: Partial<FleetSyncAdministrationResponse> = {}): Fle
         detail: "lead-001",
         detectedAt: "2026-08-24T00:00:00.000Z",
         action: "resolve",
+        availableActions: ["acknowledge", "resolve", "dismiss"],
+        correlationId: "lead-001",
       },
     ],
     summary: {
@@ -89,6 +94,14 @@ describe("fleet sync health helpers", () => {
     });
     expect(fleetSyncSlaStatusMeta("breached")).toMatchObject({
       label: "SLA breached",
+      tone: "danger",
+    });
+    expect(fleetSyncStatusMeta("unknown")).toMatchObject({
+      label: "No data yet",
+      tone: "warning",
+    });
+    expect(fleetSyncStatusMeta("blocked")).toMatchObject({
+      label: "Blocked",
       tone: "danger",
     });
   });

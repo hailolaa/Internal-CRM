@@ -44,6 +44,16 @@ const syncStatusMeta: Record<FleetCheckpointStatus, FleetSyncMeta> = {
     tone: "warning",
     description: "A reconciliation issue needs administrator review.",
   },
+  unknown: {
+    label: "No data yet",
+    tone: "warning",
+    description: "No source event, checkpoint or successful sync has been recorded.",
+  },
+  blocked: {
+    label: "Blocked",
+    tone: "danger",
+    description: "Source onboarding or provider access is blocked.",
+  },
 };
 
 const slaStatusMeta: Record<FleetSyncSlaStatus, FleetSyncMeta> = {
