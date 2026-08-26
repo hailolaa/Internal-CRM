@@ -320,18 +320,29 @@ export class MissionControlApiService {
 
   private async searchClientAccounts(user: MissionControlUserContext, q: string, limit: number, id?: string) {
     const canManageAllClientAccounts = await userCanManageAllClientAccounts(user.userId, user.clinicId);
-    const scopeFilter = canManageAllClientAccounts ? "" : "AND cap.clinic_id = ?";
+    const scopeFilter = canManageAllClientAccounts ? "" : "AND (cap.clinic_id = ? OR cor.clinic_id = ?)";
+    const scopeParams = canManageAllClientAccounts ? [] : [user.clinicId, user.clinicId];
     const params = id
-      ? [id, ...(canManageAllClientAccounts ? [] : [user.clinicId])]
+      ? [id, ...scopeParams]
       : q
-        ? [like(q), like(q), ...(canManageAllClientAccounts ? [] : [user.clinicId])]
-        : [...(canManageAllClientAccounts ? [] : [user.clinicId])];
+        ? [like(q), like(q), ...scopeParams]
+        : [...scopeParams];
     const [rows]: any = await pool.execute(
       `SELECT cap.id, cap.clinic_id as clientClinicId, c.name, cap.client_status as clientStatus,
               cap.health_status as healthStatus, cap.current_package as currentPackage,
-              c.data_state as dataState, cap.updated_at as updatedAt
+              c.data_state as dataState, cap.updated_at as updatedAt,
+              cor.source_system as registerSourceSystem,
+              cor.source_list_id as registerSourceListId,
+              cor.source_record_id as registerSourceRecordId,
+              cor.source_record_url as registerSourceRecordUrl,
+              cor.record_kind as registerRecordKind,
+              cor.freshness_status as registerFreshnessStatus,
+              cor.invoice_truth_source as registerInvoiceTruthSource,
+              cor.evidence_summary as registerEvidenceSummary,
+              cor.source_updated_at as registerSourceUpdatedAt
        FROM client_account_profile cap
        INNER JOIN clinic c ON c.id = cap.clinic_id AND c.deleted_at IS NULL
+       LEFT JOIN client_operating_register_record cor ON cor.client_account_profile_id = cap.id
        WHERE ${id ? "cap.id = ?" : q ? "(c.name LIKE ? OR cap.current_package LIKE ?)" : "1 = 1"}
          ${scopeFilter}
        ORDER BY cap.updated_at DESC
@@ -346,7 +357,24 @@ export class MissionControlApiService {
       url: `/app/ops/client-accounts/detail?id=${row.id}`,
       updatedAt: row.updatedAt,
       dataState: normalizeDataState(row.dataState),
-      metadata: { clientClinicId: row.clientClinicId, clientStatus: row.clientStatus, healthStatus: row.healthStatus },
+      metadata: {
+        clientClinicId: row.clientClinicId,
+        clientStatus: row.clientStatus,
+        healthStatus: row.healthStatus,
+        operatingRegister: row.registerSourceRecordId
+          ? {
+            sourceSystem: row.registerSourceSystem,
+            sourceListId: row.registerSourceListId,
+            sourceRecordId: row.registerSourceRecordId,
+            sourceRecordUrl: row.registerSourceRecordUrl,
+            recordKind: row.registerRecordKind,
+            freshnessStatus: row.registerFreshnessStatus,
+            invoiceTruthSource: row.registerInvoiceTruthSource,
+            evidenceSummary: row.registerEvidenceSummary,
+            sourceUpdatedAt: iso(row.registerSourceUpdatedAt),
+          }
+          : null,
+      },
     }));
   }
 
