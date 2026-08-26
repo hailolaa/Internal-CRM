@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { FleetSyncAdministrationResponse } from "@/lib/api-types";
 import {
   fleetExceptionTone,
+  filterFleetSyncExceptions,
+  filterFleetSyncHealthRows,
   fleetSyncSlaStatusMeta,
   fleetSyncStatusMeta,
   summarizeFleetSyncAdministration,
@@ -110,5 +112,16 @@ describe("fleet sync health helpers", () => {
     expect(fleetExceptionTone("critical")).toBe("danger");
     expect(fleetExceptionTone("warning")).toBe("warning");
     expect(fleetExceptionTone("info")).toBe("neutral");
+  });
+
+  it("filters health rows and exceptions by query, status and type", () => {
+    const fixture = response();
+
+    expect(filterFleetSyncHealthRows(fixture.health, { query: "lead", syncStatus: "retrying" })).toHaveLength(1);
+    expect(filterFleetSyncHealthRows(fixture.health, { query: "missing", syncStatus: "retrying" })).toHaveLength(0);
+    expect(filterFleetSyncHealthRows(fixture.health, { dataState: "provider_dependent" })).toHaveLength(1);
+
+    expect(filterFleetSyncExceptions(fixture.exceptions, { query: "lead-001", type: "reconciliation" })).toHaveLength(1);
+    expect(filterFleetSyncExceptions(fixture.exceptions, { status: "resolved" })).toHaveLength(0);
   });
 });

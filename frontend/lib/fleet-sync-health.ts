@@ -1,7 +1,9 @@
 import type {
   FleetCheckpointStatus,
   FleetSyncAdministrationResponse,
+  FleetSyncException,
   FleetSyncExceptionSeverity,
+  FleetSyncHealthRow,
   FleetSyncSlaStatus,
 } from "@/lib/api-types";
 
@@ -106,4 +108,48 @@ export function summarizeFleetSyncAdministration(data: FleetSyncAdministrationRe
     stateCounts,
     overallStatus: hasAttention ? "needs_attention" : "healthy",
   } as const;
+}
+
+export function filterFleetSyncHealthRows(
+  rows: FleetSyncHealthRow[],
+  filters: { query?: string; syncStatus?: string; dataState?: string },
+) {
+  const query = (filters.query || "").trim().toLowerCase();
+  return rows.filter((row) => {
+    const matchesQuery = !query || [
+      row.clinicName,
+      row.tenantName,
+      row.sourceLabel,
+      row.sourceSystem,
+      row.sourceKey,
+      row.syncStatus,
+      row.sourceDataState,
+    ].some((value) => String(value || "").toLowerCase().includes(query));
+    const matchesStatus = !filters.syncStatus || filters.syncStatus === "all" || row.syncStatus === filters.syncStatus;
+    const matchesState = !filters.dataState || filters.dataState === "all" || row.sourceDataState === filters.dataState;
+    return matchesQuery && matchesStatus && matchesState;
+  });
+}
+
+export function filterFleetSyncExceptions(
+  exceptions: FleetSyncException[],
+  filters: { query?: string; type?: string; status?: string },
+) {
+  const query = (filters.query || "").trim().toLowerCase();
+  return exceptions.filter((exception) => {
+    const matchesQuery = !query || [
+      exception.clinicName,
+      exception.sourceLabel,
+      exception.sourceSystem,
+      exception.sourceKey,
+      exception.type,
+      exception.status,
+      exception.title,
+      exception.detail,
+      exception.correlationId,
+    ].some((value) => String(value || "").toLowerCase().includes(query));
+    const matchesType = !filters.type || filters.type === "all" || exception.type === filters.type;
+    const matchesStatus = !filters.status || filters.status === "all" || exception.status === filters.status;
+    return matchesQuery && matchesType && matchesStatus;
+  });
 }

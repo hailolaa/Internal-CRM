@@ -7,6 +7,8 @@ import { api } from "@/lib/api-client";
 import type { FleetSyncAdministrationResponse, FleetSyncException, FleetSyncHealthRow } from "@/lib/api-types";
 import {
   type FleetSyncTone,
+  filterFleetSyncExceptions,
+  filterFleetSyncHealthRows,
   fleetExceptionTone,
   fleetSyncSlaStatusMeta,
   fleetSyncStatusMeta,
@@ -75,8 +77,22 @@ export default function FleetSyncHealthPage() {
   const [error, setError] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [healthQuery, setHealthQuery] = useState("");
+  const [healthStatus, setHealthStatus] = useState("all");
+  const [healthDataState, setHealthDataState] = useState("all");
+  const [exceptionQuery, setExceptionQuery] = useState("");
+  const [exceptionType, setExceptionType] = useState("all");
+  const [exceptionStatus, setExceptionStatus] = useState("all");
 
   const summary = useMemo(() => (data ? summarizeFleetSyncAdministration(data) : null), [data]);
+  const filteredHealthRows = useMemo(
+    () => filterFleetSyncHealthRows(data?.health ?? [], { query: healthQuery, syncStatus: healthStatus, dataState: healthDataState }),
+    [data?.health, healthDataState, healthQuery, healthStatus],
+  );
+  const filteredExceptions = useMemo(
+    () => filterFleetSyncExceptions(data?.exceptions ?? [], { query: exceptionQuery, type: exceptionType, status: exceptionStatus }),
+    [data?.exceptions, exceptionQuery, exceptionStatus, exceptionType],
+  );
 
   const loadSyncHealth = useCallback(async () => {
     if (!token) return;
@@ -200,11 +216,50 @@ export default function FleetSyncHealthPage() {
           </button>
         </div>
 
+        <div className="mt-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_190px_190px]">
+          <input
+            value={healthQuery}
+            onChange={(event) => setHealthQuery(event.target.value)}
+            placeholder="Search client, source or state"
+            className="min-h-11 rounded-xl border border-black/[0.08] bg-white px-3 text-sm text-[#171615] outline-none focus:border-[#625FC7]"
+          />
+          <select
+            value={healthStatus}
+            onChange={(event) => setHealthStatus(event.target.value)}
+            className="min-h-11 rounded-xl border border-black/[0.08] bg-white px-3 text-sm font-semibold text-[#171615] outline-none focus:border-[#625FC7]"
+          >
+            <option value="all">All statuses</option>
+            <option value="healthy">Healthy</option>
+            <option value="delayed">Delayed</option>
+            <option value="retrying">Retrying</option>
+            <option value="dead_letter">Dead letter</option>
+            <option value="reconciliation_needed">Review needed</option>
+            <option value="unknown">No data yet</option>
+            <option value="blocked">Blocked</option>
+            <option value="paused">Paused</option>
+          </select>
+          <select
+            value={healthDataState}
+            onChange={(event) => setHealthDataState(event.target.value)}
+            className="min-h-11 rounded-xl border border-black/[0.08] bg-white px-3 text-sm font-semibold text-[#171615] outline-none focus:border-[#625FC7]"
+          >
+            <option value="all">All data states</option>
+            <option value="live">Live</option>
+            <option value="demo">Demo</option>
+            <option value="preview">Preview</option>
+            <option value="partial">Partial</option>
+            <option value="provider_dependent">Provider dependent</option>
+            <option value="roadmap">Roadmap</option>
+          </select>
+        </div>
+
         {healthRows.length === 0 ? (
           <EmptyState title="No configured client feeds" description="Configure a client data source before sync health can be monitored." />
+        ) : filteredHealthRows.length === 0 ? (
+          <EmptyState title="No matching sync health rows" description="Adjust the search or filters to see configured client feeds." />
         ) : (
           <div className="mt-4 grid gap-3">
-            {healthRows.map((row) => (
+            {filteredHealthRows.map((row) => (
               <SyncHealthCard key={row.sourceId} row={row} />
             ))}
           </div>
@@ -218,11 +273,48 @@ export default function FleetSyncHealthPage() {
           <p className="mt-1 text-sm leading-6 text-[#6C6761]">Replay dead-letter events or resolve freshness and reconciliation exceptions after review.</p>
         </div>
 
+        <div className="mt-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_190px_190px]">
+          <input
+            value={exceptionQuery}
+            onChange={(event) => setExceptionQuery(event.target.value)}
+            placeholder="Search exception, source or correlation"
+            className="min-h-11 rounded-xl border border-black/[0.08] bg-white px-3 text-sm text-[#171615] outline-none focus:border-[#625FC7]"
+          />
+          <select
+            value={exceptionType}
+            onChange={(event) => setExceptionType(event.target.value)}
+            className="min-h-11 rounded-xl border border-black/[0.08] bg-white px-3 text-sm font-semibold text-[#171615] outline-none focus:border-[#625FC7]"
+          >
+            <option value="all">All types</option>
+            <option value="dead_letter">Dead letter</option>
+            <option value="freshness">Freshness</option>
+            <option value="reconciliation">Reconciliation</option>
+            <option value="source_status">Source status</option>
+          </select>
+          <select
+            value={exceptionStatus}
+            onChange={(event) => setExceptionStatus(event.target.value)}
+            className="min-h-11 rounded-xl border border-black/[0.08] bg-white px-3 text-sm font-semibold text-[#171615] outline-none focus:border-[#625FC7]"
+          >
+            <option value="all">All states</option>
+            <option value="open">Open</option>
+            <option value="acknowledged">Acknowledged</option>
+            <option value="dead_letter">Dead letter</option>
+            <option value="blocked">Blocked</option>
+            <option value="unknown">No data yet</option>
+            <option value="roadmap">Roadmap</option>
+            <option value="paused">Paused</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+
         {exceptions.length === 0 ? (
           <EmptyState title="No open sync exceptions" description="All configured data sources are currently clear of actionable exceptions." icon="success" />
+        ) : filteredExceptions.length === 0 ? (
+          <EmptyState title="No matching exceptions" description="Adjust the search or filters to see the open action queue." />
         ) : (
           <div className="mt-4 grid gap-3">
-            {exceptions.map((exception) => (
+            {filteredExceptions.map((exception) => (
               <ExceptionCard
                 key={`${exception.type}:${exception.id}`}
                 exception={exception}
