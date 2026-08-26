@@ -42,7 +42,7 @@ test("contacts list pagination reaches records beyond the first page and CSV exp
     source,
     page: 1,
     pageSize: 250,
-    sortBy: "createdAt",
+    sortBy: "value",
     sortDir: "asc",
   });
   assert.equal(firstPage.pagination.total, totalContacts);
@@ -54,7 +54,7 @@ test("contacts list pagination reaches records beyond the first page and CSV exp
     source,
     page: 2,
     pageSize: 250,
-    sortBy: "createdAt",
+    sortBy: "value",
     sortDir: "asc",
   });
   assert.equal(secondPage.pagination.page, 2);
@@ -64,7 +64,7 @@ test("contacts list pagination reaches records beyond the first page and CSV exp
   const exported = await contactsService.exportContactsCsv(primary.clinicId, {
     source,
     pageSize: 5000,
-    sortBy: "createdAt",
+    sortBy: "value",
     sortDir: "asc",
   });
   const exportedRows = csvDataRows(exported);

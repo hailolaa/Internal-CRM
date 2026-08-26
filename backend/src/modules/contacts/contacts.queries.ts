@@ -328,5 +328,5 @@ export function getListSort(
     updatedAt: "c.updated_at",
   };
 
-  return `${mapping[sortBy || "updatedAt"] || mapping.updatedAt} ${direction}, c.created_at DESC`;
+  return `${mapping[sortBy || "updatedAt"] || mapping.updatedAt} ${direction}, c.created_at DESC, c.id DESC`;
 }
