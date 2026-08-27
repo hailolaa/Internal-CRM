@@ -77,6 +77,9 @@ describe("proposal call entry points", () => {
     expect(callModeSource).toContain('searchParams.get("contactId")');
     expect(callModeSource).toContain('searchParams.get("clientAccountProfileId")');
     expect(callModeSource).toContain("api.proposals.startDiscoverySession");
+    expect(callModeSource).toContain("confirmStart: true");
+    expect(callModeSource).toContain("Confirm and Start");
+    expect(callModeSource).toContain("No session has been created");
     expect(callModeSource).toContain("generateDiscoveryDraft");
   });
 

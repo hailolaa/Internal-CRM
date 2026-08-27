@@ -1070,13 +1070,25 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     );
     assert.equal(unauthorizedDiscoveryStart.response.status, 403);
 
-    const discoveryStart = await request(
+    const passiveDiscoveryOpen = await request(
       baseUrl,
       "/api/proposals/discovery-sessions/start",
       writer.token,
       {
         method: "POST",
         body: JSON.stringify({ contactId, dealId }),
+      },
+    );
+    assert.equal(passiveDiscoveryOpen.response.status, 400);
+    assert.match(passiveDiscoveryOpen.body.message, /explicit confirmation/i);
+
+    const discoveryStart = await request(
+      baseUrl,
+      "/api/proposals/discovery-sessions/start",
+      writer.token,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmStart: true, contactId, dealId }),
       },
     );
     assert.equal(discoveryStart.response.status, 200);
@@ -1088,7 +1100,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       writer.token,
       {
         method: "POST",
-        body: JSON.stringify({ contactId, dealId }),
+        body: JSON.stringify({ confirmStart: true, contactId, dealId }),
       },
     );
     assert.equal(discoveryResume.response.status, 200);

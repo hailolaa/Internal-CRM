@@ -18,6 +18,9 @@ export const proposalDiscoverySessionIdParamValidator = [
 ];
 
 export const startProposalDiscoverySessionValidator = [
+  body("confirmStart")
+    .custom((value) => value === true)
+    .withMessage("Starting call mode requires explicit confirmation"),
   body("contactId").optional({ nullable: true }).isUUID().withMessage("contactId must be a valid UUID"),
   body("dealId").optional({ nullable: true }).isUUID().withMessage("dealId must be a valid UUID"),
   body("clientAccountProfileId").optional({ nullable: true }).isUUID().withMessage("clientAccountProfileId must be a valid UUID"),

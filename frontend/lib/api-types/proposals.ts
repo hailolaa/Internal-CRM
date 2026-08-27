@@ -556,6 +556,7 @@ export interface ProposalDiscoverySessionRecord {
 }
 
 export interface ProposalDiscoveryStartPayload {
+  confirmStart: true;
   contactId?: string | null;
   dealId?: string | null;
   clientAccountProfileId?: string | null;

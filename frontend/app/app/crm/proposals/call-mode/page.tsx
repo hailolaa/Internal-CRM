@@ -62,6 +62,7 @@ export default function ProposalCallModePage() {
   const [packages, setPackages] = useState<GrowthPackageRecord[]>([]);
   const [activeSection, setActiveSection] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isStarting, setIsStarting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -78,29 +79,39 @@ export default function ProposalCallModePage() {
     setError(null);
     try {
       const sessionId = searchParams.get("sessionId");
-      const next = sessionId
-        ? await api.proposals.getDiscoverySession(token, sessionId)
-        : await api.proposals.startDiscoverySession(token, {
-          contactId: searchParams.get("contactId"),
-          dealId: searchParams.get("dealId"),
-          clientAccountProfileId: searchParams.get("clientAccountProfileId"),
-          proposalId: searchParams.get("proposalId"),
-        });
+      if (!sessionId) return;
+      const next = await api.proposals.getDiscoverySession(token, sessionId);
       const packageRecords = await api.packages.list(token, { includeInactive: false });
       setPackages(packageRecords);
       setRecord(next);
       setAnswers(next.answers || {});
       setFreeNotes(next.freeNotes || "");
       setDirty(false);
-      if (!sessionId) {
-        router.replace(`/app/crm/proposals/call-mode?sessionId=${encodeURIComponent(next.id)}`);
-      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not open proposal call mode.");
     } finally {
       setIsLoading(false);
     }
   }, [router, searchParams, token]);
+
+  const handleStartSession = async () => {
+    if (!token || isStarting) return;
+    setIsStarting(true);
+    setError(null);
+    try {
+      const next = await api.proposals.startDiscoverySession(token, {
+        confirmStart: true,
+        contactId: searchParams.get("contactId"),
+        dealId: searchParams.get("dealId"),
+        clientAccountProfileId: searchParams.get("clientAccountProfileId"),
+        proposalId: searchParams.get("proposalId"),
+      });
+      router.replace(`/app/crm/proposals/call-mode?sessionId=${encodeURIComponent(next.id)}`);
+    } catch (startError) {
+      setError(startError instanceof Error ? startError.message : "Could not start proposal call mode.");
+      setIsStarting(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -199,6 +210,37 @@ export default function ProposalCallModePage() {
       <main className="flex min-h-[70vh] items-center justify-center bg-[#F4FAFA]">
         <div className="flex items-center gap-3 rounded-xl border border-[#d8e8e4] bg-white px-5 py-4 text-sm font-semibold text-[#315f62]">
           <Loader2 className="h-4 w-4 animate-spin" /> Opening proposal call mode
+        </div>
+      </main>
+    );
+  }
+
+  if (!record) {
+    return (
+      <main className="flex min-h-[70vh] items-center justify-center bg-[#F4FAFA] p-4">
+        <div className="w-full max-w-xl rounded-2xl border border-[#cfe3df] bg-white p-6 shadow-sm">
+          <Link href="/app/crm/proposals" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-[#2F7F7B]">
+            <ArrowLeft className="h-4 w-4" /> Proposals
+          </Link>
+          <h1 className="text-2xl font-bold text-[#011418]">Start proposal call mode?</h1>
+          <p className="mt-2 text-sm text-[#5F777B]">
+            No session has been created. Starting call mode will create a saved discovery session for this record.
+          </p>
+          {error && <div className="mt-4"><AlertBanner variant="error" title="Call mode issue" description={error} /></div>}
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => void handleStartSession()}
+              disabled={isStarting}
+              className="inline-flex items-center gap-2 rounded-lg bg-[#011418] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0C2A30] disabled:opacity-60"
+            >
+              {isStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Confirm and Start
+            </button>
+            <Link href="/app/crm/proposals" className="rounded-lg border border-[#cbded9] px-4 py-2 text-sm font-semibold text-[#315f62] hover:bg-[#edf7f5]">
+              Cancel
+            </Link>
+          </div>
         </div>
       </main>
     );
