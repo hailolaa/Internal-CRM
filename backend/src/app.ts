@@ -6,6 +6,7 @@ import cookieparser from "cookie-parser";
 import errorHandler from "./middleware/errorHandler.js";
 import { requestContext } from "./middleware/requestContext.js";
 import { requestLogger } from "./middleware/requestLogger.js";
+import { productionContainment } from "./middleware/productionContainment.js";
 import { authenticateApiKey } from "./middleware/apiKeyAuthenticate.js";
 import { config } from "./config/index.js";
 
@@ -115,6 +116,7 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true, limit: "8mb" }));
 app.use(cookieparser());
 app.use(requestLogger);
+app.use(productionContainment);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/contacts", contactsRoutes);

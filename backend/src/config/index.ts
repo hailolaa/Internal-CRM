@@ -147,6 +147,12 @@ export function getSecretConfigurationIssues(env: NodeJS.ProcessEnv = process.en
 export const config = {
     port: parseInt(process.env.PORT || "3000", 10),
     nodeEnv: process.env.NODE_ENV || "development",
+    productionSafety: {
+        unsafeActionsEnabled: parseBoolean(
+            process.env.PRODUCTION_UNSAFE_ACTIONS_ENABLED,
+            process.env.NODE_ENV !== "production",
+        ),
+    },
 
     db: {
         host: process.env.DB_HOST || "127.0.0.1",
