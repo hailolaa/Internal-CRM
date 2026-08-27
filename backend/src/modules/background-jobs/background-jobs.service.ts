@@ -62,6 +62,7 @@ export class BackgroundJobsService {
   }
 
   private toJobResponse(job: (typeof backgroundJobDefinitions)[number], state: BackgroundJobStateRow | null) {
+    const freshness = getJobFreshness(job, state, new Date());
     return {
       id: job.id,
       name: job.name,
@@ -73,8 +74,11 @@ export class BackgroundJobsService {
       nextRun: state?.nextRunAt ? new Date(state.nextRunAt).toISOString() : null,
       lastDuration: formatDuration(state?.lastDurationMs || null),
       successRate: getSuccessRate(state),
+      successCount: state?.successCount || 0,
+      failureCount: state?.failureCount || 0,
       lastStatus: state?.lastStatus || null,
       lastError: state?.lastErrorMessage || null,
+      freshness,
     };
   }
 }
@@ -89,10 +93,43 @@ function formatDuration(durationMs: number | null) {
 }
 
 function getSuccessRate(state: BackgroundJobStateRow | null) {
-  if (!state) return "100%";
+  if (!state) return "Not run";
 
   const totalRuns = state.successCount + state.failureCount;
-  if (totalRuns === 0) return "100%";
+  if (totalRuns === 0) return "Not run";
 
   return `${Math.round((state.successCount / totalRuns) * 100)}%`;
+}
+
+export function getJobFreshness(
+  job: (typeof backgroundJobDefinitions)[number],
+  state: BackgroundJobStateRow | null,
+  now: Date,
+) {
+  if (state?.status === "paused") {
+    return { state: "paused", isFresh: null, checkedAt: now.toISOString(), staleAfter: null };
+  }
+  if (!state?.lastRunAt) {
+    return { state: "never_run", isFresh: false, checkedAt: now.toISOString(), staleAfter: null };
+  }
+  if (state.status === "error" || state.lastStatus === "failed") {
+    return {
+      state: "failing",
+      isFresh: false,
+      checkedAt: now.toISOString(),
+      staleAfter: job.getNextRunAt(new Date(state.lastRunAt)).toISOString(),
+    };
+  }
+
+  const lastRunAt = new Date(state.lastRunAt);
+  const expectedNext = job.getNextRunAt(lastRunAt);
+  const expectedIntervalMs = Math.max(expectedNext.getTime() - lastRunAt.getTime(), 60_000);
+  const staleAfter = new Date(expectedNext.getTime() + Math.max(expectedIntervalMs, 120_000));
+  const isFresh = now <= staleAfter;
+  return {
+    state: isFresh ? "fresh" : "stale",
+    isFresh,
+    checkedAt: now.toISOString(),
+    staleAfter: staleAfter.toISOString(),
+  };
 }

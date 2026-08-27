@@ -1080,7 +1080,8 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
       },
     );
     assert.equal(passiveDiscoveryOpen.response.status, 400);
-    assert.match(passiveDiscoveryOpen.body.message, /explicit confirmation/i);
+    assert.equal(passiveDiscoveryOpen.body.message, "Validation failed");
+    assert.match(JSON.stringify(passiveDiscoveryOpen.body.errors), /explicit confirmation/i);
 
     const discoveryStart = await request(
       baseUrl,

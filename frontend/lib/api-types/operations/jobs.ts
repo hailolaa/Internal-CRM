@@ -11,8 +11,16 @@ export interface BackgroundJobsResponse {
     nextRun: string | null;
     lastDuration: string;
     successRate: string;
+    successCount: number;
+    failureCount: number;
     lastStatus: "started" | "completed" | "failed" | null;
     lastError: string | null;
+    freshness: {
+      state: "fresh" | "stale" | "failing" | "never_run" | "paused";
+      isFresh: boolean | null;
+      checkedAt: string;
+      staleAfter: string | null;
+    };
   }>;
   backupRuns: Array<{
     id: string;
