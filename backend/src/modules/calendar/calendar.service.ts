@@ -5,6 +5,7 @@ import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { decryptProviderCredential, encryptProviderCredential } from "../../utils/provider-credentials.js";
+import { fetchProvider } from "../../utils/provider-fetch.js";
 import { roleMatchesAllowedRoles } from "../../utils/roles.js";
 import { decideGoogleOAuthAccess } from "../auth/google-oauth-access.js";
 import type {
@@ -192,7 +193,7 @@ export class CalendarService {
       throw ApiError.forbidden("Only an Admin can connect the Google Calendar integration.");
     }
 
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    const tokenResponse = await fetchProvider("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -208,7 +209,7 @@ export class CalendarService {
       throw ApiError.badRequest(tokenPayload.error_description || tokenPayload.error || "Google Calendar authorization failed.");
     }
 
-    const profileResponse = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    const profileResponse = await fetchProvider("https://www.googleapis.com/oauth2/v3/userinfo", {
       headers: { Authorization: `Bearer ${tokenPayload.access_token}` },
     });
     const profile: any = await profileResponse.json().catch(() => ({}));
@@ -324,7 +325,7 @@ export class CalendarService {
         maxResults: "100",
         conferenceDataVersion: "1",
       });
-      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`, {
+      const response = await fetchProvider(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       });
       const payload: any = await response.json().catch(() => ({}));
@@ -368,6 +369,14 @@ export class CalendarService {
          WHERE id = ? AND clinic_id = ?`,
         [error instanceof Error ? error.message : String(error), integration.id, clinicId],
       );
+      await logAuditEvent({
+        clinicId,
+        userId,
+        action: "GOOGLE_CALENDAR_SYNC_FAILED",
+        entityType: "integration",
+        entityId: integration.id,
+        changes: { error: error instanceof Error ? error.message : String(error) },
+      });
       throw error;
     }
   }
@@ -460,7 +469,7 @@ export class CalendarService {
     }
     const refreshToken = decryptProviderCredential(stored.encryptedRefreshToken);
     if (!refreshToken) throw ApiError.serviceUnavailable("Reconnect Google Calendar to restore offline access.");
-    const response = await fetch("https://oauth2.googleapis.com/token", {
+    const response = await fetchProvider("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({

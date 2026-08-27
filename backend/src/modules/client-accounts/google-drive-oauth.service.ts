@@ -8,6 +8,7 @@ import { logAuditEvent } from "../../utils/audit.js";
 import { decryptProviderCredential, encryptProviderCredential } from "../../utils/provider-credentials.js";
 import { roleMatchesAllowedRoles } from "../../utils/roles.js";
 import { decideGoogleOAuthAccess } from "../auth/google-oauth-access.js";
+import { fetchProvider } from "../../utils/provider-fetch.js";
 
 type DriveOAuthState = {
   purpose: "google_drive";
@@ -148,7 +149,7 @@ export class GoogleDriveOAuthService {
       throw ApiError.forbidden("Only an Admin can connect the Google Drive integration.");
     }
 
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    const tokenResponse = await fetchProvider("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -164,7 +165,7 @@ export class GoogleDriveOAuthService {
       throw ApiError.badRequest(tokenPayload.error_description || tokenPayload.error || "Google Drive authorization failed.");
     }
 
-    const profileResponse = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    const profileResponse = await fetchProvider("https://www.googleapis.com/oauth2/v3/userinfo", {
       headers: { Authorization: `Bearer ${tokenPayload.access_token}` },
     });
     const profile: any = await profileResponse.json().catch(() => ({}));
@@ -257,7 +258,7 @@ export class GoogleDriveOAuthService {
     const refreshToken = decryptToken(stored.encryptedRefreshToken);
     if (!refreshToken) throw ApiError.serviceUnavailable("Reconnect Google Drive to restore offline access.");
 
-    const response = await fetch("https://oauth2.googleapis.com/token", {
+    const response = await fetchProvider("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -295,7 +296,7 @@ export class GoogleDriveOAuthService {
     };
 
     if (parentId !== "root") {
-      const currentResponse = await fetch(
+      const currentResponse = await fetchProvider(
         `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(parentId)}?${new URLSearchParams({ fields, supportsAllDrives: "true" }).toString()}`,
         { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
       );
@@ -318,7 +319,7 @@ export class GoogleDriveOAuthService {
       includeItemsFromAllDrives: "true",
       supportsAllDrives: "true",
     });
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+    const response = await fetchProvider(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
     });
     const payload: any = await response.json().catch(() => ({}));
@@ -344,7 +345,7 @@ export class GoogleDriveOAuthService {
       fields: "id,name,webViewLink,parents,modifiedTime",
       supportsAllDrives: "true",
     });
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+    const response = await fetchProvider(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -379,7 +380,7 @@ export class GoogleDriveOAuthService {
       fields: "id,name,mimeType,webViewLink,parents,modifiedTime,size",
       supportsAllDrives: "true",
     });
-    const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files?${params.toString()}`, {
+    const response = await fetchProvider(`https://www.googleapis.com/upload/drive/v3/files?${params.toString()}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -401,7 +402,7 @@ export class GoogleDriveOAuthService {
       fields: "id,name,mimeType,webViewLink,parents,modifiedTime,size",
       supportsAllDrives: "true",
     });
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${params.toString()}`, {
+    const response = await fetchProvider(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${params.toString()}`, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -419,7 +420,7 @@ export class GoogleDriveOAuthService {
 
   async deleteFile(clinicId: string, fileId: string) {
     const accessToken = await this.getAccessToken(clinicId);
-    const response = await fetch(
+    const response = await fetchProvider(
       `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`,
       {
         method: "PATCH",
@@ -439,7 +440,7 @@ export class GoogleDriveOAuthService {
 
   async downloadFile(clinicId: string, fileId: string) {
     const accessToken = await this.getAccessToken(clinicId);
-    const metadataResponse = await fetch(
+    const metadataResponse = await fetchProvider(
       `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size&supportsAllDrives=true`,
       { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
     );
@@ -459,7 +460,7 @@ export class GoogleDriveOAuthService {
     const downloadUrl = isGoogleFile
       ? `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?${new URLSearchParams({ mimeType: contentType }).toString()}`
       : `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`;
-    const response = await fetch(downloadUrl, {
+    const response = await fetchProvider(downloadUrl, {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: contentType },
     });
     if (!response.ok) {
@@ -480,7 +481,7 @@ export class GoogleDriveOAuthService {
       if (currentId === rootFolderId) return true;
       if (visited.has(currentId)) continue;
       visited.add(currentId);
-      const response = await fetch(
+      const response = await fetchProvider(
         `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(currentId)}?fields=id,parents,trashed&supportsAllDrives=true`,
         { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
       );
