@@ -3,7 +3,8 @@ import { profilesController } from "./profiles.controller.js";
 import { authorizePermission } from "../../middleware/authorize.js";
 import { authenticate } from "../../middleware/authenticate.js";
 import { validate } from "../../middleware/validate.js";
-import { updateClinicProfileValidator, updatePatientProfileValidator } from "./profiles.validators.js";
+import { updateClinicProfileValidator } from "./profiles.validators.js";
+import { ApiError } from "../../utils/ApiError.js";
 
 const router = Router();
 
@@ -29,24 +30,11 @@ router.put(
     profilesController.updateClinicProfile
 );
 
-// @route: GET /api/profiles/patient/:contactId
-// @desc: Get patient profile
-// @access: Private(clinic admin, clinic staff, or the patient themselves)
-router.get(
-    "/patient/:contactId",
-    authorizePermission("contacts:read"),
-    profilesController.getPatientProfile
-);
-
-// @route: PUT /api/profiles/patient/:contactId
-// @desc: Update patient profile
-// @access: Private(clinic admin, clinic staff, or the patient themselves)
-router.put(
-    "/patient/:contactId",
-    authorizePermission("contacts:write"),
-    updatePatientProfileValidator, validate,   
-    profilesController.updatePatientProfile
-);
+// The inherited clinic-facing patient profile contract is intentionally retired.
+// Internal contact records are available through the permissioned /api/contacts API.
+router.all("/patient/:contactId", (_req, _res, next) => {
+    next(new ApiError(410, "This legacy profile endpoint is retired. Use the internal contacts workspace."));
+});
 
 
 export default router;
