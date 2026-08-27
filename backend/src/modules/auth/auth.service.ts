@@ -229,12 +229,17 @@ export class AuthService {
       }
 
       const [users]: any = await connection.execute(
-        "SELECT id, clinic_id, email, first_name, last_name, role, email_verified_at FROM user WHERE id = ? AND deleted_at IS NULL",
+        `SELECT id, clinic_id, email, first_name, last_name, role, email_verified_at, status, is_active
+         FROM user
+         WHERE id = ? AND deleted_at IS NULL`,
         [userId],
       );
       const user = users[0] as TokenUser | undefined;
       if (!user) {
         throw ApiError.notFound("User not found");
+      }
+      if (String((user as any).status || "") !== "active" || Number((user as any).is_active) !== 1) {
+        throw ApiError.forbidden("This account is not authorised to access Mission Control.");
       }
 
       await connection.execute(
@@ -245,7 +250,10 @@ export class AuthService {
 
       await connection.commit();
 
-      const authUser = await this.getUserForToken(user.id, user.clinic_id) || user;
+      const authUser = await this.getUserForToken(user.id, user.clinic_id);
+      if (!authUser) {
+        throw ApiError.forbidden("This account is not authorised to access Mission Control.");
+      }
       const tokens = await this.createTokenPair(authUser, oauthState.rememberMe, meta);
       await logAuditEvent({
         clinicId: user.clinic_id,
@@ -355,7 +363,20 @@ export class AuthService {
 
     await this.resetLoginLockout(user.id);
 
-    const authUser = await this.getUserForToken(user.id, user.clinic_id) || user;
+    const authUser = await this.getUserForToken(user.id, user.clinic_id);
+    if (!authUser) {
+      await logAuditEvent({
+        clinicId: user.clinic_id,
+        userId: user.id,
+        action: "LOGIN_ACCESS_DENIED",
+        entityType: "user",
+        entityId: user.id,
+        changes: { reason: "inactive_user_or_membership" },
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+      });
+      throw ApiError.unauthorized("Invalid email or password");
+    }
 
     if (user.two_factor_enabled) {
       const otp = generateOTP();
@@ -426,7 +447,10 @@ export class AuthService {
       throw ApiError.unauthorized("Invalid 2FA code");
     }
 
-    const authUser = await this.getUserForToken(user.id, user.clinic_id) || user;
+    const authUser = await this.getUserForToken(user.id, user.clinic_id);
+    if (!authUser) {
+      throw ApiError.unauthorized("Authentication required");
+    }
     const tokens = await this.createTokenPair(authUser, data.rememberMe, meta);
     await logAuditEvent({
       clinicId: user.clinic_id,
