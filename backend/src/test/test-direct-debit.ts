@@ -112,6 +112,43 @@ test("Direct Debit failed payment callbacks create alerts and active callbacks r
   assert.equal(alertRows[0].status, "resolved");
 });
 
+test("Direct Debit ignores stale lifecycle callbacks after a mandate becomes active", async () => {
+  const clinic = await createTestClinicAndAdmin("direct-debit-out-of-order");
+  const suffix = uuidv4();
+  const providerMandateId = `MD-ORDER-${suffix}`;
+
+  const active = await directDebitService.applyProviderCallback({
+    clinicId: clinic.clinicId,
+    provider: "gocardless",
+    providerEventId: `EVT-DD-ACTIVE-${suffix}`,
+    providerMandateId,
+    status: "active",
+    eventType: "mandates.active",
+    payload: { id: `EVT-DD-ACTIVE-${suffix}` },
+  });
+  const staleSubmitted = await directDebitService.applyProviderCallback({
+    clinicId: clinic.clinicId,
+    provider: "gocardless",
+    providerEventId: `EVT-DD-SUBMITTED-${suffix}`,
+    providerMandateId,
+    status: "submitted",
+    eventType: "mandates.submitted",
+    payload: { id: `EVT-DD-SUBMITTED-${suffix}` },
+  });
+  const [eventRows]: any = await pool.execute(
+    `SELECT event_status as eventStatus
+     FROM direct_debit_mandate_event
+     WHERE clinic_id = ? AND mandate_id = ?
+     ORDER BY event_status ASC`,
+    [clinic.clinicId, active.mandate.id],
+  );
+
+  assert.equal(active.mandate.status, "active");
+  assert.equal(staleSubmitted.mandate.status, "active");
+  assert.equal(staleSubmitted.duplicate, false, "a distinct stale provider event is still recorded");
+  assert.deepEqual(eventRows.map((row: any) => row.eventStatus), ["active", "submitted"]);
+});
+
 test("Direct Debit reconciliation records mismatches and opens review alerts", async () => {
   const clinic = await createTestClinicAndAdmin("direct-debit-reconciliation");
   const suffix = uuidv4();

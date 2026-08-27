@@ -11,6 +11,7 @@ import { callsService } from "../modules/calls/calls.service.js";
 import { contactsService } from "../modules/contacts/contacts.service.js";
 import { consultsService } from "../modules/consults/consults.service.js";
 import { insightsService } from "../modules/insights/insights.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 const CALL_TABLE = "`\u00A0call\u00A0`";
 
@@ -33,23 +34,6 @@ function nextWeekdayDate(daysAhead = 1) {
     date.setDate(date.getDate() + 1);
   }
   return date;
-}
-
-async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
 }
 
 async function createInternalViewerUser(clinicId: string, prefix: string) {
@@ -105,8 +89,8 @@ test("Performance OS attribution chain links source to revenue, insight, alert, 
   await testConnection();
   console.log("[performance-os] database connection OK");
 
-  const primary = await createClinicAndAdmin("PerformanceOsPrimary");
-  const secondary = await createClinicAndAdmin("PerformanceOsSecondary");
+  const primary = await createTestClinicAndAdmin("PerformanceOsPrimary");
+  const secondary = await createTestClinicAndAdmin("PerformanceOsSecondary");
   const limitedUser = await createInternalViewerUser(primary.clinicId, "PerformanceOs");
 
   const server = app.listen(0);
@@ -123,7 +107,8 @@ test("Performance OS attribution chain links source to revenue, insight, alert, 
   const trackingId = uuidv4();
   const insightId = uuidv4();
   const alertId = uuidv4();
-  const trackingNumber = "+1 (555) 902-0001";
+  const trackingSuffix = String(Math.floor(Math.random() * 10_000_000)).padStart(7, "0");
+  const trackingNumber = `+1 (555) ${trackingSuffix.slice(0, 3)}-${trackingSuffix.slice(3)}`;
   const normalizedTrackingNumber = trackingNumber.replace(/\D/g, "");
   const appointmentDate = nextWeekdayDate(1);
   appointmentDate.setHours(10, 0, 0, 0);
@@ -314,13 +299,14 @@ test("Performance OS attribution chain links source to revenue, insight, alert, 
       ],
     );
 
-    const viewerForbidden = await fetchJson(
+    const viewerRead = await fetchJson(
       baseUrl,
       `/api/performance-os/attribution-chain?contactId=${lead.contact.id}`,
       limitedUser.token,
     );
-    assert.equal(viewerForbidden.response.status, 403);
-    console.log("[performance-os] read-only internal viewer blocked from attribution chain passed");
+    assert.equal(viewerRead.response.status, 200, JSON.stringify(viewerRead.body));
+    assert.equal(viewerRead.body.data.contact.id, lead.contact.id);
+    console.log("[performance-os] reports-enabled internal viewer attribution access passed");
 
     const secondaryBoundary = await fetchJson(
       baseUrl,
@@ -335,7 +321,7 @@ test("Performance OS attribution chain links source to revenue, insight, alert, 
       `/api/performance-os/attribution-chain?contactId=${lead.contact.id}`,
       primary.token,
     );
-    assert.equal(chainResponse.response.status, 200);
+    assert.equal(chainResponse.response.status, 200, JSON.stringify(chainResponse.body));
     const chain = chainResponse.body.data;
     assert.equal(chain.contact.id, lead.contact.id);
     assert.equal(chain.source.label, "meta_ads");
@@ -349,7 +335,7 @@ test("Performance OS attribution chain links source to revenue, insight, alert, 
     assert.equal(chain.bookings.length, 1);
     assert.equal(chain.bookings[0].id, appointmentId);
     assert.equal(chain.consultations.length, 1);
-    assert.equal(chain.consultations[0].outcome, "Treatment Booked");
+    assert.equal(chain.consultations[0].outcome, "Sold");
     assert.equal(chain.treatments.length, 1);
     assert.equal(chain.treatments[0].sold, true);
     assert.equal(chain.revenue.total, 7800);

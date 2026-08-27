@@ -6,7 +6,9 @@ import {
   Activity,
   AlertTriangle,
   ArrowLeft,
+  Boxes,
   CheckCircle2,
+  ExternalLink,
   RefreshCw,
   RotateCcw,
   ShieldCheck,
@@ -15,6 +17,7 @@ import {
 import { api } from "@/lib/api-client";
 import type {
   ClickUpIntegrationStatus,
+  ClickUpDeliveryProvisionFailure,
   ClickUpReconciliationResponse,
   ClickUpWebhookEventRecord,
   FailedTaskMapping,
@@ -93,6 +96,7 @@ export default function ReconciliationPage() {
   const token = session?.token;
   const [data, setData] = useState<ClickUpReconciliationResponse | null>(null);
   const [integrationStatus, setIntegrationStatus] = useState<ClickUpIntegrationStatus | null>(null);
+  const [deliveryFailures, setDeliveryFailures] = useState<ClickUpDeliveryProvisionFailure[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [replayingId, setReplayingId] = useState<string | null>(null);
@@ -110,12 +114,14 @@ export default function ReconciliationPage() {
     try {
       setLoading(true);
       setError("");
-      const [status, reconciliation] = await Promise.all([
+      const [status, reconciliation, provisionFailures] = await Promise.all([
         api.clickup.getStatus(token),
         api.clickup.getReconciliationStatus(token),
+        api.clickup.listDeliveryProvisionFailures(token),
       ]);
       setIntegrationStatus(status);
       setData(reconciliation);
+      setDeliveryFailures(provisionFailures);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "ClickUp sync status could not be loaded.");
     } finally {
@@ -192,6 +198,21 @@ export default function ReconciliationPage() {
       setMessage({ type: "error", text: reason instanceof Error ? reason.message : "Dismiss failed." });
     } finally {
       setDismissingId(null);
+    }
+  }
+
+  async function handleRetryProvision(provisionId: string) {
+    if (!token) return;
+    setReplayingId(provisionId);
+    setMessage(null);
+    try {
+      await api.clickup.retryDeliveryProvision(token, provisionId);
+      setMessage({ type: "success", text: "Delivery provision requeued. The background worker will resume from its saved checkpoint." });
+      await loadReconciliation();
+    } catch (reason) {
+      setMessage({ type: "error", text: reason instanceof Error ? reason.message : "Delivery provision could not be requeued." });
+    } finally {
+      setReplayingId(null);
     }
   }
 
@@ -287,6 +308,12 @@ export default function ReconciliationPage() {
         </div>
       </section>
 
+      <DeliveryProvisionIncidents
+        failures={deliveryFailures}
+        replayingId={replayingId}
+        onRetry={handleRetryProvision}
+      />
+
       <section className="rounded-3xl border border-black/[0.06] bg-[#FFFCF9] p-4 shadow-[0_10px_34px_rgba(49,45,90,0.05)] sm:p-5">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -344,6 +371,104 @@ export default function ReconciliationPage() {
         />
       </section>
     </main>
+  );
+}
+
+function DeliveryProvisionIncidents({
+  failures,
+  replayingId,
+  onRetry,
+}: {
+  failures: ClickUpDeliveryProvisionFailure[];
+  replayingId: string | null;
+  onRetry: (provisionId: string) => void;
+}) {
+  const exhausted = failures.filter((row) => row.retryState === "exhausted").length;
+  const scheduled = failures.filter((row) => row.retryState === "scheduled").length;
+
+  return (
+    <section className="overflow-hidden rounded-3xl border border-black/[0.06] bg-[#171615] text-white shadow-[0_16px_44px_rgba(23,22,21,0.14)]">
+      <div className="grid gap-4 border-b border-white/10 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div className="flex gap-3.5">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F2A65A]/15 text-[#F7B978]">
+            <Boxes className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#F7B978]">Accepted proposal automation</p>
+            <h2 className="mt-1 text-xl font-semibold">Delivery Provision Incidents ({failures.length})</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-white/60">Failures creating ClickUp folders, lists, root tasks, subtasks, or checklists. Requeues resume from the last saved checkpoint.</p>
+          </div>
+        </div>
+        <div className="flex gap-2 text-xs font-semibold">
+          <span className="rounded-full border border-[#F7B978]/30 bg-[#F7B978]/10 px-3 py-1.5 text-[#FFD0A0]">{scheduled} scheduled</span>
+          <span className="rounded-full border border-[#EF8F7C]/30 bg-[#EF8F7C]/10 px-3 py-1.5 text-[#FFB6A7]">{exhausted} exhausted</span>
+        </div>
+      </div>
+
+      {failures.length === 0 ? (
+        <div className="flex items-center gap-3 p-5 text-sm text-white/70">
+          <CheckCircle2 className="h-5 w-5 text-[#80D4AF]" aria-hidden="true" />
+          No delivery provisions need attention.
+        </div>
+      ) : (
+        <div className="grid gap-px bg-white/10 lg:grid-cols-2">
+          {failures.map((failure) => {
+            const isReplaying = replayingId === failure.id;
+            const packageLabel = failure.payload?.packageName || failure.payload?.packageId || "Package not recorded";
+            const checkpointCount = Number(Boolean(failure.clickUpFolderId)) + Number(Boolean(failure.clickUpListId));
+            return (
+              <article key={failure.id} className="bg-[#211F1D] p-4 sm:p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-semibold">{failure.clientName}</p>
+                    <p className="mt-1 truncate text-xs text-white/50">{packageLabel}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${failure.retryState === "exhausted" ? "border-[#EF8F7C]/40 bg-[#EF8F7C]/10 text-[#FFB6A7]" : "border-[#F7B978]/40 bg-[#F7B978]/10 text-[#FFD0A0]"}`}>
+                    {failure.retryState}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid grid-cols-[auto_1fr] gap-3 rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#F7B978]/35 text-sm font-bold text-[#FFD0A0]">
+                    {failure.attemptCount}/{failure.maxAttempts}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/45">Checkpoint progress</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-semibold">
+                      <span className={`rounded-md px-2 py-1 ${failure.clickUpFolderId ? "bg-[#80D4AF]/15 text-[#A9E8CC]" : "bg-white/5 text-white/40"}`}>Folder</span>
+                      <span className={`rounded-md px-2 py-1 ${failure.clickUpListId ? "bg-[#80D4AF]/15 text-[#A9E8CC]" : "bg-white/5 text-white/40"}`}>List</span>
+                      <span className="rounded-md bg-white/5 px-2 py-1 text-white/55">{checkpointCount}/2 structure steps</span>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="mt-3 line-clamp-2 text-xs leading-5 text-[#FFB6A7]">{failure.failureReason || "No failure reason recorded."}</p>
+                <div className="mt-3 grid gap-1 text-[11px] text-white/45 sm:grid-cols-2">
+                  <span>Last attempt: {formatDateTime(failure.lastAttemptAt)}</span>
+                  <span>Next retry: {failure.retryState === "exhausted" ? "Manual requeue required" : formatDateTime(failure.nextAttemptAt)}</span>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => onRetry(failure.id)}
+                    disabled={isReplaying}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#F7B978] px-3 text-xs font-bold text-[#2A2119] transition hover:bg-[#FFD0A0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD0A0] focus-visible:ring-offset-2 focus-visible:ring-offset-[#211F1D] disabled:opacity-50"
+                  >
+                    <RotateCcw className={`h-3.5 w-3.5 ${isReplaying ? "animate-spin" : ""}`} aria-hidden="true" />
+                    {isReplaying ? "Requeueing..." : "Requeue provision"}
+                  </button>
+                  {failure.deliveryUrl && (
+                    <a href={failure.deliveryUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-white/15 px-3 text-xs font-semibold text-white/75 hover:bg-white/5">
+                      Open checkpoint <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                    </a>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 

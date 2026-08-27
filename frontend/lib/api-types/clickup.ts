@@ -217,6 +217,37 @@ export interface FailedTaskMapping {
   updatedAt: string;
 }
 
+export interface ClickUpDeliveryProvisionRecord {
+  id: string;
+  clientAccountProfileId: string;
+  proposalId: string;
+  clientName?: string;
+  status: "pending" | "processing" | "processed" | "failed";
+  failureReason: string | null;
+  attemptCount: number;
+  maxAttempts: number;
+  retryState: "scheduled" | "ready" | "exhausted" | null;
+  nextAttemptAt: string | null;
+  lastAttemptAt: string | null;
+  clickUpFolderId: string | null;
+  clickUpListId: string | null;
+  deliveryUrl: string | null;
+  updatedAt: string;
+  payload: {
+    packageId?: string | null;
+    packageName?: string | null;
+    proposalUrl?: string | null;
+    proposalReference?: string | null;
+    dealId?: string | null;
+  };
+}
+
+export type ClickUpDeliveryProvisionFailure = ClickUpDeliveryProvisionRecord & {
+  clientName: string;
+  status: "failed";
+  retryState: "scheduled" | "ready" | "exhausted";
+};
+
 export type ClickUpWebhookProcessingStatus =
   | "queued"
   | "processing"

@@ -19,6 +19,7 @@ process.env.CREDENTIAL_ENCRYPTION_KEY = "quickbooks-test-credential-key-32-chars
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const migrationPath = resolve(currentDir, "../../scripts/migrations/20260804_add_quickbooks_integration_foundation.sql");
+const routesPath = resolve(currentDir, "../modules/quickbooks/quickbooks.routes.js");
 
 type TestModules = {
   pool: typeof import("../config/database.js").default;
@@ -397,4 +398,12 @@ test("QuickBooks mapping routes are permission protected", async () => {
   } finally {
     await closeServer(server);
   }
+});
+
+test("QuickBooks commercial draft processing requires billing write permission", async () => {
+  const routesSource = await readFile(routesPath, "utf8");
+  assert.match(
+    routesSource,
+    /["']\/commercial-drafts\/:draftId\/process["'][\s\S]*?authorizePermission\(["']billing:write["']\)/,
+  );
 });

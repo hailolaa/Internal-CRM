@@ -1626,7 +1626,7 @@ test("won opportunities convert into client accounts with preserved history and 
     assert.equal(concurrentConversion.body.data.clinicId, converted.body.data.clinicId);
     assert.notEqual(converted.body.data.clinicId, primary.clinicId, "Client status must live on the new client account, not the sales workspace");
     assert.equal(converted.body.data.clientStatus, "onboarding");
-    assert.equal(converted.body.data.onboardingStatus, "in_progress");
+    assert.equal(converted.body.data.onboardingStatus, "paused");
     assert.equal(converted.body.data.currentPackage, "Growth Engine");
     assert.equal(converted.body.data.monthlyPrice, 1995);
     assert.equal(converted.body.data.setupFee, 0);
@@ -2408,7 +2408,7 @@ test("client account profile API is permission protected, updateable, audited, a
 
     assert.equal(updated.body.data.accountManager.id, admin.userId);
     assert.deepEqual(updated.body.data.activeServices, ["ppc", "seo", "strategy"]);
-    assert.equal(updated.body.data.onboardingStatus, "in_progress");
+    assert.equal(updated.body.data.onboardingStatus, "paused");
     assert.equal(updated.body.data.healthStatus, "healthy");
     assert.equal(updated.body.data.monthlyPrice, 3495);
     assert.equal(updated.body.data.setupFee, 500);
@@ -2468,6 +2468,14 @@ test("client account profile API is permission protected, updateable, audited, a
     assert.equal(auditChanges.lastContactAt.after, "2026-07-10 00:00:00");
     assert.equal(auditChanges.lastReportAt.after, "2026-07-11 00:00:00");
     assert.equal(auditChanges.lastLoomAt.after, "2026-07-12 00:00:00");
+
+    const paymentCleared = await fetchJson(baseUrl, "/api/client-accounts/profile", admin.token, {
+      method: "PATCH",
+      body: JSON.stringify({ paymentStatus: "paid" }),
+    });
+    assert.equal(paymentCleared.response.status, 200);
+    assert.equal(paymentCleared.body.data.paymentStatus, "paid");
+    assert.equal(paymentCleared.body.data.onboardingStatus, "in_progress");
 
     const forbiddenDeliveryCreateAssignment = await fetchJson(
       baseUrl,

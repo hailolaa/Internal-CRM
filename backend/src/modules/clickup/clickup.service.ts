@@ -7,6 +7,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { insertAuditEvent } from "../../utils/audit.js";
 import { decryptProviderCredential, encryptProviderCredential } from "../../utils/provider-credentials.js";
 import { generateResetToken, hashToken } from "../../utils/helpers.js";
+import { stageClickUpDeliveryProvision, type StageClickUpDeliveryProvisionInput } from "./clickup.delivery.persistence.js";
 import type {
   ClickUpAccessContext,
   ClickUpAuditContext,
@@ -57,6 +58,23 @@ const CLICKUP_LIFECYCLE_EVENTS = new Set([
   "taskUnarchived",
   "taskMoved",
 ]);
+
+interface ClickUpDeliveryProvisionAdapter {
+  createFolder(input: { spaceId: string; name: string }): Promise<{ id: string }>;
+  createList(input: { folderId: string; name: string }): Promise<{ id: string; url?: string | null }>;
+  createTask(input: {
+    listId: string;
+    internalTaskId: string | null;
+    title: string;
+    description: string;
+    dueDate: string | null;
+    priority: string;
+    parentTaskId: string | null;
+    assigneeIds: string[];
+  }): Promise<{ id: string; url?: string | null }>;
+  createChecklist(input: { taskId: string; name: string }): Promise<{ id: string }>;
+  createChecklistItem(input: { checklistId: string; name: string }): Promise<void>;
+}
 
 function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
@@ -538,6 +556,11 @@ function safeTimingEqual(left: string, right: string) {
   return timingSafeEqual(a, b);
 }
 
+function deterministicClickUpAlertId(clinicId: string, taskId: string, type: string) {
+  const hex = createHash("sha256").update(`${clinicId}:${taskId}:${type}`).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 function extractProviderEventKey(payload: any, hash: string) {
   const webhookId = extractWebhookId(payload);
   const history = firstHistoryItem(payload);
@@ -688,6 +711,437 @@ function classifyClickUpProviderFailure(error: any) {
 }
 
 export class ClickUpService {
+  async stageDeliveryProvision(
+    input: StageClickUpDeliveryProvisionInput,
+    executor: Pick<PoolConnection, "execute"> = pool,
+  ) {
+    return stageClickUpDeliveryProvision(input, executor);
+  }
+
+  async processDeliveryProvision(
+    input: { clinicId: string; provisionId: string; userId?: string | null },
+    adapter?: ClickUpDeliveryProvisionAdapter,
+  ) {
+    const [claim]: any = await pool.execute(
+      `UPDATE clickup_delivery_provision
+       SET status = 'processing', failure_reason = NULL,
+           attempt_count = attempt_count + 1, last_attempt_at = CURRENT_TIMESTAMP,
+           next_attempt_at = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND status IN ('pending', 'failed')
+         AND attempt_count < max_attempts`,
+      [input.provisionId, input.clinicId],
+    );
+    if (claim.affectedRows !== 1) return this.getDeliveryProvision(input.clinicId, input.provisionId);
+
+    let provision = await this.getDeliveryProvision(input.clinicId, input.provisionId);
+    try {
+      const [mappingRows]: any = await pool.execute(
+        `SELECT m.id, m.connection_id as connectionId, m.workspace_id as workspaceId,
+                m.space_id as spaceId, m.delivery_root_task_id as deliveryRootTaskId
+         FROM clickup_client_mapping m
+         WHERE m.clinic_id = ? AND m.client_account_profile_id = ?
+           AND m.mapping_status = 'active'
+         LIMIT 1`,
+        [input.clinicId, provision.clientAccountProfileId],
+      );
+      const mapping = mappingRows[0];
+      if (!mapping?.spaceId) {
+        throw ApiError.badRequest("An active ClickUp client mapping with a target space is required for delivery provisioning.");
+      }
+      const connection = adapter ? null : await this.getActiveConnection(input.clinicId, mapping.workspaceId);
+      const provider: ClickUpDeliveryProvisionAdapter = adapter || {
+        createFolder: async ({ spaceId, name }) => {
+          const result = await this.clickUpRequest(
+            connection!,
+            `/space/${encodeURIComponent(spaceId)}/folder`,
+            { method: "POST", body: JSON.stringify({ name }) },
+          );
+          return { id: String(result.id || "") };
+        },
+        createList: async ({ folderId, name }) => {
+          const result = await this.clickUpRequest(
+            connection!,
+            `/folder/${encodeURIComponent(folderId)}/list`,
+            { method: "POST", body: JSON.stringify({ name }) },
+          );
+          return { id: String(result.id || ""), url: cleanString(result.url) };
+        },
+        createTask: async ({ listId, title, description, dueDate, priority, parentTaskId, assigneeIds }) => {
+          const body: Record<string, unknown> = {
+            name: title,
+            description,
+            priority: priority === "urgent" ? 1 : priority === "high" ? 2 : priority === "low" ? 4 : 3,
+          };
+          if (dueDate) body.due_date = new Date(`${dueDate}T12:00:00.000Z`).getTime();
+          if (parentTaskId) body.parent = parentTaskId;
+          if (assigneeIds.length > 0) {
+            body.assignees = assigneeIds.map((id) => Number.isFinite(Number(id)) ? Number(id) : id);
+          }
+          const result = await this.clickUpRequest(
+            connection!,
+            `/list/${encodeURIComponent(listId)}/task`,
+            { method: "POST", body: JSON.stringify(body) },
+          );
+          return { id: String(result.id || ""), url: cleanString(result.url) };
+        },
+        createChecklist: async ({ taskId, name }) => {
+          const result = await this.clickUpRequest(
+            connection!,
+            `/task/${encodeURIComponent(taskId)}/checklist`,
+            { method: "POST", body: JSON.stringify({ name }) },
+          );
+          return { id: String(result.checklist?.id || result.id || "") };
+        },
+        createChecklistItem: async ({ checklistId, name }) => {
+          await this.clickUpRequest(
+            connection!,
+            `/checklist/${encodeURIComponent(checklistId)}/checklist_item`,
+            { method: "POST", body: JSON.stringify({ name }) },
+          );
+        },
+      };
+
+      if (!provision.clickUpFolderId) {
+        const packageName = cleanString(provision.payload?.packageName) || "Client";
+        const folder = await provider.createFolder({ spaceId: mapping.spaceId, name: `${packageName} Delivery` });
+        if (!folder.id) throw ApiError.serviceUnavailable("ClickUp did not return a folder ID.");
+        await pool.execute(
+          `UPDATE clickup_delivery_provision
+           SET clickup_folder_id = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND clinic_id = ? AND status = 'processing'`,
+          [folder.id, provision.id, input.clinicId],
+        );
+        provision = await this.getDeliveryProvision(input.clinicId, input.provisionId);
+      }
+
+      if (!provision.clickUpListId) {
+        const list = await provider.createList({ folderId: provision.clickUpFolderId as string, name: "Delivery" });
+        if (!list.id) throw ApiError.serviceUnavailable("ClickUp did not return a list ID.");
+        const deliveryUrl = cleanString(list.url) || `https://app.clickup.com/${mapping.workspaceId}/v/l/${list.id}`;
+        await pool.execute(
+          `UPDATE clickup_delivery_provision
+           SET clickup_list_id = ?, delivery_url = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND clinic_id = ? AND status = 'processing'`,
+          [list.id, deliveryUrl, provision.id, input.clinicId],
+        );
+        await pool.execute(
+          `UPDATE clickup_client_mapping
+           SET folder_id = ?, list_id = ?, delivery_url = ?, mapping_source = 'api_lookup',
+               updated_by = COALESCE(?, updated_by), updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND clinic_id = ?`,
+          [provision.clickUpFolderId, list.id, deliveryUrl, input.userId || null, mapping.id, input.clinicId],
+        );
+        provision = await this.getDeliveryProvision(input.clinicId, input.provisionId);
+      }
+
+      let deliveryRootTaskId = mapping.deliveryRootTaskId as string | null;
+      if (!deliveryRootTaskId) {
+        const packageName = cleanString(provision.payload?.packageName) || "Client";
+        const rootTask = await provider.createTask({
+          listId: provision.clickUpListId as string,
+          internalTaskId: null,
+          title: `${packageName} Delivery`,
+          description: [
+            "Delivery root created from an accepted Mission Control proposal.",
+            provision.payload?.proposalUrl ? `Accepted proposal: ${provision.payload.proposalUrl}` : "",
+            `Client profile: ${provision.clientAccountProfileId}`,
+          ].filter(Boolean).join("\n"),
+          dueDate: null,
+          priority: "high",
+          parentTaskId: null,
+          assigneeIds: [],
+        });
+        if (!rootTask.id) throw ApiError.serviceUnavailable("ClickUp did not return a delivery root task ID.");
+        deliveryRootTaskId = rootTask.id;
+        await pool.execute(
+          `UPDATE clickup_client_mapping
+           SET delivery_root_task_id = ?, updated_by = COALESCE(?, updated_by), updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND clinic_id = ?`,
+          [deliveryRootTaskId, input.userId || null, mapping.id, input.clinicId],
+        );
+      }
+
+      const [taskRows]: any = await pool.execute(
+        `SELECT t.id, t.title, t.description, t.priority, t.due_date as dueDate,
+                t.service_type as serviceType, t.qa_checklist as qaChecklist,
+                tm.id as taskMappingId, tm.clickup_task_id as clickUpTaskId,
+                tm.clickup_checklist_id as clickUpChecklistId,
+                tm.clickup_checklist_item_count as clickUpChecklistItemCount,
+                tm.checklist_synced_at as checklistSyncedAt,
+                cm.default_assignee_ids as defaultAssigneeIds
+         FROM task t
+         LEFT JOIN clickup_task_mapping tm
+           ON tm.clinic_id = t.clinic_id AND tm.internal_task_id = t.id
+         LEFT JOIN clickup_category_mapping cm
+           ON cm.clinic_id = t.clinic_id
+          AND cm.client_account_profile_id = t.client_account_profile_id
+          AND cm.mapping_status = 'active'
+          AND cm.category_key = CASE
+            WHEN t.service_type = 'seo' THEN 'seo'
+            WHEN t.service_type = 'gbp' THEN 'gmb_local_seo'
+            WHEN t.service_type = 'ppc' THEN 'ppc'
+            WHEN t.service_type = 'website' THEN 'development'
+            WHEN t.service_type = 'strategy' THEN 'managerial'
+            ELSE 'account_control'
+          END
+         WHERE t.clinic_id = ? AND t.client_account_profile_id = ?
+           AND t.is_internal = 1 AND t.board_key = 'delivery'
+           AND t.status <> 'completed' AND t.archived_at IS NULL AND t.deleted_at IS NULL
+         ORDER BY t.due_date ASC, t.created_at ASC`,
+        [input.clinicId, provision.clientAccountProfileId],
+      );
+      for (const task of taskRows) {
+        const description = [
+          task.description || "",
+          "",
+          `Mission Control task: ${task.id}`,
+          provision.payload?.proposalUrl ? `Accepted proposal: ${provision.payload.proposalUrl}` : "",
+        ].filter(Boolean).join("\n");
+        let taskMappingId = task.taskMappingId as string | null;
+        let clickUpTaskId = task.clickUpTaskId as string | null;
+        if (!clickUpTaskId) {
+          const remoteTask = await provider.createTask({
+            listId: provision.clickUpListId as string,
+            internalTaskId: task.id,
+            title: task.title,
+            description,
+            dueDate: task.dueDate ? String(task.dueDate).slice(0, 10) : null,
+            priority: task.priority || "medium",
+            parentTaskId: deliveryRootTaskId,
+            assigneeIds: parseJsonArray(task.defaultAssigneeIds),
+          });
+          if (!remoteTask.id) throw ApiError.serviceUnavailable("ClickUp did not return a task ID.");
+          clickUpTaskId = remoteTask.id;
+          taskMappingId = uuidv4();
+          const clickUpUrl = cleanString(remoteTask.url) || `https://app.clickup.com/t/${remoteTask.id}`;
+          await pool.execute(
+            `INSERT INTO clickup_task_mapping
+              (id, clinic_id, client_account_profile_id, internal_task_id, connection_id, workspace_id,
+               clickup_task_id, clickup_list_id, clickup_url, sync_direction, mapping_status, created_by, updated_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'mission_control_to_clickup', 'active', ?, ?)`,
+            [
+              taskMappingId, input.clinicId, provision.clientAccountProfileId, task.id, mapping.connectionId,
+              mapping.workspaceId, remoteTask.id, provision.clickUpListId, clickUpUrl,
+              input.userId || null, input.userId || null,
+            ],
+          );
+        }
+
+        const checklistValue = typeof task.qaChecklist === "string" ? JSON.parse(task.qaChecklist) : task.qaChecklist;
+        const checklistItems = Array.isArray(checklistValue?.items)
+          ? checklistValue.items.map((item: any) => cleanString(typeof item === "string" ? item : item?.label || item?.title)).filter(Boolean)
+          : [];
+        if (checklistItems.length > 0 && !task.checklistSyncedAt) {
+          let checklistId = task.clickUpChecklistId as string | null;
+          if (!checklistId) {
+            const checklist = await provider.createChecklist({ taskId: clickUpTaskId as string, name: "Delivery checklist" });
+            if (!checklist.id) throw ApiError.serviceUnavailable("ClickUp did not return a checklist ID.");
+            checklistId = checklist.id;
+            await pool.execute(
+              "UPDATE clickup_task_mapping SET clickup_checklist_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+              [checklistId, taskMappingId],
+            );
+          }
+          let completedItems = Number(task.clickUpChecklistItemCount || 0);
+          for (const item of checklistItems.slice(completedItems)) {
+            await provider.createChecklistItem({ checklistId, name: item as string });
+            completedItems += 1;
+            await pool.execute(
+              `UPDATE clickup_task_mapping
+               SET clickup_checklist_item_count = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+              [completedItems, taskMappingId],
+            );
+          }
+          await pool.execute(
+            "UPDATE clickup_task_mapping SET checklist_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [taskMappingId],
+          );
+        }
+      }
+      await pool.execute(
+        `UPDATE clickup_delivery_provision
+         SET status = 'processed', processed_at = CURRENT_TIMESTAMP,
+             failure_reason = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ? AND status = 'processing'`,
+        [provision.id, input.clinicId],
+      );
+
+      const processed = await this.getDeliveryProvision(input.clinicId, input.provisionId);
+      if (input.userId) {
+        await insertAuditEvent(pool, {
+          clinicId: input.clinicId,
+          userId: input.userId,
+          action: "CLICKUP_DELIVERY_PROVISIONED",
+          entityType: "clickup_delivery_provision",
+          entityId: processed.id,
+          changes: {
+            clientAccountProfileId: processed.clientAccountProfileId,
+            clickUpFolderId: processed.clickUpFolderId,
+            clickUpListId: processed.clickUpListId,
+            deliveryUrl: processed.deliveryUrl,
+          },
+        });
+      }
+      return processed;
+    } catch (error) {
+      const delayMinutes = Math.min(60, 5 * (2 ** Math.max(0, Number(provision.attemptCount || 1) - 1)));
+      const nextAttemptAt = Number(provision.attemptCount || 1) >= Number(provision.maxAttempts || 5)
+        ? null
+        : new Date(Date.now() + delayMinutes * 60 * 1000);
+      await pool.execute(
+        `UPDATE clickup_delivery_provision
+         SET status = 'failed', failure_reason = ?, next_attempt_at = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ? AND status = 'processing'`,
+        [(error instanceof Error ? error.message : String(error)).slice(0, 1000), nextAttemptAt, provision.id, input.clinicId],
+      );
+      throw error;
+    }
+  }
+
+  async processDeliveryProvisionBatch(
+    options: { limit?: number; staleAfterMinutes?: number } = {},
+    adapterFactory?: (clinicId: string) => Promise<ClickUpDeliveryProvisionAdapter>,
+  ) {
+    const limit = Math.min(Math.max(options.limit || 25, 1), 100);
+    const staleAfterMinutes = Math.min(Math.max(options.staleAfterMinutes || 30, 5), 1440);
+    const [staleResult]: any = await pool.execute(
+      `UPDATE clickup_delivery_provision
+       SET status = 'failed', failure_reason = 'Recovered stale processing claim.',
+           next_attempt_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE status = 'processing'
+         AND attempt_count < max_attempts
+         AND updated_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL ${staleAfterMinutes} MINUTE)`,
+    );
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId
+       FROM clickup_delivery_provision
+       WHERE status IN ('pending', 'failed')
+         AND attempt_count < max_attempts
+         AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP)
+       ORDER BY created_at ASC
+       LIMIT ${limit}`,
+    );
+    let processed = 0;
+    let failed = 0;
+    for (const row of rows) {
+      try {
+        const adapter = adapterFactory ? await adapterFactory(row.clinicId) : undefined;
+        const result = await this.processDeliveryProvision(
+          { clinicId: row.clinicId, provisionId: row.id },
+          adapter,
+        );
+        if (result.status === "processed") processed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    return { recoveredStale: Number(staleResult.affectedRows || 0), attempted: rows.length, processed, failed };
+  }
+
+  async listDeliveryProvisionFailures(clinicId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT p.id, p.client_account_profile_id as clientAccountProfileId,
+              p.proposal_id as proposalId, p.status, p.failure_reason as failureReason,
+              p.attempt_count as attemptCount, p.max_attempts as maxAttempts,
+              p.next_attempt_at as nextAttemptAt, p.last_attempt_at as lastAttemptAt,
+              p.clickup_folder_id as clickUpFolderId, p.clickup_list_id as clickUpListId,
+              p.delivery_url as deliveryUrl, p.payload, p.updated_at as updatedAt,
+              c.name as clientName
+       FROM clickup_delivery_provision p
+       JOIN client_account_profile cap ON cap.id = p.client_account_profile_id
+       JOIN clinic c ON c.id = cap.clinic_id AND c.deleted_at IS NULL
+       WHERE p.clinic_id = ? AND p.status = 'failed'
+       ORDER BY p.updated_at DESC
+       LIMIT 200`,
+      [clinicId],
+    );
+    return rows.map((row: any) => {
+      const payload = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload;
+      return {
+        ...row,
+        payload,
+        retryState: Number(row.attemptCount) >= Number(row.maxAttempts)
+          ? "exhausted"
+          : row.nextAttemptAt
+            ? "scheduled"
+            : "ready",
+      };
+    });
+  }
+
+  async getClientDeliveryProvision(clinicId: string, clientAccountProfileId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT p.id, p.client_account_profile_id as clientAccountProfileId,
+              p.proposal_id as proposalId, p.status, p.failure_reason as failureReason,
+              p.attempt_count as attemptCount, p.max_attempts as maxAttempts,
+              p.next_attempt_at as nextAttemptAt, p.last_attempt_at as lastAttemptAt,
+              p.clickup_folder_id as clickUpFolderId, p.clickup_list_id as clickUpListId,
+              p.delivery_url as deliveryUrl, p.payload, p.updated_at as updatedAt
+       FROM clickup_delivery_provision p
+       WHERE p.clinic_id = ? AND p.client_account_profile_id = ?
+       ORDER BY p.created_at DESC
+       LIMIT 1`,
+      [clinicId, clientAccountProfileId],
+    );
+    if (!rows[0]) return null;
+    const row = rows[0];
+    return {
+      ...row,
+      payload: typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload,
+      retryState: row.status !== "failed"
+        ? null
+        : Number(row.attemptCount) >= Number(row.maxAttempts)
+          ? "exhausted"
+          : row.nextAttemptAt
+            ? "scheduled"
+            : "ready",
+    };
+  }
+
+  async retryDeliveryProvision(clinicId: string, userId: string, provisionId: string) {
+    const [result]: any = await pool.execute(
+      `UPDATE clickup_delivery_provision
+       SET attempt_count = 0, next_attempt_at = CURRENT_TIMESTAMP,
+           failure_reason = CONCAT('Manually re-queued. Previous failure: ', COALESCE(failure_reason, 'Unknown')),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ? AND status = 'failed'`,
+      [provisionId, clinicId],
+    );
+    if (result.affectedRows !== 1) {
+      throw ApiError.notFound("Failed ClickUp delivery provision was not found.");
+    }
+    await insertAuditEvent(pool, {
+      clinicId,
+      userId,
+      action: "CLICKUP_DELIVERY_PROVISION_REQUEUED",
+      entityType: "clickup_delivery_provision",
+      entityId: provisionId,
+      changes: { attemptCount: 0, retryState: "scheduled" },
+    });
+    return this.getDeliveryProvision(clinicId, provisionId);
+  }
+
+  private async getDeliveryProvision(clinicId: string, provisionId: string) {
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId, client_account_profile_id as clientAccountProfileId,
+              proposal_id as proposalId, event_id as eventId, idempotency_key as idempotencyKey,
+              status, attempt_count as attemptCount, max_attempts as maxAttempts,
+              next_attempt_at as nextAttemptAt, last_attempt_at as lastAttemptAt,
+              payload, clickup_folder_id as clickUpFolderId, clickup_list_id as clickUpListId,
+              delivery_url as deliveryUrl, failure_reason as failureReason
+       FROM clickup_delivery_provision
+       WHERE id = ? AND clinic_id = ?
+       LIMIT 1`,
+      [provisionId, clinicId],
+    );
+    if (!rows[0]) throw ApiError.notFound("ClickUp delivery provision was not found.");
+    return {
+      ...rows[0],
+      payload: typeof rows[0].payload === "string" ? JSON.parse(rows[0].payload) : rows[0].payload,
+    };
+  }
+
   async getStatus(clinicId: string) {
     const [rows]: any = await pool.execute(
       `SELECT id,
@@ -1319,7 +1773,7 @@ export class ClickUpService {
     const queue = (predicate: (task: ClickUpOperationsTaskRecord) => boolean) =>
       mappedTasks.filter(predicate).slice(0, OPERATIONS_DASHBOARD_QUEUE_LIMIT);
 
-    return {
+    const dashboard: ClickUpOperationsDashboardResponse = {
       generatedAt: now.toISOString(),
       workspaceName: connection.workspaceName,
       source: {
@@ -1353,6 +1807,86 @@ export class ClickUpService {
       workloadByAssignee: summarizeClickUpWorkload(mappedTasks),
       workstreamCounts: summarizeClickUpWorkstreams(mappedTasks),
     };
+    await this.reconcileOperationsAlerts(clinicId, mappedTasks);
+    return dashboard;
+  }
+
+  private async reconcileOperationsAlerts(clinicId: string, tasks: ClickUpOperationsTaskRecord[]) {
+    const activeAlertIds: string[] = [];
+    const alertInputs = tasks.flatMap((task) => {
+      const alerts: Array<{ type: string; severity: "high" | "critical"; title: string }> = [];
+      if (task.isOverdue) {
+        alerts.push({
+          type: "clickup_delivery_overdue",
+          severity: "high",
+          title: `Overdue ClickUp delivery task: ${task.title}`,
+        });
+      }
+      if (task.isBlocked) {
+        alerts.push({
+          type: "clickup_delivery_blocked",
+          severity: "critical",
+          title: `Blocked ClickUp delivery task: ${task.title}`,
+        });
+      }
+      return alerts.map((alert) => ({ ...alert, task }));
+    });
+
+    for (const input of alertInputs) {
+      const alertId = deterministicClickUpAlertId(clinicId, input.task.id, input.type);
+      activeAlertIds.push(alertId);
+      const owner = input.task.assignees.map((assignee) => assignee.username || assignee.email).filter(Boolean).join(", ") || "Unassigned";
+      await pool.execute(
+        `INSERT INTO performance_alert
+          (id, clinic_id, type, severity, title, summary, source_type, source_id, status, metadata)
+         VALUES (?, ?, ?, ?, ?, ?, 'clickup_task', ?, 'open', ?)
+         ON DUPLICATE KEY UPDATE
+           severity = VALUES(severity),
+           title = VALUES(title),
+           summary = VALUES(summary),
+           status = IF(status IN ('resolved','archived'), 'open', status),
+           metadata = VALUES(metadata),
+           deleted_at = NULL,
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          alertId,
+          clinicId,
+          input.type,
+          input.severity,
+          input.title.slice(0, 255),
+          `${input.task.workstream} · ${owner} · ${input.task.dueAt ? `due ${input.task.dueAt.slice(0, 10)}` : "no deadline"}`,
+          alertId,
+          JSON.stringify({
+            provider: "clickup",
+            clickUpTaskId: input.task.id,
+            customId: input.task.customId,
+            url: input.task.url,
+            workstream: input.task.workstream,
+            owner,
+            dueAt: input.task.dueAt,
+          }),
+        ],
+      );
+    }
+
+    const conditions = [
+      "clinic_id = ?",
+      "source_type = 'clickup_task'",
+      "type IN ('clickup_delivery_overdue','clickup_delivery_blocked')",
+      "status IN ('open','acknowledged')",
+      "deleted_at IS NULL",
+    ];
+    const values: any[] = [clinicId];
+    if (activeAlertIds.length > 0) {
+      conditions.push(`id NOT IN (${activeAlertIds.map(() => "?").join(",")})`);
+      values.push(...activeAlertIds);
+    }
+    await pool.execute(
+      `UPDATE performance_alert
+       SET status = 'resolved', updated_at = CURRENT_TIMESTAMP
+       WHERE ${conditions.join(" AND ")}`,
+      values,
+    );
   }
 
   async listCategoryMappings(
@@ -3666,4 +4200,3 @@ export class ClickUpService {
 }
 
 export const clickUpService = new ClickUpService();
-

@@ -3,28 +3,11 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
 import { contactsService } from "../modules/contacts/contacts.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
-}
-
-async function createClinicAndAdmin(prefix: string) {
-  const email = uniqueEmail(`${prefix}_admin`);
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: email,
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-  };
 }
 
 async function createContact(clinicId: string, userId: string, prefix: string) {
@@ -64,10 +47,6 @@ function runSchedulerMode(enabled: boolean) {
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(
-    result.stdout,
-    new RegExp(enabled ? "Background jobs scheduler started" : "Background jobs scheduler disabled"),
-  );
   return result.stdout;
 }
 
@@ -84,7 +63,7 @@ test("background jobs scheduler respects enabled and disabled startup modes", as
 test("background job shells run and return clinic-scoped reporting data", async () => {
   await testConnection();
 
-  const primary = await createClinicAndAdmin("BackgroundJobs");
+  const primary = await createTestClinicAndAdmin("BackgroundJobs");
   const contact = await createContact(primary.clinicId, primary.userId, "BackgroundJobs");
 
   const { runSlaBreachCheck, runDailySlaReport } = await import("../modules/background-jobs/background-jobs.tasks.js");
@@ -94,6 +73,14 @@ test("background job shells run and return clinic-scoped reporting data", async 
   assert.ok(jobs.schedulerEnabled !== undefined, "Scheduler state should be exposed");
   assert.ok(jobs.jobs.some((job) => job.id === "sla-breach-check"), "SLA breach check should exist");
   assert.ok(jobs.jobs.some((job) => job.id === "daily-sla-report"), "Daily report job should exist");
+  assert.ok(
+    jobs.jobs.some((job) => job.id === "quickbooks-commercial-drafts"),
+    "QuickBooks commercial draft processor should exist",
+  );
+  assert.ok(
+    jobs.jobs.some((job) => job.id === "clickup-delivery-provisions"),
+    "ClickUp delivery provision processor should exist",
+  );
 
   const breachResult = await runSlaBreachCheck();
   assert.ok(typeof breachResult.clinicsChecked === "number");

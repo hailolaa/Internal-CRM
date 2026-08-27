@@ -8,6 +8,7 @@ import {
   clientAccountProfileIdParamValidator,
   listQuickBooksCustomersValidator,
   quickBooksOAuthCallbackValidator,
+  quickBooksCommercialDraftIdParamValidator,
   saveQuickBooksClientCustomerMappingValidator,
 } from "./quickbooks.validators.js";
 
@@ -39,6 +40,14 @@ router.post(
   "/revoke",
   authorize("SUPER_ADMIN", "ADMIN", "FINANCE"),
   quickBooksController.revoke,
+);
+
+router.post(
+  "/commercial-drafts/:draftId/process",
+  authorizePermission("billing:write"),
+  quickBooksCommercialDraftIdParamValidator,
+  validate,
+  quickBooksController.processCommercialDraft,
 );
 
 router.get(

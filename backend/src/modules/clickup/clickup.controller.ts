@@ -64,6 +64,49 @@ export class ClickUpController {
     }
   };
 
+  listDeliveryProvisionFailures = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.listDeliveryProvisionFailures(user.clinicId),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getClientDeliveryProvision = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.getClientDeliveryProvision(
+          user.clinicId,
+          String(req.params.clientAccountProfileId),
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  retryDeliveryProvision = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await clickUpService.retryDeliveryProvision(
+          user.clinicId,
+          user.userId,
+          String(req.params.provisionId),
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   startOAuth = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = (req as any).user;

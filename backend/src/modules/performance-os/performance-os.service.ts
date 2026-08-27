@@ -289,7 +289,7 @@ export class PerformanceOsService {
         sourceId: row.id,
         name: label(row.treatment, "Unknown treatment"),
         outcome: label(row.outcome, "Unknown outcome"),
-        sold: row.outcome === "Treatment Booked",
+        sold: ["Sold", "Treatment Booked"].includes(row.outcome),
         revenue: Number(row.revenue || 0),
       })),
       revenue: {

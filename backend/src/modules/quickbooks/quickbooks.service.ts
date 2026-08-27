@@ -1,5 +1,7 @@
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
+import type { PoolConnection } from "mysql2/promise";
+import { createHash } from "node:crypto";
 import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
@@ -8,9 +10,12 @@ import { decryptProviderCredential, encryptProviderCredential } from "../../util
 import type {
   QuickBooksAuditContext,
   QuickBooksClientCustomerMappingRecord,
+  QuickBooksCommercialAdapter,
+  QuickBooksCommercialDraftRecord,
   QuickBooksConnectionStatus,
   QuickBooksCustomerRecord,
   SaveQuickBooksClientCustomerMappingPayload,
+  StageQuickBooksCommercialDraftPayload,
 } from "./quickbooks.types.js";
 
 type QuickBooksOAuthState = {
@@ -19,6 +24,8 @@ type QuickBooksOAuthState = {
   clinicId: string;
   userId: string;
 };
+
+type QueryExecutor = Pick<PoolConnection, "execute">;
 
 type StoredQuickBooksConfig = {
   oauthConnected?: boolean;
@@ -387,6 +394,241 @@ export class QuickBooksService {
       ...context,
     });
     return null;
+  }
+
+  async stageCommercialDraft(
+    input: StageQuickBooksCommercialDraftPayload,
+    executor: QueryExecutor = pool,
+  ): Promise<QuickBooksCommercialDraftRecord> {
+    const id = uuidv4();
+    await executor.execute(
+      `INSERT INTO quickbooks_commercial_draft
+        (id, clinic_id, event_id, proposal_id, client_account_profile_id,
+         idempotency_key, customer_action, invoice_action, status, payload)
+       VALUES (?, ?, ?, ?, ?, ?, 'create_or_link', 'create_draft', 'pending', ?)
+       ON DUPLICATE KEY UPDATE
+         client_account_profile_id = COALESCE(client_account_profile_id, VALUES(client_account_profile_id)),
+         payload = VALUES(payload),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        id,
+        input.clinicId,
+        input.eventId,
+        input.proposalId,
+        input.clientAccountProfileId || null,
+        input.idempotencyKey,
+        JSON.stringify(input.payload),
+      ],
+    );
+    const [rows]: any = await executor.execute(
+      `SELECT id, event_id as eventId, proposal_id as proposalId,
+              client_account_profile_id as clientAccountProfileId,
+              idempotency_key as idempotencyKey,
+              customer_action as customerAction, invoice_action as invoiceAction,
+              status, payload,
+              quickbooks_customer_id as quickBooksCustomerId,
+              quickbooks_invoice_id as quickBooksInvoiceId,
+              failure_reason as failureReason,
+              attempt_count as attemptCount,
+              next_attempt_at as nextAttemptAt,
+              last_attempt_at as lastAttemptAt
+       FROM quickbooks_commercial_draft
+       WHERE clinic_id = ? AND idempotency_key = ?
+       LIMIT 1`,
+      [input.clinicId, input.idempotencyKey],
+    );
+    if (!rows[0]) throw ApiError.internal("QuickBooks commercial draft could not be staged.");
+    return {
+      ...rows[0],
+      payload: typeof rows[0].payload === "string" ? JSON.parse(rows[0].payload) : rows[0].payload,
+    };
+  }
+
+  async processCommercialDraft(
+    input: { clinicId: string; draftId: string; userId?: string | null },
+    adapter?: QuickBooksCommercialAdapter,
+  ): Promise<QuickBooksCommercialDraftRecord> {
+    const [claim]: any = await pool.execute(
+      `UPDATE quickbooks_commercial_draft
+       SET status = 'processing', failure_reason = NULL,
+           attempt_count = attempt_count + 1, last_attempt_at = CURRENT_TIMESTAMP,
+           next_attempt_at = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ?
+         AND status IN ('pending', 'failed')
+         AND attempt_count < 5`,
+      [input.draftId, input.clinicId],
+    );
+    if (claim.affectedRows !== 1) return this.getCommercialDraft(input.clinicId, input.draftId);
+
+    let draft = await this.getCommercialDraft(input.clinicId, input.draftId);
+    try {
+      const provider = adapter || await this.createCommercialAdapter(input.clinicId);
+      if (!draft.quickBooksCustomerId) {
+        const customer = await provider.ensureCustomer({
+          idempotencyKey: `${draft.idempotencyKey}:customer`,
+          payload: draft.payload,
+        });
+        await pool.execute(
+          `UPDATE quickbooks_commercial_draft
+           SET quickbooks_customer_id = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND clinic_id = ? AND status = 'processing'`,
+          [customer.id, draft.id, input.clinicId],
+        );
+        draft = await this.getCommercialDraft(input.clinicId, input.draftId);
+      }
+      if (!draft.quickBooksInvoiceId) {
+        const invoice = await provider.createDraftInvoice({
+          idempotencyKey: `${draft.idempotencyKey}:invoice`,
+          customerId: draft.quickBooksCustomerId as string,
+          payload: draft.payload,
+        });
+        await pool.execute(
+          `UPDATE quickbooks_commercial_draft
+           SET quickbooks_invoice_id = ?, status = 'processed', processed_at = CURRENT_TIMESTAMP,
+               failure_reason = NULL, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND clinic_id = ? AND status = 'processing'`,
+          [invoice.id, draft.id, input.clinicId],
+        );
+      }
+      const processed = await this.getCommercialDraft(input.clinicId, input.draftId);
+      if (input.userId) {
+        await logAuditEvent({
+          clinicId: input.clinicId,
+          userId: input.userId,
+          action: "QUICKBOOKS_COMMERCIAL_DRAFT_PROCESSED",
+          entityType: "quickbooks_commercial_draft",
+          entityId: draft.id,
+          changes: {
+            proposalId: draft.proposalId,
+            quickBooksCustomerId: processed.quickBooksCustomerId,
+            quickBooksInvoiceId: processed.quickBooksInvoiceId,
+          },
+        });
+      }
+      return processed;
+    } catch (error) {
+      const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+      await pool.execute(
+        `UPDATE quickbooks_commercial_draft
+         SET status = 'failed', failure_reason = ?,
+             next_attempt_at = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ? AND status = 'processing'`,
+        [message, draft.id, input.clinicId],
+      );
+      throw error;
+    }
+  }
+
+  async processCommercialDraftBatch(
+    options: { limit?: number; staleAfterMinutes?: number } = {},
+    adapterFactory?: (clinicId: string) => Promise<QuickBooksCommercialAdapter>,
+  ) {
+    const limit = Math.min(Math.max(options.limit || 25, 1), 100);
+    const staleAfterMinutes = Math.min(Math.max(options.staleAfterMinutes || 30, 5), 1440);
+    const [staleResult]: any = await pool.execute(
+      `UPDATE quickbooks_commercial_draft
+       SET status = 'failed',
+           failure_reason = 'Recovered stale processing claim.',
+           next_attempt_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE status = 'processing'
+         AND updated_at < DATE_SUB(CURRENT_TIMESTAMP, INTERVAL ${staleAfterMinutes} MINUTE)`,
+    );
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId
+       FROM quickbooks_commercial_draft
+       WHERE status IN ('pending', 'failed')
+         AND attempt_count < 5
+         AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP)
+       ORDER BY created_at ASC
+       LIMIT ${limit}`,
+    );
+    let processed = 0;
+    let failed = 0;
+    for (const row of rows) {
+      try {
+        const adapter = adapterFactory ? await adapterFactory(row.clinicId) : undefined;
+        const result = await this.processCommercialDraft({ clinicId: row.clinicId, draftId: row.id }, adapter);
+        if (result.status === "processed") processed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    return {
+      recoveredStale: Number(staleResult.affectedRows || 0),
+      attempted: rows.length,
+      processed,
+      failed,
+    };
+  }
+
+  private async getCommercialDraft(clinicId: string, draftId: string): Promise<QuickBooksCommercialDraftRecord> {
+    const [rows]: any = await pool.execute(
+      `SELECT id, event_id as eventId, proposal_id as proposalId,
+              client_account_profile_id as clientAccountProfileId,
+              idempotency_key as idempotencyKey,
+              customer_action as customerAction, invoice_action as invoiceAction,
+              status, payload,
+              quickbooks_customer_id as quickBooksCustomerId,
+              quickbooks_invoice_id as quickBooksInvoiceId,
+              failure_reason as failureReason,
+              attempt_count as attemptCount,
+              next_attempt_at as nextAttemptAt,
+              last_attempt_at as lastAttemptAt
+       FROM quickbooks_commercial_draft
+       WHERE id = ? AND clinic_id = ?
+       LIMIT 1`,
+      [draftId, clinicId],
+    );
+    if (!rows[0]) throw ApiError.notFound("QuickBooks commercial draft was not found.");
+    return {
+      ...rows[0],
+      payload: typeof rows[0].payload === "string" ? JSON.parse(rows[0].payload) : rows[0].payload,
+    };
+  }
+
+  private async createCommercialAdapter(clinicId: string): Promise<QuickBooksCommercialAdapter> {
+    const status = await this.getStatus(clinicId);
+    if (!status.connected || !status.realmId) throw ApiError.serviceUnavailable("QuickBooks is not connected.");
+    if (!config.quickbooks.defaultItemId) {
+      throw ApiError.serviceUnavailable("QuickBooks default invoice item is not configured.");
+    }
+    const accessToken = await this.getAccessToken(clinicId);
+    const post = async (resource: "customer" | "invoice", idempotencyKey: string, body: Record<string, unknown>) => {
+      const requestId = createHash("sha256").update(idempotencyKey).digest("hex").slice(0, 36);
+      const url = `${this.apiBaseUrl}/v3/company/${encodeURIComponent(status.realmId as string)}/${resource}?minorversion=75&requestid=${requestId}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = assertResponseObject(await response.json().catch(() => ({})));
+      if (!response.ok) throw new Error(result.Fault?.Error?.[0]?.Message || `QuickBooks ${resource} request failed with ${response.status}`);
+      const id = result[resource === "customer" ? "Customer" : "Invoice"]?.Id;
+      if (!id) throw new Error(`QuickBooks ${resource} response did not include an ID.`);
+      return { id: String(id) };
+    };
+    return {
+      ensureCustomer: ({ idempotencyKey, payload }) => post("customer", idempotencyKey, {
+        DisplayName: payload.legalCompanyName || payload.billingEmail,
+        CompanyName: payload.legalCompanyName || undefined,
+        PrimaryEmailAddr: payload.billingEmail ? { Address: payload.billingEmail } : undefined,
+      }),
+      createDraftInvoice: ({ idempotencyKey, customerId, payload }) => {
+        const amount = (Number(payload.monthlyFeeCents || 0) + Number(payload.setupFeeCents || 0)) / 100;
+        return post("invoice", idempotencyKey, {
+          CustomerRef: { value: customerId },
+          PrivateNote: `Mission Control proposal ${payload.packageName || "accepted package"}`,
+          Line: [{
+            Amount: amount,
+            DetailType: "SalesItemLineDetail",
+            Description: payload.packageName || "ClinicGrower service",
+            SalesItemLineDetail: { ItemRef: { value: config.quickbooks.defaultItemId } },
+          }],
+        });
+      },
+    };
   }
 
   private decodeState(state: string): QuickBooksOAuthState {

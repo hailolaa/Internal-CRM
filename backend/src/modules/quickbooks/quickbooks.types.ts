@@ -56,3 +56,39 @@ export interface SaveQuickBooksClientCustomerMappingPayload {
   mappingStatus?: QuickBooksMappingStatus;
   mappingSource?: QuickBooksMappingSource;
 }
+
+export interface QuickBooksCommercialDraftRecord {
+  id: string;
+  eventId: string;
+  proposalId: string;
+  clientAccountProfileId: string | null;
+  idempotencyKey: string;
+  customerAction: "create_or_link";
+  invoiceAction: "create_draft";
+  status: "pending" | "processing" | "processed" | "failed" | "ignored";
+  payload: Record<string, unknown>;
+  quickBooksCustomerId: string | null;
+  quickBooksInvoiceId: string | null;
+  failureReason: string | null;
+  attemptCount: number;
+  nextAttemptAt: string | null;
+  lastAttemptAt: string | null;
+}
+
+export interface StageQuickBooksCommercialDraftPayload {
+  clinicId: string;
+  eventId: string;
+  proposalId: string;
+  clientAccountProfileId?: string | null;
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+}
+
+export interface QuickBooksCommercialAdapter {
+  ensureCustomer(input: { idempotencyKey: string; payload: Record<string, unknown> }): Promise<{ id: string }>;
+  createDraftInvoice(input: {
+    idempotencyKey: string;
+    customerId: string;
+    payload: Record<string, unknown>;
+  }): Promise<{ id: string }>;
+}

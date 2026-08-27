@@ -31,6 +31,10 @@ export const clickUpOAuthCallbackValidator = [
   query("workspaceId").optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 64 }),
 ];
 
+export const clickUpProvisionIdParamValidator = [
+  param("provisionId").isUUID().withMessage("A valid ClickUp delivery provision ID is required"),
+];
+
 export const completeClickUpOAuthValidator = [
   body("code").isString().trim().notEmpty().withMessage("ClickUp OAuth code is required"),
   body("state").isString().trim().notEmpty().withMessage("ClickUp OAuth state is required"),

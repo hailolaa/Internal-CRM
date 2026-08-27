@@ -14,6 +14,19 @@ import type {
 const PROVIDERS: DirectDebitProvider[] = ["gocardless", "stripe", "manual"];
 const STATUSES: DirectDebitMandateStatus[] = ["setup_required", "pending_customer_authorisation", "submitted", "active", "failed", "cancelled", "expired"];
 const FAILURE_STATUSES = new Set<DirectDebitMandateStatus>(["failed", "cancelled", "expired"]);
+const ALLOWED_STATUS_TRANSITIONS: Record<DirectDebitMandateStatus, ReadonlySet<DirectDebitMandateStatus>> = {
+  setup_required: new Set(["pending_customer_authorisation", "submitted", "active", "failed", "cancelled", "expired"]),
+  pending_customer_authorisation: new Set(["submitted", "active", "failed", "cancelled", "expired"]),
+  submitted: new Set(["active", "failed", "cancelled", "expired"]),
+  active: new Set(["failed", "cancelled", "expired"]),
+  failed: new Set(["active", "cancelled", "expired"]),
+  cancelled: new Set(),
+  expired: new Set(),
+};
+
+function shouldApplyStatusTransition(current: DirectDebitMandateStatus, next: DirectDebitMandateStatus) {
+  return current === next || ALLOWED_STATUS_TRANSITIONS[current].has(next);
+}
 
 function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
@@ -159,16 +172,19 @@ export class DirectDebitService {
         setupReference: `${provider}:mandate:${providerMandateId}`,
       });
     }
+    const statusApplied = shouldApplyStatusTransition(mandate.status, status);
     const eventId = uuidv4();
-    await pool.execute(
-      `UPDATE direct_debit_mandate
-       SET provider_customer_id = COALESCE(?, provider_customer_id),
-           provider_mandate_id = ?,
-           status = ?,
-           failure_reason = ?
-       WHERE id = ? AND clinic_id = ?`,
-      [cleanString(input.providerCustomerId), providerMandateId, status, cleanString(input.failureReason), mandate.id, input.clinicId],
-    );
+    if (statusApplied) {
+      await pool.execute(
+        `UPDATE direct_debit_mandate
+         SET provider_customer_id = COALESCE(?, provider_customer_id),
+             provider_mandate_id = ?,
+             status = ?,
+             failure_reason = ?
+         WHERE id = ? AND clinic_id = ?`,
+        [cleanString(input.providerCustomerId), providerMandateId, status, cleanString(input.failureReason), mandate.id, input.clinicId],
+      );
+    }
     await pool.execute(
       `INSERT INTO direct_debit_mandate_event
         (id, clinic_id, mandate_id, provider, provider_event_id, event_type, event_status, payload_hash)
@@ -186,14 +202,14 @@ export class DirectDebitService {
     );
 
     let alert: DirectDebitAlert | null = null;
-    if (FAILURE_STATUSES.has(status)) {
+    if (statusApplied && FAILURE_STATUSES.has(status)) {
       alert = await this.createAlert({
         clinicId: input.clinicId,
         mandateId: mandate.id,
         alertType: status === "failed" ? "payment_failed" : "mandate_failed",
         message: cleanString(input.failureReason) || `Direct Debit mandate ${providerMandateId} changed to ${status}.`,
       });
-    } else if (status === "active") {
+    } else if (statusApplied && status === "active") {
       await this.resolveAlerts(input.clinicId, mandate.id);
     }
 

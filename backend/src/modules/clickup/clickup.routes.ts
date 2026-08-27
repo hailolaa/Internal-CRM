@@ -20,6 +20,7 @@ import {
   saveClickUpTaskMappingValidator,
   clickUpMappingIdParamValidator,
   clickUpEventIdParamValidator,
+  clickUpProvisionIdParamValidator,
 } from "./clickup.validators.js";
 
 const router = Router();
@@ -133,6 +134,28 @@ router.get(
   "/operations-dashboard",
   authorizePermission("internal_tasks:read"),
   clickUpController.getOperationsDashboard,
+);
+
+router.get(
+  "/delivery-provisions/failures",
+  authorizePermission("internal_tasks:read"),
+  clickUpController.listDeliveryProvisionFailures,
+);
+
+router.get(
+  "/delivery-provisions/client/:clientAccountProfileId",
+  authorizePermission("client_accounts:read"),
+  clientAccountProfileIdParamValidator,
+  validate,
+  clickUpController.getClientDeliveryProvision,
+);
+
+router.post(
+  "/delivery-provisions/:provisionId/retry",
+  authorizePermission("internal_tasks:write"),
+  clickUpProvisionIdParamValidator,
+  validate,
+  clickUpController.retryDeliveryProvision,
 );
 
 router.get(

@@ -274,6 +274,9 @@ export const config = {
         sandboxApiBaseUrl: process.env.QUICKBOOKS_SANDBOX_API_BASE_URL || "https://sandbox-quickbooks.api.intuit.com",
         productionApiBaseUrl: process.env.QUICKBOOKS_PRODUCTION_API_BASE_URL || "https://quickbooks.api.intuit.com",
         customerPageSize: parseInt(process.env.QUICKBOOKS_CUSTOMER_PAGE_SIZE || "50", 10),
+        defaultItemId: process.env.QUICKBOOKS_DEFAULT_ITEM_ID || "",
+        commercialDraftBatchSize: parseInt(process.env.QUICKBOOKS_COMMERCIAL_DRAFT_BATCH_SIZE || "25", 10),
+        commercialDraftStaleMinutes: parseInt(process.env.QUICKBOOKS_COMMERCIAL_DRAFT_STALE_MINUTES || "30", 10),
     },
 
     backups: {

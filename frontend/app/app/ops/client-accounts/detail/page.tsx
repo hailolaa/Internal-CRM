@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  Boxes,
   BriefcaseBusiness,
   CalendarClock,
   CheckSquare2,
@@ -43,6 +44,7 @@ import type {
   ClientIssueRecord,
   ClientIssueSourceChannel,
   ClientIssueStatus,
+  ClickUpDeliveryProvisionRecord,
   ContactRecord,
   GrowthScoreSnapshotList,
   QuickBooksClientCustomerMappingRecord,
@@ -228,6 +230,7 @@ export default function ClientAccountDetailPage() {
   const [filesStatusMessage, setFilesStatusMessage] = useState("");
   const [accessStatusMessage, setAccessStatusMessage] = useState("");
   const [quickBooksStatus, setQuickBooksStatus] = useState<QuickBooksConnectionStatus | null>(null);
+  const [clickUpDeliveryProvision, setClickUpDeliveryProvision] = useState<ClickUpDeliveryProvisionRecord | null>(null);
   const [quickBooksMapping, setQuickBooksMapping] = useState<QuickBooksClientCustomerMappingRecord | null>(null);
   const [quickBooksCustomers, setQuickBooksCustomers] = useState<QuickBooksCustomerRecord[]>([]);
   const [quickBooksSearch, setQuickBooksSearch] = useState("");
@@ -331,6 +334,22 @@ export default function ClientAccountDetailPage() {
         setQuickBooksMessage("QuickBooks mapping status could not be loaded. Manual finance fields are still available.");
       }
     });
+    return () => {
+      isMounted = false;
+    };
+  }, [account?.id, token]);
+
+  useEffect(() => {
+    if (!token || !account?.id) return;
+    let isMounted = true;
+    api.clickup
+      .getClientDeliveryProvision(token, account.id)
+      .then((provision) => {
+        if (isMounted) setClickUpDeliveryProvision(provision);
+      })
+      .catch(() => {
+        if (isMounted) setClickUpDeliveryProvision(null);
+      });
     return () => {
       isMounted = false;
     };
@@ -1775,6 +1794,48 @@ export default function ClientAccountDetailPage() {
             tabIndex={0}
             className="scroll-mt-24"
           >
+          {clickUpDeliveryProvision ? (
+          <Card padding="p-5 sm:p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex min-w-0 gap-3.5">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#edf5f3] text-[#315f62]">
+                  <Boxes className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#5e8a8d]">ClickUp delivery structure</p>
+                  <h2 className="mt-1 text-lg font-semibold text-[#151f21]">{clickUpDeliveryProvision.payload?.packageName || "Client delivery"}</h2>
+                  <p className="mt-1 text-sm text-[#7A746A]">Latest provision updated {formatDateTime(clickUpDeliveryProvision.updatedAt)}.</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={clickUpDeliveryProvision.status === "processed" ? "success" : clickUpDeliveryProvision.status === "failed" ? "error" : clickUpDeliveryProvision.status === "processing" ? "warning" : "info"}>
+                  {formatLabel(clickUpDeliveryProvision.status)}
+                </Badge>
+                {clickUpDeliveryProvision.deliveryUrl ? (
+                  <a href={clickUpDeliveryProvision.deliveryUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#315f62] px-4 text-sm font-semibold text-white hover:bg-[#264f51] focus:outline-none focus:ring-2 focus:ring-[#75aaa7] focus:ring-offset-2">
+                    Open in ClickUp <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                  </a>
+                ) : null}
+              </div>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              {[
+                ["Folder", Boolean(clickUpDeliveryProvision.clickUpFolderId)],
+                ["Delivery list", Boolean(clickUpDeliveryProvision.clickUpListId)],
+                ["Root task", Boolean(clickUpDeliveryProvision.deliveryUrl)],
+              ].map(([label, complete]) => (
+                <div key={String(label)} className={`rounded-xl border p-3 ${complete ? "border-[#c9ded9] bg-[#edf5f3]" : "border-[#E7E1DA] bg-[#FAF8F5]"}`}>
+                  <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#7A746A]">{String(label)}</p>
+                  <p className={`mt-1 text-sm font-semibold ${complete ? "text-[#315f62]" : "text-[#9A6A30]"}`}>{complete ? "Created" : "Waiting"}</p>
+                </div>
+              ))}
+            </div>
+            {clickUpDeliveryProvision.failureReason ? (
+              <div className="mt-4"><AlertBanner variant="warning" title="Provision needs attention" description={clickUpDeliveryProvision.failureReason} /></div>
+            ) : null}
+          </Card>
+          ) : null}
+
           <Card padding="p-5 sm:p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>

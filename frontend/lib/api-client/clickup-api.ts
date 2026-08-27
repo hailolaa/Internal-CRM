@@ -2,6 +2,8 @@ import type {
   ClickUpCategoryMappingRecord,
   ClickUpFolderRecord,
   ClickUpConnectionRecord,
+  ClickUpDeliveryProvisionFailure,
+  ClickUpDeliveryProvisionRecord,
   ClickUpIntegrationStatus,
   ClickUpListRecord,
   ClickUpMemberRecord,
@@ -127,6 +129,26 @@ export function createClickUpApi(apiRequest: ApiRequest) {
       },
       async listFailedTaskMappings(token: string) {
         const response = await apiRequest<FailedTaskMapping[]>("/api/clickup/reconciliation/failed-tasks", { token });
+        return response.data!;
+      },
+      async listDeliveryProvisionFailures(token: string) {
+        const response = await apiRequest<ClickUpDeliveryProvisionFailure[]>("/api/clickup/delivery-provisions/failures", { token });
+        return response.data!;
+      },
+      async getClientDeliveryProvision(token: string, clientAccountProfileId: string) {
+        const response = await apiRequest<ClickUpDeliveryProvisionRecord | null>(`/api/clickup/delivery-provisions/client/${encodeURIComponent(clientAccountProfileId)}`, { token });
+        return response.data ?? null;
+      },
+      async retryDeliveryProvision(token: string, provisionId: string) {
+        const response = await apiRequest<{
+          id: string;
+          status: string;
+          attemptCount: number;
+          nextAttemptAt: string | null;
+        }>(`/api/clickup/delivery-provisions/${encodeURIComponent(provisionId)}/retry`, {
+          method: "POST",
+          token,
+        });
         return response.data!;
       },
       async replayFailedTaskMapping(token: string, mappingId: string) {

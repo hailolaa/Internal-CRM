@@ -35,6 +35,7 @@ import type {
   ConvertWonDealToClientDTO,
   GrowthScoreCategories,
   InvoiceStatus,
+  OnboardingStatus,
   PaymentStatus,
   RenameClientAccountDriveFileDTO,
   CreateClientAccountServiceDTO,
@@ -70,6 +71,20 @@ const DEFAULT_PROFILE = {
   invoiceStatus: "not_sent",
   paymentNotes: null as string | null,
 };
+
+export function derivePaymentGatedOnboardingStatus(input: {
+  requestedStatus: OnboardingStatus;
+  paymentStatus: PaymentStatus;
+  paymentRequired: boolean;
+}): OnboardingStatus {
+  if (!input.paymentRequired || input.requestedStatus === "completed" || input.requestedStatus === "not_started") {
+    return input.requestedStatus;
+  }
+  if (input.paymentStatus === "paid") {
+    return input.requestedStatus === "paused" ? "in_progress" : input.requestedStatus;
+  }
+  return input.requestedStatus === "in_progress" ? "paused" : input.requestedStatus;
+}
 
 const emptyGrowthScoreCategories = {
   websiteVisibility: null as number | null,
@@ -1389,7 +1404,11 @@ export class ClientAccountsService {
           country: deal.country || null,
           activeServices,
           clientStatus: data.clientStatus || "onboarding",
-          onboardingStatus: data.onboardingStatus || "in_progress",
+          onboardingStatus: derivePaymentGatedOnboardingStatus({
+            requestedStatus: data.onboardingStatus || "in_progress",
+            paymentStatus: data.paymentStatus || (acceptedMonthlyPrice !== null ? "pending" : DEFAULT_PROFILE.paymentStatus) as PaymentStatus,
+            paymentRequired: acceptedMonthlyPrice !== null,
+          }),
           healthStatus: data.healthStatus || "attention_needed",
           contractStatus: data.contractStatus || "pending",
           currentPackage,
@@ -2752,7 +2771,27 @@ export class ClientAccountsService {
     }
 
     if (ownKey(data, "onboardingStatus")) {
-      addChange("onboardingStatus", "onboarding_status", before.onboardingStatus, data.onboardingStatus);
+      addChange(
+        "onboardingStatus",
+        "onboarding_status",
+        before.onboardingStatus,
+        derivePaymentGatedOnboardingStatus({
+          requestedStatus: data.onboardingStatus as OnboardingStatus,
+          paymentStatus: (data.paymentStatus || before.paymentStatus) as PaymentStatus,
+          paymentRequired: (ownKey(data, "monthlyPrice") ? this.normalizeMoney(data.monthlyPrice) : before.monthlyPrice) !== null,
+        }),
+      );
+    } else if (ownKey(data, "paymentStatus") && data.paymentStatus === "paid") {
+      addChange(
+        "onboardingStatus",
+        "onboarding_status",
+        before.onboardingStatus,
+        derivePaymentGatedOnboardingStatus({
+          requestedStatus: before.onboardingStatus,
+          paymentStatus: "paid",
+          paymentRequired: (ownKey(data, "monthlyPrice") ? this.normalizeMoney(data.monthlyPrice) : before.monthlyPrice) !== null,
+        }),
+      );
     }
 
     if (ownKey(data, "healthStatus")) {

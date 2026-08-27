@@ -1,8 +1,10 @@
 import {
   runDailySlaReport,
   runClickUpLifecycleSync,
+  runClickUpDeliveryProvisions,
   runObservabilityFailureProbe,
   runRecurringTasksGeneration,
+  runQuickBooksCommercialDrafts,
   runSequenceExecution,
   runSlaBreachCheck,
 } from "./background-jobs.tasks.js";
@@ -64,6 +66,24 @@ export const backgroundJobDefinitions: BackgroundJobDefinition[] = [
     category: "Communications",
     getNextRunAt: nextIntervalRun(5 * minuteMs),
     handler: runSequenceExecution,
+  },
+  {
+    id: "quickbooks-commercial-drafts",
+    name: "QuickBooks Commercial Drafts",
+    description: "Creates idempotent QuickBooks customers and draft invoices from accepted proposals with bounded retries.",
+    schedule: "Every 5 minutes",
+    category: "Integrations",
+    getNextRunAt: nextIntervalRun(5 * minuteMs),
+    handler: runQuickBooksCommercialDrafts,
+  },
+  {
+    id: "clickup-delivery-provisions",
+    name: "ClickUp Delivery Provisions",
+    description: "Creates checkpointed ClickUp folders, lists, and linked delivery tasks from accepted proposals.",
+    schedule: "Every 5 minutes",
+    category: "Integrations",
+    getNextRunAt: nextIntervalRun(5 * minuteMs),
+    handler: runClickUpDeliveryProvisions,
   },
   {
     id: "clickup-lifecycle-sync",

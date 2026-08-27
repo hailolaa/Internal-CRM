@@ -1511,7 +1511,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
     const publicTargetConsumers = typeof publicCommercialEventRows[0].targetConsumers === "string"
       ? JSON.parse(publicCommercialEventRows[0].targetConsumers)
       : publicCommercialEventRows[0].targetConsumers;
-    assert.deepEqual(publicTargetConsumers, ["cg_058", "quickbooks", "onboarding"]);
+    assert.deepEqual(publicTargetConsumers, ["cg_058", "quickbooks", "onboarding", "clickup_delivery"]);
     assert.equal(publicCommercialPayload.proposal.id, publicAcceptedProposal.body.data.id);
     assert.equal(publicCommercialPayload.acceptance.legalCompanyName, "Public Signer Ltd");
     assert.equal(publicCommercialPayload.commercial.packageId, recommendedPackageId);

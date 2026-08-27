@@ -121,6 +121,22 @@ export class QuickBooksController {
       next(error);
     }
   };
+
+  processCommercialDraft = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = (req as any).user;
+      res.status(200).json({
+        status: "success",
+        data: await quickBooksService.processCommercialDraft({
+          clinicId: user.clinicId,
+          draftId: String(req.params.draftId),
+          userId: user.userId,
+        }),
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const quickBooksController = new QuickBooksController();

@@ -287,6 +287,18 @@ test("ClickUp operations dashboard route requires internal task read permission"
   );
 });
 
+test("ClickUp delivery failure queue requires internal task read permission", async () => {
+  const routesSource = await readFile(routesPath, "utf8");
+  assert.match(
+    routesSource,
+    /["']\/delivery-provisions\/failures["'][\s\S]*?authorizePermission\(["']internal_tasks:read["']\)/,
+  );
+  assert.match(
+    routesSource,
+    /["']\/delivery-provisions\/:provisionId\/retry["'][\s\S]*?authorizePermission\(["']internal_tasks:write["']\)/,
+  );
+});
+
 test("ClickUp task creation route rejects users with only client-account write permission", async () => {
   const workspace = await createWorkspace("clickup-route-permission");
   const clientOnlyUser = await createUserWithPermissions(
@@ -360,6 +372,7 @@ test("ClickUp operations dashboard summarizes live task queues without exposing 
 
   const seenUrls: string[] = [];
   const seenAuthorizationHeaders: string[] = [];
+  let returnEmptyOperationsDashboard = false;
   globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
     const url = String(input);
     seenUrls.push(url);
@@ -370,7 +383,7 @@ test("ClickUp operations dashboard summarizes live task queues without exposing 
 
     if (url.includes("/team/cu-workspace-ops/task") && url.includes("page=0")) {
       return new Response(JSON.stringify({
-        tasks: [
+        tasks: returnEmptyOperationsDashboard ? [] : [
           {
             id: "cu-overdue-blocked",
             custom_id: "CG-999",
@@ -460,6 +473,34 @@ test("ClickUp operations dashboard summarizes live task queues without exposing 
     assert.equal(serialized.includes("pk_test_operations_dashboard_token"), false);
     assert.equal(serialized.includes("cu-workspace-ops"), false);
     assert.equal(Object.hasOwn(dashboard as any, "workspaceId"), false);
+
+    const [openAlertRows]: any = await pool.execute(
+      `SELECT type, severity, status, metadata
+       FROM performance_alert
+       WHERE clinic_id = ? AND source_type = 'clickup_task'
+       ORDER BY type`,
+      [workspace.clinicId],
+    );
+    assert.deepEqual(openAlertRows.map((row: any) => row.type), [
+      "clickup_delivery_blocked",
+      "clickup_delivery_overdue",
+    ]);
+    assert.deepEqual(openAlertRows.map((row: any) => row.status), ["open", "open"]);
+    assert.equal(openAlertRows.find((row: any) => row.type === "clickup_delivery_blocked")?.severity, "critical");
+    const alertMetadata = typeof openAlertRows[0].metadata === "string"
+      ? JSON.parse(openAlertRows[0].metadata)
+      : openAlertRows[0].metadata;
+    assert.equal(alertMetadata.clickUpTaskId, "cu-overdue-blocked");
+    assert.equal(alertMetadata.url, "https://app.clickup.com/t/cu-overdue-blocked");
+
+    returnEmptyOperationsDashboard = true;
+    await clickUpService.getOperationsDashboard(workspace.clinicId);
+    const [resolvedAlertRows]: any = await pool.execute(
+      `SELECT status FROM performance_alert
+       WHERE clinic_id = ? AND source_type = 'clickup_task'`,
+      [workspace.clinicId],
+    );
+    assert.deepEqual(resolvedAlertRows.map((row: any) => row.status), ["resolved", "resolved"]);
   } finally {
     globalThis.fetch = originalFetch;
     mutableConfig.credentials.encryptionKey = originalConfig.encryptionKey;

@@ -13,6 +13,10 @@ export const clientAccountProfileIdParamValidator = [
   param("clientAccountProfileId").isUUID().withMessage("Client account profile ID must be a valid UUID"),
 ];
 
+export const quickBooksCommercialDraftIdParamValidator = [
+  param("draftId").isUUID().withMessage("QuickBooks commercial draft ID must be a valid UUID"),
+];
+
 export const listQuickBooksCustomersValidator = [
   query("search").optional({ nullable: true, checkFalsy: true }).trim().isLength({ max: 120 }),
 ];

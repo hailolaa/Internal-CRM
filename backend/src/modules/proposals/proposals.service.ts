@@ -10,6 +10,8 @@ import { insertAuditEvent, logAuditEvent } from "../../utils/audit.js";
 import { buildTimelineMetadata, insertTimelineActivity, logTimelineActivity } from "../../utils/activity.js";
 import { generateResetToken, hashToken } from "../../utils/helpers.js";
 import { clientAccountsService } from "../client-accounts/client-accounts.service.js";
+import { stageClickUpDeliveryProvision } from "../clickup/clickup.delivery.persistence.js";
+import { quickBooksService } from "../quickbooks/quickbooks.service.js";
 import { phase1TimelineActions } from "../events/phase1-events.js";
 import {
   insertPipelineDealMovement,
@@ -4593,6 +4595,30 @@ export class ProposalsService {
             proposal,
           );
         },
+        afterConversion: async (connection) => {
+          const proposal = await this.getProposal(input.clinicId, input.proposalId, connection);
+          const [eventRows]: any = await connection.execute(
+            `SELECT id, idempotency_key as idempotencyKey, payload
+             FROM proposal_commercial_event
+             WHERE clinic_id = ? AND proposal_id = ? AND event_type = 'proposal_accepted'
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [input.clinicId, input.proposalId],
+          );
+          if (eventRows[0]) {
+            const eventPayload = typeof eventRows[0].payload === "string"
+              ? JSON.parse(eventRows[0].payload)
+              : eventRows[0].payload;
+            await this.ensureClickUpDeliveryProvision(
+              connection,
+              input.clinicId,
+              proposal,
+              eventRows[0].id,
+              eventRows[0].idempotencyKey,
+              eventPayload,
+            );
+          }
+        },
       },
     );
     return this.getProposal(input.clinicId, input.proposalId);
@@ -6151,7 +6177,7 @@ export class ProposalsService {
         dealId: proposal.dealId,
         clientAccountProfileId: proposal.clientAccountProfileId,
       },
-      targetConsumers: ["cg_058", "quickbooks", "onboarding"],
+      targetConsumers: ["cg_058", "quickbooks", "onboarding", "clickup_delivery"],
     };
     await executor.execute(
       `INSERT INTO proposal_commercial_event
@@ -6171,6 +6197,69 @@ export class ProposalsService {
         JSON.stringify(payload),
         userId,
       ],
+    );
+    const [eventRows]: any = await executor.execute(
+      `SELECT id
+       FROM proposal_commercial_event
+       WHERE clinic_id = ? AND idempotency_key = ?
+       LIMIT 1`,
+      [clinicId, idempotencyKey],
+    );
+    if (!eventRows[0]) throw ApiError.internal("Proposal commercial event was not saved.");
+    await quickBooksService.stageCommercialDraft(
+      {
+        clinicId,
+        eventId: eventRows[0].id,
+        proposalId: proposal.id,
+        clientAccountProfileId: proposal.clientAccountProfileId,
+        idempotencyKey,
+        payload: {
+          legalCompanyName: payload.acceptance.legalCompanyName,
+          billingEmail: payload.acceptance.billingEmail,
+          packageId: payload.commercial.packageId,
+          packageName: payload.commercial.packageName,
+          monthlyFeeCents: payload.commercial.monthlyFeeCents,
+          setupFeeCents: payload.commercial.setupFeeCents,
+          currency: payload.commercial.currency,
+          billingFrequency: payload.commercial.billingFrequency,
+          vatStatus: payload.commercial.vatStatus,
+          minimumTermMonths: payload.commercial.minimumTermMonths,
+          noticePeriodDays: payload.commercial.noticePeriodDays,
+          proposedStartDate: payload.commercial.proposedStartDate,
+        },
+      },
+      executor,
+    );
+    await this.ensureClickUpDeliveryProvision(executor, clinicId, proposal, eventRows[0].id, idempotencyKey, payload);
+  }
+
+  private async ensureClickUpDeliveryProvision(
+    executor: QueryExecutor,
+    clinicId: string,
+    proposal: ProposalResponse,
+    eventId: string,
+    idempotencyKey: string,
+    payload: any,
+  ) {
+    if (!proposal.clientAccountProfileId) return;
+    await stageClickUpDeliveryProvision(
+      {
+        clinicId,
+        clientAccountProfileId: proposal.clientAccountProfileId,
+        proposalId: proposal.id,
+        eventId,
+        idempotencyKey,
+        payload: {
+          packageId: payload.commercial?.packageId || null,
+          packageName: payload.commercial?.packageName || null,
+          proposedStartDate: payload.commercial?.proposedStartDate || null,
+          proposalUrl: payload.proposal?.proposalUrl || null,
+          proposalReference: payload.proposal?.reference || null,
+          contactId: payload.links?.contactId || null,
+          dealId: payload.links?.dealId || null,
+        },
+      },
+      executor,
     );
   }
 

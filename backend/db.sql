@@ -1418,7 +1418,7 @@ CREATE TABLE `manual_consult_entry` (
   `clinic_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `contact_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `appointment_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `prospect_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `patient_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `treatment` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `practitioner` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `practitioner_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -2608,6 +2608,43 @@ CREATE TABLE `insight` (
 LOCK TABLES `insight` WRITE;
 /*!40000 ALTER TABLE `insight` DISABLE KEYS */;
 /*!40000 ALTER TABLE `insight` ENABLE KEYS */;
+UNLOCK TABLES;
+DROP TABLE IF EXISTS `performance_alert`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `performance_alert` (
+  `id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `type` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `severity` enum('low','medium','high','critical') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'medium',
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `summary` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `source_type` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_contact_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `insight_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('open','acknowledged','resolved','archived') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'open',
+  `metadata` json DEFAULT NULL,
+  `created_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_performance_alert_clinic_status` (`clinic_id`,`status`,`deleted_at`),
+  KEY `idx_performance_alert_contact` (`clinic_id`,`source_contact_id`,`deleted_at`),
+  KEY `idx_performance_alert_source` (`clinic_id`,`source_type`,`source_id`),
+  KEY `idx_performance_alert_insight` (`insight_id`),
+  KEY `idx_performance_alert_created_by` (`created_by`),
+  CONSTRAINT `fk_performance_alert_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_performance_alert_contact` FOREIGN KEY (`source_contact_id`) REFERENCES `contact` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_performance_alert_insight` FOREIGN KEY (`insight_id`) REFERENCES `insight` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_performance_alert_created_by` FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+LOCK TABLES `performance_alert` WRITE;
+/*!40000 ALTER TABLE `performance_alert` DISABLE KEYS */;
+/*!40000 ALTER TABLE `performance_alert` ENABLE KEYS */;
 UNLOCK TABLES;
 DROP TABLE IF EXISTS `monthly_action_plan`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;

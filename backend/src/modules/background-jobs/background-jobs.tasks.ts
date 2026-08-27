@@ -1,5 +1,7 @@
 import pool from "../../config/database.js";
+import { config } from "../../config/index.js";
 import { clickUpService } from "../clickup/clickup.service.js";
+import { quickBooksService } from "../quickbooks/quickbooks.service.js";
 import { sequencesService } from "../sequences/sequences.service.js";
 import { slaService } from "../sla/sla.service.js";
 import { tasksService } from "../tasks/tasks.service.js";
@@ -93,7 +95,17 @@ export async function runClickUpLifecycleSync(): Promise<BackgroundJobTaskResult
   };
 }
 
+export async function runClickUpDeliveryProvisions(): Promise<BackgroundJobTaskResult> {
+  return clickUpService.processDeliveryProvisionBatch({ limit: 25 });
+}
+
+export async function runQuickBooksCommercialDrafts(): Promise<BackgroundJobTaskResult> {
+  return quickBooksService.processCommercialDraftBatch({
+    limit: config.quickbooks.commercialDraftBatchSize,
+    staleAfterMinutes: config.quickbooks.commercialDraftStaleMinutes,
+  });
+}
+
 export async function runObservabilityFailureProbe(): Promise<BackgroundJobTaskResult> {
   throw new Error("Forced observability background job failure");
 }
-
