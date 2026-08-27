@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
 import app from "../app.js";
@@ -12,6 +13,24 @@ async function postInboundEmail(
   payload: Record<string, unknown>,
 ) {
   const response = await fetch(`${baseUrl}/api/webhooks/email/inbound`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "x-webhook-secret": secret,
+    },
+    body: JSON.stringify(payload),
+  });
+  const body: any = await response.json().catch(() => ({}));
+  return { response, body };
+}
+
+async function postEmailEvent(
+  baseUrl: string,
+  secret: string,
+  payload: Record<string, unknown>,
+) {
+  const response = await fetch(`${baseUrl}/api/webhooks/email/events`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -226,6 +245,7 @@ test("email enquiry webhook creates or links a lead contact with attribution, au
     assert.equal(retryResult.body.data.duplicate, true);
     assert.equal(retryResult.body.data.emailId, firstResult.body.data.emailId);
     assert.equal(retryResult.body.data.contactId, firstResult.body.data.contactId);
+    assert.equal(retryResult.body.data.threadId, firstResult.body.data.threadId);
 
     const [primaryCounts]: any = await pool.execute(
       `SELECT
@@ -240,13 +260,82 @@ test("email enquiry webhook creates or links a lead contact with attribution, au
     const linkedResult = await postInboundEmail(baseUrl, secret, {
       ...payload,
       providerMessageId: `${providerMessageId}-second`,
-      subject: "Follow-up email enquiry - implant campaign",
+      inReplyTo: `<${providerMessageId}>`,
+      references: `<${providerMessageId}>`,
+      subject: "Re: Email enquiry - implant campaign",
       text: "The same patient followed up with another email.",
     });
     assert.equal(linkedResult.response.status, 200);
     assert.equal(linkedResult.body.data.duplicate, false);
     assert.equal(linkedResult.body.data.contactId, firstResult.body.data.contactId);
+    assert.equal(linkedResult.body.data.threadId, firstResult.body.data.threadId);
     assert.notEqual(linkedResult.body.data.emailId, firstResult.body.data.emailId);
+
+    const concurrentPayload = {
+      ...payload,
+      providerMessageId: `${providerMessageId}-concurrent`,
+      inReplyTo: `<${providerMessageId}>`,
+      subject: "Re: Email enquiry - implant campaign",
+      text: "Provider retried this reply concurrently.",
+    };
+    const concurrentResults = await Promise.all([
+      postInboundEmail(baseUrl, secret, concurrentPayload),
+      postInboundEmail(baseUrl, secret, concurrentPayload),
+    ]);
+    assert.equal(concurrentResults.every((result) => result.response.status === 200), true);
+    assert.deepEqual(concurrentResults.map((result) => result.body.data.duplicate).sort(), [false, true]);
+    assert.equal(concurrentResults[0].body.data.emailId, concurrentResults[1].body.data.emailId);
+
+    const outboundEmailId = randomUUID();
+    const outboundProviderMessageId = `outbound-${providerMessageId}`;
+    await pool.execute(
+      `INSERT INTO email
+        (id, provider_message_id, thread_id, clinic_id, contact_id, user_id,
+         to_email, subject, body, direction, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Reply', 'Outbound reply', 'outbound', 'sent')`,
+      [
+        outboundEmailId,
+        outboundProviderMessageId,
+        firstResult.body.data.threadId,
+        primary.clinicId,
+        firstResult.body.data.contactId,
+        primary.userId,
+        sender,
+      ],
+    );
+
+    const bounce = await postEmailEvent(baseUrl, secret, {
+      event: "hard_bounce",
+      messageId: `<${outboundProviderMessageId}>`,
+      reason: "Mailbox does not exist",
+    });
+    assert.equal(bounce.response.status, 200);
+    assert.equal(bounce.body.data.emailId, outboundEmailId);
+    assert.equal(bounce.body.data.duplicate, false);
+
+    const duplicateBounce = await postEmailEvent(baseUrl, secret, {
+      event: "hard-bounce",
+      messageId: outboundProviderMessageId,
+      reason: "Mailbox does not exist",
+    });
+    assert.equal(duplicateBounce.response.status, 200);
+    assert.equal(duplicateBounce.body.data.duplicate, true);
+
+    const [bounceRows]: any = await pool.execute(
+      `SELECT status, bounced_at as bouncedAt, bounce_reason as bounceReason
+       FROM email WHERE id = ? AND clinic_id = ?`,
+      [outboundEmailId, primary.clinicId],
+    );
+    assert.equal(bounceRows[0].status, "bounced");
+    assert.ok(bounceRows[0].bouncedAt);
+    assert.equal(bounceRows[0].bounceReason, "Mailbox does not exist");
+
+    const [bounceAuditRows]: any = await pool.execute(
+      `SELECT COUNT(*) as count FROM audit_log
+       WHERE clinic_id = ? AND action = 'OUTBOUND_EMAIL_BOUNCED' AND entity_id = ?`,
+      [primary.clinicId, outboundEmailId],
+    );
+    assert.equal(Number(bounceAuditRows[0].count), 1);
 
     const secondaryResult = await postInboundEmail(baseUrl, secret, {
       ...payload,
@@ -276,7 +365,7 @@ test("email enquiry webhook creates or links a lead contact with attribution, au
     assert.equal(Number(secondaryCounts[0].secondaryEmailCount), 1);
     assert.equal(Number(secondaryCounts[0].primaryEmailCount), 1);
 
-    console.log("[email-lead-ingestion] inbound email lead creation, attribution, idempotency and tenant isolation passed");
+    console.log("[email-lead-ingestion] inbound threading, idempotency, bounce handling, audit and tenant isolation passed");
   } finally {
     Object.assign(config.email as any, originalEmailConfig);
     await new Promise<void>((resolve) => {

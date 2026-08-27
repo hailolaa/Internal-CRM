@@ -14,6 +14,7 @@ interface SendEmailInput {
   htmlContent: string;
   textContent?: string;
   tags?: string[];
+  headers?: Record<string, string>;
 }
 
 interface BrevoSendResponse {
@@ -56,6 +57,7 @@ export class EmailService {
         to: input.to.map((recipient) => recipient.email),
         subject: input.subject,
         tags: input.tags,
+        headers: input.headers,
       });
       return { messageId: "log-provider" };
     }
@@ -78,6 +80,7 @@ export class EmailService {
         htmlContent: input.htmlContent,
         textContent: input.textContent,
         tags: input.tags,
+        headers: input.headers,
       }),
     });
 

@@ -4,28 +4,11 @@ import type { AddressInfo } from "node:net";
 import { v4 as uuidv4 } from "uuid";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
-import { contactsService } from "../modules/contacts/contacts.service.js";
+import { emailService } from "../services/email.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
-}
-
-async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
 }
 
 async function fetchConversation(baseUrl: string, token: string, contactId: string) {
@@ -40,11 +23,24 @@ async function fetchConversation(baseUrl: string, token: string, contactId: stri
   return { response, body };
 }
 
+async function sendConversationEmail(baseUrl: string, token: string, contactId: string, body: Record<string, unknown>) {
+  const response = await fetch(`${baseUrl}/api/comms/inbox/${contactId}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  return { response, body: await response.json() as any };
+}
+
 test("communications inbox returns ordered conversation threads and keeps notes separate", async () => {
   await testConnection();
 
-  const primary = await createClinicAndAdmin("CommsConversationPrimary");
-  const secondary = await createClinicAndAdmin("CommsConversationSecondary");
+  const primary = await createTestClinicAndAdmin("CommsConversationPrimary");
+  const secondary = await createTestClinicAndAdmin("CommsConversationSecondary");
 
   const server = app.listen(0);
   const address = server.address();
@@ -54,22 +50,19 @@ test("communications inbox returns ordered conversation threads and keeps notes 
 
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
 
-  let contactId = "";
+  const contactId = uuidv4();
   const emailId = uuidv4();
   const smsId = uuidv4();
   const noteId = uuidv4();
+  const originalSendTransactionalEmail = emailService.sendTransactionalEmail.bind(emailService);
 
   try {
-    const createdContact = await contactsService.createContact(primary.clinicId, primary.userId, {
-      firstName: "Inbox",
-      lastName: "Thread",
-      email: uniqueEmail("comms_thread"),
-      phone: "+1 (555) 321-0001",
-      source: "website",
-      treatmentInterests: ["Physio"],
-    });
-
-    contactId = createdContact.contact.id;
+    await pool.execute(
+      `INSERT INTO contact
+        (id, clinic_id, first_name, last_name, email, phone, source, status, lead_status)
+       VALUES (?, ?, 'Inbox', 'Thread', ?, '+1 (555) 321-0001', 'website', 'lead', 'new')`,
+      [contactId, primary.clinicId, uniqueEmail("comms_thread")],
+    );
 
     const firstTimestamp = new Date(Date.now() - 10 * 60 * 1000);
     const secondTimestamp = new Date(Date.now() - 5 * 60 * 1000);
@@ -137,7 +130,7 @@ test("communications inbox returns ordered conversation threads and keeps notes 
     assert.equal(body.data.contact.id, contactId);
     assert.equal(body.data.contact.name, "Inbox Thread");
     assert.equal(body.data.messages.length, 2);
-    assert.equal(body.data.internalNotes.length >= 2, true);
+    assert.equal(body.data.internalNotes.length >= 1, true);
     assert.equal(body.data.messages[0].id, emailId);
     assert.equal(body.data.messages[1].id, smsId);
     assert.equal(body.data.messages[0].channel, "email");
@@ -147,12 +140,44 @@ test("communications inbox returns ordered conversation threads and keeps notes 
     assert.equal(body.data.messages[0].isInternal, false);
     assert.equal(body.data.internalNotes.every((note: any) => note.isInternal === true), true);
 
+    let providerRequest: any = null;
+    emailService.sendTransactionalEmail = async (input: any) => {
+      providerRequest = input;
+      return { messageId: "provider-outbound-thread-reply" };
+    };
+    await pool.execute(
+      `UPDATE email SET provider_message_id = ?, thread_id = ? WHERE id = ? AND clinic_id = ?`,
+      ["provider-original-thread-message", emailId, emailId, primary.clinicId],
+    );
+
+    const sent = await sendConversationEmail(baseUrl, primary.token, contactId, {
+      channel: "email",
+      body: "Following up in the same email thread.",
+    });
+    assert.equal(sent.response.status, 201);
+    assert.equal(sent.body.data.status, "sent");
+    assert.equal(sent.body.data.subject, "Re: Welcome to the clinic");
+    assert.equal(providerRequest.to[0].email.includes("comms_thread"), true);
+    assert.equal(providerRequest.headers["In-Reply-To"], "<provider-original-thread-message>");
+
+    const [sentRows]: any = await pool.execute(
+      `SELECT provider_message_id as providerMessageId, thread_id as threadId,
+              in_reply_to as inReplyTo, status
+       FROM email WHERE id = ? AND clinic_id = ?`,
+      [sent.body.data.id, primary.clinicId],
+    );
+    assert.equal(sentRows[0].providerMessageId, "provider-outbound-thread-reply");
+    assert.equal(sentRows[0].threadId, emailId);
+    assert.equal(sentRows[0].inReplyTo, "provider-original-thread-message");
+    assert.equal(sentRows[0].status, "sent");
+
     const foreign = await fetchConversation(baseUrl, secondary.token, contactId);
     assert.equal(foreign.response.status, 404);
     assert.equal(foreign.body.status, "error");
 
     console.log("[comms-conversation] thread detail test passed");
   } finally {
+    emailService.sendTransactionalEmail = originalSendTransactionalEmail;
     await pool.execute(
       `UPDATE activity
        SET deleted_at = CURRENT_TIMESTAMP,

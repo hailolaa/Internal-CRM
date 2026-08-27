@@ -263,6 +263,17 @@ export class WebhooksController {
     }
   };
 
+  // POST /api/webhooks/email/events
+  handleEmailDeliveryEvent = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      this.assertEmailInboundWebhookAllowed(req);
+      const data = await inboundEmailService.handleDeliveryEvent(req.body || {});
+      res.status(200).json({ status: "success", data });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   // GET /api/webhooks/whatsapp/inbound
   handleWhatsAppVerify = async (req: Request, res: Response, next: NextFunction) => {
     try {

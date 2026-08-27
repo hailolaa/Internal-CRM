@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { ApiError } from "../../utils/ApiError.js";
 import { buildTimelineMetadata, logTimelineActivity } from "../../utils/activity.js";
 import { logAuditEvent } from "../../utils/audit.js";
+import { emailService } from "../../services/email.service.js";
 
 function isMissingTableError(error: unknown) {
   const code = (error as { code?: string } | null)?.code;
@@ -20,6 +21,14 @@ function initials(name: string) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+function escapeEmailHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
 }
 
 type InboxArchiveFilter = "false" | "true" | "only" | "with" | undefined;
@@ -311,6 +320,7 @@ export class CommsService {
     const id = uuidv4();
     const body = data.body.trim();
     const now = new Date().toISOString();
+    let outboundSubject = data.subject || null;
 
     if (channel === "sms") {
       await pool.execute(
@@ -319,11 +329,65 @@ export class CommsService {
         [id, clinicId, contactId, userId || null, body],
       );
     } else {
-      await pool.execute(
-        `INSERT INTO email (id, clinic_id, contact_id, user_id, subject, body, direction, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'outbound', 'sent')`,
-        [id, clinicId, contactId, userId || null, data.subject || null, body],
+      if (!contact.email) throw ApiError.badRequest("Contact email address is required");
+      const [latestRows]: any = await pool.execute(
+        `SELECT COALESCE(thread_id, id) as threadId, provider_message_id as providerMessageId, subject
+         FROM email
+         WHERE clinic_id = ? AND contact_id = ? AND deleted_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [clinicId, contactId],
       );
+      const latest = latestRows[0];
+      const threadId = latest?.threadId || uuidv4();
+      const inReplyTo = latest?.providerMessageId || null;
+      const subject = data.subject?.trim() || (latest?.subject ? `Re: ${String(latest.subject).replace(/^\s*re:\s*/i, "")}` : "Mission Control message");
+      outboundSubject = subject;
+
+      await pool.execute(
+        `INSERT INTO email
+          (id, thread_id, in_reply_to, reference_ids, clinic_id, contact_id, user_id,
+           to_email, subject, body, direction, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'outbound', 'queued')`,
+        [id, threadId, inReplyTo, JSON.stringify(inReplyTo ? [inReplyTo] : []), clinicId, contactId, userId || null, contact.email, subject, body],
+      );
+
+      try {
+        const contactName = formatName(contact.firstName, contact.lastName);
+        const delivery = await emailService.sendTransactionalEmail({
+          to: [{ email: contact.email, ...(contactName ? { name: contactName } : {}) }],
+          subject,
+          textContent: body,
+          htmlContent: `<p>${escapeEmailHtml(body)}</p>`,
+          tags: ["mission-control-inbox"],
+          ...(inReplyTo
+            ? { headers: { "In-Reply-To": `<${inReplyTo}>`, References: `<${inReplyTo}>` } }
+            : {}),
+        });
+        const providerMessageId = delivery?.messageId && delivery.messageId !== "log-provider"
+          ? delivery.messageId.replace(/^<|>$/g, "")
+          : null;
+        await pool.execute(
+          `UPDATE email
+           SET provider_message_id = ?, status = 'sent', updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND clinic_id = ?`,
+          [providerMessageId, id, clinicId],
+        );
+      } catch (error) {
+        await pool.execute(
+          `UPDATE email SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND clinic_id = ?`,
+          [id, clinicId],
+        );
+        await logAuditEvent({
+          clinicId,
+          userId,
+          action: "INBOX_EMAIL_DELIVERY_FAILED",
+          entityType: "email",
+          entityId: id,
+          changes: { contactId, channel: "email" },
+        });
+        throw error;
+      }
     }
 
     await logTimelineActivity({
@@ -353,7 +417,7 @@ export class CommsService {
       channel,
       direction: "outbound",
       status: "sent",
-      subject: channel === "email" ? data.subject || null : null,
+      subject: channel === "email" ? outboundSubject : null,
       body,
       timestamp: now,
       sender: "Clinic",

@@ -11,6 +11,8 @@ interface ParsedAddress {
 
 interface ParsedInboundEmail {
   providerMessageId: string | null;
+  inReplyTo: string | null;
+  references: string[];
   from: ParsedAddress;
   to: ParsedAddress[];
   subject: string | null;
@@ -26,6 +28,23 @@ function cleanString(value: unknown) {
 
 function normalizeEmail(value: unknown) {
   return cleanString(value)?.toLowerCase() || null;
+}
+
+function normalizeMessageId(value: unknown) {
+  const cleaned = cleanString(value);
+  if (!cleaned) return null;
+  return cleaned.replace(/^<|>$/g, "").trim() || null;
+}
+
+function parseMessageIds(value: unknown) {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map(normalizeMessageId).filter(Boolean))) as string[];
+  }
+  const raw = cleanString(value);
+  if (!raw) return [];
+  const bracketed = Array.from(raw.matchAll(/<([^>]+)>/g), (match) => normalizeMessageId(match[1])).filter(Boolean);
+  const values = bracketed.length > 0 ? bracketed : raw.split(/\s+/).map(normalizeMessageId).filter(Boolean);
+  return Array.from(new Set(values)) as string[];
 }
 
 function parseAddress(value: unknown): ParsedAddress | null {
@@ -149,7 +168,7 @@ function parseInboundPayload(body: Record<string, unknown>): ParsedInboundEmail 
   if (!bodyText) throw ApiError.badRequest("Inbound email body is required");
 
   return {
-    providerMessageId: cleanString(
+    providerMessageId: normalizeMessageId(
       body.providerMessageId ||
         body.messageId ||
         body.MessageId ||
@@ -157,6 +176,8 @@ function parseInboundPayload(body: Record<string, unknown>): ParsedInboundEmail 
         body["message-id"] ||
         body.MessageID,
     ),
+    inReplyTo: normalizeMessageId(body.inReplyTo || body.InReplyTo || body["in-reply-to"]),
+    references: parseMessageIds(body.references || body.References),
     from,
     to,
     subject: cleanString(body.subject || body.Subject),
@@ -199,7 +220,7 @@ export class InboundEmailService {
     const firstRecipient = payload.to[0]!;
     if (payload.providerMessageId) {
       const [existingRows]: any = await pool.execute(
-        `SELECT id, contact_id as contactId
+        `SELECT id, contact_id as contactId, COALESCE(thread_id, id) as threadId
          FROM email
          WHERE clinic_id = ?
            AND provider_message_id = ?
@@ -211,6 +232,7 @@ export class InboundEmailService {
         return {
           emailId: existingRows[0].id,
           contactId: existingRows[0].contactId,
+          threadId: existingRows[0].threadId,
           duplicate: true,
         };
       }
@@ -218,27 +240,50 @@ export class InboundEmailService {
 
     const contactId = await this.findOrCreateContact(clinicId, payload.from);
     const emailId = uuidv4();
+    const threadId = await this.resolveThreadId(clinicId, contactId, payload);
     const receivedAt = mysqlDate(payload.receivedAt);
 
-    await pool.execute(
-      `INSERT INTO email
-        (id, provider_message_id, clinic_id, contact_id, user_id, from_email, to_email,
-         subject, body, direction, status, received_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 'inbound', 'unread', ?, ?, ?)`,
-      [
-        emailId,
-        payload.providerMessageId,
-        clinicId,
-        contactId,
-        payload.from.email,
-        firstRecipient.email,
-        payload.subject,
-        payload.body,
-        receivedAt,
-        receivedAt,
-        receivedAt,
-      ],
-    );
+    try {
+      await pool.execute(
+        `INSERT INTO email
+          (id, provider_message_id, thread_id, in_reply_to, reference_ids,
+           clinic_id, contact_id, user_id, from_email, to_email,
+           subject, body, direction, status, received_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 'inbound', 'unread', ?, ?, ?)`,
+        [
+          emailId,
+          payload.providerMessageId,
+          threadId,
+          payload.inReplyTo,
+          JSON.stringify(payload.references),
+          clinicId,
+          contactId,
+          payload.from.email,
+          firstRecipient.email,
+          payload.subject,
+          payload.body,
+          receivedAt,
+          receivedAt,
+          receivedAt,
+        ],
+      );
+    } catch (error) {
+      if ((error as { code?: string }).code !== "ER_DUP_ENTRY" || !payload.providerMessageId) throw error;
+      const [duplicateRows]: any = await pool.execute(
+        `SELECT id, contact_id as contactId, COALESCE(thread_id, id) as threadId
+         FROM email
+         WHERE clinic_id = ? AND provider_message_id = ? AND deleted_at IS NULL
+         LIMIT 1`,
+        [clinicId, payload.providerMessageId],
+      );
+      if (!duplicateRows[0]) throw error;
+      return {
+        emailId: duplicateRows[0].id,
+        contactId: duplicateRows[0].contactId,
+        threadId: duplicateRows[0].threadId,
+        duplicate: true,
+      };
+    }
 
     await logTimelineActivity({
       clinicId,
@@ -256,6 +301,8 @@ export class InboundEmailService {
           to: firstRecipient.email,
           subject: payload.subject,
           providerMessageId: payload.providerMessageId,
+          threadId,
+          inReplyTo: payload.inReplyTo,
         },
       }),
     });
@@ -271,14 +318,116 @@ export class InboundEmailService {
         from: payload.from.email,
         to: firstRecipient.email,
         providerMessageId: payload.providerMessageId,
+        threadId,
+        inReplyTo: payload.inReplyTo,
       },
     });
 
     return {
       emailId,
       contactId,
+      threadId,
       duplicate: false,
     };
+  }
+
+  async handleDeliveryEvent(body: Record<string, unknown>) {
+    const providerMessageId = normalizeMessageId(
+      body.providerMessageId || body.messageId || body["message-id"] || body["message_id"],
+    );
+    if (!providerMessageId) throw ApiError.badRequest("Email delivery event message ID is required");
+
+    const event = (cleanString(body.event || body.type || body.Event) || "").toLowerCase().replace(/[\s-]+/g, "_");
+    const bounceEvents = new Set(["bounce", "bounced", "hard_bounce", "soft_bounce", "blocked", "invalid"]);
+    if (!bounceEvents.has(event)) {
+      return { providerMessageId, ignored: true, duplicate: false };
+    }
+
+    const [rows]: any = await pool.execute(
+      `SELECT id, clinic_id as clinicId, contact_id as contactId, status
+       FROM email
+       WHERE provider_message_id = ?
+         AND direction = 'outbound'
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [providerMessageId],
+    );
+    const email = rows[0];
+    if (!email) throw ApiError.notFound("Outbound email delivery record not found");
+    if (email.status === "bounced") {
+      return { emailId: email.id, providerMessageId, ignored: false, duplicate: true };
+    }
+
+    const reason = cleanString(body.reason || body.description || body.message || body.response) || event;
+    await pool.execute(
+      `UPDATE email
+       SET status = 'bounced', bounced_at = CURRENT_TIMESTAMP, bounce_reason = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND clinic_id = ?`,
+      [reason.slice(0, 1000), email.id, email.clinicId],
+    );
+
+    await logTimelineActivity({
+      clinicId: email.clinicId,
+      contactId: email.contactId,
+      type: "Email",
+      metadata: buildTimelineMetadata({
+        action: "outbound_email_bounced",
+        source: "contact",
+        recordId: email.id,
+        status: "bounced",
+        changes: { providerMessageId, reason },
+      }),
+    });
+    await logAuditEvent({
+      clinicId: email.clinicId,
+      userId: null,
+      action: "OUTBOUND_EMAIL_BOUNCED",
+      entityType: "email",
+      entityId: email.id,
+      changes: { contactId: email.contactId, providerMessageId, reason },
+    });
+
+    return { emailId: email.id, providerMessageId, ignored: false, duplicate: false };
+  }
+
+  private async resolveThreadId(
+    clinicId: string,
+    contactId: string,
+    payload: ParsedInboundEmail,
+  ) {
+    const replyIds = Array.from(new Set([payload.inReplyTo, ...payload.references].filter(Boolean))) as string[];
+    if (replyIds.length > 0) {
+      const placeholders = replyIds.map(() => "?").join(", ");
+      const [rows]: any = await pool.execute(
+        `SELECT COALESCE(thread_id, id) as threadId
+         FROM email
+         WHERE clinic_id = ?
+           AND provider_message_id IN (${placeholders})
+           AND deleted_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [clinicId, ...replyIds],
+      );
+      if (rows[0]?.threadId) return rows[0].threadId as string;
+    }
+
+    const normalizedSubject = (payload.subject || "").replace(/^\s*(re|fw|fwd):\s*/i, "").trim();
+    if (normalizedSubject) {
+      const [rows]: any = await pool.execute(
+        `SELECT COALESCE(thread_id, id) as threadId
+         FROM email
+         WHERE clinic_id = ?
+           AND contact_id = ?
+           AND LOWER(TRIM(REGEXP_REPLACE(COALESCE(subject, ''), '^(re|fw|fwd):[[:space:]]*', ''))) = LOWER(?)
+           AND deleted_at IS NULL
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [clinicId, contactId, normalizedSubject],
+      );
+      if (rows[0]?.threadId) return rows[0].threadId as string;
+    }
+
+    return uuidv4();
   }
 
   private async findOrCreateContact(clinicId: string, from: ParsedAddress) {

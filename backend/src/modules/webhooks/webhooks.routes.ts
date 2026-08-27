@@ -35,6 +35,11 @@ router.post("/whatsapp/inbound", webhooksController.handleWhatsAppInbound);
 // @access  Public provider webhook
 router.post("/email/inbound", webhooksController.handleEmailInbound);
 
+// @route   POST /api/webhooks/email/events
+// @desc    Public email delivery/bounce status webhook for Mission Control inbox
+// @access  Public provider webhook
+router.post("/email/events", webhooksController.handleEmailDeliveryEvent);
+
 // @route   POST /api/webhooks/esign/:provider
 // @desc    Public e-sign provider status/evidence callback
 // @access  Public provider webhook
