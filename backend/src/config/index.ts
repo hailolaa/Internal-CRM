@@ -402,7 +402,6 @@ const CLINIC_FACING_HOSTS = new Set([
     "www.clinicgrower.ai",
     "clinicgrower.co.uk",
     "www.clinicgrower.co.uk",
-    "crm.clinicgrower.co.uk",
 ]);
 
 function hostFromUrl(value: string) {

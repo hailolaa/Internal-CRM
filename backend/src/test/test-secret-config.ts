@@ -67,7 +67,7 @@ test("secret config accepts strong non-local configuration", () => {
 test("mission control domain config rejects clinic-facing production hosts", () => {
   const issues = getMissionControlDomainIssues({
     frontendUrl: "https://clinicgrower.ai",
-    apiPublicUrl: "https://crm.clinicgrower.co.uk/api",
+    apiPublicUrl: "https://www.clinicgrower.co.uk/api",
     oauthCallbackBaseUrl: "https://clinicgrower.co.uk/api/auth",
     corsOrigins: ["https://www.clinicgrower.ai"],
   });
@@ -76,6 +76,17 @@ test("mission control domain config rejects clinic-facing production hosts", () 
   assert.ok(issues.some((issue) => issue.includes("API_PUBLIC_URL")));
   assert.ok(issues.some((issue) => issue.includes("OAUTH_CALLBACK_BASE_URL")));
   assert.ok(issues.some((issue) => issue.includes("CORS_ORIGINS")));
+});
+
+test("mission control domain config accepts the dedicated CRM host", () => {
+  const issues = getMissionControlDomainIssues({
+    frontendUrl: "https://crm.clinicgrower.co.uk",
+    apiPublicUrl: "https://crm.clinicgrower.co.uk/api",
+    oauthCallbackBaseUrl: "https://crm.clinicgrower.co.uk/api/auth",
+    corsOrigins: ["https://crm.clinicgrower.co.uk"],
+  });
+
+  assert.deepEqual(issues, []);
 });
 
 test("mission control domain config accepts mission-control hosts", () => {
