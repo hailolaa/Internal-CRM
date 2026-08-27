@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
 import { config } from "../config/index.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 import { v4 as uuidv4 } from "uuid";
 
 function uniqueEmail(prefix: string) {
@@ -12,20 +12,7 @@ function uniqueEmail(prefix: string) {
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
+  return createTestClinicAndAdmin(prefix);
 }
 
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {

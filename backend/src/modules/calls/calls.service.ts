@@ -417,7 +417,7 @@ export class CallsService {
       );
 
       if (existingTask[0]) {
-        resultTaskId = existingTask[0].id;
+        throw ApiError.conflict("A missed-call recovery task already exists for this call");
       } else {
         await connection.execute(
           `INSERT INTO task

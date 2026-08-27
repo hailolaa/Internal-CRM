@@ -459,6 +459,27 @@ LOCK TABLES `campaign` WRITE;
 -- Mission Control seed intentionally leaves legacy campaign rows empty.
 /*!40000 ALTER TABLE `campaign` ENABLE KEYS */;
 UNLOCK TABLES;
+DROP TABLE IF EXISTS `campaign_media`;
+CREATE TABLE `campaign_media` (
+  `id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `campaign_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `mime_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `size_bytes` int unsigned NOT NULL,
+  `asset_data` longblob NOT NULL,
+  `created_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_campaign_media_campaign` (`clinic_id`,`campaign_id`,`deleted_at`),
+  KEY `fk_campaign_media_campaign` (`campaign_id`),
+  KEY `fk_campaign_media_user` (`created_by`),
+  CONSTRAINT `fk_campaign_media_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_campaign_media_campaign` FOREIGN KEY (`campaign_id`) REFERENCES `campaign` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_campaign_media_user` FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `campaign_contact`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -785,6 +806,10 @@ CREATE TABLE `compliance_document` (
   `status` enum('complete','action_required','expiring_soon') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'action_required',
   `category` enum('gdpr','internal','training','insurance','regulatory') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'regulatory',
   `due_date` date DEFAULT NULL,
+  `file_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `mime_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `size_bytes` int unsigned DEFAULT NULL,
+  `asset_data` longblob,
   `created_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -801,6 +826,31 @@ LOCK TABLES `compliance_document` WRITE;
 /*!40000 ALTER TABLE `compliance_document` DISABLE KEYS */;
 /*!40000 ALTER TABLE `compliance_document` ENABLE KEYS */;
 UNLOCK TABLES;
+DROP TABLE IF EXISTS `compliance_data_access_request`;
+CREATE TABLE `compliance_data_access_request` (
+  `id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `clinic_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `requester_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `requester_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `requester_phone` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `request_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'received',
+  `due_date` date DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `updated_by` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_compliance_request_clinic` (`clinic_id`,`status`,`deleted_at`),
+  KEY `fk_compliance_request_created_by` (`created_by`),
+  KEY `fk_compliance_request_updated_by` (`updated_by`),
+  CONSTRAINT `fk_compliance_request_clinic` FOREIGN KEY (`clinic_id`) REFERENCES `clinic` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_compliance_request_created_by` FOREIGN KEY (`created_by`) REFERENCES `user` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_compliance_request_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `compliance_setting`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -1792,7 +1842,7 @@ CREATE TABLE `report` (
   `filters` json DEFAULT NULL,
   `data` json DEFAULT NULL,
   `workflow_status` enum('draft','in_review','approved','published') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
-  `clinical_notes` text COLLATE utf8mb4_unicode_ci,
+  `internal_notes` text COLLATE utf8mb4_unicode_ci,
   `client_commentary` text COLLATE utf8mb4_unicode_ci,
   `ai_draft_summary` text COLLATE utf8mb4_unicode_ci,
   `approved_by` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

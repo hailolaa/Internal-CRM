@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { v4 as uuidv4 } from "uuid";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 import { callsService } from "../modules/calls/calls.service.js";
 
 function uniqueEmail(prefix: string) {
@@ -12,20 +12,7 @@ function uniqueEmail(prefix: string) {
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
+  return createTestClinicAndAdmin(prefix);
 }
 
 async function addTrackingNumber(clinicId: string, phoneNumber: string) {
@@ -123,7 +110,7 @@ test("missed-call follow-up endpoint queues an SMS and blocks duplicates", async
       },
       body: JSON.stringify({}),
     });
-    assert.equal(duplicateResponse.status, 409);
+    assert.equal(duplicateResponse.status, 409, await duplicateResponse.text());
 
     console.log("[calls-missed-followup] endpoint queue and duplicate guard test passed");
   } finally {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { v4 as uuidv4 } from "uuid";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 import { contactsService } from "../modules/contacts/contacts.service.js";
 import { appointmentsService } from "../modules/appointments/appointments.service.js";
 import { consultsService } from "../modules/consults/consults.service.js";
@@ -12,20 +12,7 @@ function uniqueEmail(prefix: string) {
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const email = uniqueEmail(`${prefix}_admin`);
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: email,
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-  };
+  return createTestClinicAndAdmin(prefix);
 }
 
 async function createContact(clinicId: string, userId: string, prefix: string) {

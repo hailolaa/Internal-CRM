@@ -3,26 +3,14 @@ import test from "node:test";
 import type { AddressInfo } from "node:net";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    token: result.tokens.token,
-  };
+  return createTestClinicAndAdmin(prefix);
 }
 
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
@@ -87,7 +75,7 @@ test("compliance files and data access requests stay tenant scoped and audited",
         dataUrl: textDataUrl,
       }),
     });
-    assert.equal(uploaded.response.status, 201);
+    assert.equal(uploaded.response.status, 201, JSON.stringify(uploaded.body));
     assert.equal(uploaded.body.data.fileName, "gdpr-policy.txt");
     assert.match(uploaded.body.data.dataUrl, /^data:text\/plain;base64,/);
 
@@ -119,7 +107,7 @@ test("compliance files and data access requests stay tenant scoped and audited",
         notes: "Patient requested a copy of personal data.",
       }),
     });
-    assert.equal(createdRequest.response.status, 201);
+    assert.equal(createdRequest.response.status, 201, JSON.stringify(createdRequest.body));
     requestId = createdRequest.body.data.id;
     assert.equal(createdRequest.body.data.status, "received");
     assert.equal(createdRequest.body.data.dueDate.length, 10);

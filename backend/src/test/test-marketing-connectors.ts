@@ -2,28 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
 import app from "../app.js";
+import { config } from "../config/index.js";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 
 function uniqueEmail(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}@test.com`;
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
+  return createTestClinicAndAdmin(prefix);
 }
 
 async function fetchJson(baseUrl: string, path: string, token: string, init: RequestInit = {}) {
@@ -41,6 +29,10 @@ async function fetchJson(baseUrl: string, path: string, token: string, init: Req
 }
 
 test("marketing connector workflows expose health, sync metrics, preserve fallback, and stay tenant scoped", async () => {
+  const previousDeveloperToken = config.googleAds.developerToken;
+  const previousLoginCustomerId = config.googleAds.loginCustomerId;
+  (config.googleAds as { developerToken: string }).developerToken = "test-google-ads-developer-token";
+  (config.googleAds as { loginCustomerId: string }).loginCustomerId = "1234567890";
   await testConnection();
   console.log("[marketing-connectors] database connection OK");
 
@@ -228,7 +220,7 @@ test("marketing connector workflows expose health, sync metrics, preserve fallba
     }) as typeof fetch;
     try {
       const googleAdsChoices = await fetchJson(baseUrl, "/api/integrations/connectors/google_ads/accounts", primary.token);
-      assert.equal(googleAdsChoices.response.status, 200);
+      assert.equal(googleAdsChoices.response.status, 200, JSON.stringify(googleAdsChoices.body));
       assert.equal(customerClientCalls >= 2, true);
       assert.equal(directLookupWithoutManagerHeader, true);
       assert.equal(googleAdsChoices.body.data.length, 3);
@@ -711,6 +703,8 @@ test("marketing connector workflows expose health, sync metrics, preserve fallba
     assert.equal(secondaryGoogleAds.setupStatus, "not_configured");
     console.log("[marketing-connectors] tenant isolation passed");
   } finally {
+    (config.googleAds as { developerToken: string }).developerToken = previousDeveloperToken;
+    (config.googleAds as { loginCustomerId: string }).loginCustomerId = previousLoginCustomerId;
     await pool.execute(
       `UPDATE manual_platform_metric
        SET deleted_at = CURRENT_TIMESTAMP

@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { v4 as uuidv4 } from "uuid";
 import app from "../app.js";
 import pool, { testConnection } from "../config/database.js";
-import { authService } from "../modules/auth/auth.service.js";
+import { createTestClinicAndAdmin } from "./test-fixtures.js";
 import { appointmentsService } from "../modules/appointments/appointments.service.js";
 import { callsService } from "../modules/calls/calls.service.js";
 import { contactsService } from "../modules/contacts/contacts.service.js";
@@ -37,20 +37,7 @@ function nextWeekdayDate(daysAhead = 1) {
 }
 
 async function createClinicAndAdmin(prefix: string) {
-  const result = await authService.registerClinic({
-    clinicName: `${prefix} Clinic`,
-    adminEmail: uniqueEmail(`${prefix}_admin`),
-    adminPassword: "password123",
-    firstName: prefix,
-    lastName: "Admin",
-    phone: "555-0100",
-  });
-
-  return {
-    clinicId: result.user.clinicId,
-    userId: result.user.id,
-    token: result.tokens.token,
-  };
+  return createTestClinicAndAdmin(prefix);
 }
 
 async function ensureClinicianAvailability(clinicId: string, clinicianId: string, date: Date) {
@@ -92,7 +79,7 @@ async function sendJson(baseUrl: string, path: string, token: string, method: "P
   const response = await fetch(`${baseUrl}${path}`, init);
 
   const payload: any = await response.json();
-  assert.equal(response.ok, true, `Expected ${method} ${path} to return success, got ${response.status}`);
+  assert.equal(response.ok, true, `Expected ${method} ${path} to return success, got ${response.status}: ${JSON.stringify(payload)}`);
   assert.equal(payload.status, "success");
   return payload.data;
 }
@@ -124,7 +111,7 @@ test("reports dashboard returns live revenue, funnel, channel, treatment, and le
 
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
   const dateRangeStart = toDateOnly(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
-  const dateRangeEnd = toDateOnly(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
+  const dateRangeEnd = toDateOnly(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
 
   const primarySpendId = uuidv4();
   const campaignId = uuidv4();
@@ -282,7 +269,7 @@ test("reports dashboard returns live revenue, funnel, channel, treatment, and le
     `INSERT INTO deposit_record
       (id, clinic_id, contact_name, treatment, appointment_date, deposit_amount, deposit_paid, paid_date, method, showed_up, practitioner, status, deposit_requested, created_by)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [uuidv4(), primary.clinicId, `${leadOne.contact.firstName} ${leadOne.contact.lastName}`, "Dashboard Injectables", toDateOnly(completedDate), 250.0, 1, dateRangeEnd, "card", 1, "ReportsDashboardPrimary Admin", "paid", 1, primary.userId],
+    [uuidv4(), primary.clinicId, `${leadOne.contact.firstName} ${leadOne.contact.lastName}`, "Dashboard Injectables", toDateOnly(completedDate), 250.0, 1, toDateOnly(completedDate), "card", 1, "ReportsDashboardPrimary Admin", "paid", 1, primary.userId],
   );
 
   await pool.execute(

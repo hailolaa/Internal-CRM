@@ -583,9 +583,9 @@ export class ReportsService {
       ),
       pool.execute(
         `SELECT COUNT(*) as consults,
-                SUM(CASE WHEN mce.outcome = 'Treatment Booked' THEN 1 ELSE 0 END) as bookedConsults,
-                SUM(CASE WHEN mce.outcome = 'Treatment Booked' THEN 1 ELSE 0 END) as soldTreatments,
-                COALESCE(SUM(CASE WHEN mce.outcome = 'Treatment Booked' THEN mce.revenue ELSE 0 END), 0) as revenue
+                SUM(CASE WHEN mce.outcome IN ('Sold', 'Treatment Booked', 'treatment_booked') THEN 1 ELSE 0 END) as bookedConsults,
+                SUM(CASE WHEN mce.outcome IN ('Sold', 'Treatment Booked', 'treatment_booked') THEN 1 ELSE 0 END) as soldTreatments,
+                COALESCE(SUM(CASE WHEN mce.outcome IN ('Sold', 'Treatment Booked', 'treatment_booked') THEN mce.revenue ELSE 0 END), 0) as revenue
          FROM manual_consult_entry mce
          WHERE mce.clinic_id = ?
            AND mce.deleted_at IS NULL${dateFilter.sql.replaceAll("{column}", "mce.consult_date")}`,
@@ -757,7 +757,7 @@ export class ReportsService {
          FROM manual_consult_entry mce
          WHERE mce.clinic_id = ?
            AND mce.deleted_at IS NULL
-           AND mce.outcome = 'Treatment Booked'${dateFilter.sql.replaceAll("{column}", "mce.consult_date")}`,
+           AND mce.outcome IN ('Sold', 'Treatment Booked', 'treatment_booked')${dateFilter.sql.replaceAll("{column}", "mce.consult_date")}`,
         [clinicId, ...dateFilter.values],
       ),
     ]);
@@ -1003,7 +1003,7 @@ export class ReportsService {
         AND tc.name = mce.treatment
        WHERE mce.clinic_id = ?
          AND mce.deleted_at IS NULL
-         AND mce.outcome = 'Treatment Booked'${dateFilter.sql.replaceAll("{column}", "mce.consult_date")}
+         AND mce.outcome IN ('Sold', 'Treatment Booked', 'treatment_booked')${dateFilter.sql.replaceAll("{column}", "mce.consult_date")}
        GROUP BY COALESCE(mce.treatment, 'Unknown'), COALESCE(tc.category, 'Other'), tc.average_value_cents, tc.margin_percent, tc.is_high_ticket
        ORDER BY revenue DESC, soldTreatments DESC, treatment ASC`,
       [clinicId, ...dateFilter.values],
@@ -1312,7 +1312,7 @@ export class ReportsService {
     for (const consult of consults) {
       const source = ensureSource(consult.source);
       source.consults += 1;
-      if (["Treatment Booked", "sold", "treatment_booked"].includes(consult.outcome)) {
+      if (["Sold", "Treatment Booked", "sold", "treatment_booked"].includes(consult.outcome)) {
         source.bookedRevenue += consult.revenue;
       }
     }
@@ -1327,9 +1327,9 @@ export class ReportsService {
 
     const bookedConsults = appointments.filter((item: any) => ["Scheduled", "Completed", "NoShow"].includes(item.status)).length;
     const attendedConsults = appointments.filter((item: any) => item.status === "Completed").length;
-    const soldTreatments = consults.filter((item: any) => ["Treatment Booked", "sold", "treatment_booked"].includes(item.outcome)).length;
+    const soldTreatments = consults.filter((item: any) => ["Sold", "Treatment Booked", "sold", "treatment_booked"].includes(item.outcome)).length;
     const bookedRevenue = consults.reduce((sum: number, item: any) =>
-      ["Treatment Booked", "sold", "treatment_booked"].includes(item.outcome) ? sum + item.revenue : sum,
+      ["Sold", "Treatment Booked", "sold", "treatment_booked"].includes(item.outcome) ? sum + item.revenue : sum,
     0);
     const completedRevenue = deposits.reduce((sum: number, item: any) => item.depositPaid ? sum + item.depositAmount : sum, 0) +
       treatmentPlans.reduce((sum: number, item: any) => sum + item.paid, 0);
@@ -1526,7 +1526,7 @@ export class ReportsService {
            ON mce.contact_id = c.id
           AND mce.clinic_id = c.clinic_id
           AND mce.deleted_at IS NULL
-          AND mce.outcome = 'Treatment Booked'
+          AND mce.outcome IN ('Sold', 'Treatment Booked', 'treatment_booked')
          WHERE c.clinic_id = ?
            AND c.deleted_at IS NULL
            AND c.value > 0
@@ -1682,7 +1682,7 @@ export class ReportsService {
            ON mce.contact_id = c.id
           AND mce.clinic_id = c.clinic_id
           AND mce.deleted_at IS NULL
-          AND mce.outcome = 'Treatment Booked'
+          AND mce.outcome IN ('Sold', 'Treatment Booked', 'treatment_booked')
          LEFT JOIN user u
            ON u.id = c.first_response_by
          WHERE c.clinic_id = ?
