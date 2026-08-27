@@ -14,6 +14,24 @@ export type DashboardKpiCard = {
   ariaLabel: string;
 };
 
+export type DashboardRoleState = {
+  canReadCallIssues: boolean;
+  canReadClickUpOperations: boolean;
+  calendarHref: string;
+};
+
+export function getDashboardRoleState(
+  hasPermission: (permission: string) => boolean,
+): DashboardRoleState {
+  return {
+    canReadCallIssues: hasPermission("calls:read"),
+    canReadClickUpOperations: hasPermission("internal_tasks:read"),
+    calendarHref: hasPermission("webhooks:read")
+      ? "/app/integrations?from=dashboard"
+      : "/app/ops/client-accounts?from=dashboard",
+  };
+}
+
 export const DASHBOARD_KPI_CARD_ORDER: DashboardKpiKey[] = [
   "newProspects",
   "won",

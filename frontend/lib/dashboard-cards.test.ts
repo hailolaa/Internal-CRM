@@ -8,13 +8,33 @@ import {
   getDashboardTaskDetailHref,
   getDashboardKeyboardTargetIndex,
   getDashboardKpiCards,
+  getDashboardRoleState,
   hasActionableSyncedProposalFollowUpTask,
   isDashboardActiveProjectStatus,
   isDashboardNewProspect,
   isDashboardUpcomingTask,
 } from "./dashboard-cards";
+import { getPermissionsForRole } from "./roles";
 
 describe("dashboard KPI cards", () => {
+  it("loads role-specific sources without requesting forbidden APIs", () => {
+    const stateFor = (role: Parameters<typeof getPermissionsForRole>[0]) => {
+      const permissions = getPermissionsForRole(role);
+      return getDashboardRoleState((permission) =>
+        permissions.includes("*") || permissions.includes(permission));
+    };
+
+    for (const role of ["SUPER_ADMIN", "ADMIN", "SALES", "DELIVERY", "READ_ONLY"] as const) {
+      expect(stateFor(role).canReadCallIssues).toBe(true);
+      expect(stateFor(role).canReadClickUpOperations).toBe(true);
+    }
+    expect(stateFor("FINANCE")).toEqual({
+      canReadCallIssues: false,
+      canReadClickUpOperations: true,
+      calendarHref: "/app/ops/client-accounts?from=dashboard",
+    });
+    expect(stateFor("ADMIN").calendarHref).toBe("/app/integrations?from=dashboard");
+  });
   it("opens expected filtered destinations and preserves dashboard context", () => {
     const cards = getDashboardKpiCards({
       newProspects: 4,

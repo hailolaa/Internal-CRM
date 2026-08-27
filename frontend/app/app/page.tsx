@@ -28,6 +28,7 @@ import { groupMonthlyRevenueByCurrency } from "@/lib/commercial-metrics";
 import {
   getDashboardTaskDetailHref,
   getDashboardKpiCards,
+  getDashboardRoleState,
   hasActionableSyncedProposalFollowUpTask,
   isDashboardActiveProjectStatus,
   isDashboardNewProspect,
@@ -347,7 +348,9 @@ function actionUrgencySort(action: NextBestActionResult) {
 export default function AppPage() {
   const { hasPermission, session } = useAuth();
   const token = session?.token;
-  const canReadInternalTasks = hasPermission("internal_tasks:read");
+  const dashboardRoleState = getDashboardRoleState(hasPermission);
+  const canReadInternalTasks = dashboardRoleState.canReadClickUpOperations;
+  const canReadCallIssues = dashboardRoleState.canReadCallIssues;
   const dashboardCardRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const [activeDashboardCardIndex, setActiveDashboardCardIndex] = useState(0);
   const [deals, setDeals] = useState<PipelineDealRecord[]>([]);
@@ -393,7 +396,9 @@ export default function AppPage() {
       api.internalTasks.list(token, { includeArchived: false }),
       api.proposals.list(token, { includeArchived: false, limit: 250 }),
       api.calendar.listMeetings(token, { upcoming: true, limit: 12 }),
-      api.calls.list(token, { missedOnly: true }),
+      canReadCallIssues
+        ? api.calls.list(token, { missedOnly: true })
+        : Promise.resolve([] as CallLogRecord[]),
       canReadInternalTasks ? api.clickup.getOperationsDashboard(token) : Promise.resolve(null),
     ])
       .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult, proposalResult, meetingResult, callResult, clickUpResult]) => {
@@ -439,7 +444,7 @@ export default function AppPage() {
     return () => {
       isMounted = false;
     };
-  }, [canReadInternalTasks, token]);
+  }, [canReadCallIssues, canReadInternalTasks, token]);
 
   useEffect(() => {
     if (!token || !canReadInternalTasks) return;
@@ -1526,7 +1531,7 @@ export default function AppPage() {
             <div className="mb-3 flex items-center justify-between gap-3">
               <h3 className="text-sm font-semibold text-[#151f21]">Upcoming agreed meetings</h3>
               <Link
-                href="/app/integrations?from=dashboard"
+                href={dashboardRoleState.calendarHref}
                 className="text-sm font-medium text-[#5e8a8d] hover:text-[#151f21]"
               >
                 Calendar
