@@ -1,5 +1,6 @@
 import pool from "../../config/database.js";
 import { config } from "../../config/index.js";
+import { dailyExecutiveBriefingService } from "../ai-workspace/daily-executive-briefing.service.js";
 import { clickUpService } from "../clickup/clickup.service.js";
 import { quickBooksService } from "../quickbooks/quickbooks.service.js";
 import { sequencesService } from "../sequences/sequences.service.js";
@@ -67,6 +68,10 @@ export async function runDailySlaReport(): Promise<BackgroundJobTaskResult> {
     soldConsults,
     consultRevenue,
   };
+}
+
+export async function runDailyExecutiveBriefing(): Promise<BackgroundJobTaskResult> {
+  return dailyExecutiveBriefingService.generateForActiveClinics();
 }
 
 export async function runRecurringTasksGeneration(): Promise<BackgroundJobTaskResult> {

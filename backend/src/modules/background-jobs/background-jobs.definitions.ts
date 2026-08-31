@@ -2,6 +2,7 @@ import {
   runDailySlaReport,
   runClickUpLifecycleSync,
   runClickUpDeliveryProvisions,
+  runDailyExecutiveBriefing,
   runObservabilityFailureProbe,
   runRecurringTasksGeneration,
   runQuickBooksCommercialDrafts,
@@ -48,6 +49,15 @@ export const backgroundJobDefinitions: BackgroundJobDefinition[] = [
     category: "Reports",
     getNextRunAt: nextDailyRun(7, 0),
     handler: runDailySlaReport,
+  },
+  {
+    id: "daily-executive-briefing",
+    name: "Daily Executive Briefing",
+    description: "Generates a deterministic weekday exception brief with client health, SLA, proposal, delivery, release, and Max-decision items.",
+    schedule: "Daily 07:15",
+    category: "Reports",
+    getNextRunAt: nextDailyRun(7, 15),
+    handler: runDailyExecutiveBriefing,
   },
   {
     id: "recurring-tasks-generation",

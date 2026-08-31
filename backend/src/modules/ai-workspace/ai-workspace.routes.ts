@@ -13,6 +13,7 @@ import {
   createAiRunValidator,
   generateCampaignAnalystValidator,
   generateCompetitorInsightsValidator,
+  generateDailyExecutiveBriefingValidator,
   generateDateRangeValidator,
   generateGrowthBriefValidator,
   generateSalesAssistantValidator,
@@ -171,6 +172,17 @@ router.post(
   generateGrowthBriefValidator,
   validate,
   aiWorkspaceController.generateGrowthBrief,
+);
+
+// @route   POST /api/ai/executive-briefing/daily
+// @desc    Generate the deterministic daily executive exception brief
+// @access  Private
+router.post(
+  "/executive-briefing/daily",
+  authorizePermission("reports:read"),
+  generateDailyExecutiveBriefingValidator,
+  validate,
+  aiWorkspaceController.generateDailyExecutiveBriefing,
 );
 
 // @route   POST /api/ai/show-rate/generate

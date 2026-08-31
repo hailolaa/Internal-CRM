@@ -24,6 +24,10 @@ export interface GenerateGrowthBriefDTO {
 
 export type DateRangeDTO = GenerateGrowthBriefDTO;
 
+export interface GenerateDailyExecutiveBriefingDTO {
+  briefDate?: string;
+}
+
 export interface GenerateSalesAssistantDTO {
   contactId?: string;
   leadName?: string;

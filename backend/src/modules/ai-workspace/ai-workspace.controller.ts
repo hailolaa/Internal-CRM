@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { aiWorkspaceService } from "./ai-workspace.service.js";
 import { aiEvaluationsService } from "./ai-evaluations.service.js";
 import { aiChatAssistantService } from "./ai-chat-assistant.service.js";
+import { dailyExecutiveBriefingService } from "./daily-executive-briefing.service.js";
 
 export class AiWorkspaceController {
   // GET /api/ai/projects
@@ -212,6 +213,17 @@ export class AiWorkspaceController {
       const { clinicId, userId } = (req as any).user;
       const run = await aiWorkspaceService.generateGrowthBrief(clinicId, userId, req.body || {});
       res.status(201).json({ status: "success", data: run });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /api/ai/executive-briefing/daily
+  generateDailyExecutiveBriefing = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const run = await dailyExecutiveBriefingService.generateDailyBriefing(clinicId, userId, req.body || {});
+      res.status(run.duplicate ? 200 : 201).json({ status: "success", data: run });
     } catch (error) {
       next(error);
     }

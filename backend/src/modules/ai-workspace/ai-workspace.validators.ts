@@ -46,6 +46,10 @@ export const generateGrowthBriefValidator = [
 
 export const generateDateRangeValidator = generateGrowthBriefValidator;
 
+export const generateDailyExecutiveBriefingValidator = [
+  body("briefDate").optional({ nullable: true }).isISO8601().withMessage("briefDate must be a valid date"),
+];
+
 export const generateSalesAssistantValidator = [
   body("contactId").optional({ nullable: true }).isUUID().withMessage("Invalid contact ID format"),
   body("leadName").optional({ nullable: true }).trim().isLength({ max: 255 }),

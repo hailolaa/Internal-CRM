@@ -308,6 +308,11 @@ export const config = {
         pollIntervalMs: parseInt(process.env.BACKGROUND_JOBS_POLL_INTERVAL_MS || "60000", 10),
     },
 
+    executiveBriefing: {
+        deliveryChannel: process.env.DAILY_EXECUTIVE_BRIEF_DELIVERY_CHANNEL || "in_app",
+        deliveryTarget: process.env.DAILY_EXECUTIVE_BRIEF_DELIVERY_TARGET || "",
+    },
+
     demoSeed: {
         sqlPath: process.env.DEMO_SEED_SQL || "",
         passwordConfigured: Boolean(process.env.DEMO_SEED_PASSWORD),
