@@ -25,6 +25,7 @@ import {
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { groupMonthlyRevenueByCurrency } from "@/lib/commercial-metrics";
+import { buildPhase2ClientMetrics } from "@/lib/phase2-client-metrics";
 import {
   getDashboardTaskDetailHref,
   getDashboardKpiCards,
@@ -61,10 +62,12 @@ import type {
   ContactRecord,
   ClickUpOperationsDashboardRecord,
   ClickUpOperationsTaskRecord,
+  FinanceRevenueViewRecord,
   InternalTaskRecord,
   PipelineDealRecord,
   PipelineStageRecord,
   ProposalRecord,
+  RevenueRiskModelReportRecord,
 } from "@/lib/api-types";
 
 type DeadlineRow = {
@@ -185,6 +188,19 @@ function formatCurrencyAmount(value: number, currency = "GBP") {
     currency,
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function formatMonthLabel(value?: string | null) {
+  const date = parseDate(value);
+  if (!date) return "current period";
+  return new Intl.DateTimeFormat("en-GB", {
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatPercent(value?: number | null) {
+  return value === null || value === undefined ? "n/a" : `${value.toFixed(1)}%`;
 }
 
 function formatLabel(value: string) {
@@ -351,6 +367,7 @@ export default function AppPage() {
   const dashboardRoleState = getDashboardRoleState(hasPermission);
   const canReadInternalTasks = dashboardRoleState.canReadClickUpOperations;
   const canReadCallIssues = dashboardRoleState.canReadCallIssues;
+  const canReadReports = hasPermission("reports:read");
   const dashboardCardRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const [activeDashboardCardIndex, setActiveDashboardCardIndex] = useState(0);
   const [deals, setDeals] = useState<PipelineDealRecord[]>([]);
@@ -362,6 +379,8 @@ export default function AppPage() {
   const [proposals, setProposals] = useState<ProposalRecord[]>([]);
   const [meetings, setMeetings] = useState<CalendarMeetingRecord[]>([]);
   const [callIssues, setCallIssues] = useState<CallLogRecord[]>([]);
+  const [phase2RevenueView, setPhase2RevenueView] = useState<FinanceRevenueViewRecord | null>(null);
+  const [phase2RevenueRisk, setPhase2RevenueRisk] = useState<RevenueRiskModelReportRecord | null>(null);
   const [clickUpOperations, setClickUpOperations] = useState<ClickUpOperationsDashboardRecord | null>(null);
   const [clickUpOperationsError, setClickUpOperationsError] = useState("");
   const [isRefreshingClickUpOperations, setIsRefreshingClickUpOperations] = useState(false);
@@ -399,9 +418,11 @@ export default function AppPage() {
       canReadCallIssues
         ? api.calls.list(token, { missedOnly: true })
         : Promise.resolve([] as CallLogRecord[]),
+      canReadReports ? api.reports.revenueMovement(token) : Promise.resolve(null),
+      canReadReports ? api.reports.revenueRiskPredictions(token) : Promise.resolve(null),
       canReadInternalTasks ? api.clickup.getOperationsDashboard(token) : Promise.resolve(null),
     ])
-      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult, proposalResult, meetingResult, callResult, clickUpResult]) => {
+      .then(([dealResult, contactResult, stageResult, accountResult, serviceResult, taskResult, proposalResult, meetingResult, callResult, revenueResult, riskResult, clickUpResult]) => {
         if (!isMounted) return;
 
         setDeals(dealResult.status === "fulfilled" ? dealResult.value.deals : []);
@@ -415,6 +436,8 @@ export default function AppPage() {
         setProposals(proposalResult.status === "fulfilled" ? proposalResult.value : []);
         setMeetings(meetingResult.status === "fulfilled" ? meetingResult.value : []);
         setCallIssues(callResult.status === "fulfilled" ? callResult.value : []);
+        setPhase2RevenueView(revenueResult.status === "fulfilled" ? revenueResult.value : null);
+        setPhase2RevenueRisk(riskResult.status === "fulfilled" ? riskResult.value : null);
         setClickUpOperations(clickUpResult.status === "fulfilled" ? clickUpResult.value : null);
         setClickUpOperationsError(clickUpResult.status === "rejected" ? clickUpErrorMessage(clickUpResult.reason) : "");
 
@@ -428,6 +451,8 @@ export default function AppPage() {
           proposalResult.status === "rejected" ? "proposal follow-ups" : "",
           meetingResult.status === "rejected" ? "calendar meetings" : "",
           callResult.status === "rejected" ? "call response issues" : "",
+          revenueResult.status === "rejected" ? "Phase 2 revenue movement" : "",
+          riskResult.status === "rejected" ? "Phase 2 retention risk" : "",
           clickUpResult.status === "rejected" ? "ClickUp operations" : "",
         ].filter(Boolean);
 
@@ -444,7 +469,7 @@ export default function AppPage() {
     return () => {
       isMounted = false;
     };
-  }, [canReadCallIssues, canReadInternalTasks, token]);
+  }, [canReadCallIssues, canReadInternalTasks, canReadReports, token]);
 
   useEffect(() => {
     if (!token || !canReadInternalTasks) return;
@@ -473,6 +498,15 @@ export default function AppPage() {
   const openClientAccounts = useMemo(
     () => clientAccounts.filter(isOpenClientAccount),
     [clientAccounts],
+  );
+
+  const phase2ClientMetrics = useMemo(
+    () => buildPhase2ClientMetrics({
+      accounts: openClientAccounts,
+      revenueView: phase2RevenueView,
+      riskReport: phase2RevenueRisk,
+    }),
+    [openClientAccounts, phase2RevenueRisk, phase2RevenueView],
   );
 
   const metrics = useMemo(() => {
@@ -1340,6 +1374,139 @@ export default function AppPage() {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9] p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-[#151f21]">Phase 2 Client Metrics</h2>
+            <p className="text-sm text-[#5e8a8d]">
+              Retention risk, profit visibility and location drill-down for active client accounts
+            </p>
+            <p className="mt-1 text-xs text-[#7A746A]">
+              {phase2ClientMetrics.sourceLabel} - {formatMonthLabel(phase2ClientMetrics.latestMonth)}
+            </p>
+          </div>
+          <Link
+            href="/app/ops/client-accounts?from=dashboard"
+            className="rounded-[14px] border border-[rgba(21,31,33,0.08)] px-3 py-2 text-sm font-medium text-[#151f21] hover:bg-[#eaedeb] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62] focus-visible:ring-offset-2 focus-visible:ring-offset-[#FFFCF9]"
+          >
+            Client Accounts
+          </Link>
+        </div>
+
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            {
+              label: "Current MRR",
+              value: formatMoney(phase2ClientMetrics.currentMrrCents),
+              sub: `${openClientAccounts.length} active client${openClientAccounts.length === 1 ? "" : "s"}`,
+            },
+            {
+              label: "Recognised revenue",
+              value: formatMoney(phase2ClientMetrics.recognizedRevenueCents),
+              sub: `Cost ${formatMoney(phase2ClientMetrics.costCents)}`,
+            },
+            {
+              label: "Gross margin",
+              value: formatMoney(phase2ClientMetrics.marginCents),
+              sub: formatPercent(phase2ClientMetrics.marginPercent),
+            },
+            {
+              label: "Retention watch",
+              value: String(phase2ClientMetrics.retentionRiskCount),
+              sub: `${phase2ClientMetrics.locationCount} location${phase2ClientMetrics.locationCount === 1 ? "" : "s"}`,
+            },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className="rounded-2xl border border-[#E7E1DA] bg-[#FAF8F5] p-4"
+            >
+              <p className="text-sm font-medium text-[#5e8a8d]">{item.label}</p>
+              <p className="mt-2 text-2xl font-bold text-[#151f21]">{item.value}</p>
+              <p className="mt-1 text-xs text-[#7A746A]">{item.sub}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-[#151f21]">Location drill-down</h3>
+              <span className="text-xs font-medium text-[#7A746A]">MRR / margin / risk</span>
+            </div>
+            <div className="space-y-2">
+              {isLoading &&
+                Array.from({ length: 3 }, (_, index) => (
+                  <SkeletonLine key={index} className="h-14 w-full" />
+                ))}
+              {!isLoading && phase2ClientMetrics.locationRows.map((row) => (
+                <Link
+                  key={row.id}
+                  href={row.href}
+                  className="block rounded-xl border border-[#edf2ef] bg-[#FAF8F5] p-3 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62]"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="truncate text-sm font-semibold text-[#151f21]">{row.label}</p>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-[#5e8a8d]">
+                      {row.clientCount} client{row.clientCount === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <span className="rounded-lg bg-cyan-50 px-2 py-1 font-semibold text-cyan-700">{formatMoney(row.currentMrrCents)} MRR</span>
+                    <span className="rounded-lg bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">{formatPercent(row.marginPercent)} margin</span>
+                    <span className="rounded-lg bg-amber-50 px-2 py-1 font-semibold text-amber-700">{row.retentionRiskCount} risk</span>
+                  </div>
+                </Link>
+              ))}
+              {!isLoading && phase2ClientMetrics.locationRows.length === 0 && (
+                <p className="text-sm text-[#5e8a8d]">No active client location metrics found.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#E7E1DA] bg-white p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-[#151f21]">Client trend checks</h3>
+              <span className="text-xs font-medium text-[#7A746A]">Source reconciled</span>
+            </div>
+            <div className="space-y-2">
+              {isLoading &&
+                Array.from({ length: 3 }, (_, index) => (
+                  <SkeletonLine key={index} className="h-14 w-full" />
+                ))}
+              {!isLoading && phase2ClientMetrics.clientRows.map((row) => (
+                <Link
+                  key={row.id}
+                  href={row.href}
+                  className="block rounded-xl border border-[#edf2ef] bg-[#FAF8F5] p-3 transition-colors hover:border-[#b9cfcb] hover:bg-[#edf5f3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#315f62]"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="truncate text-sm font-semibold text-[#151f21]">{row.clinicName}</p>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      row.retentionRisk === "critical" || row.retentionRisk === "high"
+                        ? "bg-rose-50 text-rose-700"
+                        : row.retentionRisk === "medium"
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-emerald-50 text-emerald-700"
+                    }`}>
+                      {formatLabel(row.retentionRisk)}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#5e8a8d]">
+                    <span>{row.locationLabel}</span>
+                    <span>{formatMoney(row.currentMrrCents)} MRR</span>
+                    <span>{formatPercent(row.marginPercent)} margin</span>
+                    <span>{row.source}</span>
+                  </div>
+                </Link>
+              ))}
+              {!isLoading && phase2ClientMetrics.clientRows.length === 0 && (
+                <p className="text-sm text-[#5e8a8d]">No active client trend checks found.</p>
+              )}
+            </div>
+          </div>
         </div>
       </section>
 

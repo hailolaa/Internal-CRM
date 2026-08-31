@@ -135,6 +135,7 @@ const clientAccountDrilldownLabels: Record<
 export default function ClientAccountsPage() {
   const searchParams = useSearchParams();
   const requestedContractStatus = searchParams.get("contractStatus");
+  const requestedSearch = searchParams.get("search") || "";
   const requestedView = getClientAccountDrilldownView(searchParams.get("view"));
   const { session } = useAuth();
   const token = session?.token;
@@ -142,7 +143,7 @@ export default function ClientAccountsPage() {
   const [profile, setProfile] = useState<ClientAccountProfileRecord | null>(null);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [tasks, setTasks] = useState<InternalTaskRecord[]>([]);
-  const [accountQuery, setAccountQuery] = useState("");
+  const [accountQuery, setAccountQuery] = useState(requestedSearch);
   const [isLoading, setIsLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState("");
   const [isExporting, setIsExporting] = useState(false);
@@ -257,6 +258,11 @@ export default function ClientAccountsPage() {
           account.currentPackage || "",
           account.recommendedNextPackage || "",
           account.upsellOpportunity || "",
+          account.address || "",
+          account.city || "",
+          account.state || "",
+          account.postalCode || "",
+          account.country || "",
           account.upsellPrompts.map((prompt) => `${prompt.toPackage} ${prompt.reason}`).join(" "),
           account.openIssueCount ? `${account.openIssueCount} open issues` : "",
           accountPersonName(account.accountManager),
