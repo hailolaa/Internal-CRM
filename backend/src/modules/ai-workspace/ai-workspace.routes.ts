@@ -116,6 +116,11 @@ router.post(
   aiWorkspaceController.commitActionApproval,
 );
 
+// @route   POST /api/ai/evaluations/run
+// @desc    Run deterministic AI hallucination, privacy, cost and action-safety evaluations
+// @access  Private
+router.post("/evaluations/run", authorizePermission("ai_actions:review"), aiWorkspaceController.runEvaluations);
+
 // @route   POST /api/ai/growth-brief/generate
 // @desc    Generate a clinic-scoped Phase 1 Growth Brief from live backend metrics
 // @access  Private

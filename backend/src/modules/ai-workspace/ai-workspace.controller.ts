@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { aiWorkspaceService } from "./ai-workspace.service.js";
+import { aiEvaluationsService } from "./ai-evaluations.service.js";
 
 export class AiWorkspaceController {
   // GET /api/ai/projects
@@ -144,6 +145,17 @@ export class AiWorkspaceController {
       const { clinicId, userId } = (req as any).user;
       const record = await aiWorkspaceService.commitActionApproval(clinicId, userId, req.params.id as string);
       res.status(200).json({ status: "success", data: record });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /api/ai/evaluations/run
+  runEvaluations = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const result = await aiEvaluationsService.runSafetyEvaluations(clinicId);
+      res.status(result.status === "pass" ? 200 : 422).json({ status: result.status === "pass" ? "success" : "fail", data: result });
     } catch (error) {
       next(error);
     }
