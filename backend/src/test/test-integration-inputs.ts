@@ -63,6 +63,7 @@ test("Phase 1 integration inputs ingest leads, store manual metrics, expose setu
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
 
   let metaContactId = "";
+  let duplicateMetaContactId = "";
   let manualContactId = "";
   let metricId = "";
   const freelancerEventPrefix = `cg161-${Date.now()}`;
@@ -102,6 +103,46 @@ test("Phase 1 integration inputs ingest leads, store manual metrics, expose setu
     assert.equal(rawLeadRows[0].status, "processed");
     assert.equal(parseJsonColumn(rawLeadRows[0].payload).platform, "meta");
     console.log("[integration-inputs] raw lead payload storage passed");
+
+    const duplicateMetaLead = await fetchApiKeyJson(
+      baseUrl,
+      "/api/integration-inputs/public/meta-leads",
+      apiKey.key!,
+      {
+        eventId: metaLead.body.data.rawPayloadId ? `meta-${metaLead.body.data.rawPayloadId}` : "unused",
+        fullName: "Different Duplicate Name",
+        email: uniqueEmail("different_duplicate"),
+        source: "meta_ads",
+        treatmentInterest: "Skin",
+        rawPayload: {
+          platform: "meta",
+          leadgen_id: "unused",
+        },
+      },
+    );
+    assert.equal(duplicateMetaLead.response.status, 201);
+    duplicateMetaContactId = duplicateMetaLead.body.data.contactId;
+
+    const duplicateMetaRetry = await fetchApiKeyJson(
+      baseUrl,
+      "/api/integration-inputs/public/meta-leads",
+      apiKey.key!,
+      {
+        eventId: metaLead.body.data.rawPayloadId ? `meta-${metaLead.body.data.rawPayloadId}` : "unused",
+        fullName: "Different Duplicate Name",
+        email: uniqueEmail("different_duplicate"),
+        source: "meta_ads",
+        treatmentInterest: "Skin",
+        rawPayload: {
+          platform: "meta",
+          leadgen_id: "unused",
+        },
+      },
+    );
+    assert.equal(duplicateMetaRetry.response.status, 200);
+    assert.equal(duplicateMetaRetry.body.data.duplicateEvent, true);
+    assert.equal(duplicateMetaRetry.body.data.contactId, duplicateMetaContactId);
+    console.log("[integration-inputs] Meta lead duplicate source event idempotency passed");
 
     const manualLead = await fetchJson(baseUrl, "/api/integration-inputs/manual-leads", primary.token, {
       method: "POST",
@@ -158,6 +199,14 @@ test("Phase 1 integration inputs ingest leads, store manual metrics, expose setu
     assert.equal(setupAudit.response.status, 200);
     assert.equal(setupAudit.body.data.metaLeadForms.endpoint, "/api/integration-inputs/public/meta-leads");
     assert.equal(setupAudit.body.data.manualMetrics.status, "ready");
+    const leadIngestion = new Map<string, any>(setupAudit.body.data.leadIngestion.map((item: any) => [item.channel, item]));
+    assert.equal(leadIngestion.get("website_forms")?.status, "partial");
+    assert.equal(leadIngestion.get("landing_page_forms")?.status, "ready");
+    assert.equal(leadIngestion.get("chatbot")?.status, "ready");
+    assert.equal(leadIngestion.get("meta_lead_ads")?.status, "provider_dependent");
+    assert.equal(leadIngestion.get("google_ads_lead_forms")?.status, "blocked");
+    assert.equal(leadIngestion.get("fireflies_post_call")?.status, "blocked");
+    assert.equal(leadIngestion.get("whatsapp_business_api")?.status, "blocked");
     console.log("[integration-inputs] setup audit contract passed");
 
     const packageSummary = await fetchJson(baseUrl, "/api/integration-inputs/stripe/package-summary", primary.token);
@@ -348,6 +397,12 @@ test("Phase 1 integration inputs ingest leads, store manual metrics, expose setu
       await pool.execute(
         `UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id = ? AND deleted_at IS NULL`,
         [primary.clinicId, metaContactId],
+      );
+    }
+    if (duplicateMetaContactId) {
+      await pool.execute(
+        `UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id = ? AND deleted_at IS NULL`,
+        [primary.clinicId, duplicateMetaContactId],
       );
     }
     if (manualContactId) {

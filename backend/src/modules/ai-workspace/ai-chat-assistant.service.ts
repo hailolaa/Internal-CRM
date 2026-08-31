@@ -2,6 +2,7 @@ import pool from "../../config/database.js";
 import { v4 as uuidv4 } from "uuid";
 import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
+import { classifyAssistantPolicy } from "./ai-safety-policy.js";
 import type {
   AiChatGuardrailStatus,
   AiChatMessageRecord,
@@ -20,12 +21,6 @@ type AssistantSummary = {
   scheduledAppointments: number;
   missedCalls: number;
 };
-
-const WRITE_INTENT_PATTERN =
-  /\b(send|email|sms|whatsapp|message|delete|remove|update|edit|change|capture|refund|charge|approve|publish|commit|create)\b/i;
-const SECRET_INTENT_PATTERN = /\b(password|secret|api key|token|credential|private key|bearer)\b/i;
-const SUPPORTED_CONTEXT_PATTERN =
-  /\b(client|lead|prospect|task|overdue|proposal|appointment|call|sla|pipeline|revenue|follow.?up|risk|summary|status)\b/i;
 
 function parseJsonValue(value: unknown) {
   if (!value) return null;
@@ -127,29 +122,8 @@ function buildAssistantResponse(message: string, summary: AssistantSummary): {
   guardrailStatus: AiChatGuardrailStatus;
   citations: Array<{ label: string; source: string }>;
 } {
-  if (SECRET_INTENT_PATTERN.test(message)) {
-    return {
-      guardrailStatus: "refused",
-      body: "I cannot show or retrieve secrets, tokens or credentials. Ask an admin to check the approved secret store and rotation record.",
-      citations: [{ label: "Security guardrail", source: "assistant_policy" }],
-    };
-  }
-
-  if (WRITE_INTENT_PATTERN.test(message)) {
-    return {
-      guardrailStatus: "escalated",
-      body: "I can summarise the situation, but I cannot perform write actions directly. Queue the proposed action for human approval before anything is changed or sent.",
-      citations: [{ label: "Human approval workflow", source: "ai_action_approval" }],
-    };
-  }
-
-  if (!SUPPORTED_CONTEXT_PATTERN.test(message)) {
-    return {
-      guardrailStatus: "escalated",
-      body: "I do not have enough Mission Control context to answer that safely. Please ask about clients, leads, proposals, appointments, tasks, calls, SLA or pipeline status, or escalate to the relevant owner.",
-      citations: [{ label: "Assistant scope", source: "mission_control_read_model" }],
-    };
-  }
+  const policyDecision = classifyAssistantPolicy(message);
+  if (policyDecision) return policyDecision;
 
   return {
     guardrailStatus: "answered",

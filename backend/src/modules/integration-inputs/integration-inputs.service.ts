@@ -5,6 +5,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
 import { billingService } from "../billing/billing.service.js";
 import { contactsService } from "../contacts/contacts.service.js";
+import { buildLeadIngestionContract } from "./lead-ingestion-contract.js";
 import type {
   FreelancerReportQaStatus,
   FreelancerReportReviewDTO,
@@ -485,7 +486,20 @@ export class IntegrationInputsService {
     );
 
     const integrations = new Map(integrationRows.map((row: any) => [row.type, row]));
+    const hasEmailWebhook = Boolean(config.email.inboundWebhookSecret && (
+      config.email.inboundDefaultWorkspaceId || Object.keys(config.email.inboundWorkspaceMap || {}).length > 0
+    ));
     return {
+      leadIngestion: buildLeadIngestionContract({
+        apiKeyCount: Number(apiKeyRows[0]?.total || 0),
+        formCount: Number(formRows[0]?.total || 0),
+        hasTwilio: integrations.has("twilio"),
+        hasTrackingNumber: Number(trackingRows[0]?.total || 0) > 0,
+        hasMeta: integrations.has("meta"),
+        hasGoogle: integrations.has("google_ads"),
+        hasCalendar: integrations.has("google_calendar"),
+        hasEmailWebhook,
+      }),
       websiteForms: {
         status: Number(formRows[0]?.total || 0) > 0 && Number(apiKeyRows[0]?.total || 0) > 0 ? "ready" : "needs_setup",
         endpoint: "/api/public/forms/:id/submit",
@@ -533,7 +547,7 @@ export class IntegrationInputsService {
 
   private async ingestLead(clinicId: string, source: string, data: IngestLeadDTO, actorId: string | null) {
     const eventId = cleanString(data.eventId) || null;
-    const rawPayloadId = await this.storeRawPayload({
+    const rawPayload = await this.reserveLeadRawPayload({
       clinicId,
       source,
       sourceEventId: eventId,
@@ -541,6 +555,15 @@ export class IntegrationInputsService {
       status: "received",
       createdBy: actorId,
     });
+    if (rawPayload.duplicateEvent && rawPayload.linkedEntityId) {
+      return {
+        contactId: rawPayload.linkedEntityId,
+        rawPayloadId: rawPayload.id,
+        duplicateCandidates: [],
+        duplicateEvent: true,
+      };
+    }
+    const rawPayloadId = rawPayload.id;
     const name = splitName(data);
     const sourceLabel = cleanString(data.source) || (source === "meta_lead_form" ? "meta_leads" : "manual_import");
     const result = await contactsService.createContact(clinicId, actorId as any, {
@@ -579,7 +602,52 @@ export class IntegrationInputsService {
       contactId: result.contact.id,
       rawPayloadId,
       duplicateCandidates: result.duplicateCandidates || [],
+      duplicateEvent: false,
     };
+  }
+
+  private async reserveLeadRawPayload(input: {
+    clinicId: string;
+    source: string;
+    payload: Record<string, unknown>;
+    createdBy?: string | null;
+    sourceEventId?: string | null;
+    status?: "received" | "processed" | "failed";
+  }) {
+    const id = uuidv4();
+
+    try {
+      await pool.execute(
+        `INSERT INTO integration_raw_payload
+          (id, clinic_id, source, source_event_id, payload, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          input.clinicId,
+          input.source,
+          input.sourceEventId || null,
+          JSON.stringify(input.payload || {}),
+          input.status || "received",
+          input.createdBy || null,
+        ],
+      );
+      return { id, duplicateEvent: false, linkedEntityId: null as string | null };
+    } catch (error: any) {
+      if (error?.code !== "ER_DUP_ENTRY" || !input.sourceEventId) throw error;
+      const [rows]: any = await pool.execute(
+        `SELECT id, linked_entity_id as linkedEntityId
+         FROM integration_raw_payload
+         WHERE clinic_id = ? AND source = ? AND source_event_id = ?
+         LIMIT 1`,
+        [input.clinicId, input.source, input.sourceEventId],
+      );
+      if (!rows[0]) throw error;
+      return {
+        id: rows[0].id as string,
+        duplicateEvent: Boolean(rows[0].linkedEntityId),
+        linkedEntityId: rows[0].linkedEntityId as string | null,
+      };
+    }
   }
 
   private async storeRawPayload(input: {

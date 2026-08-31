@@ -7,7 +7,7 @@ export class IntegrationInputsController {
     try {
       const apiKey = (req as any).apiKey;
       const result = await integrationInputsService.ingestMetaLead(apiKey.clinicId, req.body, null);
-      res.status(201).json({ status: "success", data: result });
+      res.status(result.duplicateEvent ? 200 : 201).json({ status: "success", data: result });
     } catch (error) {
       next(error);
     }
@@ -17,7 +17,7 @@ export class IntegrationInputsController {
     try {
       const { clinicId, userId } = (req as any).user;
       const result = await integrationInputsService.ingestManualLead(clinicId, userId, req.body);
-      res.status(201).json({ status: "success", data: result });
+      res.status(result.duplicateEvent ? 200 : 201).json({ status: "success", data: result });
     } catch (error) {
       next(error);
     }
