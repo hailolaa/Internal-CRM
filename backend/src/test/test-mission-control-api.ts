@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import app from "../app.js";
+import { config } from "../config/index.js";
 import pool, { testConnection } from "../config/database.js";
-import { generateToken, hashPassword } from "../utils/helpers.js";
+import { generateToken, hashPassword, hashToken } from "../utils/helpers.js";
 
 function unique(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
@@ -84,6 +86,50 @@ async function createPermissionedUser(clinicId: string, prefix: string, permissi
   };
 }
 
+async function createMissionControlIntegrationToken(input: {
+  clinicId: string;
+  userId: string;
+  email: string;
+  role: string;
+  scopes: string[];
+  issuer?: string;
+  audience?: string;
+  expiresIn?: string;
+  revoked?: boolean;
+}) {
+  const tokenId = uuidv4();
+  const rowId = uuidv4();
+  const issuer = input.issuer || config.missionControlIntegration.issuer;
+  const audience = input.audience || config.missionControlIntegration.audience;
+  const token = jwt.sign(
+    {
+      userId: input.userId,
+      clinicId: input.clinicId,
+      role: input.role,
+      email: input.email,
+      token_use: "mission_control_integration",
+      scopes: input.scopes,
+    },
+    config.jwt.secret,
+    {
+      jwtid: tokenId,
+      subject: "chatgpt-mission-control",
+      issuer,
+      audience,
+      expiresIn: (input.expiresIn || "15m") as any,
+    },
+  );
+
+  await pool.execute(
+    `INSERT INTO mission_control_integration_token
+      (id, clinic_id, user_id, name, subject, token_id_hash, issuer, audience, scopes, expires_at, revoked_at, created_by)
+     VALUES (?, ?, ?, 'ChatGPT Mission Control acceptance token', 'chatgpt-mission-control', ?, ?, ?, ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 15 MINUTE), ${input.revoked ? "CURRENT_TIMESTAMP" : "NULL"}, ?)`,
+    [rowId, input.clinicId, input.userId, hashToken(tokenId), issuer, audience, JSON.stringify(input.scopes), input.userId],
+  );
+
+  return { id: rowId, token };
+}
+
 async function ensureApiPermissions() {
   await pool.execute(
     `INSERT IGNORE INTO permission (id, key_name, description)
@@ -145,6 +191,7 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
   const campaignId = uuidv4();
   const strategyLogId = uuidv4();
   const server = app.listen(0);
+  const integrationTokens: string[] = [];
   const address = server.address();
   if (!address || typeof address === "string") {
     throw new Error("Failed to start Mission Control API test server");
@@ -274,6 +321,58 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.equal(invalidToken.body.success, false);
     assert.equal(invalidToken.body.error.code, "unauthorized");
 
+    const expiredIntegrationToken = await createMissionControlIntegrationToken({
+      clinicId: workspace.clinicId,
+      userId: reader.userId,
+      email: `${unique("expired_integration")}@api.test`,
+      role: "SUPER_ADMIN",
+      scopes: ["mission_control_api:read"],
+      expiresIn: "-1s",
+    });
+    integrationTokens.push(expiredIntegrationToken.id);
+    const expiredIntegration = await fetchJson(baseUrl, "/api/v1/capabilities", expiredIntegrationToken.token);
+    expectStatus("expired integration token", expiredIntegration, 401);
+    assert.equal(expiredIntegration.body.error.code, "unauthorized");
+
+    const wrongIssuerToken = await createMissionControlIntegrationToken({
+      clinicId: workspace.clinicId,
+      userId: reader.userId,
+      email: `${unique("wrong_issuer")}@api.test`,
+      role: "SUPER_ADMIN",
+      scopes: ["mission_control_api:read"],
+      issuer: "unexpected-issuer",
+    });
+    integrationTokens.push(wrongIssuerToken.id);
+    const wrongIssuer = await fetchJson(baseUrl, "/api/v1/capabilities", wrongIssuerToken.token);
+    expectStatus("wrong integration issuer", wrongIssuer, 401);
+    assert.equal(wrongIssuer.body.error.code, "unauthorized");
+
+    const wrongAudienceToken = await createMissionControlIntegrationToken({
+      clinicId: workspace.clinicId,
+      userId: reader.userId,
+      email: `${unique("wrong_audience")}@api.test`,
+      role: "SUPER_ADMIN",
+      scopes: ["mission_control_api:read"],
+      audience: "unexpected-audience",
+    });
+    integrationTokens.push(wrongAudienceToken.id);
+    const wrongAudience = await fetchJson(baseUrl, "/api/v1/capabilities", wrongAudienceToken.token);
+    expectStatus("wrong integration audience", wrongAudience, 401);
+    assert.equal(wrongAudience.body.error.code, "unauthorized");
+
+    const revokedIntegrationToken = await createMissionControlIntegrationToken({
+      clinicId: workspace.clinicId,
+      userId: reader.userId,
+      email: `${unique("revoked_integration")}@api.test`,
+      role: "SUPER_ADMIN",
+      scopes: ["mission_control_api:read"],
+      revoked: true,
+    });
+    integrationTokens.push(revokedIntegrationToken.id);
+    const revokedIntegration = await fetchJson(baseUrl, "/api/v1/capabilities", revokedIntegrationToken.token);
+    expectStatus("revoked integration token", revokedIntegration, 401);
+    assert.equal(revokedIntegration.body.error.code, "unauthorized");
+
     const forbidden = await fetchJson(baseUrl, "/api/v1/capabilities", denied.token);
     expectStatus("forbidden capabilities", forbidden, 403);
     assert.equal(forbidden.body.success, false);
@@ -304,6 +403,18 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.equal(capabilities.body.data.recordTypes.includes("marketing"), true);
     assert.equal(capabilities.body.data.recordTypes.includes("management"), true);
     assert.equal(capabilities.body.data.tools.some((tool: any) => tool.name === "search" && tool.readOnlyHint), true);
+
+    const apiIntegrationToken = await createMissionControlIntegrationToken({
+      clinicId: workspace.clinicId,
+      userId: reader.userId,
+      email: `${unique("api_integration")}@api.test`,
+      role: "SUPER_ADMIN",
+      scopes: ["mission_control_api:read"],
+    });
+    integrationTokens.push(apiIntegrationToken.id);
+    const integrationCapabilities = await fetchJson(baseUrl, "/api/v1/capabilities", apiIntegrationToken.token);
+    expectStatus("valid Mission Control REST integration token", integrationCapabilities, 200);
+    assert.equal(integrationCapabilities.body.data.writePolicy.currentPhase, "read_only");
 
     const search = await fetchJson(
       baseUrl,
@@ -405,6 +516,29 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.equal(searchTool.supportedRecordTypes.includes("management"), true);
     assert.deepEqual(fetchTool.inputSchema.required, ["type", "id"]);
 
+    const mcpIntegrationToken = await createMissionControlIntegrationToken({
+      clinicId: workspace.clinicId,
+      userId: reader.userId,
+      email: `${unique("mcp_integration")}@api.test`,
+      role: "SUPER_ADMIN",
+      scopes: ["mission_control_mcp:read"],
+    });
+    integrationTokens.push(mcpIntegrationToken.id);
+    const mcpIntegrationTools = await fetchJson(baseUrl, "/mcp", mcpIntegrationToken.token, {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "integration-tools", method: "tools/list" }),
+    });
+    expectStatus("valid Mission Control MCP integration token", mcpIntegrationTools, 200);
+    assert.equal(mcpIntegrationTools.body.result.tools.every((tool: any) => tool.readOnlyHint === true), true);
+
+    const missingMcpScope = await fetchJson(baseUrl, "/mcp", apiIntegrationToken.token, {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: "missing-scope", method: "tools/list" }),
+    });
+    expectStatus("Mission Control integration token missing MCP scope", missingMcpScope, 403);
+    assert.equal(missingMcpScope.body.status, "error");
+    assert.match(missingMcpScope.body.message, /scope|permission/i);
+
     const mcpForbidden = await fetchJson(baseUrl, "/mcp", denied.token, {
       method: "POST",
       body: JSON.stringify({ jsonrpc: "2.0", id: "denied-tools", method: "tools/list" }),
@@ -501,6 +635,17 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.equal(mcpFetch.body.id, "fetch");
     assert.equal(mcpFetch.body.result.content[0].json.id, contactId);
 
+    const [auditRows]: any = await pool.execute(
+      `SELECT action, entity_type as entityType, entity_id as entityId, changes
+       FROM audit_log
+       WHERE clinic_id = ?
+         AND action IN ('MISSION_CONTROL_API_FETCH', 'MISSION_CONTROL_MCP_TOOL_CALL')
+       ORDER BY created_at DESC`,
+      [workspace.clinicId],
+    );
+    assert.equal(auditRows.some((row: any) => row.action === "MISSION_CONTROL_API_FETCH" && row.entityType === "contact" && row.entityId === oldContactId), true);
+    assert.equal(auditRows.some((row: any) => row.action === "MISSION_CONTROL_MCP_TOOL_CALL" && JSON.stringify(row.changes).includes('"result":"success"')), true);
+
     const mcpMissingFetchId = await fetchJson(baseUrl, "/mcp", reader.token, {
       method: "POST",
       body: JSON.stringify({
@@ -538,6 +683,12 @@ test("Mission Control API v1 and MCP expose a secured read-only first slice", as
     assert.equal(rateLimited, true, "Expected dedicated /api/v1 rate limit to trigger");
   } finally {
     await pool.execute("DELETE FROM strategy_log WHERE id = ?", [strategyLogId]);
+    if (integrationTokens.length > 0) {
+      await pool.execute(
+        `DELETE FROM mission_control_integration_token WHERE id IN (${integrationTokens.map(() => "?").join(", ")})`,
+        integrationTokens,
+      );
+    }
     await pool.execute("DELETE FROM campaign WHERE id = ?", [campaignId]);
     await pool.execute("DELETE FROM deposit_record WHERE id = ?", [depositId]);
     await pool.execute("DELETE FROM sms WHERE id = ?", [smsId]);

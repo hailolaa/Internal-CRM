@@ -86,7 +86,16 @@ export class MissionControlApiController {
       const type = req.params.type as MissionControlRecordType;
       const id = req.params.id;
       if (typeof id !== "string" || !id) throw ApiError.badRequest("Record ID is required");
-      res.json(envelope(req, await missionControlApiService.fetchRecord(user(req), type, id)));
+      const data = await missionControlApiService.fetchRecord(user(req), type, id);
+      await logAuditEvent({
+        clinicId: user(req).clinicId,
+        userId: user(req).userId,
+        action: "MISSION_CONTROL_API_FETCH",
+        entityType: type,
+        entityId: id,
+        changes: { result: "success", sourceId: data.sourceId },
+      });
+      res.json(envelope(req, data));
     } catch (error) {
       next(error);
     }

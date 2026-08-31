@@ -172,6 +172,12 @@ export const config = {
         expiresIn: process.env.JWT_EXPIRES_IN || "7d"
     },
 
+    missionControlIntegration: {
+        issuer: process.env.MISSION_CONTROL_INTEGRATION_JWT_ISSUER || "mission-control",
+        audience: process.env.MISSION_CONTROL_INTEGRATION_JWT_AUDIENCE || "chatgpt-mcp",
+        maxTokenAgeMinutes: parseInt(process.env.MISSION_CONTROL_INTEGRATION_MAX_TOKEN_AGE_MINUTES || "60", 10),
+    },
+
     otp: {
         expiryMinutes: parseInt(process.env.OTP_EXPIRY_MINUTES || "10", 10)
     },

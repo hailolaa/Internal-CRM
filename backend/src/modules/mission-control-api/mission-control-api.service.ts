@@ -212,6 +212,16 @@ export class MissionControlApiService {
         excessiveRestLimitClamped: true,
         excessiveMcpLimitRejected: true,
       },
+      authPolicy: {
+        bearerRequired: true,
+        appSessionSupported: true,
+        missionControlIntegrationSupported: true,
+        integrationIssuer: config.missionControlIntegration.issuer,
+        integrationAudience: config.missionControlIntegration.audience,
+        integrationScopes: ["mission_control_api:read", "mission_control_mcp:read"],
+        integrationRevocationChecked: true,
+        maxIntegrationTokenAgeMinutes: config.missionControlIntegration.maxTokenAgeMinutes,
+      },
       tools,
       writePolicy: {
         currentPhase: "read_only",

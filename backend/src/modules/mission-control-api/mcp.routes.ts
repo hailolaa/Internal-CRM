@@ -3,6 +3,7 @@ import { authenticate } from "../../middleware/authenticate.js";
 import { authorizePermission } from "../../middleware/authorize.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { logAuditEvent } from "../../utils/audit.js";
+import { requireMissionControlIntegrationScope } from "./mission-control-integration-auth.js";
 import { missionControlApiService } from "./mission-control-api.service.js";
 import type { MissionControlRecordType, MissionControlSearchQuery, MissionControlUserContext } from "./mission-control-api.types.js";
 
@@ -84,6 +85,7 @@ function requiredRecordType(value: unknown) {
 }
 
 router.use(authenticate);
+router.use(requireMissionControlIntegrationScope("mission_control_mcp:read"));
 router.use(authorizePermission("mission_control_mcp:read"));
 
 router.get("/", (req, res) => {
@@ -115,6 +117,8 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       const name = body.params?.name;
       const args = assertArguments(body.params && "arguments" in body.params ? body.params.arguments : {});
       let data: unknown;
+      let affectedRecord: { type?: string; id?: string } = {};
+      let resultCount: number | null = null;
 
       if (name === "search") {
         const searchQuery: MissionControlSearchQuery = {};
@@ -127,8 +131,12 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         if (limit !== undefined) searchQuery.limit = limit;
         if (cursor !== undefined) searchQuery.cursor = cursor;
         data = await missionControlApiService.search(user(req), searchQuery);
+        resultCount = Array.isArray((data as any)?.results) ? (data as any).results.length : null;
       } else if (name === "fetch") {
-        data = await missionControlApiService.fetchRecord(user(req), requiredRecordType(args.type), requiredRecordId(args.id));
+        const type = requiredRecordType(args.type);
+        const id = requiredRecordId(args.id);
+        data = await missionControlApiService.fetchRecord(user(req), type, id);
+        affectedRecord = { type, id };
       } else {
         res.status(400).json(jsonRpcError(id, -32601, "Unsupported MCP tool"));
         return;
@@ -139,7 +147,8 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         userId: user(req).userId,
         action: "MISSION_CONTROL_MCP_TOOL_CALL",
         entityType: "mission_control_mcp",
-        changes: { tool: name },
+        entityId: affectedRecord.id,
+        changes: { tool: name, result: "success", affectedRecord, resultCount },
       });
       res.json(jsonRpc(req, id, { content: [{ type: "json", json: data }] }));
       return;
