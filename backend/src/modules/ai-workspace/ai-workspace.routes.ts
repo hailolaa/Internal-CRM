@@ -16,6 +16,9 @@ import {
   generateDateRangeValidator,
   generateGrowthBriefValidator,
   generateSalesAssistantValidator,
+  addAiChatMessageValidator,
+  aiChatSessionIdParamValidator,
+  createAiChatSessionValidator,
   rejectAiActionApprovalValidator,
   updateAiActionApprovalValidator,
   updateAiProjectValidator,
@@ -44,6 +47,44 @@ router.patch("/projects/:id", authorizePermission("settings:write"), updateAiPro
 // @desc    List AI run history
 // @access  Private
 router.get("/runs", authorizePermission("settings:read"), aiWorkspaceController.listRuns);
+
+// @route   GET /api/ai/chat/sessions
+// @desc    List controlled assistant conversations
+// @access  Private
+router.get("/chat/sessions", authorizePermission("ai_assistant:use"), aiWorkspaceController.listChatSessions);
+
+// @route   POST /api/ai/chat/sessions
+// @desc    Start a controlled assistant conversation
+// @access  Private
+router.post(
+  "/chat/sessions",
+  authorizePermission("ai_assistant:use"),
+  createAiChatSessionValidator,
+  validate,
+  aiWorkspaceController.createChatSession,
+);
+
+// @route   GET /api/ai/chat/sessions/:sessionId
+// @desc    Read one controlled assistant conversation
+// @access  Private
+router.get(
+  "/chat/sessions/:sessionId",
+  authorizePermission("ai_assistant:use"),
+  aiChatSessionIdParamValidator,
+  validate,
+  aiWorkspaceController.getChatSession,
+);
+
+// @route   POST /api/ai/chat/sessions/:sessionId/messages
+// @desc    Add a message to a controlled assistant conversation
+// @access  Private
+router.post(
+  "/chat/sessions/:sessionId/messages",
+  authorizePermission("ai_assistant:use"),
+  addAiChatMessageValidator,
+  validate,
+  aiWorkspaceController.addChatMessage,
+);
 
 // @route   GET /api/ai/action-approvals
 // @desc    List post-call AI action approvals

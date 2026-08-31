@@ -2,6 +2,8 @@ import type {
   AiCampaignAnalystGenerateResult,
   AiActionApprovalRecord,
   AiActionApprovalStatus,
+  AiChatSessionDetail,
+  AiChatSessionRecord,
   AiCompetitorInsightsGenerateResult,
   AiGrowthBriefGenerateResult,
   AiLtvOptimiserGenerateResult,
@@ -70,6 +72,46 @@ export function createAiApi(apiRequest: ApiRequest) {
           method: "DELETE",
           token,
         });
+      },
+      async listChatSessions(token: string) {
+        const response = await apiRequest<AiChatSessionRecord[]>(
+          "/api/ai/chat/sessions",
+          { token },
+        );
+        return response.data!;
+      },
+      async createChatSession(token: string, payload: { message: string }) {
+        const response = await apiRequest<AiChatSessionDetail>(
+          "/api/ai/chat/sessions",
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async getChatSession(token: string, sessionId: string) {
+        const response = await apiRequest<AiChatSessionDetail>(
+          `/api/ai/chat/sessions/${sessionId}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async addChatMessage(
+        token: string,
+        sessionId: string,
+        payload: { message: string },
+      ) {
+        const response = await apiRequest<AiChatSessionDetail>(
+          `/api/ai/chat/sessions/${sessionId}/messages`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
       },
       async listActionApprovals(
         token: string,

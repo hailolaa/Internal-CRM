@@ -95,3 +95,16 @@ export const rejectAiActionApprovalValidator = [
   ...aiActionApprovalIdParamValidator,
   body("rejectionReason").trim().notEmpty().withMessage("Rejection reason is required").isLength({ max: 2000 }),
 ];
+
+export const aiChatSessionIdParamValidator = [
+  param("sessionId").isUUID().withMessage("Invalid AI chat session ID format"),
+];
+
+export const createAiChatSessionValidator = [
+  body("message").trim().notEmpty().withMessage("Message is required").isLength({ max: 2000 }),
+];
+
+export const addAiChatMessageValidator = [
+  ...aiChatSessionIdParamValidator,
+  body("message").trim().notEmpty().withMessage("Message is required").isLength({ max: 2000 }),
+];

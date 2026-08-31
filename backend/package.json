@@ -44,6 +44,7 @@
     "test:clinic-os-entitlements": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-clinic-os-entitlements.js",
     "test:mission-control-api": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-mission-control-api.js",
     "test:ai-evaluations": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-ai-evaluations.js",
+    "test:ai-assistant": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-ai-chat-assistant.js",
     "test:quickbooks": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-quickbooks-oauth.js",
     "test:release": "node --test --experimental-test-isolation=none ../scripts/release-verification.test.mjs",
     "test:landing-page-leads": "npm run build && node --test --test-force-exit --test-concurrency=1 dist/test/test-landing-page-lead-intake.js",

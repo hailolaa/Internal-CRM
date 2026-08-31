@@ -107,3 +107,38 @@ export interface ReviewAiActionApprovalDTO {
 export interface RejectAiActionApprovalDTO {
   rejectionReason: string;
 }
+
+export type AiChatGuardrailStatus = "answered" | "escalated" | "refused";
+
+export interface AiChatMessageRecord {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant";
+  body: string;
+  guardrailStatus: AiChatGuardrailStatus | null;
+  citations: unknown | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface AiChatSessionRecord {
+  id: string;
+  title: string;
+  status: "open" | "archived";
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+}
+
+export interface AiChatSessionDetail extends AiChatSessionRecord {
+  messages: AiChatMessageRecord[];
+}
+
+export interface CreateAiChatSessionDTO {
+  message: string;
+}
+
+export interface AddAiChatMessageDTO {
+  message: string;
+}

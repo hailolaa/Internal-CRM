@@ -30,6 +30,7 @@ const ADMIN_PERMISSIONS = [
   "proposal_templates:write",
   "proposal_templates:approve",
   "ai_actions:review",
+  "ai_assistant:use",
   "marketing:read",
   "marketing:write",
   "audit:read",
@@ -74,6 +75,7 @@ const DELIVERY_PERMISSIONS = [
   "sops:read",
   "strategy_logs:read",
   "strategy_logs:write",
+  "ai_assistant:use",
 ] as const;
 
 const FINANCE_PERMISSIONS = [

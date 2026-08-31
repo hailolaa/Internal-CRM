@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { aiWorkspaceService } from "./ai-workspace.service.js";
 import { aiEvaluationsService } from "./ai-evaluations.service.js";
+import { aiChatAssistantService } from "./ai-chat-assistant.service.js";
 
 export class AiWorkspaceController {
   // GET /api/ai/projects
@@ -66,6 +67,50 @@ export class AiWorkspaceController {
       const { clinicId, userId } = (req as any).user;
       await aiWorkspaceService.deleteRun(clinicId, userId, req.params.id as string);
       res.status(200).json({ status: "success", message: "AI run deleted successfully" });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // GET /api/ai/chat/sessions
+  listChatSessions = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const sessions = await aiChatAssistantService.listSessions(clinicId);
+      res.status(200).json({ status: "success", data: sessions });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /api/ai/chat/sessions
+  createChatSession = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const session = await aiChatAssistantService.createSession(clinicId, userId, req.body);
+      res.status(201).json({ status: "success", data: session });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // GET /api/ai/chat/sessions/:sessionId
+  getChatSession = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const session = await aiChatAssistantService.getSession(clinicId, req.params.sessionId as string);
+      res.status(200).json({ status: "success", data: session });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /api/ai/chat/sessions/:sessionId/messages
+  addChatMessage = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const session = await aiChatAssistantService.addMessage(clinicId, userId, req.params.sessionId as string, req.body.message);
+      res.status(201).json({ status: "success", data: session });
     } catch (error) {
       next(error);
     }

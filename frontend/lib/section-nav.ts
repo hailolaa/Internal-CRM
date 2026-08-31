@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   BarChart3,
   Bot,
+  BrainCircuit,
   BriefcaseBusiness,
   CheckSquare,
   CircleDollarSign,
@@ -59,6 +60,7 @@ export const MARKETING_NAV: SubNavItem[] = [
 
 export const INTELLIGENCE_NAV: SubNavItem[] = [
   { label: "Growth Brief", href: "/app/ai/growth-brief", icon: BarChart3 },
+  { label: "Assistant", href: "/app/ai/assistant", icon: BrainCircuit },
   { label: "Campaign Analyst", href: "/app/ai/campaign-analyst", icon: Target },
   { label: "Sales Assistant", href: "/app/ai/sales-assistant", icon: Bot },
   { label: "Action Approvals", href: "/app/ai/action-approvals", icon: CheckSquare },
