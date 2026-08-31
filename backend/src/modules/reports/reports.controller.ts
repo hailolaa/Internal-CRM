@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { userHasPermission } from "../../middleware/authorize.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { financeAnalyticsService } from "../finance-analytics/finance-analytics.service.js";
+import { reportGrowthActionsService } from "./report-growth-actions.service.js";
 import { reportsService } from "./reports.service.js";
 
 function pickDashboardQuery(query: Record<string, unknown>) {
@@ -99,6 +100,17 @@ export class ReportsController {
       const { clinicId, userId } = (req as any).user;
       const report = await reportsService.generateMonthlyReport(clinicId, userId, req.body?.month);
       res.status(201).json({ status: "success", data: report });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /api/reports/:id/growth-actions
+  queueGrowthActionsFromReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const result = await reportGrowthActionsService.queueGrowthActionsFromReport(clinicId, userId, req.params.id as string);
+      res.status(201).json({ status: "success", data: result });
     } catch (error) {
       next(error);
     }

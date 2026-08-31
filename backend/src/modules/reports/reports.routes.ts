@@ -3,7 +3,7 @@ import { authenticate } from "../../middleware/authenticate.js";
 import { authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
 import { reportsController } from "./reports.controller.js";
-import { exportReportValidator, updateReportWorkflowValidator } from "./reports.validators.js";
+import { exportReportValidator, reportIdParamValidator, updateReportWorkflowValidator } from "./reports.validators.js";
 
 const router = Router();
 
@@ -104,6 +104,17 @@ router.get("/dashboard/revenue-movement", authorizePermission("reports:read"), r
 // @desc    Predictive revenue-risk v1 with backtest and explanations
 // @access  Private
 router.get("/dashboard/revenue-risk-predictions", authorizePermission("reports:read"), reportsController.getRevenueRiskPredictions);
+
+// @route   POST /api/reports/:id/growth-actions
+// @desc    Queue Ops Manager reviewed growth actions from report evidence
+// @access  Private
+router.post(
+  "/:id/growth-actions",
+  authorizePermission("reports:write"),
+  reportIdParamValidator,
+  validate,
+  reportsController.queueGrowthActionsFromReport,
+);
 
 // @route   GET /api/reports/:id
 // @desc    Get one saved report snapshot
