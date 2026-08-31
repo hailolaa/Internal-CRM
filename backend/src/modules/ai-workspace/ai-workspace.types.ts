@@ -43,3 +43,67 @@ export interface GenerateCompetitorInsightsDTO {
   competitorIds?: string[];
   notes?: string;
 }
+
+export type AiActionApprovalStatus = "pending" | "approved" | "rejected" | "committed";
+export type AiActionApprovalEventType = "queued" | "edited" | "approved" | "rejected" | "committed";
+
+export interface AiActionApprovalRecord {
+  id: string;
+  sourceType: string;
+  sourceRecordId: string | null;
+  actionType: string;
+  title: string;
+  summary: string | null;
+  proposedPayload: unknown;
+  reviewedPayload: unknown | null;
+  status: AiActionApprovalStatus;
+  idempotencyKey: string;
+  contentHash: string;
+  committedPayloadHash: string | null;
+  reviewNote: string | null;
+  rejectionReason: string | null;
+  createdBy: string | null;
+  reviewedBy: string | null;
+  committedBy: string | null;
+  reviewedAt: string | null;
+  committedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiActionApprovalEventRecord {
+  id: string;
+  approvalId: string;
+  eventType: AiActionApprovalEventType;
+  actorUserId: string | null;
+  beforeStatus: string | null;
+  afterStatus: string;
+  changes: unknown | null;
+  createdAt: string;
+}
+
+export interface CreateAiActionApprovalDTO {
+  sourceType: string;
+  sourceRecordId?: string | null;
+  actionType: string;
+  title: string;
+  summary?: string | null;
+  proposedPayload: unknown;
+  idempotencyKey: string;
+}
+
+export interface UpdateAiActionApprovalDTO {
+  title?: string;
+  summary?: string | null;
+  reviewedPayload?: unknown;
+  reviewNote?: string | null;
+}
+
+export interface ReviewAiActionApprovalDTO {
+  reviewNote?: string | null;
+  reviewedPayload?: unknown;
+}
+
+export interface RejectAiActionApprovalDTO {
+  rejectionReason: string;
+}

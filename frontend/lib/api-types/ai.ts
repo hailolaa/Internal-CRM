@@ -318,3 +318,41 @@ export interface AiCompetitorInsightsGenerateResult {
   output: AiCompetitorInsightsOutput;
   createdAt: string;
 }
+
+export type AiActionApprovalStatus = "pending" | "approved" | "rejected" | "committed";
+
+export interface AiActionApprovalEventRecord {
+  id: string;
+  approvalId: string;
+  eventType: "queued" | "edited" | "approved" | "rejected" | "committed";
+  actorUserId: string | null;
+  beforeStatus: string | null;
+  afterStatus: string;
+  changes: unknown | null;
+  createdAt: string;
+}
+
+export interface AiActionApprovalRecord {
+  id: string;
+  sourceType: string;
+  sourceRecordId: string | null;
+  actionType: string;
+  title: string;
+  summary: string | null;
+  proposedPayload: unknown;
+  reviewedPayload: unknown | null;
+  status: AiActionApprovalStatus;
+  idempotencyKey: string;
+  contentHash: string;
+  committedPayloadHash: string | null;
+  reviewNote: string | null;
+  rejectionReason: string | null;
+  createdBy: string | null;
+  reviewedBy: string | null;
+  committedBy: string | null;
+  reviewedAt: string | null;
+  committedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  events?: AiActionApprovalEventRecord[];
+}

@@ -29,6 +29,7 @@ const ADMIN_PERMISSIONS = [
   "proposals:write",
   "proposal_templates:write",
   "proposal_templates:approve",
+  "ai_actions:review",
   "marketing:read",
   "marketing:write",
   "audit:read",

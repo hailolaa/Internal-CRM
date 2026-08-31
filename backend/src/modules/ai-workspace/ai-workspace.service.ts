@@ -1,18 +1,25 @@
 import pool from "../../config/database.js";
 import { v4 as uuidv4 } from "uuid";
+import { createHash } from "crypto";
+import type { PoolConnection, ResultSetHeader } from "mysql2/promise";
 import { ApiError } from "../../utils/ApiError.js";
-import { logAuditEvent } from "../../utils/audit.js";
+import { insertAuditEvent, logAuditEvent } from "../../utils/audit.js";
 import { config } from "../../config/index.js";
 import logger from "../../utils/logger.js";
 import { reportsService } from "../reports/reports.service.js";
 import {
+  AiActionApprovalRecord,
   CreateAiProjectDTO,
+  CreateAiActionApprovalDTO,
   CreateAiRunDTO,
   DateRangeDTO,
   GenerateCampaignAnalystDTO,
   GenerateCompetitorInsightsDTO,
   GenerateGrowthBriefDTO,
   GenerateSalesAssistantDTO,
+  RejectAiActionApprovalDTO,
+  ReviewAiActionApprovalDTO,
+  UpdateAiActionApprovalDTO,
   UpdateAiProjectDTO,
 } from "./ai-workspace.types.js";
 
@@ -157,6 +164,107 @@ function deterministicGeneratorProvenance(workflow: string) {
   };
 }
 
+function stableJsonStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+  const objectValue = value as Record<string, unknown>;
+  return `{${Object.keys(objectValue)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(objectValue[key])}`)
+    .join(",")}}`;
+}
+
+function hashPayload(value: unknown) {
+  return createHash("sha256").update(stableJsonStringify(value)).digest("hex");
+}
+
+function parseJsonValue(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+}
+
+function optionalText(value: unknown, maxLength: number) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text ? text.slice(0, maxLength) : null;
+}
+
+function mapActionApproval(row: any): AiActionApprovalRecord {
+  return {
+    id: row.id,
+    sourceType: row.sourceType,
+    sourceRecordId: row.sourceRecordId || null,
+    actionType: row.actionType,
+    title: row.title,
+    summary: row.summary || null,
+    proposedPayload: parseJsonValue(row.proposedPayload),
+    reviewedPayload: parseJsonValue(row.reviewedPayload),
+    status: row.status,
+    idempotencyKey: row.idempotencyKey,
+    contentHash: row.contentHash,
+    committedPayloadHash: row.committedPayloadHash || null,
+    reviewNote: row.reviewNote || null,
+    rejectionReason: row.rejectionReason || null,
+    createdBy: row.createdBy || null,
+    reviewedBy: row.reviewedBy || null,
+    committedBy: row.committedBy || null,
+    reviewedAt: row.reviewedAt ? new Date(row.reviewedAt).toISOString() : null,
+    committedAt: row.committedAt ? new Date(row.committedAt).toISOString() : null,
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.updatedAt).toISOString(),
+  };
+}
+
+async function getActionApprovalRow(executor: Pick<PoolConnection, "execute">, clinicId: string, id: string) {
+  const [rows]: any = await executor.execute(
+    `SELECT id, clinic_id as clinicId, source_type as sourceType, source_record_id as sourceRecordId,
+            action_type as actionType, title, summary, proposed_payload as proposedPayload,
+            reviewed_payload as reviewedPayload, status, idempotency_key as idempotencyKey,
+            content_hash as contentHash, committed_payload_hash as committedPayloadHash,
+            review_note as reviewNote, rejection_reason as rejectionReason, created_by as createdBy,
+            reviewed_by as reviewedBy, committed_by as committedBy, reviewed_at as reviewedAt,
+            committed_at as committedAt, created_at as createdAt, updated_at as updatedAt
+     FROM ai_action_approval
+     WHERE id = ? AND clinic_id = ?`,
+    [id, clinicId],
+  );
+  return rows[0] || null;
+}
+
+async function insertActionApprovalEvent(
+  connection: PoolConnection,
+  payload: {
+    clinicId: string;
+    approvalId: string;
+    eventType: "queued" | "edited" | "approved" | "rejected" | "committed";
+    actorUserId: string;
+    beforeStatus?: string | null;
+    afterStatus: string;
+    changes?: Record<string, unknown>;
+  },
+) {
+  await connection.execute(
+    `INSERT INTO ai_action_approval_event
+      (id, clinic_id, approval_id, event_type, actor_user_id, before_status, after_status, changes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      uuidv4(),
+      payload.clinicId,
+      payload.approvalId,
+      payload.eventType,
+      payload.actorUserId,
+      payload.beforeStatus || null,
+      payload.afterStatus,
+      payload.changes ? JSON.stringify(payload.changes) : null,
+    ],
+  );
+}
+
 export class AiWorkspaceService {
   // List AI projects with run counts for the project dashboard
   async listProjects(clinicId: string) {
@@ -279,6 +387,338 @@ export class AiWorkspaceService {
       entityType: "ai_run",
       entityId: runId,
     });
+  }
+
+  async listActionApprovals(clinicId: string, filters: { status?: string } = {}) {
+    const where = ["clinic_id = ?"];
+    const values: any[] = [clinicId];
+
+    if (filters.status) {
+      where.push("status = ?");
+      values.push(filters.status);
+    }
+
+    const [rows]: any = await pool.execute(
+      `SELECT id, source_type as sourceType, source_record_id as sourceRecordId,
+              action_type as actionType, title, summary, proposed_payload as proposedPayload,
+              reviewed_payload as reviewedPayload, status, idempotency_key as idempotencyKey,
+              content_hash as contentHash, committed_payload_hash as committedPayloadHash,
+              review_note as reviewNote, rejection_reason as rejectionReason, created_by as createdBy,
+              reviewed_by as reviewedBy, committed_by as committedBy, reviewed_at as reviewedAt,
+              committed_at as committedAt, created_at as createdAt, updated_at as updatedAt
+       FROM ai_action_approval
+       WHERE ${where.join(" AND ")}
+       ORDER BY FIELD(status, 'pending', 'approved', 'rejected', 'committed'), created_at DESC`,
+      values,
+    );
+
+    return rows.map(mapActionApproval);
+  }
+
+  async getActionApproval(clinicId: string, approvalId: string) {
+    const row = await getActionApprovalRow(pool, clinicId, approvalId);
+    if (!row) throw ApiError.notFound("AI action approval not found");
+    const [events]: any = await pool.execute(
+      `SELECT id, approval_id as approvalId, event_type as eventType, actor_user_id as actorUserId,
+              before_status as beforeStatus, after_status as afterStatus, changes, created_at as createdAt
+       FROM ai_action_approval_event
+       WHERE approval_id = ? AND clinic_id = ?
+       ORDER BY created_at ASC`,
+      [approvalId, clinicId],
+    );
+
+    return {
+      ...mapActionApproval(row),
+      events: events.map((event: any) => ({
+        id: event.id,
+        approvalId: event.approvalId,
+        eventType: event.eventType,
+        actorUserId: event.actorUserId || null,
+        beforeStatus: event.beforeStatus || null,
+        afterStatus: event.afterStatus,
+        changes: parseJsonValue(event.changes),
+        createdAt: new Date(event.createdAt).toISOString(),
+      })),
+    };
+  }
+
+  async queueActionApproval(clinicId: string, userId: string, data: CreateAiActionApprovalDTO) {
+    const payloadHash = hashPayload(data.proposedPayload);
+    const id = uuidv4();
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute(
+        `INSERT INTO ai_action_approval
+          (id, clinic_id, source_type, source_record_id, action_type, title, summary,
+           proposed_payload, status, idempotency_key, content_hash, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), 'pending', ?, ?, ?)
+         ON DUPLICATE KEY UPDATE updated_at = updated_at`,
+        [
+          id,
+          clinicId,
+          data.sourceType,
+          optionalText(data.sourceRecordId, 160),
+          data.actionType,
+          data.title,
+          optionalText(data.summary, 5000),
+          stableJsonStringify(data.proposedPayload),
+          data.idempotencyKey,
+          payloadHash,
+          userId,
+        ],
+      );
+
+      const row = await getActionApprovalRow(connection, clinicId, id);
+      if (row) {
+        await insertActionApprovalEvent(connection, {
+          clinicId,
+          approvalId: id,
+          eventType: "queued",
+          actorUserId: userId,
+          afterStatus: "pending",
+          changes: { sourceType: data.sourceType, actionType: data.actionType, contentHash: payloadHash },
+        });
+        await insertAuditEvent(connection, {
+          clinicId,
+          userId,
+          action: "AI_ACTION_APPROVAL_QUEUED",
+          entityType: "ai_action_approval",
+          entityId: id,
+          changes: { sourceType: data.sourceType, actionType: data.actionType, contentHash: payloadHash },
+        });
+        await connection.commit();
+        return { ...mapActionApproval(row), duplicate: false };
+      }
+
+      const existing = await this.getActionByIdempotencyKey(connection, clinicId, data.idempotencyKey);
+      if (existing.contentHash !== payloadHash) {
+        throw ApiError.conflict("AI action idempotency key was already used with different content");
+      }
+      await connection.commit();
+      return { ...mapActionApproval(existing), duplicate: true };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async updateActionApproval(clinicId: string, userId: string, approvalId: string, data: UpdateAiActionApprovalDTO) {
+    const current = await getActionApprovalRow(pool, clinicId, approvalId);
+    if (!current) throw ApiError.notFound("AI action approval not found");
+    if (current.status !== "pending") throw ApiError.conflict("Only pending AI actions can be edited");
+
+    const fields: string[] = [];
+    const values: any[] = [];
+    const changes: Record<string, unknown> = {};
+
+    if (data.title !== undefined) {
+      fields.push("title = ?");
+      values.push(data.title);
+      changes.title = data.title;
+    }
+    if (data.summary !== undefined) {
+      fields.push("summary = ?");
+      values.push(optionalText(data.summary, 5000));
+      changes.summary = optionalText(data.summary, 5000);
+    }
+    if (data.reviewedPayload !== undefined) {
+      fields.push("reviewed_payload = CAST(? AS JSON)");
+      values.push(stableJsonStringify(data.reviewedPayload));
+      changes.reviewedPayloadHash = hashPayload(data.reviewedPayload);
+    }
+    if (data.reviewNote !== undefined) {
+      fields.push("review_note = ?");
+      values.push(optionalText(data.reviewNote, 2000));
+      changes.reviewNote = optionalText(data.reviewNote, 2000);
+    }
+    if (fields.length === 0) return mapActionApproval(current);
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      values.push(approvalId, clinicId);
+      await connection.execute(
+        `UPDATE ai_action_approval
+         SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ? AND status = 'pending'`,
+        values,
+      );
+      await insertActionApprovalEvent(connection, {
+        clinicId,
+        approvalId,
+        eventType: "edited",
+        actorUserId: userId,
+        beforeStatus: "pending",
+        afterStatus: "pending",
+        changes,
+      });
+      await insertAuditEvent(connection, {
+        clinicId,
+        userId,
+        action: "AI_ACTION_APPROVAL_EDITED",
+        entityType: "ai_action_approval",
+        entityId: approvalId,
+        changes,
+      });
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
+    return this.getActionApproval(clinicId, approvalId);
+  }
+
+  async approveActionApproval(clinicId: string, userId: string, approvalId: string, data: ReviewAiActionApprovalDTO = {}) {
+    const options: {
+      eventType: "approved";
+      auditAction: string;
+      allowedFrom: string[];
+      reviewNote?: string | null;
+      reviewedPayload?: unknown;
+    } = {
+      eventType: "approved",
+      auditAction: "AI_ACTION_APPROVAL_APPROVED",
+      allowedFrom: ["pending"],
+    };
+    if (data.reviewNote !== undefined) options.reviewNote = data.reviewNote;
+    if (data.reviewedPayload !== undefined) options.reviewedPayload = data.reviewedPayload;
+    return this.transitionActionApproval(clinicId, userId, approvalId, "approved", options);
+  }
+
+  async rejectActionApproval(clinicId: string, userId: string, approvalId: string, data: RejectAiActionApprovalDTO) {
+    return this.transitionActionApproval(clinicId, userId, approvalId, "rejected", {
+      eventType: "rejected",
+      auditAction: "AI_ACTION_APPROVAL_REJECTED",
+      rejectionReason: data.rejectionReason,
+      allowedFrom: ["pending"],
+    });
+  }
+
+  async commitActionApproval(clinicId: string, userId: string, approvalId: string) {
+    const current = await getActionApprovalRow(pool, clinicId, approvalId);
+    if (!current) throw ApiError.notFound("AI action approval not found");
+    if (current.status === "committed") return mapActionApproval(current);
+    if (current.status !== "approved") throw ApiError.conflict("Only approved AI actions can be committed");
+
+    const committedPayload = parseJsonValue(current.reviewedPayload) ?? parseJsonValue(current.proposedPayload);
+    return this.transitionActionApproval(clinicId, userId, approvalId, "committed", {
+      eventType: "committed",
+      auditAction: "AI_ACTION_APPROVAL_COMMITTED",
+      allowedFrom: ["approved"],
+      committedPayloadHash: hashPayload(committedPayload),
+    });
+  }
+
+  private async getActionByIdempotencyKey(executor: Pick<PoolConnection, "execute">, clinicId: string, idempotencyKey: string) {
+    const [rows]: any = await executor.execute(
+      `SELECT id, source_type as sourceType, source_record_id as sourceRecordId,
+              action_type as actionType, title, summary, proposed_payload as proposedPayload,
+              reviewed_payload as reviewedPayload, status, idempotency_key as idempotencyKey,
+              content_hash as contentHash, committed_payload_hash as committedPayloadHash,
+              review_note as reviewNote, rejection_reason as rejectionReason, created_by as createdBy,
+              reviewed_by as reviewedBy, committed_by as committedBy, reviewed_at as reviewedAt,
+              committed_at as committedAt, created_at as createdAt, updated_at as updatedAt
+       FROM ai_action_approval
+       WHERE clinic_id = ? AND idempotency_key = ?`,
+      [clinicId, idempotencyKey],
+    );
+    if (!rows[0]) throw ApiError.notFound("AI action approval not found");
+    return rows[0];
+  }
+
+  private async transitionActionApproval(
+    clinicId: string,
+    userId: string,
+    approvalId: string,
+    status: "approved" | "rejected" | "committed",
+    options: {
+      eventType: "approved" | "rejected" | "committed";
+      auditAction: string;
+      allowedFrom: string[];
+      reviewNote?: string | null;
+      rejectionReason?: string | null;
+      reviewedPayload?: unknown;
+      committedPayloadHash?: string;
+    },
+  ) {
+    const current = await getActionApprovalRow(pool, clinicId, approvalId);
+    if (!current) throw ApiError.notFound("AI action approval not found");
+    if (!options.allowedFrom.includes(current.status)) {
+      throw ApiError.conflict(`AI action cannot move from ${current.status} to ${status}`);
+    }
+
+    const fields = ["status = ?"];
+    const values: any[] = [status];
+    const changes: Record<string, unknown> = { from: current.status, to: status };
+
+    if (options.reviewNote !== undefined) {
+      fields.push("review_note = ?");
+      values.push(optionalText(options.reviewNote, 2000));
+      changes.reviewNote = optionalText(options.reviewNote, 2000);
+    }
+    if (options.rejectionReason !== undefined) {
+      fields.push("rejection_reason = ?");
+      values.push(optionalText(options.rejectionReason, 2000));
+      changes.rejectionReason = optionalText(options.rejectionReason, 2000);
+    }
+    if (options.reviewedPayload !== undefined) {
+      fields.push("reviewed_payload = CAST(? AS JSON)");
+      values.push(stableJsonStringify(options.reviewedPayload));
+      changes.reviewedPayloadHash = hashPayload(options.reviewedPayload);
+    }
+    if (status === "approved" || status === "rejected") {
+      fields.push("reviewed_by = ?", "reviewed_at = CURRENT_TIMESTAMP");
+      values.push(userId);
+    }
+    if (status === "committed") {
+      fields.push("committed_by = ?", "committed_at = CURRENT_TIMESTAMP", "committed_payload_hash = ?");
+      values.push(userId, options.committedPayloadHash);
+      changes.committedPayloadHash = options.committedPayloadHash;
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      values.push(approvalId, clinicId, current.status);
+      const [result] = await connection.execute<ResultSetHeader>(
+        `UPDATE ai_action_approval
+         SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND clinic_id = ? AND status = ?`,
+        values,
+      );
+      if (result.affectedRows === 0) throw ApiError.conflict("AI action approval was changed by another reviewer");
+      await insertActionApprovalEvent(connection, {
+        clinicId,
+        approvalId,
+        eventType: options.eventType,
+        actorUserId: userId,
+        beforeStatus: current.status,
+        afterStatus: status,
+        changes,
+      });
+      await insertAuditEvent(connection, {
+        clinicId,
+        userId,
+        action: options.auditAction,
+        entityType: "ai_action_approval",
+        entityId: approvalId,
+        changes,
+      });
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+
+    return this.getActionApproval(clinicId, approvalId);
   }
 
   private async saveGeneratedRun(

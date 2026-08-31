@@ -35,6 +35,10 @@ export const aiRunIdParamValidator = [
   param("id").isUUID().withMessage("Invalid AI run ID format"),
 ];
 
+export const aiActionApprovalIdParamValidator = [
+  param("id").isUUID().withMessage("Invalid AI action approval ID format"),
+];
+
 export const generateGrowthBriefValidator = [
   body("startDate").optional({ nullable: true }).isISO8601().withMessage("startDate must be a valid date"),
   body("endDate").optional({ nullable: true }).isISO8601().withMessage("endDate must be a valid date"),
@@ -61,4 +65,33 @@ export const generateCompetitorInsightsValidator = [
   body("competitorIds").optional().isArray({ max: 100 }),
   body("competitorIds.*").optional().isUUID().withMessage("Invalid competitor ID format"),
   body("notes").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+];
+
+export const createAiActionApprovalValidator = [
+  body("sourceType").trim().notEmpty().withMessage("Source type is required").isLength({ max: 80 }),
+  body("sourceRecordId").optional({ nullable: true }).trim().isLength({ max: 160 }),
+  body("actionType").trim().notEmpty().withMessage("Action type is required").isLength({ max: 80 }),
+  body("title").trim().notEmpty().withMessage("Title is required").isLength({ max: 255 }),
+  body("summary").optional({ nullable: true }).trim().isLength({ max: 5000 }),
+  body("proposedPayload").exists().withMessage("Proposed payload is required"),
+  body("idempotencyKey").trim().notEmpty().withMessage("Idempotency key is required").isLength({ max: 160 }),
+];
+
+export const updateAiActionApprovalValidator = [
+  ...aiActionApprovalIdParamValidator,
+  body("title").optional().trim().notEmpty().isLength({ max: 255 }),
+  body("summary").optional({ nullable: true }).trim().isLength({ max: 5000 }),
+  body("reviewedPayload").optional(),
+  body("reviewNote").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+];
+
+export const approveAiActionApprovalValidator = [
+  ...aiActionApprovalIdParamValidator,
+  body("reviewNote").optional({ nullable: true }).trim().isLength({ max: 2000 }),
+  body("reviewedPayload").optional(),
+];
+
+export const rejectAiActionApprovalValidator = [
+  ...aiActionApprovalIdParamValidator,
+  body("rejectionReason").trim().notEmpty().withMessage("Rejection reason is required").isLength({ max: 2000 }),
 ];

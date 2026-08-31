@@ -5,7 +5,10 @@ import { validate } from "../../middleware/validate.js";
 import { aiWorkspaceController } from "./ai-workspace.controller.js";
 import {
   aiProjectIdParamValidator,
+  aiActionApprovalIdParamValidator,
   aiRunIdParamValidator,
+  approveAiActionApprovalValidator,
+  createAiActionApprovalValidator,
   createAiProjectValidator,
   createAiRunValidator,
   generateCampaignAnalystValidator,
@@ -13,6 +16,8 @@ import {
   generateDateRangeValidator,
   generateGrowthBriefValidator,
   generateSalesAssistantValidator,
+  rejectAiActionApprovalValidator,
+  updateAiActionApprovalValidator,
   updateAiProjectValidator,
 } from "./ai-workspace.validators.js";
 
@@ -39,6 +44,77 @@ router.patch("/projects/:id", authorizePermission("settings:write"), updateAiPro
 // @desc    List AI run history
 // @access  Private
 router.get("/runs", authorizePermission("settings:read"), aiWorkspaceController.listRuns);
+
+// @route   GET /api/ai/action-approvals
+// @desc    List post-call AI action approvals
+// @access  Private
+router.get("/action-approvals", authorizePermission("ai_actions:review"), aiWorkspaceController.listActionApprovals);
+
+// @route   POST /api/ai/action-approvals
+// @desc    Queue an AI-proposed action for human review
+// @access  Private
+router.post(
+  "/action-approvals",
+  authorizePermission("settings:write"),
+  createAiActionApprovalValidator,
+  validate,
+  aiWorkspaceController.queueActionApproval,
+);
+
+// @route   GET /api/ai/action-approvals/:id
+// @desc    Get an AI action approval with audit events
+// @access  Private
+router.get(
+  "/action-approvals/:id",
+  authorizePermission("ai_actions:review"),
+  aiActionApprovalIdParamValidator,
+  validate,
+  aiWorkspaceController.getActionApproval,
+);
+
+// @route   PATCH /api/ai/action-approvals/:id
+// @desc    Edit a pending AI-proposed action before approval
+// @access  Private
+router.patch(
+  "/action-approvals/:id",
+  authorizePermission("ai_actions:review"),
+  updateAiActionApprovalValidator,
+  validate,
+  aiWorkspaceController.updateActionApproval,
+);
+
+// @route   POST /api/ai/action-approvals/:id/approve
+// @desc    Approve an AI-proposed action
+// @access  Private
+router.post(
+  "/action-approvals/:id/approve",
+  authorizePermission("ai_actions:review"),
+  approveAiActionApprovalValidator,
+  validate,
+  aiWorkspaceController.approveActionApproval,
+);
+
+// @route   POST /api/ai/action-approvals/:id/reject
+// @desc    Reject an AI-proposed action
+// @access  Private
+router.post(
+  "/action-approvals/:id/reject",
+  authorizePermission("ai_actions:review"),
+  rejectAiActionApprovalValidator,
+  validate,
+  aiWorkspaceController.rejectActionApproval,
+);
+
+// @route   POST /api/ai/action-approvals/:id/commit
+// @desc    Commit an approved AI action as immutable
+// @access  Private
+router.post(
+  "/action-approvals/:id/commit",
+  authorizePermission("ai_actions:review"),
+  aiActionApprovalIdParamValidator,
+  validate,
+  aiWorkspaceController.commitActionApproval,
+);
 
 // @route   POST /api/ai/growth-brief/generate
 // @desc    Generate a clinic-scoped Phase 1 Growth Brief from live backend metrics

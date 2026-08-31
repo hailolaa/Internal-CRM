@@ -61,6 +61,7 @@ export const INTELLIGENCE_NAV: SubNavItem[] = [
   { label: "Growth Brief", href: "/app/ai/growth-brief", icon: BarChart3 },
   { label: "Campaign Analyst", href: "/app/ai/campaign-analyst", icon: Target },
   { label: "Sales Assistant", href: "/app/ai/sales-assistant", icon: Bot },
+  { label: "Action Approvals", href: "/app/ai/action-approvals", icon: CheckSquare },
   { label: "Missed Opportunity", href: "/app/ai/show-rate", icon: PhoneCall },
   { label: "ROI Reporting", href: "/app/ai/ltv-optimiser", icon: CircleDollarSign },
   { label: "AI Agents", href: "/app/ai/agents", icon: Bot },

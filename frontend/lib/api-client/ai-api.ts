@@ -1,5 +1,7 @@
 import type {
   AiCampaignAnalystGenerateResult,
+  AiActionApprovalRecord,
+  AiActionApprovalStatus,
   AiCompetitorInsightsGenerateResult,
   AiGrowthBriefGenerateResult,
   AiLtvOptimiserGenerateResult,
@@ -68,6 +70,81 @@ export function createAiApi(apiRequest: ApiRequest) {
           method: "DELETE",
           token,
         });
+      },
+      async listActionApprovals(
+        token: string,
+        filters: { status?: AiActionApprovalStatus | "all" } = {},
+      ) {
+        const params = new URLSearchParams();
+        if (filters.status && filters.status !== "all") {
+          params.set("status", filters.status);
+        }
+        const query = params.toString();
+        const response = await apiRequest<AiActionApprovalRecord[]>(
+          `/api/ai/action-approvals${query ? `?${query}` : ""}`,
+          { token },
+        );
+        return response.data!;
+      },
+      async updateActionApproval(
+        token: string,
+        approvalId: string,
+        payload: {
+          title?: string;
+          summary?: string | null;
+          reviewedPayload?: unknown;
+          reviewNote?: string | null;
+        },
+      ) {
+        const response = await apiRequest<AiActionApprovalRecord>(
+          `/api/ai/action-approvals/${approvalId}`,
+          {
+            method: "PATCH",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async approveActionApproval(
+        token: string,
+        approvalId: string,
+        payload: { reviewedPayload?: unknown; reviewNote?: string | null } = {},
+      ) {
+        const response = await apiRequest<AiActionApprovalRecord>(
+          `/api/ai/action-approvals/${approvalId}/approve`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async rejectActionApproval(
+        token: string,
+        approvalId: string,
+        payload: { rejectionReason: string },
+      ) {
+        const response = await apiRequest<AiActionApprovalRecord>(
+          `/api/ai/action-approvals/${approvalId}/reject`,
+          {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          },
+        );
+        return response.data!;
+      },
+      async commitActionApproval(token: string, approvalId: string) {
+        const response = await apiRequest<AiActionApprovalRecord>(
+          `/api/ai/action-approvals/${approvalId}/commit`,
+          {
+            method: "POST",
+            token,
+          },
+        );
+        return response.data!;
       },
       async generateGrowthBrief(
         token: string,

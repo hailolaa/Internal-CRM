@@ -70,6 +70,85 @@ export class AiWorkspaceController {
     }
   };
 
+  // GET /api/ai/action-approvals
+  listActionApprovals = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const filters: { status?: string } = {};
+      if (typeof req.query.status === "string") filters.status = req.query.status;
+      const records = await aiWorkspaceService.listActionApprovals(clinicId, filters);
+      res.status(200).json({ status: "success", data: records });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // GET /api/ai/action-approvals/:id
+  getActionApproval = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const record = await aiWorkspaceService.getActionApproval(clinicId, req.params.id as string);
+      res.status(200).json({ status: "success", data: record });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /api/ai/action-approvals
+  queueActionApproval = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const record = await aiWorkspaceService.queueActionApproval(clinicId, userId, req.body);
+      res.status(record.duplicate ? 200 : 201).json({ status: "success", data: record });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // PATCH /api/ai/action-approvals/:id
+  updateActionApproval = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const record = await aiWorkspaceService.updateActionApproval(clinicId, userId, req.params.id as string, req.body);
+      res.status(200).json({ status: "success", data: record });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /api/ai/action-approvals/:id/approve
+  approveActionApproval = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const record = await aiWorkspaceService.approveActionApproval(clinicId, userId, req.params.id as string, req.body || {});
+      res.status(200).json({ status: "success", data: record });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /api/ai/action-approvals/:id/reject
+  rejectActionApproval = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const record = await aiWorkspaceService.rejectActionApproval(clinicId, userId, req.params.id as string, req.body);
+      res.status(200).json({ status: "success", data: record });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // POST /api/ai/action-approvals/:id/commit
+  commitActionApproval = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const record = await aiWorkspaceService.commitActionApproval(clinicId, userId, req.params.id as string);
+      res.status(200).json({ status: "success", data: record });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   // POST /api/ai/growth-brief/generate
   generateGrowthBrief = async (req: Request, res: Response, next: NextFunction) => {
     try {
