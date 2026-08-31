@@ -1,8 +1,10 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual as nodeTimingSafeEqual } from "node:crypto";
 import { v4 as uuidv4 } from "uuid";
 import pool from "../../config/database.js";
+import { config } from "../../config/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import type {
+  ClinicOsAlphaSyncReceipt,
   ConfigureFleetSourceInput,
   FleetCheckpointStatus,
   FleetDataState,
@@ -39,8 +41,14 @@ const ENDPOINT_KINDS: FleetEndpointKind[] = ["webhook", "api_pull", "manual_impo
 const IDENTITY_CONFIDENCE: FleetIdentityConfidence[] = ["known", "provisional", "needs_review"];
 const IDENTITY_STATUSES: FleetIdentityStatus[] = ["active", "needs_review", "archived"];
 const SAFE_EXCEPTION_ACTIONS = ["acknowledge", "resolve", "dismiss"] as const;
+const CLINIC_OS_ALPHA_SYNC_CONTRACT_VERSION = "clinic_os.alpha_sync.v1";
+const CLINIC_OS_ALPHA_SYNC_SOURCE_SYSTEM = "clinic_os";
+const CLINIC_OS_ALPHA_SYNC_SOURCE_KEY = "alpha_sync";
+const CLINIC_OS_ALPHA_SYNC_ENTITIES = ["lead", "appointment", "consultation", "integration_status", "clinic_summary"] as const;
+const ALPHA_SYNC_ALERT_STATES = ["stale", "failed", "blocked"] as const;
 
 type SyncExceptionAdminAction = typeof SAFE_EXCEPTION_ACTIONS[number];
+type ClinicOsAlphaSyncEntity = typeof CLINIC_OS_ALPHA_SYNC_ENTITIES[number];
 
 function cleanString(value: unknown) {
   if (typeof value !== "string") return null;
@@ -106,6 +114,82 @@ function stableStringify(value: unknown): string {
 
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function timingSafeEqual(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && nodeTimingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function expectedClinicOsSignature(rawBody: Buffer, timestamp: string, secret: string) {
+  return `sha256=${createHmac("sha256", secret).update(`${timestamp}.${rawBody.toString("utf8")}`).digest("hex")}`;
+}
+
+function parseUnixTimestamp(value: string) {
+  if (!/^\d+$/.test(value)) return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return new Date(numeric > 9_999_999_999 ? numeric : numeric * 1000);
+}
+
+function assertPlainObject(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw ApiError.badRequest(`${field} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function assertString(value: unknown, field: string, max = 255) {
+  const cleaned = cleanString(value);
+  if (!cleaned) throw ApiError.badRequest(`${field} is required.`);
+  return cleaned.slice(0, max);
+}
+
+function assertIsoDate(value: unknown, field: string) {
+  const cleaned = assertString(value, field, 80);
+  const date = new Date(cleaned);
+  if (Number.isNaN(date.getTime())) throw ApiError.badRequest(`${field} must be a valid ISO date.`);
+  return date.toISOString();
+}
+
+function alphaDataState(value: unknown): FleetDataState {
+  return pickEnum(value, DATA_STATES, "provider_dependent");
+}
+
+function alphaEntity(value: unknown): ClinicOsAlphaSyncEntity {
+  const cleaned = assertString(value, "event.entity", 80);
+  if (!CLINIC_OS_ALPHA_SYNC_ENTITIES.includes(cleaned as ClinicOsAlphaSyncEntity)) {
+    throw ApiError.badRequest(`Unsupported Clinic OS alpha sync entity: ${cleaned}.`);
+  }
+  return cleaned as ClinicOsAlphaSyncEntity;
+}
+
+function normalizeAlphaSummary(value: unknown) {
+  const summary = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const safe: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(summary)) {
+    if (raw === null || typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") {
+      safe[key] = typeof raw === "string" ? redactDiagnostic(raw) : raw;
+    }
+  }
+  return safe;
+}
+
+function alphaRecordState(entity: string, summary: Record<string, unknown>) {
+  const value = entity === "lead" ? summary.responseState : summary.dataFreshness;
+  return typeof value === "string" ? value : null;
+}
+
+function validateAlphaPayloadHash(payload: Record<string, unknown>) {
+  const expectedHash = assertString(payload.payloadHash, "payloadHash", 64);
+  if (!/^[a-f0-9]{64}$/i.test(expectedHash)) throw ApiError.badRequest("payloadHash is invalid.");
+  const { payloadHash: _payloadHash, ...withoutHash } = payload;
+  const actualHash = sha256(stableStringify(withoutHash));
+  if (actualHash !== expectedHash) throw ApiError.badRequest("Clinic OS alpha sync payload hash does not match the signed payload.");
+  return expectedHash;
 }
 
 function toTenant(row: any): FleetTenantRegistry {
@@ -289,6 +373,154 @@ function toSyncException(row: any): FleetSyncException {
 }
 
 export class FleetIngestionService {
+  verifyClinicOsAlphaSyncSignature(args: {
+    rawBody: Buffer | undefined;
+    signature: string | undefined;
+    timestamp: string | undefined;
+  }) {
+    const secret = config.clinicGrowerEvents.signingSecret;
+    if (!secret) throw ApiError.serviceUnavailable("ClinicGrower event signing secret is not configured");
+    if (!args.rawBody || !Buffer.isBuffer(args.rawBody)) {
+      throw ApiError.badRequest("Raw Clinic OS sync body is required for signature validation");
+    }
+    if (!args.signature) throw ApiError.unauthorized("Missing Clinic OS sync signature");
+    if (!args.timestamp) throw ApiError.unauthorized("Missing Clinic OS sync timestamp");
+
+    const timestampDate = parseUnixTimestamp(args.timestamp);
+    if (!timestampDate) throw ApiError.unauthorized("Invalid Clinic OS sync timestamp");
+    const ageMs = Math.abs(Date.now() - timestampDate.getTime());
+    if (ageMs > config.clinicGrowerEvents.timestampToleranceSeconds * 1000) {
+      throw ApiError.unauthorized("Clinic OS sync timestamp is outside the allowed replay window");
+    }
+
+    const expected = expectedClinicOsSignature(args.rawBody, args.timestamp, secret);
+    if (!timingSafeEqual(args.signature, expected)) {
+      throw ApiError.unauthorized("Invalid Clinic OS sync signature");
+    }
+  }
+
+  async ingestClinicOsAlphaSync(input: {
+    payload: unknown;
+    rawBody: Buffer | undefined;
+    signature: string | undefined;
+    timestamp: string | undefined;
+  }): Promise<ClinicOsAlphaSyncReceipt> {
+    this.verifyClinicOsAlphaSyncSignature(input);
+    const payload = assertPlainObject(input.payload, "payload");
+    if (payload.contractVersion !== CLINIC_OS_ALPHA_SYNC_CONTRACT_VERSION) {
+      throw ApiError.badRequest("Unsupported Clinic OS alpha sync contract version.");
+    }
+    if (payload.sourceSystem !== CLINIC_OS_ALPHA_SYNC_SOURCE_SYSTEM) {
+      throw ApiError.badRequest("Unsupported Clinic OS alpha sync source system.");
+    }
+
+    const payloadHash = validateAlphaPayloadHash(payload);
+    assertIsoDate(payload.generatedAt, "generatedAt");
+    const clinic = assertPlainObject(payload.clinic, "clinic");
+    const clinicId = assertString(clinic.clinicId, "clinic.clinicId", 100);
+    const tenantKey = assertString(clinic.tenantKey, "clinic.tenantKey", 160);
+    const displayName = assertString(clinic.displayName, "clinic.displayName", 255);
+    const dataState = alphaDataState(clinic.dataState);
+    if (!Array.isArray(payload.events)) throw ApiError.badRequest("events must be an array.");
+    if (payload.events.length === 0) throw ApiError.badRequest("Clinic OS alpha sync requires at least one event.");
+
+    const source = await this.configureSource({
+      clinicId,
+      tenantKey,
+      displayName,
+      dataState,
+      sourceSystem: CLINIC_OS_ALPHA_SYNC_SOURCE_SYSTEM,
+      sourceKey: CLINIC_OS_ALPHA_SYNC_SOURCE_KEY,
+      sourceLabel: "Clinic OS alpha sync",
+      endpointKind: "webhook",
+      checkpoint: assertString(payload.generatedAt, "generatedAt", 80),
+      metadata: {
+        contractVersion: CLINIC_OS_ALPHA_SYNC_CONTRACT_VERSION,
+        payloadHash,
+      },
+    });
+
+    let acceptedEvents = 0;
+    let duplicateEvents = 0;
+    let freshnessAlerts = 0;
+    for (const rawEvent of payload.events) {
+      const event = assertPlainObject(rawEvent, "event");
+      const entity = alphaEntity(event.entity);
+      const sourceRecordId = assertString(event.sourceId, "event.sourceId", 160);
+      const providerEventId = assertString(event.idempotencyKey, "event.idempotencyKey", 500);
+      const eventPayloadHash = assertString(event.payloadHash, "event.payloadHash", 64);
+      assertIsoDate(event.occurredAt, "event.occurredAt");
+      const summary = normalizeAlphaSummary(event.summary);
+
+      await this.resolveIdentity({
+        clinicId,
+        sourceSystem: CLINIC_OS_ALPHA_SYNC_SOURCE_SYSTEM,
+        sourceEntity: entity,
+        sourceRecordId,
+        confidence: "provisional",
+        payload: { payloadHash: eventPayloadHash, summary },
+        metadata: {
+          contractVersion: CLINIC_OS_ALPHA_SYNC_CONTRACT_VERSION,
+          payloadHash,
+        },
+      });
+
+      const receipt = await this.ingestEvent({
+        clinicId,
+        sourceSystem: CLINIC_OS_ALPHA_SYNC_SOURCE_SYSTEM,
+        sourceKey: CLINIC_OS_ALPHA_SYNC_SOURCE_KEY,
+        sourceEntity: entity,
+        sourceRecordId,
+        providerEventId,
+        payload: {
+          contractVersion: CLINIC_OS_ALPHA_SYNC_CONTRACT_VERSION,
+          payloadHash: eventPayloadHash,
+          generatedAt: payload.generatedAt,
+          summary,
+        },
+        payloadSummary: {
+          ...summary,
+          entity,
+          sourceId: sourceRecordId,
+          upstreamPayloadHash: payloadHash,
+        },
+      });
+
+      if (receipt.processingStatus === "duplicate") {
+        duplicateEvents += 1;
+        continue;
+      }
+      acceptedEvents += 1;
+      await this.markEventProcessed(clinicId, receipt.id, { checkpoint: assertString(payload.generatedAt, "generatedAt", 80) });
+
+      const state = alphaRecordState(entity, summary);
+      if (state && ALPHA_SYNC_ALERT_STATES.includes(state as typeof ALPHA_SYNC_ALERT_STATES[number])) {
+        await this.recordAlphaFreshnessAlert(clinicId, source.id, {
+          entity,
+          sourceRecordId,
+          state,
+          alertKey: `clinic_os_alpha_sync:${providerEventId}:freshness`,
+          targetMinutes: Number((payload.summary as any)?.sla?.targetMinutes || 15),
+        });
+        freshnessAlerts += 1;
+      }
+    }
+
+    return {
+      accepted: true,
+      contractVersion: CLINIC_OS_ALPHA_SYNC_CONTRACT_VERSION,
+      clinicId,
+      tenantKey,
+      sourceSystem: CLINIC_OS_ALPHA_SYNC_SOURCE_SYSTEM,
+      sourceKey: CLINIC_OS_ALPHA_SYNC_SOURCE_KEY,
+      payloadHash,
+      receivedEvents: payload.events.length,
+      acceptedEvents,
+      duplicateEvents,
+      freshnessAlerts,
+    };
+  }
+
   async registerTenant(input: RegisterFleetTenantInput): Promise<FleetTenantRegistry> {
     await this.ensureClinicExists(input.clinicId);
     const tenantKey = normalizeKey(cleanString(input.tenantKey) || input.clinicId);
@@ -1223,6 +1455,27 @@ export class FleetIngestionService {
         retryingCount,
         deadLetterCount,
       ],
+    );
+  }
+
+  private async recordAlphaFreshnessAlert(
+    clinicId: string,
+    sourceId: string,
+    input: { entity: string; sourceRecordId: string; state: string; alertKey: string; targetMinutes: number },
+  ) {
+    const targetMinutes = Math.max(1, Math.min(Number(input.targetMinutes || 15), 1440));
+    const message = `Clinic OS alpha sync reported ${input.entity} ${input.sourceRecordId} as ${input.state}.`;
+    await pool.execute(
+      `INSERT INTO analytics_freshness_alert
+        (id, clinic_id, source_id, alert_key, status, threshold_minutes, observed_lag_minutes, message)
+       VALUES (?, ?, ?, ?, 'open', ?, NULL, ?)
+       ON DUPLICATE KEY UPDATE
+         status = 'open',
+         threshold_minutes = VALUES(threshold_minutes),
+         message = VALUES(message),
+         resolved_at = NULL,
+         updated_at = CURRENT_TIMESTAMP`,
+      [uuidv4(), clinicId, sourceId, input.alertKey, targetMinutes, message],
     );
   }
 

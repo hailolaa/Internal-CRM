@@ -229,3 +229,17 @@ export interface FleetSyncAdministrationResponse {
     exceptions: number;
   };
 }
+
+export interface ClinicOsAlphaSyncReceipt {
+  accepted: boolean;
+  contractVersion: "clinic_os.alpha_sync.v1";
+  clinicId: string;
+  tenantKey: string;
+  sourceSystem: "clinic_os";
+  sourceKey: "alpha_sync";
+  payloadHash: string;
+  receivedEvents: number;
+  acceptedEvents: number;
+  duplicateEvents: number;
+  freshnessAlerts: number;
+}

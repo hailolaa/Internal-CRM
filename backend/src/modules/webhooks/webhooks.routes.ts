@@ -2,6 +2,7 @@ import { Router } from "express";
 import { webhooksController } from "./webhooks.controller.js";
 import { proposalsController } from "../proposals/proposals.controller.js";
 import { missedCallRecoveryController } from "../missed-call-recovery/missed-call-recovery.controller.js";
+import { fleetIngestionController } from "../fleet-ingestion/fleet-ingestion.controller.js";
 import { authenticate } from "../../middleware/authenticate.js";
 import { authorizePermission } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
@@ -56,6 +57,14 @@ router.post(
 router.post(
   "/clinicgrower/missed-call-recovery",
   missedCallRecoveryController.handleClinicGrowerEvent,
+);
+
+// @route   POST /api/webhooks/clinic-os/alpha-sync
+// @desc    Signed Clinic OS alpha sync payload intake for Mission Control fleet health
+// @access  Public server-to-server provider webhook
+router.post(
+  "/clinic-os/alpha-sync",
+  fleetIngestionController.handleClinicOsAlphaSync,
 );
 
 router.use(authenticate);
