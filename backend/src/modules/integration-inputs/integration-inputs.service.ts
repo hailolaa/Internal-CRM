@@ -6,6 +6,10 @@ import { logAuditEvent } from "../../utils/audit.js";
 import { billingService } from "../billing/billing.service.js";
 import { contactsService } from "../contacts/contacts.service.js";
 import type {
+  FreelancerReportQaStatus,
+  FreelancerReportReviewDTO,
+  FreelancerReportReviewQuery,
+  FreelancerReportWorkType,
   IngestLeadDTO,
   ManualPlatformMetricDTO,
   ManualPlatformMetricQuery,
@@ -35,6 +39,82 @@ function toPayloadRecord(value: unknown): Record<string, unknown> {
   }
 
   return {};
+}
+
+const FREELANCER_REPORT_WORK_TYPES: FreelancerReportWorkType[] = [
+  "ppc",
+  "seo",
+  "gbp",
+  "wordpress_development",
+  "design_video",
+  "reporting",
+];
+
+const FREELANCER_REPORT_TEMPLATES: Record<FreelancerReportWorkType, {
+  label: string;
+  requiredMetrics: string[];
+  requiredEvidence: string[];
+  qaChecks: string[];
+}> = {
+  ppc: {
+    label: "PPC",
+    requiredMetrics: ["spend", "leads", "cost_per_lead", "conversion_rate"],
+    requiredEvidence: ["account_or_campaign", "work_performed", "source_link_or_screenshot", "rationale"],
+    qaChecks: ["tracking_verified", "budget_change_reviewed", "before_after_or_baseline_present"],
+  },
+  seo: {
+    label: "SEO",
+    requiredMetrics: ["priority_keywords", "organic_sessions", "local_rank_movement", "technical_fixes"],
+    requiredEvidence: ["page_or_query", "work_performed", "source_link_or_screenshot", "expected_result"],
+    qaChecks: ["indexation_risk_reviewed", "content_or_technical_change_checked", "source_link_opened"],
+  },
+  gbp: {
+    label: "Google Business Profile",
+    requiredMetrics: ["profile_views", "calls", "direction_requests", "updates_published"],
+    requiredEvidence: ["location", "work_performed", "source_link_or_screenshot", "rationale"],
+    qaChecks: ["location_matches_client", "clinical_claims_checked", "photo_or_update_reviewed"],
+  },
+  wordpress_development: {
+    label: "Website / WordPress",
+    requiredMetrics: ["pages_changed", "forms_tested", "speed_or_error_status", "tracking_status"],
+    requiredEvidence: ["page_url", "work_performed", "before_after_or_screenshot", "expected_result"],
+    qaChecks: ["mobile_checked", "forms_checked", "tracking_or_conversion_checked"],
+  },
+  design_video: {
+    label: "Design / Video",
+    requiredMetrics: ["assets_created", "channels_supported", "approval_status"],
+    requiredEvidence: ["asset_link", "work_performed", "rationale", "reviewer"],
+    qaChecks: ["brand_checked", "clinical_claims_checked", "usage_rights_checked"],
+  },
+  reporting: {
+    label: "Reporting",
+    requiredMetrics: ["period_covered", "data_sources", "exceptions", "recommended_actions"],
+    requiredEvidence: ["report_link", "source_links", "work_performed", "exceptions"],
+    qaChecks: ["source_freshness_checked", "variance_explained", "actions_have_owner"],
+  },
+};
+
+function parseJsonArray(value: unknown): unknown[] {
+  const parsed = parseJson(value, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function hasUsableEvidence(data: FreelancerReportReviewDTO) {
+  const hasEvidence = data.evidence.some((item) =>
+    Boolean(cleanString(item.url) || cleanString(item.screenshotUrl) || cleanString(item.workPerformed)),
+  );
+  const hasMetrics = data.metrics.length > 0;
+  const hasSource = (data.sourceLinks || []).some((link) => Boolean(cleanString(link)));
+  return hasEvidence && hasMetrics && hasSource;
+}
+
+function normalizeQaStatus(data: FreelancerReportReviewDTO): FreelancerReportQaStatus {
+  if (data.qaStatus) return data.qaStatus;
+  return hasUsableEvidence(data) ? "awaiting_qa" : "awaiting_evidence";
+}
+
+function isRejectedStatus(status: FreelancerReportQaStatus) {
+  return status === "failed_qa" || status === "rejected";
 }
 
 function splitName(data: IngestLeadDTO) {
@@ -133,6 +213,150 @@ export class IntegrationInputsService {
       createdAt: new Date(row.createdAt).toISOString(),
       updatedAt: new Date(row.updatedAt).toISOString(),
     }));
+  }
+
+  listFreelancerReportTemplates() {
+    return FREELANCER_REPORT_WORK_TYPES.map((workType) => ({
+      workType,
+      ...FREELANCER_REPORT_TEMPLATES[workType],
+    }));
+  }
+
+  async listFreelancerReports(clinicId: string, query: FreelancerReportReviewQuery = {}) {
+    const conditions = ["clinic_id = ?", "deleted_at IS NULL"];
+    const values: any[] = [clinicId];
+    if (query.workType) {
+      conditions.push("work_type = ?");
+      values.push(query.workType);
+    }
+    if (query.qaStatus) {
+      conditions.push("qa_status = ?");
+      values.push(query.qaStatus);
+    }
+
+    const [rows]: any = await pool.execute(
+      `SELECT id, work_type as workType, source_event_id as sourceEventId,
+              report_title as reportTitle, account_label as accountLabel,
+              reporting_period_start as reportingPeriodStart,
+              reporting_period_end as reportingPeriodEnd,
+              metrics, evidence, risks, recommended_actions as recommendedActions,
+              source_links as sourceLinks, qa_status as qaStatus, qa_notes as qaNotes,
+              high_risk_change as highRiskChange, reviewer_id as reviewerId,
+              verification_date as verificationDate, created_at as createdAt, updated_at as updatedAt
+       FROM freelancer_report_review
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY reporting_period_end DESC, updated_at DESC
+       LIMIT 500`,
+      values,
+    );
+
+    return rows.map((row: any) => this.mapFreelancerReport(row));
+  }
+
+  async getFreelancerReportSummary(clinicId: string) {
+    const reports: ReturnType<IntegrationInputsService["mapFreelancerReport"]>[] =
+      await this.listFreelancerReports(clinicId);
+    const byStatus = {
+      awaitingEvidence: reports.filter((report) => report.qaStatus === "awaiting_evidence").length,
+      awaitingQa: reports.filter((report) => report.qaStatus === "awaiting_qa").length,
+      accepted: reports.filter((report) => report.qaStatus === "accepted").length,
+      failedQa: reports.filter((report) => report.qaStatus === "failed_qa").length,
+      rejected: reports.filter((report) => report.qaStatus === "rejected").length,
+    };
+    const reviewed = byStatus.accepted + byStatus.failedQa + byStatus.rejected;
+    const rework = byStatus.failedQa + byStatus.rejected;
+
+    return {
+      total: reports.length,
+      ...byStatus,
+      reworkRate: reviewed > 0 ? Number((rework / reviewed).toFixed(4)) : 0,
+      workTypesCovered: Array.from(new Set(reports.map((report) => report.workType))).sort(),
+    };
+  }
+
+  async createFreelancerReport(clinicId: string, userId: string, data: FreelancerReportReviewDTO) {
+    const qaStatus = normalizeQaStatus(data);
+    const id = uuidv4();
+    const payload = [
+      id,
+      clinicId,
+      data.workType,
+      cleanString(data.sourceEventId),
+      data.reportTitle,
+      cleanString(data.accountLabel),
+      data.reportingPeriodStart.slice(0, 10),
+      data.reportingPeriodEnd.slice(0, 10),
+      JSON.stringify(data.metrics),
+      JSON.stringify(data.evidence),
+      JSON.stringify(data.risks || []),
+      JSON.stringify(data.recommendedActions || []),
+      JSON.stringify((data.sourceLinks || []).filter(Boolean)),
+      qaStatus,
+      cleanString(data.qaNotes),
+      data.highRiskChange ? 1 : 0,
+      cleanString(data.reviewerId),
+      data.verificationDate ? data.verificationDate.slice(0, 10) : null,
+      userId,
+    ];
+
+    try {
+      await pool.execute(
+        `INSERT INTO freelancer_report_review
+          (id, clinic_id, work_type, source_event_id, report_title, account_label,
+           reporting_period_start, reporting_period_end, metrics, evidence, risks,
+           recommended_actions, source_links, qa_status, qa_notes, high_risk_change,
+           reviewer_id, verification_date, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        payload,
+      );
+    } catch (error: any) {
+      if (error?.code === "ER_DUP_ENTRY" && cleanString(data.sourceEventId)) {
+        const [rows]: any = await pool.execute(
+          `SELECT id, work_type as workType, source_event_id as sourceEventId,
+                  report_title as reportTitle, account_label as accountLabel,
+                  reporting_period_start as reportingPeriodStart,
+                  reporting_period_end as reportingPeriodEnd,
+                  metrics, evidence, risks, recommended_actions as recommendedActions,
+                  source_links as sourceLinks, qa_status as qaStatus, qa_notes as qaNotes,
+                  high_risk_change as highRiskChange, reviewer_id as reviewerId,
+                  verification_date as verificationDate, created_at as createdAt, updated_at as updatedAt
+           FROM freelancer_report_review
+           WHERE clinic_id = ? AND work_type = ? AND source_event_id = ? AND deleted_at IS NULL
+           LIMIT 1`,
+          [clinicId, data.workType, cleanString(data.sourceEventId)],
+        );
+        if (rows[0]) {
+          return { created: false, report: this.mapFreelancerReport(rows[0]) };
+        }
+      }
+      throw error;
+    }
+
+    await logAuditEvent({
+      clinicId,
+      userId,
+      action: "FREELANCER_REPORT_REVIEW_CREATED",
+      entityType: "freelancer_report_review",
+      entityId: id,
+      changes: { workType: data.workType, qaStatus, highRiskChange: Boolean(data.highRiskChange) },
+    });
+
+    const [rows]: any = await pool.execute(
+      `SELECT id, work_type as workType, source_event_id as sourceEventId,
+              report_title as reportTitle, account_label as accountLabel,
+              reporting_period_start as reportingPeriodStart,
+              reporting_period_end as reportingPeriodEnd,
+              metrics, evidence, risks, recommended_actions as recommendedActions,
+              source_links as sourceLinks, qa_status as qaStatus, qa_notes as qaNotes,
+              high_risk_change as highRiskChange, reviewer_id as reviewerId,
+              verification_date as verificationDate, created_at as createdAt, updated_at as updatedAt
+       FROM freelancer_report_review
+       WHERE clinic_id = ? AND id = ?
+       LIMIT 1`,
+      [clinicId, id],
+    );
+
+    return { created: true, report: this.mapFreelancerReport(rows[0]) };
   }
 
   async createManualPlatformMetric(clinicId: string, userId: string, data: ManualPlatformMetricDTO) {
@@ -292,6 +516,12 @@ export class IntegrationInputsService {
         endpoint: "/api/integration-inputs/openai/summary-preview",
         requires: ["OPENAI_INSIGHTS_ENABLED=true", "OPENAI_API_KEY"],
       },
+      freelancerReports: {
+        status: "ready",
+        endpoint: "/api/integration-inputs/freelancer-reports",
+        templates: this.listFreelancerReportTemplates().map((template) => template.workType),
+        requires: ["metrics", "work evidence", "risk/action notes", "source links", "QA status"],
+      },
       connectedIntegrations: integrationRows.map((row: any) => ({
         type: row.type,
         name: row.name,
@@ -400,6 +630,35 @@ export class IntegrationInputsService {
       }
       throw error;
     }
+  }
+
+  private mapFreelancerReport(row: any) {
+    return {
+      id: row.id,
+      workType: row.workType,
+      sourceEventId: row.sourceEventId || null,
+      reportTitle: row.reportTitle,
+      accountLabel: row.accountLabel || null,
+      reportingPeriodStart: row.reportingPeriodStart
+        ? new Date(row.reportingPeriodStart).toISOString().slice(0, 10)
+        : null,
+      reportingPeriodEnd: row.reportingPeriodEnd
+        ? new Date(row.reportingPeriodEnd).toISOString().slice(0, 10)
+        : null,
+      metrics: parseJsonArray(row.metrics),
+      evidence: parseJsonArray(row.evidence),
+      risks: parseJsonArray(row.risks),
+      recommendedActions: parseJsonArray(row.recommendedActions),
+      sourceLinks: parseJsonArray(row.sourceLinks),
+      qaStatus: row.qaStatus as FreelancerReportQaStatus,
+      qaNotes: row.qaNotes || null,
+      highRiskChange: Boolean(row.highRiskChange),
+      reviewerId: row.reviewerId || null,
+      verificationDate: row.verificationDate ? new Date(row.verificationDate).toISOString().slice(0, 10) : null,
+      needsRework: isRejectedStatus(row.qaStatus),
+      createdAt: new Date(row.createdAt).toISOString(),
+      updatedAt: new Date(row.updatedAt).toISOString(),
+    };
   }
 }
 

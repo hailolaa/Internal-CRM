@@ -6,6 +6,21 @@ export type ManualMetricPlatform =
   | "seo"
   | "other";
 
+export type FreelancerReportWorkType =
+  | "ppc"
+  | "seo"
+  | "gbp"
+  | "wordpress_development"
+  | "design_video"
+  | "reporting";
+
+export type FreelancerReportQaStatus =
+  | "awaiting_evidence"
+  | "awaiting_qa"
+  | "accepted"
+  | "failed_qa"
+  | "rejected";
+
 export interface IngestLeadDTO {
   email?: string | null;
   eventId?: string | null;
@@ -46,4 +61,48 @@ export interface ManualPlatformMetricQuery {
 export interface SummaryPreviewDTO {
   context: Record<string, unknown>;
   promptType?: string | null;
+}
+
+export interface FreelancerReportMetricDTO {
+  name: string;
+  value: string | number;
+  unit?: string | null;
+  baseline?: string | number | null;
+  target?: string | number | null;
+}
+
+export interface FreelancerReportEvidenceDTO {
+  label: string;
+  url?: string | null;
+  screenshotUrl?: string | null;
+  beforeValue?: string | number | null;
+  afterValue?: string | number | null;
+  workPerformed?: string | null;
+  rationale?: string | null;
+  expectedResult?: string | null;
+  accountOrPage?: string | null;
+}
+
+export interface FreelancerReportReviewDTO {
+  workType: FreelancerReportWorkType;
+  reportTitle: string;
+  reportingPeriodStart: string;
+  reportingPeriodEnd: string;
+  accountLabel?: string | null;
+  sourceEventId?: string | null;
+  metrics: FreelancerReportMetricDTO[];
+  evidence: FreelancerReportEvidenceDTO[];
+  risks?: string[];
+  recommendedActions?: string[];
+  sourceLinks?: string[];
+  qaStatus?: FreelancerReportQaStatus;
+  qaNotes?: string | null;
+  highRiskChange?: boolean;
+  reviewerId?: string | null;
+  verificationDate?: string | null;
+}
+
+export interface FreelancerReportReviewQuery {
+  qaStatus?: FreelancerReportQaStatus;
+  workType?: FreelancerReportWorkType;
 }

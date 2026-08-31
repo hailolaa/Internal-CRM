@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { integrationInputsService } from "./integration-inputs.service.js";
-import type { ManualPlatformMetricQuery } from "./integration-inputs.types.js";
+import type { FreelancerReportReviewQuery, ManualPlatformMetricQuery } from "./integration-inputs.types.js";
 
 export class IntegrationInputsController {
   ingestPublicMetaLead = async (req: Request, res: Response, next: NextFunction) => {
@@ -44,6 +44,39 @@ export class IntegrationInputsController {
       const { clinicId, userId } = (req as any).user;
       const id = await integrationInputsService.createManualPlatformMetric(clinicId, userId, req.body);
       res.status(201).json({ status: "success", data: { id } });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listFreelancerReportTemplates = async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const templates = integrationInputsService.listFreelancerReportTemplates();
+      res.status(200).json({ status: "success", data: templates });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listFreelancerReports = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId } = (req as any).user;
+      const query: FreelancerReportReviewQuery = {};
+      if (req.query.workType) query.workType = String(req.query.workType) as any;
+      if (req.query.qaStatus) query.qaStatus = String(req.query.qaStatus) as any;
+      const reports = await integrationInputsService.listFreelancerReports(clinicId, query);
+      const summary = await integrationInputsService.getFreelancerReportSummary(clinicId);
+      res.status(200).json({ status: "success", data: { reports, summary } });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createFreelancerReport = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { clinicId, userId } = (req as any).user;
+      const result = await integrationInputsService.createFreelancerReport(clinicId, userId, req.body);
+      res.status(result.created ? 201 : 200).json({ status: "success", data: result });
     } catch (error) {
       next(error);
     }

@@ -65,6 +65,7 @@ test("Phase 1 integration inputs ingest leads, store manual metrics, expose setu
   let metaContactId = "";
   let manualContactId = "";
   let metricId = "";
+  const freelancerEventPrefix = `cg161-${Date.now()}`;
 
   try {
     const metaLead = await fetchApiKeyJson(
@@ -181,8 +182,154 @@ test("Phase 1 integration inputs ingest leads, store manual metrics, expose setu
     assert.ok(["placeholder", "openai_ready"].includes(aiPreview.body.data.provider));
     console.log("[integration-inputs] OpenAI summary interface passed");
 
+    const templateResponse = await fetchJson(baseUrl, "/api/integration-inputs/freelancer-report-templates", primary.token);
+    assert.equal(templateResponse.response.status, 200);
+    const workTypes = templateResponse.body.data.map((template: any) => template.workType).sort();
+    assert.deepEqual(workTypes, ["design_video", "gbp", "ppc", "reporting", "seo", "wordpress_development"]);
+    console.log("[integration-inputs] freelancer report templates passed");
+
+    for (const workType of workTypes) {
+      const accepted = await fetchJson(baseUrl, "/api/integration-inputs/freelancer-reports", primary.token, {
+        method: "POST",
+        body: JSON.stringify({
+          workType,
+          sourceEventId: `${freelancerEventPrefix}-${workType}-accepted`,
+          reportTitle: `${workType} accepted report`,
+          accountLabel: "ClinicGrower test account",
+          reportingPeriodStart: "2026-08-01",
+          reportingPeriodEnd: "2026-08-31",
+          metrics: [
+            { name: "leads", value: 12, unit: "count", baseline: 8, target: 15 },
+          ],
+          evidence: [
+            {
+              label: "Work evidence",
+              url: "https://example.com/evidence",
+              workPerformed: "Updated the account, checked the baseline and recorded the expected result.",
+              rationale: "Supports the accepted QA path.",
+              expectedResult: "Improved visibility and cleaner reporting.",
+              accountOrPage: "Test account",
+            },
+          ],
+          risks: ["No material risk in test case"],
+          recommendedActions: ["Keep monitoring next period"],
+          sourceLinks: ["https://example.com/source"],
+          qaStatus: "accepted",
+          verificationDate: "2026-09-01",
+        }),
+      });
+      assert.equal(accepted.response.status, 201);
+      assert.equal(accepted.body.data.created, true);
+      assert.equal(accepted.body.data.report.qaStatus, "accepted");
+
+      const rejected = await fetchJson(baseUrl, "/api/integration-inputs/freelancer-reports", primary.token, {
+        method: "POST",
+        body: JSON.stringify({
+          workType,
+          sourceEventId: `${freelancerEventPrefix}-${workType}-rejected`,
+          reportTitle: `${workType} rejected report`,
+          reportingPeriodStart: "2026-08-01",
+          reportingPeriodEnd: "2026-08-31",
+          metrics: [
+            { name: "leads", value: 4, unit: "count" },
+          ],
+          evidence: [
+            {
+              label: "Incomplete evidence",
+              workPerformed: "Work was claimed but the source did not prove it.",
+            },
+          ],
+          risks: ["Missing source proof"],
+          recommendedActions: ["Return for evidence"],
+          sourceLinks: ["https://example.com/rejected-source"],
+          qaStatus: "rejected",
+          qaNotes: "Rejected because the submitted evidence does not support the claim.",
+        }),
+      });
+      assert.equal(rejected.response.status, 201);
+      assert.equal(rejected.body.data.report.needsRework, true);
+    }
+
+    const awaitingEvidence = await fetchJson(baseUrl, "/api/integration-inputs/freelancer-reports", primary.token, {
+      method: "POST",
+      body: JSON.stringify({
+        workType: "ppc",
+        sourceEventId: `${freelancerEventPrefix}-awaiting-evidence`,
+        reportTitle: "PPC missing evidence",
+        reportingPeriodStart: "2026-08-01",
+        reportingPeriodEnd: "2026-08-31",
+        metrics: [{ name: "spend", value: 1000, unit: "gbp" }],
+        evidence: [{ label: "Claimed account update" }],
+        risks: [],
+        recommendedActions: [],
+      }),
+    });
+    assert.equal(awaitingEvidence.response.status, 201);
+    assert.equal(awaitingEvidence.body.data.report.qaStatus, "awaiting_evidence");
+
+    const awaitingQa = await fetchJson(baseUrl, "/api/integration-inputs/freelancer-reports", primary.token, {
+      method: "POST",
+      body: JSON.stringify({
+        workType: "seo",
+        sourceEventId: `${freelancerEventPrefix}-awaiting-qa`,
+        reportTitle: "SEO awaiting QA",
+        reportingPeriodStart: "2026-08-01",
+        reportingPeriodEnd: "2026-08-31",
+        metrics: [{ name: "priority_keywords", value: 5, unit: "count" }],
+        evidence: [
+          {
+            label: "Search visibility evidence",
+            url: "https://example.com/seo-evidence",
+            workPerformed: "Optimised the priority page and supplied a before/after screenshot.",
+          },
+        ],
+        sourceLinks: ["https://example.com/seo-source"],
+      }),
+    });
+    assert.equal(awaitingQa.response.status, 201);
+    assert.equal(awaitingQa.body.data.report.qaStatus, "awaiting_qa");
+
+    const duplicateAccepted = await fetchJson(baseUrl, "/api/integration-inputs/freelancer-reports", primary.token, {
+      method: "POST",
+      body: JSON.stringify({
+        workType: "ppc",
+        sourceEventId: `${freelancerEventPrefix}-ppc-accepted`,
+        reportTitle: "Duplicate PPC accepted report",
+        reportingPeriodStart: "2026-08-01",
+        reportingPeriodEnd: "2026-08-31",
+        metrics: [{ name: "leads", value: 99 }],
+        evidence: [{ label: "Duplicate", workPerformed: "Duplicate retry" }],
+        sourceLinks: ["https://example.com/source"],
+        qaStatus: "accepted",
+      }),
+    });
+    assert.equal(duplicateAccepted.response.status, 200);
+    assert.equal(duplicateAccepted.body.data.created, false);
+
+    const freelancerReports = await fetchJson(baseUrl, "/api/integration-inputs/freelancer-reports", primary.token);
+    assert.equal(freelancerReports.response.status, 200);
+    assert.equal(freelancerReports.body.data.summary.accepted, 6);
+    assert.equal(freelancerReports.body.data.summary.rejected, 6);
+    assert.equal(freelancerReports.body.data.summary.awaitingEvidence, 1);
+    assert.equal(freelancerReports.body.data.summary.awaitingQa, 1);
+    assert.equal(freelancerReports.body.data.summary.reworkRate, 0.5);
+    assert.deepEqual(freelancerReports.body.data.summary.workTypesCovered, workTypes);
+
+    const secondaryFreelancerReports = await fetchJson(
+      baseUrl,
+      "/api/integration-inputs/freelancer-reports",
+      secondary.token,
+    );
+    assert.equal(secondaryFreelancerReports.response.status, 200);
+    assert.equal(secondaryFreelancerReports.body.data.summary.total, 0);
+    console.log("[integration-inputs] freelancer report QA controls passed");
+
     console.log("[integration-inputs] integration test completed successfully");
   } finally {
+    await pool.execute(
+      `DELETE FROM freelancer_report_review WHERE clinic_id = ? AND source_event_id LIKE ?`,
+      [primary.clinicId, `${freelancerEventPrefix}%`],
+    );
     if (metricId) {
       await pool.execute(
         `UPDATE manual_platform_metric SET deleted_at = CURRENT_TIMESTAMP WHERE clinic_id = ? AND id = ? AND deleted_at IS NULL`,
