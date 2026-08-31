@@ -18,6 +18,14 @@ describe("controlled assistant page contract", () => {
     expect(pageSource).toContain("human approval");
   });
 
+  it("supports voice input with browser speech recognition and text fallback", () => {
+    expect(pageSource).toContain("SpeechRecognition");
+    expect(pageSource).toContain("webkitSpeechRecognition");
+    expect(pageSource).toContain("Voice input is not available in this browser. Text input still works.");
+    expect(pageSource).toContain("setMessage((current)");
+    expect(pageSource).toContain("maxLength={2000}");
+  });
+
   it("adds the assistant permission only to controlled internal roles", () => {
     expect(rolesSource).toContain('"ai_assistant:use"');
     expect(constBlock("ADMIN_PERMISSIONS")).toContain('"ai_assistant:use"');

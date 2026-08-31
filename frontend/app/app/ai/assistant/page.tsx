@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { AlertTriangle, Bot, CheckCircle2, Send, ShieldCheck } from "lucide-react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Bot, CheckCircle2, Mic, MicOff, Send, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api-client";
 import type { AiChatMessageRecord, AiChatSessionDetail, AiChatSessionRecord } from "@/lib/api-types";
 import { useAuth } from "@/lib/auth-context";
@@ -13,6 +13,45 @@ function guardrailLabel(message: AiChatMessageRecord) {
   return { text: "Escalation recommended", tone: "warning" as const };
 }
 
+type SpeechRecognitionResultLike = {
+  0?: { transcript?: string };
+};
+
+type SpeechRecognitionEventLike = Event & {
+  results: ArrayLike<SpeechRecognitionResultLike>;
+};
+
+type SpeechRecognitionErrorEventLike = Event & {
+  error?: string;
+};
+
+type SpeechRecognitionInstance = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+type WindowWithSpeechRecognition = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
+
+function getSpeechRecognitionConstructor() {
+  if (typeof window === "undefined") return null;
+  const speechWindow = window as WindowWithSpeechRecognition;
+  return speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition || null;
+}
+
 export default function ControlledAssistantPage() {
   const { session, hasPermission } = useAuth();
   const token = session?.token;
@@ -22,6 +61,17 @@ export default function ControlledAssistantPage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [voiceState, setVoiceState] = useState<"idle" | "listening">("idle");
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const speechRecognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const voiceSupported = Boolean(getSpeechRecognitionConstructor());
+
+  useEffect(() => {
+    return () => {
+      speechRecognitionRef.current?.abort();
+      speechRecognitionRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!token || !canUseAssistant) return;
@@ -80,6 +130,57 @@ export default function ControlledAssistantPage() {
       setError(err instanceof Error ? err.message : "Conversation could not be opened.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const toggleVoiceInput = () => {
+    if (voiceState === "listening") {
+      speechRecognitionRef.current?.stop();
+      setVoiceState("idle");
+      return;
+    }
+
+    const SpeechRecognition = getSpeechRecognitionConstructor();
+    if (!SpeechRecognition) {
+      setVoiceError("Voice input is not available in this browser. Text input still works.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    speechRecognitionRef.current = recognition;
+    recognition.lang = "en-GB";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onstart = () => {
+      setVoiceError(null);
+      setVoiceState("listening");
+    };
+    recognition.onend = () => {
+      setVoiceState("idle");
+      speechRecognitionRef.current = null;
+    };
+    recognition.onerror = () => {
+      setVoiceError("Voice input could not be captured. Text input still works.");
+      setVoiceState("idle");
+      speechRecognitionRef.current = null;
+    };
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript || "")
+        .join(" ")
+        .trim();
+      if (transcript) {
+        setMessage((current) => `${current ? `${current.trim()} ` : ""}${transcript}`.slice(0, 2000));
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      setVoiceError("Voice input could not be started. Text input still works.");
+      setVoiceState("idle");
+      speechRecognitionRef.current = null;
     }
   };
 
@@ -193,6 +294,21 @@ export default function ControlledAssistantPage() {
                 placeholder="Ask a read-only Mission Control question"
               />
               <button
+                type="button"
+                onClick={toggleVoiceInput}
+                disabled={isLoading}
+                title={voiceSupported ? "Voice input" : "Voice input unavailable"}
+                className={[
+                  "inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50",
+                  voiceState === "listening"
+                    ? "border-[#4A9A95] bg-[#E8F4F3] text-[#315F5C]"
+                    : "border-[#D8DEDF] bg-white text-[#315F5C] hover:bg-[#FAF9F7]",
+                ].join(" ")}
+              >
+                {voiceSupported ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+                {voiceState === "listening" ? "Listening" : "Voice"}
+              </button>
+              <button
                 type="submit"
                 disabled={!message.trim() || isLoading}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#151F21] px-4 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
@@ -201,6 +317,7 @@ export default function ControlledAssistantPage() {
                 {isLoading ? "Checking" : "Ask"}
               </button>
             </div>
+            {voiceError && <p className="mt-2 text-xs text-amber-700">{voiceError}</p>}
           </form>
         </section>
       </div>
