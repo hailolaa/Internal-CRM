@@ -14,7 +14,11 @@ import {
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { PipelineStageKind, PipelineStageRecord } from "@/lib/api-types";
+import type {
+  PipelineStageKind,
+  PipelineStageRecord,
+  SalesProcessPolicyRecord,
+} from "@/lib/api-types";
 
 const stageColors = [
   { name: "Blue", value: "bg-blue-500" },
@@ -48,6 +52,7 @@ function toEditableStage(stage: PipelineStageRecord): EditableStage {
 export default function PipelineSettingsPage() {
   const { session } = useAuth();
   const [stages, setStages] = useState<EditableStage[]>([]);
+  const [salesPolicy, setSalesPolicy] = useState<SalesProcessPolicyRecord | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [autoMoveStale, setAutoMoveStale] = useState(false);
@@ -92,9 +97,13 @@ export default function PipelineSettingsPage() {
 
     async function loadStages() {
       try {
-        const rows = await api.pipelineStages.list(session!.token);
+        const [rows, policy] = await Promise.all([
+          api.pipelineStages.list(session!.token),
+          api.pipelinePolicy.getSalesProcessPolicy(session!.token),
+        ]);
         if (!cancelled) {
           setStages(rows.map(toEditableStage));
+          setSalesPolicy(policy);
           setStatusMessage(null);
         }
       } catch (error) {
@@ -424,6 +433,36 @@ export default function PipelineSettingsPage() {
                 </button>
               </div>
             </div>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+            <h2 className="font-semibold mb-2">Current Enforcement</h2>
+            <p className="mb-4 text-xs leading-5 text-gray-400">
+              Mission Control blocks the rules listed here. Status alone is not
+              evidence, and Max approval is still required for the final sales
+              policy.
+            </p>
+            {salesPolicy ? (
+              <div className="space-y-3">
+                {salesPolicy.rules.map((rule) => (
+                  <div key={rule.stage} className="rounded-lg bg-white/5 p-3">
+                    <p className="text-sm font-semibold text-white">{rule.stage}</p>
+                    <ul className="mt-2 space-y-1 text-xs text-gray-400">
+                      {rule.enforcedRequirements.map((requirement) => (
+                        <li key={requirement}>- {requirement}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                <div className="rounded-lg border border-amber-400/25 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+                  {salesPolicy.externalApprovalGate}
+                </div>
+              </div>
+            ) : (
+              <p className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-gray-400">
+                Current enforcement policy could not be loaded.
+              </p>
+            )}
           </div>
 
           <div className="bg-white/5 border border-white/10 rounded-xl p-6">

@@ -13,6 +13,10 @@ import {
   mapPipelineDeal,
 } from "./pipeline.mappers.js";
 import {
+  requiresCommercialConfirmationForStage,
+  requiresCommercialConfirmationForValueChange,
+} from "./pipeline.sales-process-rules.js";
+import {
   getFirstPipelineStage,
   getPipelineDealContact,
   getPipelineDealRow,
@@ -129,6 +133,12 @@ function isBookedStage(stage: PipelineDealStageRow) {
 }
 
 function validateMove(stage: PipelineDealStageRow, data: MovePipelineDealDTO, existing: PipelineDealResponse) {
+  if (requiresCommercialConfirmationForStage(stage.kind) && !data.commercialConfirmation) {
+    throw ApiError.badRequest(
+      "Human commercial confirmation is required before moving an opportunity to Won or Lost.",
+    );
+  }
+
   if (isBookedStage(stage) && !data.bookedAt && !existing.bookedAt) {
     throw ApiError.badRequest("bookedAt is required when moving an opportunity to Discovery Call Booked");
   }
@@ -193,6 +203,7 @@ export class PipelineDealsService {
         valueCents: data.valueCents ?? existing.valueCents,
         lostReason: outcome.lostReason,
         objectionType: outcome.objectionType,
+        commercialConfirmation: Boolean(data.commercialConfirmation),
       },
     }, connection);
     await insertTimelineActivity(connection, {
@@ -228,6 +239,7 @@ export class PipelineDealsService {
         movementId,
         lostReason: outcome.lostReason,
         objectionType: outcome.objectionType,
+        commercialConfirmation: Boolean(data.commercialConfirmation),
       },
     });
   }
@@ -337,6 +349,7 @@ export class PipelineDealsService {
         valueCents: data.valueCents ?? existing.valueCents,
         lostReason: data.lostReason || null,
         objectionType: data.objectionType || null,
+        commercialConfirmation: Boolean(data.commercialConfirmation),
       },
     }, connection);
     await insertTimelineActivity(connection, {
@@ -372,6 +385,7 @@ export class PipelineDealsService {
         movementId,
         lostReason: data.lostReason || existing.lostReason || null,
         objectionType: data.objectionType || existing.objectionType || null,
+        commercialConfirmation: Boolean(data.commercialConfirmation),
       },
     });
   }
@@ -466,6 +480,9 @@ export class PipelineDealsService {
     const values: PipelineDealUpdateValues = {};
     if (data.status !== undefined && data.status !== existing.status) {
       throw ApiError.badRequest("Opportunity status is controlled by its pipeline stage. Use the move action instead.");
+    }
+    if (requiresCommercialConfirmationForValueChange(existing.valueCents, data.valueCents) && !data.commercialConfirmation) {
+      throw ApiError.badRequest("Human commercial confirmation is required before changing opportunity value.");
     }
 
     if (data.title !== undefined && data.title !== null) values.title = data.title;
@@ -657,6 +674,7 @@ export class PipelineDealsService {
         valueCents: data.valueCents ?? existing.valueCents,
         lostReason: data.lostReason || null,
         objectionType: data.objectionType || null,
+        commercialConfirmation: Boolean(data.commercialConfirmation),
       },
     });
 

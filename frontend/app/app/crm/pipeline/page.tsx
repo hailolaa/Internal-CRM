@@ -1475,10 +1475,15 @@ export default function PipelinePage() {
               lostAt: new Date().toISOString(),
               lostReason: outcome?.lostReason || deal.raw.lostReason || DEFAULT_LOST_REASON,
               objectionType: outcome?.objectionType || deal.raw.objectionType || DEFAULT_OBJECTION_TYPE,
+              commercialConfirmation: true,
             }
           : {}),
         ...(targetStage.raw.kind === "won"
-          ? { valueCents: wonValueCents, soldAt: new Date().toISOString() }
+          ? {
+              valueCents: wonValueCents,
+              soldAt: new Date().toISOString(),
+              commercialConfirmation: true,
+            }
           : {}),
       };
 

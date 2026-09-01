@@ -92,6 +92,7 @@ export interface CreatePipelineDealDTO {
 
 export interface UpdatePipelineDealDTO extends Partial<Omit<CreatePipelineDealDTO, "contactId" | "stageId">> {
   status?: PipelineDealStatus;
+  commercialConfirmation?: boolean | null;
 }
 
 export interface MovePipelineDealDTO {
@@ -103,4 +104,19 @@ export interface MovePipelineDealDTO {
   lostReason?: string | null;
   objectionType?: string | null;
   notes?: string | null;
+  commercialConfirmation?: boolean | null;
+}
+
+export interface SalesProcessPolicyRuleResponse {
+  stage: string;
+  enforcedRequirements: readonly string[];
+}
+
+export interface SalesProcessPolicyResponse {
+  version: string;
+  maxDecisionRequired: boolean;
+  statusIsNotEvidence: boolean;
+  revenueCriticalTransitions: readonly PipelineStageKind[];
+  rules: readonly SalesProcessPolicyRuleResponse[];
+  externalApprovalGate: string;
 }

@@ -18,6 +18,7 @@ const dealMutationValidator = [
   body("auditAssignedTo").optional({ nullable: true }).isString().trim().isLength({ max: 100 }),
   body("auditFollowUpDueAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
   body("auditStatusUpdatedAt").optional({ nullable: true, checkFalsy: true }).isISO8601(),
+  body("commercialConfirmation").optional({ nullable: true }).isBoolean().toBoolean(),
 ];
 
 export const createPipelineStageValidator = [
@@ -64,4 +65,5 @@ export const movePipelineDealValidator = [
   body("lostReason").optional({ nullable: true }).isIn(salesLossReasons),
   body("objectionType").optional({ nullable: true }).isIn(salesObjectionTypes),
   body("notes").optional({ nullable: true }).isString().trim().isLength({ max: 2000 }),
+  body("commercialConfirmation").optional({ nullable: true }).isBoolean().toBoolean(),
 ];

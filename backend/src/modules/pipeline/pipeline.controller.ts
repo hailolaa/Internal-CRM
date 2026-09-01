@@ -1,8 +1,19 @@
 import { Request, Response, NextFunction } from "express";
 import { pipelineDealsService } from "./pipeline.deals.service.js";
 import { pipelineService } from "./pipeline.service.js";
+import { getSalesProcessPolicy } from "./pipeline.sales-process-rules.js";
 
 export class PipelineController {
+  // GET /api/pipeline/sales-process-policy
+  // Expose the currently enforced sales process rules for operator review.
+  getSalesProcessPolicy = async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.status(200).json({ status: "success", data: getSalesProcessPolicy() });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   // GET /api/pipeline/stages
   // List ordered stages for the current clinic revenue pipeline
   listStages = async (req: Request, res: Response, next: NextFunction) => {

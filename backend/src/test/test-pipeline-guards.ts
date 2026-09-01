@@ -208,6 +208,92 @@ test("pipeline deal move is denied across clinics", async () => {
   );
 });
 
+test("revenue-critical pipeline changes require human commercial confirmation", async () => {
+  await testConnection();
+
+  const primary = await createClinicAndAdmin("PipelineCommercialGate");
+  const contact = await createContact(primary.clinicId, primary.userId, "PipelineCommercialGate");
+  const stages = await pipelineService.listStages(primary.clinicId, primary.userId);
+  const openStage = stages.find((stage) => stage.kind === "open") || stages[0];
+  const wonStage = stages.find((stage) => stage.kind === "won");
+  const lostStage = stages.find((stage) => stage.kind === "lost");
+  assert.ok(openStage, "Expected an open stage");
+  assert.ok(wonStage, "Expected a won stage");
+  assert.ok(lostStage, "Expected a lost stage");
+
+  const deal = await pipelineDealsService.createDeal(primary.clinicId, primary.userId, {
+    contactId: contact.id,
+    stageId: openStage.id,
+    valueCents: 125000,
+    source: "integration-test",
+    treatment: "Clinic Growth",
+    probability: 35,
+  });
+
+  try {
+    await assert.rejects(
+      () =>
+        pipelineDealsService.moveDeal(primary.clinicId, primary.userId, deal.id, {
+          stageId: wonStage.id,
+          valueCents: 150000,
+        }),
+      (error: any) =>
+        error?.statusCode === 400
+        && typeof error?.message === "string"
+        && error.message.includes("Human commercial confirmation"),
+      "Won transitions must require human commercial confirmation",
+    );
+
+    await assert.rejects(
+      () =>
+        pipelineDealsService.moveDeal(primary.clinicId, primary.userId, deal.id, {
+          stageId: lostStage.id,
+          lostReason: "budget",
+          objectionType: "timing",
+        }),
+      (error: any) =>
+        error?.statusCode === 400
+        && typeof error?.message === "string"
+        && error.message.includes("Human commercial confirmation"),
+      "Lost transitions must require human commercial confirmation",
+    );
+
+    await assert.rejects(
+      () =>
+        pipelineDealsService.updateDeal(primary.clinicId, primary.userId, deal.id, {
+          valueCents: 200000,
+        }),
+      (error: any) =>
+        error?.statusCode === 400
+        && typeof error?.message === "string"
+        && error.message.includes("Human commercial confirmation"),
+      "Value changes must require human commercial confirmation",
+    );
+
+    const repriced = await pipelineDealsService.updateDeal(primary.clinicId, primary.userId, deal.id, {
+      valueCents: 200000,
+      commercialConfirmation: true,
+    });
+    assert.equal(repriced.valueCents, 200000);
+
+    const lost = await pipelineDealsService.moveDeal(primary.clinicId, primary.userId, deal.id, {
+      stageId: lostStage.id,
+      lostReason: "budget",
+      objectionType: "timing",
+      commercialConfirmation: true,
+    });
+    assert.equal(lost.status, "lost");
+    assert.equal(lost.lostReason, "budget");
+    assert.equal(lost.objectionType, "timing");
+  } finally {
+    await pool.execute("DELETE FROM deal WHERE id = ? AND clinic_id = ?", [deal.id, primary.clinicId]);
+    await pool.execute(
+      "UPDATE contact SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND clinic_id = ?",
+      [contact.id, primary.clinicId],
+    );
+  }
+});
+
 test("marking a lead lost requires reasons and syncs linked sales records", async () => {
   await testConnection();
 

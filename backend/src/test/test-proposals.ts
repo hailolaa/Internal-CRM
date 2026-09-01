@@ -2631,6 +2631,7 @@ test("proposal API enforces permissions, persists statuses, and isolates tenants
           stageId: lostStageId,
           lostReason: "competitor",
           objectionType: "competitor",
+          commercialConfirmation: true,
         },
       );
       await new Promise((resolve) => setTimeout(resolve, 100));

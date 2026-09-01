@@ -17,6 +17,15 @@ const router = Router();
 
 router.use(authenticate);
 
+// @route   GET /api/pipeline/sales-process-policy
+// @desc    Show the currently enforced sales-stage and commercial confirmation rules
+// @access  Private
+router.get(
+  "/sales-process-policy",
+  authorizePermission("contacts:read"),
+  pipelineController.getSalesProcessPolicy,
+);
+
 // @route   GET /api/pipeline/stages
 // @desc    List ordered clinic pipeline stages
 // @access  Private

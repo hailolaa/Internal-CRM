@@ -4,6 +4,7 @@ import type {
   PipelineDealPayload,
   PipelineDealRecord,
   PipelineDealUpdatePayload,
+  SalesProcessPolicyRecord,
   PipelineStagePayload,
   PipelineStageRecord,
 } from "@/lib/api-types";
@@ -11,6 +12,15 @@ import type { ApiRequest } from "./core";
 
 export function createPipelineApi(apiRequest: ApiRequest) {
   return {
+    pipelinePolicy: {
+      async getSalesProcessPolicy(token: string) {
+        const response = await apiRequest<SalesProcessPolicyRecord>(
+          "/api/pipeline/sales-process-policy",
+          { token },
+        );
+        return response.data!;
+      },
+    },
     pipelineStages: {
       async list(token: string) {
         const response = await apiRequest<PipelineStageRecord[]>(

@@ -89,6 +89,7 @@ export type PipelineDealUpdatePayload = Partial<
   Omit<PipelineDealPayload, "contactId" | "stageId">
 > & {
   status?: PipelineDealStatus;
+  commercialConfirmation?: boolean | null;
 };
 
 export interface PipelineDealMovePayload {
@@ -100,4 +101,19 @@ export interface PipelineDealMovePayload {
   lostReason?: string | null;
   objectionType?: string | null;
   notes?: string | null;
+  commercialConfirmation?: boolean | null;
+}
+
+export interface SalesProcessPolicyRuleRecord {
+  stage: string;
+  enforcedRequirements: readonly string[];
+}
+
+export interface SalesProcessPolicyRecord {
+  version: string;
+  maxDecisionRequired: boolean;
+  statusIsNotEvidence: boolean;
+  revenueCriticalTransitions: readonly PipelineStageKind[];
+  rules: readonly SalesProcessPolicyRuleRecord[];
+  externalApprovalGate: string;
 }
