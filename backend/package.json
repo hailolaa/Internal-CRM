@@ -40,7 +40,7 @@
     "test:twilio-whatsapp": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-twilio-whatsapp-provider.js dist/test/test-twilio-whatsapp-webhook.js",
     "test:proposals-public": "npm run build && node --test dist/test/test-proposals-public.js",
     "test:proposals": "npm run build && node --test dist/test/test-proposals.js",
-    "test:clickup": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-clickup-mappings.js",
+    "test:clickup": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-clickup-mappings.js dist/test/test-clickup-operating-model.js",
     "test:clinic-os-entitlements": "npm run build && node --test --experimental-test-isolation=none --test-concurrency=1 dist/test/test-clinic-os-entitlements.js",
     "test:mission-control-api": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-mission-control-api.js",
     "test:ai-evaluations": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-ai-evaluations.js",
