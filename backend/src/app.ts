@@ -80,6 +80,7 @@ import missionControlApiRoutes from "./modules/mission-control-api/mission-contr
 import missionControlMcpRoutes from "./modules/mission-control-api/mcp.routes.js";
 import { missionControlOpenApiDocument } from "./modules/mission-control-api/openapi.js";
 import clinicOsEntitlementsRoutes from "./modules/clinic-os-entitlements/clinic-os-entitlements.routes.js";
+import serviceAgreementsRoutes from "./modules/service-agreements/service-agreements.routes.js";
 
 const app = express();
 
@@ -184,6 +185,7 @@ app.use("/api/missed-call-recovery", missedCallRecoveryRoutes);
 app.use("/api/fleet-ingestion", fleetIngestionRoutes);
 app.use("/api/commercial-contracts", commercialContractsRoutes);
 app.use("/api/clinic-os-entitlements", clinicOsEntitlementsRoutes);
+app.use("/api/service-agreements", serviceAgreementsRoutes);
 app.get("/api/openapi.json", (req, res) => {
   res.json(missionControlOpenApiDocument);
 });
