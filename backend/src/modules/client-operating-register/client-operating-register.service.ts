@@ -449,6 +449,9 @@ export class ClientOperatingRegisterService {
 
       counts.issues = issues.length;
       counts.errors = issues.filter((issue) => issue.severity === "error").length;
+      if (counts.errors > 0) {
+        throw ApiError.badRequest("Client operating register import has blocking reconciliation errors");
+      }
       await this.insertIssues(connection, runId, clinicId, issues);
       await connection.execute(
         `UPDATE client_operating_register_import_run
@@ -543,8 +546,26 @@ export class ClientOperatingRegisterService {
         } satisfies ClientOperatingRegisterIssue,
       };
     }
+    if (matchRow && !sourceRow) {
+      return {
+        created: false,
+        updated: false,
+        unchanged: false,
+        profileCreated: false,
+        profileLinked: false,
+        issue: {
+          sourceRecordId: record.sourceRecordId,
+          issueType: "conflict",
+          severity: "error",
+          fieldName: "canonicalMatchKey",
+          message: "Canonical client/account name is already owned by another source record.",
+          sourceValue: record.canonicalName,
+          existingValue: matchRow.sourceRecordId,
+        } satisfies ClientOperatingRegisterIssue,
+      };
+    }
 
-    const existing = sourceRow || matchRow || null;
+    const existing = sourceRow || null;
     const profileResult = await this.resolveOrCreateProfile(connection, clinicId, userId, record, existing?.clientAccountProfileId || null);
     const recordId = existing?.id || uuidv4();
     const values = [

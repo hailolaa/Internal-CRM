@@ -174,6 +174,18 @@ test("client operating register imports, reconciles, gates access and exposes pr
   const excludedName = `Bee B Brows ${unique("cor")}`;
   const bristolSourceId = unique("869egj8wr");
   const excludedSourceId = unique("869egjbee");
+  const existingClientClinicId = uuidv4();
+  const existingClientProfileId = uuidv4();
+  await pool.execute(
+    `INSERT INTO clinic (id, name, email, timezone, subscription_plan, subscription_status, max_users)
+     VALUES (?, ?, ?, 'Europe/London', 'professional', 'active', 20)`,
+    [existingClientClinicId, bristolName, `${unique("cor_existing")}@register.test`],
+  );
+  await pool.execute(
+    `INSERT INTO client_account_profile (id, clinic_id, active_services, created_by, updated_by)
+     VALUES (?, ?, JSON_ARRAY(), ?, ?)`,
+    [existingClientProfileId, existingClientClinicId, workspace.userId, workspace.userId],
+  );
   const bristol = registerTask(bristolSourceId, `CLIENT RECORD - ${bristolName}`);
   const excluded = registerTask(excludedSourceId, `EXCLUDED RECORD - ${excludedName}`, {
     "Lifecycle Status": "Did not proceed / no delivery",
@@ -244,7 +256,8 @@ test("client operating register imports, reconciles, gates access and exposes pr
     });
     expectStatus("first apply", firstApply, 201);
     assert.equal(firstApply.body.data.counts.created, 2);
-    assert.equal(firstApply.body.data.counts.profilesCreated, 2);
+    assert.equal(firstApply.body.data.counts.profilesCreated, 1);
+    assert.equal(firstApply.body.data.counts.profilesLinked, 2);
 
     const rerun = await fetchJson(baseUrl, "/api/client-operating-register/import", writer.token, {
       method: "POST",
@@ -259,6 +272,26 @@ test("client operating register imports, reconciles, gates access and exposes pr
       [workspace.clinicId],
     );
     assert.equal(rowCount[0].count, 2);
+
+    const rollbackCandidateSourceId = unique("869egjnew");
+    const conflictApply = await fetchJson(baseUrl, "/api/client-operating-register/import", writer.token, {
+      method: "POST",
+      body: JSON.stringify({
+        sourceListId: "901220280295",
+        sourceVersion: "2026-08-12-conflict",
+        dryRun: false,
+        records: [
+          registerTask(rollbackCandidateSourceId, `CLIENT RECORD - Rollback Client ${unique("cor")}`),
+          registerTask(unique("869egjconflict"), `CLIENT RECORD - ${bristolName}`),
+        ],
+      }),
+    });
+    expectStatus("conflict apply rolls back", conflictApply, 400);
+    const [rollbackRows]: any = await pool.execute(
+      "SELECT COUNT(*) as count FROM client_operating_register_record WHERE clinic_id = ? AND source_record_id = ?",
+      [workspace.clinicId, rollbackCandidateSourceId],
+    );
+    assert.equal(rollbackRows[0].count, 0);
 
     const changedBristol = registerTask(bristolSourceId, `CLIENT RECORD - ${bristolName}`, {
       Package: "Market Leader",
@@ -285,6 +318,7 @@ test("client operating register imports, reconciles, gates access and exposes pr
     assert.equal(list.body.data.length, 2);
     const bristolRecord = list.body.data.find((row: any) => row.sourceRecordId === bristolSourceId);
     const excludedRecord = list.body.data.find((row: any) => row.sourceRecordId === excludedSourceId);
+    assert.equal(bristolRecord.clientAccountProfileId, existingClientProfileId);
     assert.equal(bristolRecord.packageName, "Market Leader");
     assert.equal(bristolRecord.freshnessStatus, "confirmation_required");
     assert.equal(bristolRecord.invoiceTruthSource, "confirmation_required");
