@@ -26,10 +26,21 @@ import {
 } from "@/components/ui";
 import { api } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import {
+  FREELANCER_REPORT_QA_STATUS_LABELS,
+  FREELANCER_REPORT_WORK_TYPE_LABELS,
+  formatReworkRate,
+  getFreelancerReportReviewState,
+  getFreelancerReportWorkTypeBreakdown,
+  getMissingFreelancerReportWorkTypes,
+} from "@/lib/freelancer-report-qa";
 import type {
   ClientAccountServiceRecord,
   ClientAccountServiceType,
   ClientAccountSummaryRecord,
+  FreelancerReportListResponse,
+  FreelancerReportRecord,
+  FreelancerReportTemplateRecord,
   InternalTaskRecord,
 } from "@/lib/api-types";
 
@@ -217,6 +228,11 @@ export default function DeliveryWorkPage() {
   const [tasks, setTasks] = useState<InternalTaskRecord[]>([]);
   const [services, setServices] = useState<ClientAccountServiceRecord[]>([]);
   const [clientAccounts, setClientAccounts] = useState<ClientAccountSummaryRecord[]>([]);
+  const [freelancerReportTemplates, setFreelancerReportTemplates] = useState<
+    FreelancerReportTemplateRecord[]
+  >([]);
+  const [freelancerReportData, setFreelancerReportData] =
+    useState<FreelancerReportListResponse | null>(null);
   const [activeView, setActiveView] = useState<WorkViewKey>(() =>
     getInitialWorkView(requestedView),
   );
@@ -233,8 +249,10 @@ export default function DeliveryWorkPage() {
       api.internalTasks.list(token, { includeArchived: false }),
       api.clientAccounts.listServices(token, { includeArchived: false }),
       api.clientAccounts.list(token),
+      api.integrationInputs.listFreelancerReportTemplates(token),
+      api.integrationInputs.listFreelancerReports(token),
     ])
-      .then(([taskResult, serviceResult, accountResult]) => {
+      .then(([taskResult, serviceResult, accountResult, templateResult, reportResult]) => {
         if (!isMounted) return;
 
         setTasks(taskResult.status === "fulfilled" ? taskResult.value : []);
@@ -242,11 +260,20 @@ export default function DeliveryWorkPage() {
         setClientAccounts(
           accountResult.status === "fulfilled" ? accountResult.value : [],
         );
+        setFreelancerReportTemplates(
+          templateResult.status === "fulfilled" ? templateResult.value : [],
+        );
+        setFreelancerReportData(
+          reportResult.status === "fulfilled" ? reportResult.value : null,
+        );
 
         const failedSources = [
           taskResult.status === "rejected" ? "internal tasks" : "",
           serviceResult.status === "rejected" ? "client services" : "",
           accountResult.status === "rejected" ? "client accounts" : "",
+          templateResult.status === "rejected" || reportResult.status === "rejected"
+            ? "freelancer report QA"
+            : "",
         ].filter(Boolean);
 
         setLoadError(
@@ -345,6 +372,15 @@ export default function DeliveryWorkPage() {
   const completedTasks = filteredTasks.filter((task) => task.status === "completed");
   const overdueCount = filteredTasks.filter(isTaskOverdue).length;
   const dueSoonCount = filteredTasks.filter(isDueSoon).length;
+  const freelancerReportSummary = freelancerReportData?.summary || null;
+  const recentFreelancerReports: FreelancerReportRecord[] =
+    freelancerReportData?.reports.slice(0, 4) || [];
+  const freelancerReportWorkTypeBreakdown = getFreelancerReportWorkTypeBreakdown(
+    freelancerReportData?.reports || [],
+  );
+  const missingFreelancerReportWorkTypes = getMissingFreelancerReportWorkTypes(
+    freelancerReportSummary,
+  );
 
   return (
     <div className="space-y-6">
@@ -451,6 +487,155 @@ export default function DeliveryWorkPage() {
           </div>
         ))}
       </div>
+
+      <section
+        id="freelancer-report-qa"
+        className="rounded-[24px] border border-[rgba(21,31,33,0.06)] bg-[#FFFCF9]"
+        style={{ boxShadow: "0 1px 6px rgba(21,31,33,0.03)" }}
+      >
+        <div className="flex flex-col gap-3 border-b border-[rgba(21,31,33,0.05)] px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="font-semibold text-[#151f21]">Freelancer report QA</h3>
+            <p className="text-sm text-[#5e8a8d]">
+              Delivery status is not completion evidence. Reports need metrics,
+              source links and QA before they are accepted.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs font-medium">
+            <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-amber-700">
+              {freelancerReportSummary?.awaitingEvidence || 0} awaiting evidence
+            </span>
+            <span className="rounded-full bg-sky-500/10 px-2.5 py-1 text-sky-700">
+              {freelancerReportSummary?.awaitingQa || 0} awaiting QA
+            </span>
+            <span className="rounded-full bg-red-500/10 px-2.5 py-1 text-red-600">
+              {freelancerReportSummary?.failedQa || 0} failed QA
+            </span>
+            <span className="rounded-full bg-[#151f21]/5 px-2.5 py-1 text-[#151f21]">
+              {formatReworkRate(freelancerReportSummary)} rework
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 p-5 xl:grid-cols-[1.1fr_0.9fr]">
+          <div>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold text-[#151f21]">Required templates</h4>
+              <span className="text-xs font-medium text-[#5e8a8d]">
+                {freelancerReportTemplates.length}/6 configured
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {freelancerReportTemplates.map((template) => (
+                <div
+                  key={template.workType}
+                  className="rounded-[16px] border border-[rgba(21,31,33,0.06)] bg-[#FAF8F5] p-4"
+                >
+                  <p className="text-sm font-semibold text-[#151f21]">{template.label}</p>
+                  <p className="mt-2 text-xs leading-5 text-[#5e8a8d]">
+                    {template.requiredMetrics.slice(0, 3).join(", ")}
+                  </p>
+                  <p className="mt-2 text-xs font-medium text-[#6b6258]">
+                    {template.requiredEvidence.length} evidence fields - {template.qaChecks.length} QA checks
+                  </p>
+                </div>
+              ))}
+              {!isLoading && freelancerReportTemplates.length === 0 && (
+                <p className="rounded-[16px] border border-dashed border-[rgba(21,31,33,0.14)] p-4 text-sm text-[#5e8a8d] md:col-span-2 xl:col-span-3">
+                  Freelancer report templates could not be loaded.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h4 className="mb-3 text-sm font-semibold text-[#151f21]">Review status</h4>
+            <div className="rounded-[16px] border border-[rgba(21,31,33,0.06)] bg-[#FAF8F5] p-4">
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ["Accepted", freelancerReportSummary?.accepted || 0],
+                  ["Rejected", freelancerReportSummary?.rejected || 0],
+                  ["Awaiting evidence", freelancerReportSummary?.awaitingEvidence || 0],
+                  ["Awaiting QA", freelancerReportSummary?.awaitingQa || 0],
+                ].map(([label, value]) => (
+                  <div key={label}>
+                    <p className="text-xs text-[#5e8a8d]">{label}</p>
+                    <p className="mt-1 text-xl font-bold text-[#151f21]">{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 border-t border-[rgba(21,31,33,0.06)] pt-4">
+                <p className="text-xs font-semibold uppercase text-[#5e8a8d]">
+                  Work type coverage
+                </p>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {freelancerReportWorkTypeBreakdown.map((workType) => (
+                    <div
+                      key={workType.workType}
+                      className={`rounded-[12px] border px-3 py-2 text-xs ${
+                        workType.total > 0
+                          ? "border-[rgba(96,180,175,0.18)] bg-[rgba(96,180,175,0.08)] text-[#0a6f6a]"
+                          : "border-[rgba(21,31,33,0.06)] bg-[#151f21]/[0.03] text-[#6b6258]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">
+                          {FREELANCER_REPORT_WORK_TYPE_LABELS[workType.workType]}
+                        </span>
+                        <span>{workType.total} reports</span>
+                      </div>
+                      <p className="mt-1 text-[11px] leading-4">
+                        {workType.accepted} accepted - {workType.blocked} awaiting/rework
+                        {workType.highRisk > 0 ? ` - ${workType.highRisk} high risk` : ""}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                {freelancerReportSummary && missingFreelancerReportWorkTypes.length > 0 && (
+                  <p className="mt-3 text-xs leading-5 text-[#8a6d1f]">
+                    Missing current report coverage:{" "}
+                    {missingFreelancerReportWorkTypes
+                      .map((workType) => FREELANCER_REPORT_WORK_TYPE_LABELS[workType])
+                      .join(", ")}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {recentFreelancerReports.length > 0 && (
+              <div className="mt-3 divide-y divide-[rgba(21,31,33,0.05)] rounded-[16px] border border-[rgba(21,31,33,0.06)] bg-white">
+                {recentFreelancerReports.map((report) => (
+                  <div key={report.id} className="p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[#151f21]">
+                          {report.reportTitle}
+                        </p>
+                        <p className="mt-1 text-xs text-[#5e8a8d]">
+                          {FREELANCER_REPORT_WORK_TYPE_LABELS[report.workType]} - {report.sourceLinks.length} source link{report.sourceLinks.length === 1 ? "" : "s"}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-medium">
+                          <span className="rounded-full bg-[#151f21]/5 px-2 py-0.5 text-[#5e8a8d]">
+                            {getFreelancerReportReviewState(report)}
+                          </span>
+                          {report.highRiskChange && (
+                            <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-red-600">
+                              High-risk review
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-[#151f21]/5 px-2 py-1 text-xs font-medium text-[#151f21]">
+                        {FREELANCER_REPORT_QA_STATUS_LABELS[report.qaStatus]}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <section
