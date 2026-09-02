@@ -154,17 +154,53 @@ function validateCommercialTerms(input: ServiceAgreementCommercialTerms): Servic
   };
 }
 
+function formatCurrency(cents: unknown) {
+  return `GBP ${(Number(cents) / 100).toFixed(2)} + VAT`;
+}
+
+function formatSourceLabel(value: unknown) {
+  switch (value) {
+    case "accepted_proposal":
+      return "Accepted proposal";
+    case "manual_entry":
+      return "Manual agreement terms";
+    case "transcript_draft":
+      return "Transcript-backed draft";
+    default:
+      return "Controlled agreement source";
+  }
+}
+
+function formatScopeValue(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean).join(", ");
+  if (value && typeof value === "object") return Object.values(value).map((item) => String(item)).filter(Boolean).join(", ");
+  return String(value ?? "");
+}
+
+function renderScopeSummary(scopeInput: unknown) {
+  const scope = parseJsonObject(scopeInput);
+  const items = Object.entries(scope)
+    .map(([label, value]) => [label, formatScopeValue(value)] as const)
+    .filter(([, value]) => value.trim())
+    .slice(0, 6)
+    .map(([label, value]) => `<li><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</li>`)
+    .join("");
+
+  return items || "<li>Scope is held in the approved agreement record.</li>";
+}
+
 export function buildAgreementHtml(payload: Record<string, unknown>, renderMode: ServiceAgreementRenderMode) {
   const terms = parseJsonObject(payload.commercialTerms);
   const source = parseJsonObject(payload.source);
   const watermark = renderMode === "test_do_not_send"
     ? `<div class="watermark">${TEST_WATERMARK}</div>`
     : "";
+  const sourceLabel = formatSourceLabel(source.type);
   const rows = [
     ["Clinic", terms.clientName],
     ["Package", terms.packageName],
-    ["Monthly fee", `GBP ${(Number(terms.monthlyFeeCents) / 100).toFixed(2)} + VAT`],
-    ["Implementation and benchmarking", `GBP ${(Number(terms.setupFeeCents) / 100).toFixed(2)} + VAT`],
+    ["Monthly fee", formatCurrency(terms.monthlyFeeCents)],
+    ["Implementation and benchmarking", formatCurrency(terms.setupFeeCents)],
     ["Payment terms", terms.paymentTerms],
     ["Start date", terms.startDate],
     ["Minimum term", `${terms.minimumTermMonths} months`],
@@ -174,17 +210,37 @@ export function buildAgreementHtml(payload: Record<string, unknown>, renderMode:
   return [
     "<!doctype html>",
     "<html><head><meta charset=\"utf-8\"><style>",
-    "@page{size:A4;margin:18mm}body{font-family:Arial,sans-serif;color:#082326;margin:0}.page{min-height:260mm;position:relative}",
-    ".eyebrow{color:#00776f;font-size:11px;font-weight:700;letter-spacing:.02em;text-transform:uppercase}.watermark{position:fixed;top:45%;left:10%;right:10%;text-align:center;font-size:42px;font-weight:800;color:rgba(180,0,0,.18);transform:rotate(-18deg);z-index:0}",
-    "h1{font-size:30px;line-height:1.08;margin:28px 0 14px}.notice{font-size:12px;line-height:1.5;color:#476064;max-width:680px}dl{display:grid;grid-template-columns:210px 1fr;gap:10px 20px;margin-top:28px}dt{font-weight:700;color:#006c65}dd{margin:0}.approval{margin-top:36px;border-top:1px solid #bfd7d4;padding-top:14px;font-size:12px;color:#476064}",
+    "@page{size:A4;margin:0}html,body{margin:0;padding:0;background:#d8d5cc;color:#0B292C;font-family:var(--font-jakarta,'Plus Jakarta Sans',Arial,Helvetica,sans-serif)}body{width:210mm}.page{width:210mm;height:297mm;box-sizing:border-box;position:relative;overflow:hidden;background:#F3EEE5;padding:17mm 17mm 16mm}",
+    "@media screen{.page{box-shadow:0 18px 60px rgba(6,29,32,.22)}}",
+    ".watermark{position:fixed;top:45%;left:8%;right:8%;text-align:center;font-size:42px;font-weight:900;color:rgba(151,72,36,.18);transform:rotate(-18deg);z-index:0}",
+    ".wordmark{position:absolute;left:17mm;top:13mm;font-size:9pt;font-weight:900;line-height:1;letter-spacing:0;text-transform:uppercase}.wordmark .clinic{color:#0F716D}.wordmark .grower{color:#0B292C}.section{position:absolute;right:17mm;top:13mm;width:74mm;text-align:right;color:#526B6D;font-size:7.6pt;font-weight:800;line-height:1;text-transform:uppercase}.rule{height:.65pt;background:#D2DEDA}.top-rule{position:absolute;left:17mm;right:17mm;top:30mm;background:#0F716D;height:1.2pt}",
+    ".eyebrow{color:#0F716D;font-size:8pt;font-weight:900;line-height:1.1;text-transform:uppercase}.hero{position:absolute;left:17mm;top:43mm;width:176mm}.hero h1{width:154mm;margin:11mm 0 0;color:#061D20;font-size:31pt;line-height:1.08;font-weight:900;letter-spacing:0;overflow-wrap:break-word}.lede{width:158mm;margin:7mm 0 0;color:#526B6D;font-size:10.4pt;line-height:1.32;font-weight:800}",
+    ".terms{position:absolute;left:17mm;top:124mm;width:82mm}.scope-panel{position:absolute;left:111mm;top:124mm;width:82mm}.block-title{margin:0 0 9mm;color:#0F716D;font-size:8.2pt;font-weight:900;line-height:1.15;text-transform:uppercase}.terms dl{display:grid;grid-template-columns:33mm 1fr;gap:5.2mm 5mm;margin:0}.terms dt{color:#0F716D;font-size:8.4pt;font-weight:900;line-height:1.15}.terms dd{margin:0;color:#0B292C;font-size:10.2pt;font-weight:800;line-height:1.18}.scope{margin:0;padding:0;list-style:none;color:#526B6D;font-size:9.2pt;line-height:1.38;font-weight:600}.scope li{position:relative;margin:0 0 8mm;padding-left:8mm}.scope li:before{content:'';position:absolute;left:0;top:3.8pt;width:3.2pt;height:3.2pt;border-radius:50%;background:#0F716D}.scope strong{color:#0B292C;font-weight:900}",
+    ".decision{position:absolute;left:17mm;top:224mm;width:176mm;display:grid;grid-template-columns:1fr 1fr;gap:16mm}.sign-line{border-top:.65pt solid #AFCAC6;padding-top:3mm;color:#526B6D;font-size:7.6pt;font-weight:700}.approval{position:absolute;left:17mm;right:17mm;bottom:21mm;border-top:.65pt solid #D2DEDA;padding-top:5mm;color:#526B6D;font-size:7.9pt;line-height:1.35;font-weight:700}.footer-left{position:absolute;left:17mm;bottom:9mm;width:130mm;color:#526B6D;font-size:7.3pt;font-weight:800;text-transform:uppercase}.footer-page{position:absolute;right:17mm;bottom:9mm;color:#526B6D;font-size:7.4pt;font-weight:800}",
     "</style></head><body>",
     watermark,
     "<main class=\"page\">",
-    "<p class=\"eyebrow\">ClinicGrower service agreement</p>",
+    "<div class=\"wordmark\"><span class=\"clinic\">Clinic</span><span class=\"grower\">Grower</span></div>",
+    "<div class=\"section\">Service agreement</div>",
+    "<div class=\"top-rule\"></div>",
+    "<section class=\"hero\">",
+    `<p class=\"eyebrow\">Prepared for ${escapeHtml(terms.clientName)}</p>`,
     `<h1>${escapeHtml(terms.clientName)} service agreement</h1>`,
-    "<p class=\"notice\">This controlled render binds the clinic-specific commercial data to the locked legal wording version and registered brand/template hashes. It is not valid for external send until Max approval is recorded against this exact version.</p>",
+    "<p class=\"lede\">The approved commercial route, package and sign-off controls for moving from accepted proposal to ClinicGrower delivery.</p>",
+    "</section>",
+    "<section class=\"terms\"><h2 class=\"block-title\">Commercial terms</h2>",
     `<dl>${rows}</dl>`,
-    `<p class=\"approval\">Source: ${escapeHtml(source.type)} / ${escapeHtml(source.reference)}. No legal or commercial terms are invented by the renderer.</p>`,
+    "</section>",
+    "<section class=\"scope-panel\"><h2 class=\"block-title\">Scope summary</h2>",
+    `<ul class=\"scope\">${renderScopeSummary(terms.scope)}</ul>`,
+    "</section>",
+    "<section class=\"decision\">",
+    "<div class=\"sign-line\">Client authorised signatory</div>",
+    "<div class=\"sign-line\">ClinicGrower authorised signatory</div>",
+    "</section>",
+    "<p class=\"approval\">Approval, signature evidence, payment and onboarding release are controlled by the service agreement journey. Production issue requires the recorded approval and signature gates for this exact agreement version.</p>",
+    `<div class=\"footer-left\">${escapeHtml(terms.clientName)} | Private &amp; Confidential | ${escapeHtml(sourceLabel)}</div>`,
+    "<div class=\"footer-page\">01</div>",
     "</main></body></html>",
   ].join("");
 }
@@ -536,6 +592,7 @@ export class ServiceAgreementsService {
     if (!proposalId) throw ApiError.badRequest("proposalId is required for accepted proposal agreements.");
     const [rows]: any = await pool.execute(
       `SELECT p.id as proposalId,
+              c.name as clinicName,
               p.proposal_name as proposalName,
               p.status as proposalStatus,
               p.expires_at as expiresAt,
@@ -557,6 +614,9 @@ export class ServiceAgreementsService {
               ar.notice_period_days as noticePeriodDays,
               ar.scope
        FROM proposal p
+       JOIN clinic c
+         ON c.id = p.clinic_id
+        AND c.deleted_at IS NULL
        JOIN proposal_acceptance_record ar
          ON ar.proposal_id = p.id
         AND ar.clinic_id = p.clinic_id
@@ -583,7 +643,7 @@ export class ServiceAgreementsService {
       clientAccountProfileId,
       sourceReference: proposalId,
       commercialTerms: {
-        clientName: row.acceptedByName || row.proposalName,
+        clientName: row.clinicName || row.proposalName || row.acceptedByName,
         packageName: row.packageName,
         monthlyFeeCents: row.monthlyFeeCents,
         setupFeeCents: row.setupFeeCents,

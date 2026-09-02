@@ -39,6 +39,10 @@ async function seedAcceptedProposal(prefix: string, options: { paid?: boolean; e
   const proposalId = uuidv4();
   const acceptanceId = uuidv4();
   await pool.execute(
+    `UPDATE clinic SET name = ? WHERE id = ?`,
+    ["Dr <script>alert(1)</script> Tanja Clinic", admin.clinicId],
+  );
+  await pool.execute(
     `INSERT INTO client_account_profile
       (id, clinic_id, active_services, onboarding_status, client_status,
        current_package, payment_status, invoice_status, created_by, updated_by)
@@ -164,10 +168,10 @@ test("accepted proposal agreement journey is tenant-scoped, idempotent and gated
   assert.equal(rerun.id, generated.id);
   assert.equal(generated.watermark, "DO NOT SEND - TEST RENDER");
   assert.equal(generated.status, "max_approval_required");
-  assert.equal(JSON.stringify(generated.agreementPayload).includes("Dr <script>alert(1)</script> Tanja"), true);
+  assert.equal(JSON.stringify(generated.agreementPayload).includes("Dr <script>alert(1)</script> Tanja Clinic"), true);
   const rendered = buildAgreementHtml(generated.agreementPayload, generated.renderMode);
   assert.equal(rendered.includes("Dr <script>alert(1)</script> Tanja"), false);
-  assert.equal(rendered.includes("Dr &lt;script&gt;alert(1)&lt;/script&gt; Tanja"), true);
+  assert.equal(rendered.includes("Dr &lt;script&gt;alert(1)&lt;/script&gt; Tanja Clinic"), true);
   await assert.rejects(
     () => service.getAgreement(other.clinicId, generated.id),
     /not found/i,
