@@ -56,7 +56,6 @@ Accepted complete means the submitted work has evidence, source links, QA review
 | Dependencies between deliverables | Preserve dependencies in the recurring strategy/reporting workspace and task model | `869egeh5q` CG-024 and `869egfguf` CG-162 | Task workspace and client strategy/reporting model | CG-024 source-of-truth rules, CG-162 requirement | Client delivery execution stays outside managerial role lists; ClickUp governs task dependency ownership | Mapped to active governed tasks; no separate data gap here |
 | Client-health roll-up | Include delivery state in client-health reporting | `869egfgtp` CG-160 and `869egfguf` CG-162 | Client account health/service roll-ups and delivery summaries | Client account health records and operating register | Mission Control owns roll-up; source systems own execution | Existing foundation present; fuller CG-162 acceptance pending |
 | Exportable delivery summary | Produce governed delivery summary after source/evidence checks | `869egfguf` CG-162 | Reporting/action-plan foundations | CG-162 recurring reporting requirement | Mission Control reporting layer | Mapped to CG-162; not part of CG-161 |
-| Evidence state and rework dashboard visibility | Show awaiting evidence, awaiting QA, failed QA, accepted/rejected and rework rate | `869egfgu7` CG-161 | Delivery Work freelancer report QA panel | Commit `b3e4d1f` | Mission Control reporting layer | Repo-side implemented; target-environment evidence pending |
 
 ## Data Gaps
 
