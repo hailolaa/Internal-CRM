@@ -71,7 +71,24 @@ async function seedAcceptedProposal(prefix: string, options: { paid?: boolean; e
   return { ...admin, clientAccountProfileId, proposalId, acceptanceId };
 }
 
-async function seedSignatureEvidence(clinicId: string, proposalId: string, userId: string) {
+function explicitCommercialTerms(overrides: Record<string, unknown> = {}) {
+  return {
+    clientName: "ClinicGrower Test Clinic",
+    packageName: "Clinic Growth",
+    monthlyFeeCents: 199500,
+    setupFeeCents: 99500,
+    currency: "GBP" as const,
+    vatTreatment: "prices_exclude_vat" as const,
+    paymentTerms: "Monthly in advance by direct debit.",
+    startDate: "2026-09-01",
+    minimumTermMonths: 12,
+    noticePeriodDays: 90,
+    scope: { treatments: ["Dental implants"], channels: ["Google Ads"] },
+    ...overrides,
+  };
+}
+
+async function seedSignatureEvidence(clinicId: string, proposalId: string, userId: string, suffix = "primary") {
   const requestId = uuidv4();
   const evidenceId = uuidv4();
   await pool.execute(
@@ -80,7 +97,7 @@ async function seedSignatureEvidence(clinicId: string, proposalId: string, userI
        signer_name, signer_email, signature_url, idempotency_key, sent_at, signed_at, created_by)
      VALUES (?, ?, ?, 'log', ?, 'signed', 'Dr Tanja', 'tanja@example.test',
        'https://example.test/sign', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
-    [requestId, clinicId, proposalId, `log_${requestId}`, `proposal:${proposalId}:signer:tanja@example.test`, userId],
+    [requestId, clinicId, proposalId, `log_${requestId}`, `proposal:${proposalId}:signer:tanja@example.test:${suffix}`, userId],
   );
   await pool.execute(
     `INSERT INTO proposal_signature_evidence
@@ -172,6 +189,86 @@ test("accepted proposal agreement journey is tenant-scoped, idempotent and gated
   );
 });
 
+test("manual and transcript agreements require explicit terms and reject changed duplicate sources", async () => {
+  await testConnection();
+  const source = await seedAcceptedProposal("service-agreement-manual", { paid: false });
+  const service = new ServiceAgreementsService(() => registry());
+  const terms = explicitCommercialTerms({ clientName: "Manual Entry Clinic" });
+
+  const manual = await service.generateAgreement({
+    clinicId: source.clinicId,
+    userId: source.userId,
+    sourceType: "manual_entry",
+    sourceReference: "manual-contract-001",
+    clientAccountProfileId: source.clientAccountProfileId,
+    renderMode: "test_do_not_send",
+    legalTermsVersion: "clinicgrower-legal-v1",
+    legalContentSha256: hashA,
+    templateVersion: "clinicgrower-service-agreement-v1",
+    templateSha256: hashB,
+    cssSha256: hashC,
+    assetManifestSha256: hashD,
+    commercialTerms: terms,
+  });
+  const transcript = await service.generateAgreement({
+    clinicId: source.clinicId,
+    userId: source.userId,
+    sourceType: "transcript_draft",
+    sourceReference: "transcript-contract-001",
+    clientAccountProfileId: source.clientAccountProfileId,
+    renderMode: "test_do_not_send",
+    legalTermsVersion: "clinicgrower-legal-v1",
+    legalContentSha256: hashA,
+    templateVersion: "clinicgrower-service-agreement-v1",
+    templateSha256: hashB,
+    cssSha256: hashC,
+    assetManifestSha256: hashD,
+    commercialTerms: explicitCommercialTerms({ clientName: "Transcript Draft Clinic" }),
+  });
+
+  assert.equal(manual.sourceType, "manual_entry");
+  assert.equal(manual.agreementPayload.source && typeof manual.agreementPayload.source === "object"
+    ? (manual.agreementPayload.source as any).reference
+    : null, "manual-contract-001");
+  assert.equal(transcript.sourceType, "transcript_draft");
+  assert.equal(JSON.stringify(manual.agreementPayload).includes("Manual Entry Clinic"), true);
+
+  await assert.rejects(
+    () => service.generateAgreement({
+      clinicId: source.clinicId,
+      userId: source.userId,
+      sourceType: "manual_entry",
+      sourceReference: "manual-contract-001",
+      clientAccountProfileId: source.clientAccountProfileId,
+      renderMode: "test_do_not_send",
+      legalTermsVersion: "clinicgrower-legal-v1",
+      legalContentSha256: hashA,
+      templateVersion: "clinicgrower-service-agreement-v1",
+      templateSha256: hashB,
+      cssSha256: hashC,
+      assetManifestSha256: hashD,
+      commercialTerms: explicitCommercialTerms({ monthlyFeeCents: 349500 }),
+    }),
+    /different terms/,
+  );
+  await assert.rejects(
+    () => service.generateAgreement({
+      clinicId: source.clinicId,
+      userId: source.userId,
+      sourceType: "transcript_draft",
+      sourceReference: "transcript-missing-terms",
+      clientAccountProfileId: source.clientAccountProfileId,
+      legalTermsVersion: "clinicgrower-legal-v1",
+      legalContentSha256: hashA,
+      templateVersion: "clinicgrower-service-agreement-v1",
+      templateSha256: hashB,
+      cssSha256: hashC,
+      assetManifestSha256: hashD,
+    }),
+    /cannot invent legal or commercial terms/,
+  );
+});
+
 test("production journey binds approval, signature evidence, QuickBooks and paid onboarding exactly once", async () => {
   await testConnection();
   const source = await seedAcceptedProposal("service-agreement-prod", { paid: true });
@@ -228,6 +325,101 @@ test("production journey binds approval, signature evidence, QuickBooks and paid
   assert.equal(Number(draftRows[0].count), 1);
   assert.equal(unlocked.onboardingUnlockedAt?.startsWith("2026-09-02"), true);
   assert.equal(profileRows[0].onboardingStatus, "in_progress");
+});
+
+test("approval, signature, QuickBooks and onboarding failure paths fail closed", async () => {
+  await testConnection();
+  const source = await seedAcceptedProposal("service-agreement-closed", { paid: false });
+  const service = new ServiceAgreementsService(() => registry());
+  const disabledApprovalService = new ServiceAgreementsService(() => registry({ productionSendEnabled: false }));
+  const agreement = await service.generateAgreement({
+    clinicId: source.clinicId,
+    userId: source.userId,
+    sourceType: "accepted_proposal",
+    proposalId: source.proposalId,
+    renderMode: "production",
+    legalTermsVersion: "clinicgrower-legal-v1",
+    legalContentSha256: hashA,
+    templateVersion: "clinicgrower-service-agreement-v1",
+    templateSha256: hashB,
+    cssSha256: hashC,
+    assetManifestSha256: hashD,
+  });
+
+  await assert.rejects(
+    () => disabledApprovalService.approveForExternalSend(source.clinicId, source.userId, agreement.id),
+    /production send is not enabled/,
+  );
+  await assert.rejects(
+    () => service.triggerQuickBooksOnce(source.clinicId, source.userId, agreement.id),
+    /signed agreement evidence/,
+  );
+  await assert.rejects(
+    () => service.attachSignatureEvidence({
+      clinicId: source.clinicId,
+      userId: source.userId,
+      agreementId: agreement.id,
+      signatureEvidenceId: uuidv4(),
+      acceptedPdfSha256: pdfHash,
+    }),
+    /after Max approval/,
+  );
+
+  await service.approveForExternalSend(source.clinicId, source.userId, agreement.id);
+  const evidenceId = await seedSignatureEvidence(source.clinicId, source.proposalId, source.userId, "closed-primary");
+  const signed = await service.attachSignatureEvidence({
+    clinicId: source.clinicId,
+    userId: source.userId,
+    agreementId: agreement.id,
+    signatureEvidenceId: evidenceId,
+    acceptedPdfSha256: pdfHash,
+  });
+  const signedAgain = await service.attachSignatureEvidence({
+    clinicId: source.clinicId,
+    userId: source.userId,
+    agreementId: agreement.id,
+    signatureEvidenceId: evidenceId,
+    acceptedPdfSha256: pdfHash,
+  });
+  const differentEvidenceId = await seedSignatureEvidence(source.clinicId, source.proposalId, source.userId, "closed-different");
+
+  assert.equal(signed.signedEvidenceId, evidenceId);
+  assert.equal(signedAgain.signedEvidenceId, evidenceId);
+  await assert.rejects(
+    () => service.attachSignatureEvidence({
+      clinicId: source.clinicId,
+      userId: source.userId,
+      agreementId: agreement.id,
+      signatureEvidenceId: differentEvidenceId,
+      acceptedPdfSha256: pdfHash,
+    }),
+    /immutable signature evidence/,
+  );
+  await assert.rejects(
+    () => service.attachSignatureEvidence({
+      clinicId: source.clinicId,
+      userId: source.userId,
+      agreementId: agreement.id,
+      signatureEvidenceId: evidenceId,
+      acceptedPdfSha256: "not-a-hash",
+    }),
+    /acceptedPdfSha256 must be a sha256 hash/,
+  );
+
+  const draft = await service.triggerQuickBooksOnce(source.clinicId, source.userId, agreement.id);
+  const draftAgain = await service.triggerQuickBooksOnce(source.clinicId, source.userId, agreement.id);
+  assert.equal(draftAgain.id, draft.id);
+  await assert.rejects(
+    () => service.unlockOnboardingAfterClearedPayment({
+      clinicId: source.clinicId,
+      userId: source.userId,
+      agreementId: agreement.id,
+      paymentStatus: "paid",
+      authenticated: true,
+      clearedAt: "2026-09-02",
+    }),
+    /payment is not recorded as paid/,
+  );
 });
 
 test("validation fails closed for unregistered legal hashes, external assets and expired acceptances", async () => {
