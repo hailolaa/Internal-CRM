@@ -95,14 +95,14 @@ export default function LoginPage() {
 
         <section className="flex items-center justify-center px-5 py-7 sm:px-8 lg:px-10">
           <div className="w-full max-w-[430px]">
-            <div className="mb-8 lg:hidden">
+            <div className="mb-8 flex justify-center lg:hidden">
               <Link href={ROUTES.HOME} className="inline-flex">
                 <ClinicGrowerLogo variant="full" />
               </Link>
             </div>
 
-            <div className="mb-5">
-              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-[#E7F4F2] text-[#0E5859]">
+            <div className="mb-5 text-center lg:text-left">
+              <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-[#E7F4F2] text-[#0E5859] lg:mx-0">
                 <LockKeyhole className="h-5 w-5" />
               </div>
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#9A5524]">

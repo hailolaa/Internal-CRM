@@ -46,6 +46,11 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
+  icons: {
+    icon: "/brand/clinic-grower-icon-light-circular.png",
+    shortcut: "/brand/clinic-grower-icon-light-circular.png",
+    apple: "/brand/clinic-grower-icon-light-circular.png",
+  },
 };
 
 export default function RootLayout({
