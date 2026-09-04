@@ -31,7 +31,7 @@
     "security:scan": "node ../scripts/scan-secrets.mjs --include-build-output",
     "test": "npm run build && npm run test:smoke",
     "db:migrate": "node scripts/db-migrate.mjs",
-    "test:smoke": "NODE_ENV=test node --test --test-force-exit --test-concurrency=1 scripts/backup-db-options.test.mjs scripts/backup-restore-hardening.test.mjs dist/test/test-csv.js dist/test/test-export-validators.js dist/test/test-contact-pagination.js dist/test/test-command-palette.js dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js dist/test/test-client-accounts.js dist/test/test-client-operating-register.js dist/test/test-lead-hub.js dist/test/test-landing-page-lead-intake.js dist/test/test-observability.js dist/test/test-proposals-public.js dist/test/test-proposals.js dist/test/test-roles-management.js dist/test/test-scoro-import-templates.js",
+    "test:smoke": "NODE_ENV=test node --test --test-force-exit --test-concurrency=1 scripts/backup-db-options.test.mjs scripts/backup-restore-hardening.test.mjs dist/test/test-csv.js dist/test/test-export-validators.js dist/test/test-contact-pagination.js dist/test/test-command-palette.js dist/test/test-internal-delivery-tasks.js dist/test/test-strategy-logs.js dist/test/test-sops.js dist/test/test-client-accounts.js dist/test/test-client-operating-register.js dist/test/test-lead-hub.js dist/test/test-landing-page-lead-intake.js dist/test/test-observability.js dist/test/test-proposals-public.js dist/test/test-proposals.js dist/test/test-roles-management.js dist/test/test-scoro-import-templates.js dist/test/test-tenant-permission-coverage.js",
     "test:backup-restore": "node --test --experimental-test-isolation=none scripts/backup-db-options.test.mjs scripts/backup-restore-hardening.test.mjs",
     "test:client-accounts": "npm run build && node --test dist/test/test-client-accounts.js",
     "test:client-operating-register": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-client-operating-register.js",
@@ -55,7 +55,7 @@
     "test:lead-ingestion": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-unified-lead-ingestion-contract.js && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-integration-inputs.js && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-landing-page-lead-intake.js && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-email-lead-ingestion.js",
     "test:benchmarks": "npm run build && node --test --test-force-exit --test-concurrency=1 dist/test/test-benchmarks.js",
     "test:data-state": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 dist/test/test-data-state-safety.js",
-    "test:security": "npm run build && node --test --experimental-test-isolation=none dist/test/test-secret-config.js && npm run security:scan",
+    "test:security": "npm run build && node --test --experimental-test-isolation=none dist/test/test-secret-config.js dist/test/test-tenant-permission-coverage.js && npm run security:scan",
     "test:scoro-import": "npm run build && node --test dist/test/test-scoro-import-templates.js dist/test/test-scoro-import-foundation.js",
     "qa:phase1": "node scripts/phase1-browser-qa.mjs"
   },
